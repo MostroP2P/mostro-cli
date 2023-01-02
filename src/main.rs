@@ -4,9 +4,11 @@ use nostr::{key::FromBech32, Keys};
 use nostr::{Kind, SubscriptionFilter};
 use nostr_sdk::{Client, RelayPoolNotifications, Result};
 
+pub mod types;
+
 /// cli arguments
 #[derive(Parser, Debug)]
-#[clap(author = "Francisco Calderón", version, about)]
+#[clap(author, version, about)]
 /// Mostro P2P cli client
 struct Arguments {
     list: Option<String>,
@@ -48,7 +50,10 @@ async fn main() -> Result<()> {
             if let RelayPoolNotifications::ReceivedEvent(event) = notification {
                 if let Kind::Custom(kind) = event.kind {
                     if kind >= 10000 && kind < 20000 {
-                        println!("Replaceable event: {:#?}", event);
+                        let order = types::Order::from_json(&event.content)?;
+                        println!("Event id: {}", event.id);
+                        println!("Event kind: {}", kind);
+                        println!("Order: {:#?}", order);
                     }
                 }
             }
