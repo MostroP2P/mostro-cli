@@ -29,10 +29,14 @@ async fn main() -> Result<()> {
     let client = Client::new(&my_keys);
 
     // Add relays
+    client.add_relay("wss://relay.damus.io", None).await?;
     client.add_relay("wss://nostr.fly.dev", None).await?;
+    client.add_relay("wss://nostr.zebedee.cloud", None).await?;
     client
-        .add_relay("wss://relay.cryptocculture.com", None)
+        .add_relay("wss://relay.minds.com/nostr/v1/ws", None)
         .await?;
+    client.add_relay("wss://nostr.fly.dev", None).await?;
+    client.add_relay("wss://nostr.openchain.fr", None).await?;
 
     // Connect to relays and keep connection alive
     client.connect().await?;
