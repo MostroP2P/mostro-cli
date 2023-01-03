@@ -98,19 +98,19 @@ impl Message {
         match &self.action {
             Action::Order => matches!(&self.content, Some(Content::Order(_))),
             Action::PaymentRequest => {
-                if let None = &self.order_id {
+                if self.order_id.is_none() {
                     return false;
                 }
                 matches!(&self.content, Some(Content::PaymentRequest(_)))
             }
             Action::FiatSent => {
-                if let None = &self.order_id {
+                if self.order_id.is_none() {
                     return false;
                 }
                 true
             }
             Action::Release => {
-                if let None = &self.order_id {
+                if self.order_id.is_none() {
                     return false;
                 }
                 true

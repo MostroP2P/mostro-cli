@@ -1,6 +1,7 @@
 use clap::Parser;
+use nostr::util::nips::nip19::FromBech32;
 use nostr::util::time::timestamp;
-use nostr::{key::FromBech32, Keys};
+use nostr::Keys;
 use nostr::{Kind, SubscriptionFilter};
 use nostr_sdk::{Client, RelayPoolNotifications, Result};
 
@@ -21,7 +22,7 @@ async fn main() -> Result<()> {
 
     // mostro pubkey
     let pubkey = "npub1m0str0n64lfulw5j6arrak75uvajj60kr024f5m6c4hsxtsnx4dqpd9ape";
-    let mostro_keys = nostr::key::Keys::from_bech32_public_key(pubkey)?;
+    let mostro_keys = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
 
     // Generate new keys
     let my_keys: Keys = Client::generate_keys();
@@ -42,7 +43,7 @@ async fn main() -> Result<()> {
     client.connect().await?;
 
     let subscription = SubscriptionFilter::new()
-        .author(mostro_keys.public_key())
+        .author(mostro_keys)
         .since(timestamp());
 
     client.subscribe(vec![subscription]).await?;
@@ -53,7 +54,7 @@ async fn main() -> Result<()> {
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotifications::ReceivedEvent(event) = notification {
                 if let Kind::Custom(kind) = event.kind {
-                    if kind >= 10000 && kind < 20000 {
+                    if (10000..20000).contains(&kind) {
                         let order = types::Order::from_json(&event.content)?;
                         println!("Event id: {}", event.id);
                         println!("Event kind: {}", kind);
