@@ -17,6 +17,7 @@ struct Arguments {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    pretty_env_logger::init();
     // TODO: handle arguments
     // let args = Arguments::parse();
 
@@ -30,14 +31,14 @@ async fn main() -> Result<()> {
     let client = Client::new(&my_keys);
 
     // Add relays
-    client.add_relay("wss://relay.damus.io", None).await?;
-    client.add_relay("wss://nostr.fly.dev", None).await?;
+    // client.add_relay("wss://relay.damus.io", None).await?;
+    // client.add_relay("wss://nostr.fly.dev", None).await?;
     client.add_relay("wss://nostr.zebedee.cloud", None).await?;
-    client
-        .add_relay("wss://relay.minds.com/nostr/v1/ws", None)
-        .await?;
-    client.add_relay("wss://nostr.fly.dev", None).await?;
-    client.add_relay("wss://nostr.openchain.fr", None).await?;
+    // client
+    //     .add_relay("wss://relay.minds.com/nostr/v1/ws", None)
+    //     .await?;
+    // client.add_relay("wss://nostr.fly.dev", None).await?;
+    // client.add_relay("wss://nostr.openchain.fr", None).await?;
 
     // Connect to relays and keep connection alive
     client.connect().await?;
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotifications::ReceivedEvent(event) = notification {
                 if let Kind::Custom(kind) = event.kind {
-                    if (10000..20000).contains(&kind) {
+                    if kind == 30000 {
                         let order = types::Order::from_json(&event.content)?;
                         println!("Event id: {}", event.id);
                         println!("Event kind: {}", kind);
