@@ -1,5 +1,3 @@
-use std::process::id;
-
 use anyhow::{ Result, Error};
 use nostr::{Kind, SubscriptionFilter,ClientMessage, RelayMessage, Event};
 use nostr::key::XOnlyPublicKey;
@@ -12,16 +10,13 @@ use chrono::NaiveDateTime;
 use log::info;
 use uuid::Uuid;
 use tokio::time::timeout;
-use tokio::sync::oneshot;
-
+use std::env;
 use std::time::Duration;
 
 pub fn get_keys() -> Result<nostr::Keys> {
     // nostr private key
-    // std::env::set_var("NSEC_PRIVKEY", "nsec1gcs5sf5rjh4m0z5yhfs0gmng8lqguxt5yct6q66gvk2jevq9crwq3en3ad");
-    // let nsec1privkey = env::var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY is not set");
-    // let my_keys = nostr::key::Keys::from_sk_str(&nsec1privkey)?;
-    let my_keys = nostr::key::Keys::from_sk_str("nsec1gcs5sf5rjh4m0z5yhfs0gmng8lqguxt5yct6q66gvk2jevq9crwq3en3ad")?;
+    let nsec1privkey = env::var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY is not set");
+    let my_keys = nostr::key::Keys::from_sk_str(&nsec1privkey)?;
     Ok(my_keys)
 }
 
@@ -52,14 +47,11 @@ pub async fn connect_nostr() -> Result<nostr_sdk::Client> {
 pub async fn get_events_of_mostro(
     relay : &Relay,
     filters: Vec<SubscriptionFilter>,
-    listorders : &Vec<Order>,
     client : &Client,
 ) -> Result<Vec<Event>, Error> {
     let mut events: Vec<Event> = Vec::new();
 
     let id = Uuid::new_v4();
-
-    let rx = RelayPool::new();
 
     // Subscribe
     info!("Subscribing for all mostro orders to relay : {}",relay.url().to_string());
@@ -122,7 +114,7 @@ pub async fn get_orders_list(pubkey : XOnlyPublicKey , status : String, client :
     for relay in relays.iter() {
         info!("Requesting to relay : {}",relay.0.as_str());
 
-        let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], &orderslist, client);
+        let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], &client);
 
         //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
         if let Ok(rx) = timeout(Duration::from_secs(5), relrequest).await { 

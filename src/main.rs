@@ -1,8 +1,7 @@
-use anyhow::Context;
 use clap::{Parser,Subcommand};
 use nostr::util::nips::nip19::FromBech32;
 use nostr::util::time::timestamp;
-use nostr::{Kind, SubscriptionFilter, ClientMessage};
+use nostr::{Kind, SubscriptionFilter};
 use nostr_sdk::{RelayPoolNotifications, Result};
 use std::env::set_var;
 
