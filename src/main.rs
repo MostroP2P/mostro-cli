@@ -34,6 +34,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    pretty_env_logger::init();
     // TODO: handle arguments
     let cli = Cli::parse();
     //Init logger
@@ -50,7 +51,6 @@ async fn main() -> Result<()> {
     //Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
     let my_keys = crate::util::get_keys()?;
-
 
     let subscription = SubscriptionFilter::new()
         .author(mostro_keys)
