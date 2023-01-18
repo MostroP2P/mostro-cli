@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use dotenvy::{dotenv, var};
 use nostr::util::nips::nip19::FromBech32;
 use nostr::util::time::timestamp;
 use nostr::{Kind, SubscriptionFilter};
@@ -33,6 +34,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv().ok();
     pretty_env_logger::init();
     // TODO: handle arguments
     let cli = Cli::parse();
@@ -42,7 +44,7 @@ async fn main() -> Result<()> {
     }
 
     // mostro pubkey
-    let pubkey = "npub1qqqq9uwdxa70fr858sx0zyzrt8ftwmhzt8zd9mv03put8xpgrphsc4xpqs";
+    let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
     let mostro_keys = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
 
     //Call function to connect to relays

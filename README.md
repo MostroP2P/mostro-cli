@@ -18,8 +18,11 @@ $ sudo apt install -y cmake build-essential pkg-config
 
 ## Install
 
+To install you need to fill the env vars (`.env`) on the with your own private key and add a Mostro pubkey.
+
 ```
 $ git clone https://github.com/MostroP2P/mostro-cli.git
 $ cd mostro-cli
+$ cp .env-sample .env
 $ cargo run
 ```

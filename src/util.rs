@@ -3,19 +3,19 @@ use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
+use dotenvy::var;
 use log::info;
 use nostr::key::FromSkStr;
 use nostr::key::XOnlyPublicKey;
 use nostr::{ClientMessage, Event, Kind, RelayMessage, SubscriptionFilter};
 use nostr_sdk::{Client, Relay, RelayPoolNotifications};
-use std::env;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
 
 pub fn get_keys() -> Result<nostr::Keys> {
     // nostr private key
-    let nsec1privkey = env::var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY is not set");
+    let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
     let my_keys = nostr::key::Keys::from_sk_str(&nsec1privkey)?;
     Ok(my_keys)
 }
