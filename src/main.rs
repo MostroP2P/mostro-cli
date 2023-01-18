@@ -1,14 +1,13 @@
-use clap::{Parser,Subcommand};
+use clap::{Parser, Subcommand};
 use nostr::util::nips::nip19::FromBech32;
 use nostr::util::time::timestamp;
 use nostr::{Kind, SubscriptionFilter};
 use nostr_sdk::{RelayPoolNotifications, Result};
 use std::env::set_var;
 
-
 pub mod types;
 pub mod util;
-use crate::util::{get_orders_list,print_orders_table};
+use crate::util::{get_orders_list, print_orders_table};
 
 /// cli arguments
 #[derive(Parser)]
@@ -25,11 +24,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Requests open orders from mostro pubkey ()
-    Listorders { 
+    Listorders {
         pubkey: String,
         #[clap(default_value = "Pending")]
         orderstatus: String,
-     },
+    },
 }
 
 #[tokio::main]
@@ -38,11 +37,9 @@ async fn main() -> Result<()> {
     // TODO: handle arguments
     let cli = Cli::parse();
     //Init logger
-    if cli.verbose == true {
+    if cli.verbose {
         set_var("RUST_LOG", "info");
     }
-    pretty_env_logger::init();
-    
 
     // mostro pubkey
     let pubkey = "npub1qqqq9uwdxa70fr858sx0zyzrt8ftwmhzt8zd9mv03put8xpgrphsc4xpqs";
@@ -50,7 +47,6 @@ async fn main() -> Result<()> {
 
     //Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
-    let my_keys = crate::util::get_keys()?;
 
     let subscription = SubscriptionFilter::new()
         .author(mostro_keys)
@@ -59,21 +55,27 @@ async fn main() -> Result<()> {
     client.subscribe(vec![subscription]).await?;
 
     match &cli.command {
-        Some(Commands::Listorders { pubkey , orderstatus}) => {
+        Some(Commands::Listorders {
+            pubkey,
+            orderstatus,
+        }) => {
             let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
-                        
-            println!("Requesting orders from mostro pubId - {}", mostro_key.clone());
+
+            println!(
+                "Requesting orders from mostro pubId - {}",
+                mostro_key.clone()
+            );
             println!("You are searching {} orders", orderstatus.clone());
 
             //Get orders from relays
-            let tableoforders = get_orders_list(mostro_key, orderstatus.to_owned(), &client).await?;
-            let table =  print_orders_table(tableoforders)?;
-            println!("{}",table);
+            let tableoforders =
+                get_orders_list(mostro_key, orderstatus.to_owned(), &client).await?;
+            let table = print_orders_table(tableoforders)?;
+            println!("{}", table);
             std::process::exit(0);
-        }        
+        }
         None => {}
     }
-
 
     // Handle notifications
     loop {
