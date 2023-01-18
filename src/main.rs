@@ -1,47 +1,56 @@
-use clap::Parser;
+use clap::{Parser,Subcommand};
 use nostr::util::nips::nip19::FromBech32;
 use nostr::util::time::timestamp;
-use nostr::Keys;
 use nostr::{Kind, SubscriptionFilter};
-use nostr_sdk::{Client, RelayPoolNotifications, Result};
+use nostr_sdk::{RelayPoolNotifications, Result};
+use std::env::set_var;
+
 
 pub mod types;
+pub mod util;
+use crate::util::{get_orders_list,print_orders_table};
 
 /// cli arguments
-#[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
 /// Mostro P2P cli client
-struct Arguments {
-    list: Option<String>,
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Requests open orders from mostro pubkey ()
+    Listorders { 
+        pubkey: String,
+        #[clap(default_value = "Pending")]
+        orderstatus: String,
+     },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     pretty_env_logger::init();
     // TODO: handle arguments
-    // let args = Arguments::parse();
+    let cli = Cli::parse();
+    //Init logger
+    if cli.verbose == true {
+        set_var("RUST_LOG", "info");
+    }
+    pretty_env_logger::init();
+    
 
     // mostro pubkey
-    let pubkey = "npub1m0str0n64lfulw5j6arrak75uvajj60kr024f5m6c4hsxtsnx4dqpd9ape";
+    let pubkey = "npub1qqqq9uwdxa70fr858sx0zyzrt8ftwmhzt8zd9mv03put8xpgrphsc4xpqs";
     let mostro_keys = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
 
-    // Generate new keys
-    let my_keys: Keys = Client::generate_keys();
-    // Create new client
-    let client = Client::new(&my_keys);
-
-    // Add relays
-    // client.add_relay("wss://relay.damus.io", None).await?;
-    // client.add_relay("wss://nostr.fly.dev", None).await?;
-    client.add_relay("wss://nostr.zebedee.cloud", None).await?;
-    // client
-    //     .add_relay("wss://relay.minds.com/nostr/v1/ws", None)
-    //     .await?;
-    // client.add_relay("wss://nostr.fly.dev", None).await?;
-    // client.add_relay("wss://nostr.openchain.fr", None).await?;
-
-    // Connect to relays and keep connection alive
-    client.connect().await?;
+    //Call function to connect to relays
+    let client = crate::util::connect_nostr().await?;
+    let my_keys = crate::util::get_keys()?;
 
     let subscription = SubscriptionFilter::new()
         .author(mostro_keys)
@@ -49,13 +58,30 @@ async fn main() -> Result<()> {
 
     client.subscribe(vec![subscription]).await?;
 
+    match &cli.command {
+        Some(Commands::Listorders { pubkey , orderstatus}) => {
+            let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
+                        
+            println!("Requesting orders from mostro pubId - {}", mostro_key.clone());
+            println!("You are searching {} orders", orderstatus.clone());
+
+            //Get orders from relays
+            let tableoforders = get_orders_list(mostro_key, orderstatus.to_owned(), &client).await?;
+            let table =  print_orders_table(tableoforders)?;
+            println!("{}",table);
+            std::process::exit(0);
+        }        
+        None => {}
+    }
+
+
     // Handle notifications
     loop {
         let mut notifications = client.notifications();
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotifications::ReceivedEvent(event) = notification {
                 if let Kind::Custom(kind) = event.kind {
-                    if kind == 30000 {
+                    if (30000..40000).contains(&kind) {
                         let order = types::Order::from_json(&event.content)?;
                         println!("Event id: {}", event.id);
                         println!("Event kind: {}", kind);
