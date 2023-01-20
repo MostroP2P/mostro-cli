@@ -3,7 +3,10 @@ name = "mostro-cli"
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
-authors = ["Francisco Calderón <fjcalderon@gmail.com>"]
+authors = [
+  "Francisco Calderón <fjcalderon@gmail.com>",
+  "Baba O'reily <pinballwizard@nostr.red>",
+]
 description = "Mostro P2P cli client"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

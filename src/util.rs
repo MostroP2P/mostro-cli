@@ -31,14 +31,16 @@ pub async fn connect_nostr() -> Result<nostr_sdk::Client> {
     //  client
     //    .add_relay("wss://relay.cryptocculture.com", None)
     //    .await?;
-    client.add_relay("wss://nostr.openchain.fr", None).await?;
-    client.add_relay("wss://relay.damus.io", None).await?;
-    client.add_relay("wss://nostr.fly.dev", None).await?;
-    client.add_relay("wss://nostr.zebedee.cloud", None).await?;
-    client.add_relay("wss://relay.nostr.ro", None).await?;
+    // client.add_relay("wss://nostr.openchain.fr", None).await?;
+    // client.add_relay("wss://relay.damus.io", None).await?;
+    // client.add_relay("wss://nostr.fly.dev", None).await?;
     client
-        .add_relay("wss://nostr-pub.wellorder.net", None)
+        .add_relay("wss://nostr.itssilvestre.com", None)
         .await?;
+    // client.add_relay("wss://relay.nostr.ro", None).await?;
+    // client
+    //     .add_relay("wss://nostr-pub.wellorder.net", None)
+    //     .await?;
 
     // Connect to relays and keep connection alive
     client.connect().await?;
@@ -114,13 +116,13 @@ pub async fn get_orders_list(
 
     let relays = client.relays().await;
 
-    //Collector of mostro orders on a specific relay
+    // Collector of mostro orders on a specific relay
     let mut mostro_req: Vec<Vec<Event>> = vec![];
 
-    //Extracted Orders List
+    // Extracted Orders List
     let mut orderslist = Vec::<Order>::new();
 
-    // //Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
     let mut idlist = Vec::<i64>::new();
 
     for relay in relays.iter() {
