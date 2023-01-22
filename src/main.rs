@@ -29,6 +29,9 @@ enum Commands {
         pubkey: String,
         #[clap(default_value = "Pending")]
         orderstatus: String,
+        #[arg(short, long)]
+        #[clap(default_value = "ALL")]
+        currency: String,
     },
 }
 
@@ -60,6 +63,7 @@ async fn main() -> Result<()> {
         Some(Commands::Listorders {
             pubkey,
             orderstatus,
+            currency,
         }) => {
             let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
 
@@ -71,7 +75,7 @@ async fn main() -> Result<()> {
 
             //Get orders from relays
             let tableoforders =
-                get_orders_list(mostro_key, orderstatus.to_owned(), &client).await?;
+                get_orders_list(mostro_key, orderstatus.to_owned(), currency.clone(), &client).await?;
             let table = print_orders_table(tableoforders)?;
             println!("{}", table);
             std::process::exit(0);

@@ -100,6 +100,7 @@ pub async fn get_events_of_mostro(
 pub async fn get_orders_list(
     pubkey: XOnlyPublicKey,
     status: String,
+    currency: String,
     client: &Client,
 ) -> Result<Vec<Order>> {
     let filters = SubscriptionFilter::new()
@@ -158,8 +159,13 @@ pub async fn get_orders_list(
                     info!("Found same id order {}", order.id.unwrap());
                     continue;
                 };
+                if currency != String::from("ALL") && currency != order.fiat_code{
+                    info!("Not requested currency offer - you requested this currency {}", currency);
+                    continue;
+                }
                 idlist.push(order.id.unwrap());
                 orderslist.push(order);
+
             }
         }
     }
@@ -174,14 +180,14 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
         .set_header(vec![
-            Cell::new("Buy/Sell").add_attribute(Attribute::Bold),
-            Cell::new("Order Id").add_attribute(Attribute::Bold),
-            Cell::new("Status").add_attribute(Attribute::Bold),
-            Cell::new("Amount").add_attribute(Attribute::Bold),
-            Cell::new("Fiat Code").add_attribute(Attribute::Bold),
-            Cell::new("Fiat Amount").add_attribute(Attribute::Bold),
-            Cell::new("Payment method").add_attribute(Attribute::Bold),
-            Cell::new("Created").add_attribute(Attribute::Bold),
+            Cell::new("Buy/Sell").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Order Id").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Status").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Amount").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Code").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Amount").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Payment method").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Created").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
         ]);
 
     //Table rows
@@ -191,14 +197,19 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
     for singleorder in orderstable.into_iter() {
         let date = NaiveDateTime::from_timestamp_opt(singleorder.created_at.unwrap() as i64, 0);
 
+
         let r = Row::from(vec![
-            Cell::new(singleorder.kind.to_string()),
-            Cell::new(singleorder.id.unwrap()),
-            Cell::new(singleorder.status.to_string()),
-            Cell::new(singleorder.amount.to_string()),
-            Cell::new(singleorder.fiat_code.to_string()),
-            Cell::new(singleorder.fiat_amount.to_string()),
-            Cell::new(singleorder.payment_method.to_string()),
+            // Cell::new(singleorder.kind.to_string()),
+            match singleorder.kind {
+                crate::types::Kind::Buy  =>  Cell::new(singleorder.kind.to_string()).fg(Color::Green).set_alignment(CellAlignment::Center),
+                crate::types::Kind::Sell =>  Cell::new(singleorder.kind.to_string()).fg(Color::Red).set_alignment(CellAlignment::Center),
+            },
+            Cell::new(singleorder.id.unwrap()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.status.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.amount.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.fiat_code.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.payment_method.to_string()).set_alignment(CellAlignment::Center),
             Cell::new(date.unwrap()),
         ]);
         rows.push(r);
