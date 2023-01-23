@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use dotenvy::var;
-use log::info;
+use log::{error, info};
 use nostr::key::FromSkStr;
 use nostr::key::XOnlyPublicKey;
 use nostr::{ClientMessage, Event, Kind, RelayMessage, SubscriptionFilter};
@@ -26,19 +26,58 @@ pub async fn connect_nostr() -> Result<nostr_sdk::Client> {
     // Create new client
     let client = nostr_sdk::Client::new(&my_keys);
 
+    let relays = vec![
+        "wss://nostr.p2sh.co",
+        "wss://relay.nostr.vision",
+        "wss://nostr.itssilvestre.com",
+        "wss://nostr.drss.io",
+        "wss://relay.nostr.info",
+        "wss://relay.nostr.pro",
+        "wss://nostr.zebedee.cloud",
+        "wss://nostr.fmt.wiz.biz",
+        "wss://public.nostr.swissrouting.com",
+        "wss://nostr.slothy.win",
+        "wss://nostr.rewardsbunny.com",
+        "wss://relay.nostropolis.xyz/websocket",
+        "wss://nostr.supremestack.xyz",
+        "wss://nostr.orba.ca",
+        "wss://nostr.mom",
+        "wss://nostr.yael.at",
+        "wss://nostr-relay.derekross.me",
+        "wss://nostr.shawnyeager.net",
+        "wss://nostr.jiashanlu.synology.me",
+        "wss://relay.ryzizub.com",
+        "wss://relay.nostrmoto.xyz",
+        "wss://jiggytom.ddns.net",
+        "wss://nostr.sectiontwo.org",
+        "wss://nostr.roundrockbitcoiners.com",
+        "wss://nostr.utxo.lol",
+        "wss://relay.nostrid.com",
+        "wss://nostr1.starbackr.me",
+        "wss://nostr-relay.schnitzel.world",
+        "wss://sg.qemura.xyz",
+        "wss://nostr.digitalreformation.info",
+        "wss://nostr-relay.usebitcoin.space",
+        "wss://nostr.bch.ninja",
+        "wss://nostr.demovement.net",
+        "wss://nostr.massmux.com",
+        "wss://relay.nostr.bg",
+        "wss://nostr-pub1.southflorida.ninja",
+        "wss://nostr.itssilvestre.com",
+        "wss://nostr-1.nbo.angani.co",
+        "wss://relay.nostr.nu",
+        "wss://nostr.easydns.ca",
+        "wss://no-str.org",
+        "wss://nostr.milou.lol",
+        "wss://nostrical.com",
+        "wss://pow32.nostr.land",
+        "wss://student.chadpolytechnic.com",
+    ];
+
     // Add relays
-    // client.add_relay("wss://relay.grunch.dev", None).await?;
-    //  client
-    //    .add_relay("wss://relay.cryptocculture.com", None)
-    //    .await?;
-    client.add_relay("wss://nostr.openchain.fr", None).await?;
-    client.add_relay("wss://relay.damus.io", None).await?;
-    client.add_relay("wss://nostr.fly.dev", None).await?;
-    client.add_relay("wss://nostr.zebedee.cloud", None).await?;
-    client.add_relay("wss://relay.nostr.ro", None).await?;
-    client
-        .add_relay("wss://nostr-pub.wellorder.net", None)
-        .await?;
+    for r in relays {
+        client.add_relay(r, None).await?;
+    }
 
     // Connect to relays and keep connection alive
     client.connect().await?;
@@ -115,13 +154,13 @@ pub async fn get_orders_list(
 
     let relays = client.relays().await;
 
-    //Collector of mostro orders on a specific relay
+    // Collector of mostro orders on a specific relay
     let mut mostro_req: Vec<Vec<Event>> = vec![];
 
-    //Extracted Orders List
+    // Extracted Orders List
     let mut orderslist = Vec::<Order>::new();
 
-    // //Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
     let mut idlist = Vec::<i64>::new();
 
     for relay in relays.iter() {
@@ -149,7 +188,13 @@ pub async fn get_orders_list(
     //Scan events to extract all orders
     for ordersrow in mostro_req.iter() {
         for ord in ordersrow {
-            let order = Order::from_json(&ord.content)?;
+            let order = Order::from_json(&ord.content);
+            if order.is_err() {
+                error!("{order:?}");
+                continue;
+            }
+            let order = order?;
+
             info!("Found Order id : {:?}", order.id.unwrap());
 
             //Just add selected status
