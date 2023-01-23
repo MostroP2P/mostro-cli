@@ -31,5 +31,8 @@ pub enum Commands {
     Listorders {
         #[clap(default_value = "Pending")]
         orderstatus: String,
+        #[arg(short, long)]
+        #[clap(default_value = "ALL")]
+        currency: String,
     },
 }

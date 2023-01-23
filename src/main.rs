@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
     let client = crate::util::connect_nostr().await?;
 
     match &cli.command {
-        Some(cli::Commands::Listorders { orderstatus }) => {
+        Some(cli::Commands::Listorders { orderstatus , currency}) => {
             let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
 
             println!(
