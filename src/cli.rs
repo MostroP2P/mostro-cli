@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+use crate::types::Kind;
+
 #[derive(Parser)]
 #[command(
     name = "mostro-cli",
@@ -34,5 +36,8 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value = "ALL")]
         currency: String,
+        #[arg(value_enum)]
+        #[arg(short, long)]
+        kindorder: Option<Kind>,
     },
 }

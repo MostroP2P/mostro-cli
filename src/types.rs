@@ -2,11 +2,14 @@ use anyhow::{Ok, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use clap::ValueEnum;
 
 /// Orders can be only Buy or Sell
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Kind {
+    ///Buy order option
     Buy,
+    ///Sell order option
     Sell,
 }
 

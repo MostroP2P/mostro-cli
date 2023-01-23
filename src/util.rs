@@ -1,3 +1,4 @@
+use crate::types::Kind as Orderkind;
 use crate::types::Order;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
@@ -6,8 +7,7 @@ use comfy_table::*;
 use dotenvy::var;
 use log::{error, info};
 use nostr::key::FromSkStr;
-use nostr::key::XOnlyPublicKey;
-use nostr::{ClientMessage, Event, Kind, RelayMessage, SubscriptionFilter};
+use nostr::{ClientMessage, Event, RelayMessage,Kind, SubscriptionFilter};
 use nostr_sdk::{Client, Relay, RelayPoolNotifications};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -27,51 +27,52 @@ pub async fn connect_nostr() -> Result<nostr_sdk::Client> {
     let client = nostr_sdk::Client::new(&my_keys);
 
     let relays = vec![
-        "wss://nostr.p2sh.co",
-        "wss://relay.nostr.vision",
-        "wss://nostr.itssilvestre.com",
-        "wss://nostr.drss.io",
-        "wss://relay.nostr.info",
-        "wss://relay.nostr.pro",
-        "wss://nostr.zebedee.cloud",
-        "wss://nostr.fmt.wiz.biz",
-        "wss://public.nostr.swissrouting.com",
-        "wss://nostr.slothy.win",
-        "wss://nostr.rewardsbunny.com",
-        "wss://relay.nostropolis.xyz/websocket",
-        "wss://nostr.supremestack.xyz",
-        "wss://nostr.orba.ca",
-        "wss://nostr.mom",
-        "wss://nostr.yael.at",
-        "wss://nostr-relay.derekross.me",
-        "wss://nostr.shawnyeager.net",
-        "wss://nostr.jiashanlu.synology.me",
-        "wss://relay.ryzizub.com",
-        "wss://relay.nostrmoto.xyz",
-        "wss://jiggytom.ddns.net",
-        "wss://nostr.sectiontwo.org",
-        "wss://nostr.roundrockbitcoiners.com",
-        "wss://nostr.utxo.lol",
-        "wss://relay.nostrid.com",
-        "wss://nostr1.starbackr.me",
-        "wss://nostr-relay.schnitzel.world",
-        "wss://sg.qemura.xyz",
-        "wss://nostr.digitalreformation.info",
-        "wss://nostr-relay.usebitcoin.space",
-        "wss://nostr.bch.ninja",
-        "wss://nostr.demovement.net",
-        "wss://nostr.massmux.com",
-        "wss://relay.nostr.bg",
-        "wss://nostr-pub1.southflorida.ninja",
-        "wss://nostr.itssilvestre.com",
-        "wss://nostr-1.nbo.angani.co",
-        "wss://relay.nostr.nu",
-        "wss://nostr.easydns.ca",
-        "wss://no-str.org",
-        "wss://nostr.milou.lol",
-        "wss://nostrical.com",
-        "wss://pow32.nostr.land",
-        "wss://student.chadpolytechnic.com",
+        // "wss://nostr.p2sh.co",
+        // "wss://relay.nostr.vision",
+        // "wss://nostr.itssilvestre.com",
+        // "wss://nostr.drss.io",
+        // "wss://relay.nostr.info",
+        // "wss://relay.nostr.pro",
+        // "wss://nostr.zebedee.cloud",
+        // "wss://nostr.fmt.wiz.biz",
+        // "wss://public.nostr.swissrouting.com",
+        // "wss://nostr.slothy.win",
+        // "wss://nostr.rewardsbunny.com",
+        // "wss://relay.nostropolis.xyz/websocket",
+        // "wss://nostr.supremestack.xyz",
+        // "wss://nostr.orba.ca",
+        // "wss://nostr.mom",
+        // "wss://nostr.yael.at",
+        // "wss://nostr-relay.derekross.me",
+        // "wss://nostr.shawnyeager.net",
+        // "wss://nostr.jiashanlu.synology.me",
+        // "wss://relay.ryzizub.com",
+        // "wss://relay.nostrmoto.xyz",
+        // "wss://jiggytom.ddns.net",
+        // "wss://nostr.sectiontwo.org",
+        // "wss://nostr.roundrockbitcoiners.com",
+        // "wss://nostr.utxo.lol",
+        // "wss://relay.nostrid.com",
+        // "wss://nostr1.starbackr.me",
+        // "wss://nostr-relay.schnitzel.world",
+        // "wss://sg.qemura.xyz",
+        // "wss://nostr.digitalreformation.info",
+        // "wss://nostr-relay.usebitcoin.space",
+        // "wss://nostr.bch.ninja",
+        // "wss://nostr.demovement.net",
+        // "wss://nostr.massmux.com",
+        // "wss://relay.nostr.bg",
+        // "wss://nostr-pub1.southflorida.ninja",
+        // "wss://nostr.itssilvestre.com",
+        // "wss://nostr-1.nbo.angani.co",
+        // "wss://relay.nostr.nu",
+        // "wss://nostr.easydns.ca",
+        // "wss://no-str.org",
+        // "wss://nostr.milou.lol",
+        // "wss://nostrical.com",
+        // "wss://pow32.nostr.land",
+        // "wss://student.chadpolytechnic.com",
+        "wss://nostr.fly.dev"
     ];
 
     // Add relays
@@ -137,13 +138,12 @@ pub async fn get_events_of_mostro(
 }
 
 pub async fn get_orders_list(
-    pubkey: XOnlyPublicKey,
     status: String,
     currency: String,
+    kind : Option<Orderkind>,
     client: &Client,
 ) -> Result<Vec<Order>> {
     let filters = SubscriptionFilter::new()
-        .author(pubkey)
         .kind(Kind::Custom(30000));
 
     info!(
@@ -204,9 +204,17 @@ pub async fn get_orders_list(
                     info!("Found same id order {}", order.id.unwrap());
                     continue;
                 };
+                //Match currency
                 if currency != String::from("ALL") && currency != order.fiat_code{
                     info!("Not requested currency offer - you requested this currency {}", currency);
                     continue;
+                }
+                //Match order kind
+                if let Some(reqkind) = kind {
+                    if reqkind != order.kind {
+                        info!("Not requested kind - you requested {:?} offers", reqkind);
+                        continue;
+                    }
                 }
                 idlist.push(order.id.unwrap());
                 orderslist.push(order);
