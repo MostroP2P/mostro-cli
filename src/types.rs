@@ -2,11 +2,14 @@ use anyhow::{Ok, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use clap::ValueEnum;
 
 /// Orders can be only Buy or Sell
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Kind {
+    ///Buy order option
     Buy,
+    ///Sell order option
     Sell,
 }
 
@@ -29,19 +32,31 @@ impl fmt::Display for Kind {
 }
 
 /// Each status that an order can have
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize,Copy, Clone,ValueEnum,Eq,PartialEq)]
 pub enum Status {
+    /// Active order
     Active,
+    /// Canceled order
     Canceled,
+    /// CanceledByAdmin order
     CanceledByAdmin,
+    /// CompletedByAdmin order
     CompletedByAdmin,
+    /// Dispute order
     Dispute,
+    /// Expired order
     Expired,
+    /// FiatSent order
     FiatSent,
+    /// SettledHoldInvoice order
     SettledHoldInvoice,
+    /// Pending order
     Pending,
+    /// Success order
     Success,
+    /// WaitingBuyerInvoice order
     WaitingBuyerInvoice,
+    /// WaitingPayment order
     WaitingPayment,
 }
 

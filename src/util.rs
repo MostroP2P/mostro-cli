@@ -1,4 +1,6 @@
+use crate::types::Kind as Orderkind;
 use crate::types::Order;
+use crate::types::Status;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
@@ -6,8 +8,7 @@ use comfy_table::*;
 use dotenvy::var;
 use log::{error, info};
 use nostr::key::FromSkStr;
-use nostr::key::XOnlyPublicKey;
-use nostr::{ClientMessage, Event, Kind, RelayMessage, SubscriptionFilter};
+use nostr::{ClientMessage, Event, RelayMessage,Kind, SubscriptionFilter};
 use nostr_sdk::{Client, Relay, RelayPoolNotifications};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -137,8 +138,10 @@ pub async fn get_events_of_mostro(
 }
 
 pub async fn get_orders_list(
-    pubkey: XOnlyPublicKey,
-    status: String,
+    pubkey: nostr::secp256k1::XOnlyPublicKey,
+    status: Option<Status>,
+    currency: Option<String>,
+    kind : Option<Orderkind>,
     client: &Client,
 ) -> Result<Vec<Order>> {
     let filters = SubscriptionFilter::new()
@@ -168,7 +171,7 @@ pub async fn get_orders_list(
         let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
 
         //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
-        if let Ok(rx) = timeout(Duration::from_secs(5), relrequest).await {
+        if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
             match rx {
                 Ok(m) => {
                     if m.is_empty() {
@@ -188,6 +191,7 @@ pub async fn get_orders_list(
     for ordersrow in mostro_req.iter() {
         for ord in ordersrow {
             let order = Order::from_json(&ord.content);
+
             if order.is_err() {
                 error!("{order:?}");
                 continue;
@@ -196,16 +200,34 @@ pub async fn get_orders_list(
 
             info!("Found Order id : {:?}", order.id.unwrap());
 
-            //Just add selected status
-            if order.status.to_string() == status {
+            //Match order status
+            if let Some(st) = status {
                 //If order is yet present go on...
-                if idlist.contains(&order.id.unwrap()) {
+                if idlist.contains(&order.id.unwrap()) || st != order.status {
                     info!("Found same id order {}", order.id.unwrap());
                     continue;
-                };
-                idlist.push(order.id.unwrap());
-                orderslist.push(order);
+                }
             }
+
+            //Match currency
+            if let Some(ref curr) = currency{
+                if *curr != order.fiat_code{
+                    info!("Not requested currency offer - you requested this currency {:?}", currency);
+                    continue;
+                }
+            }
+
+            //Match order kind
+            if let Some(reqkind) = kind {
+                if reqkind != order.kind {
+                    info!("Not requested kind - you requested {:?} offers", kind);
+                    continue;
+                }
+            }
+
+            idlist.push(order.id.unwrap());
+            orderslist.push(order);
+        
         }
     }
 
@@ -219,14 +241,14 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
         .set_header(vec![
-            Cell::new("Buy/Sell").add_attribute(Attribute::Bold),
-            Cell::new("Order Id").add_attribute(Attribute::Bold),
-            Cell::new("Status").add_attribute(Attribute::Bold),
-            Cell::new("Amount").add_attribute(Attribute::Bold),
-            Cell::new("Fiat Code").add_attribute(Attribute::Bold),
-            Cell::new("Fiat Amount").add_attribute(Attribute::Bold),
-            Cell::new("Payment method").add_attribute(Attribute::Bold),
-            Cell::new("Created").add_attribute(Attribute::Bold),
+            Cell::new("Buy/Sell").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Order Id").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Status").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Amount").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Code").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Amount").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Payment method").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Created").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
         ]);
 
     //Table rows
@@ -236,14 +258,19 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
     for singleorder in orderstable.into_iter() {
         let date = NaiveDateTime::from_timestamp_opt(singleorder.created_at.unwrap() as i64, 0);
 
+
         let r = Row::from(vec![
-            Cell::new(singleorder.kind.to_string()),
-            Cell::new(singleorder.id.unwrap()),
-            Cell::new(singleorder.status.to_string()),
-            Cell::new(singleorder.amount.to_string()),
-            Cell::new(singleorder.fiat_code.to_string()),
-            Cell::new(singleorder.fiat_amount.to_string()),
-            Cell::new(singleorder.payment_method.to_string()),
+            // Cell::new(singleorder.kind.to_string()),
+            match singleorder.kind {
+                crate::types::Kind::Buy  =>  Cell::new(singleorder.kind.to_string()).fg(Color::Green).set_alignment(CellAlignment::Center),
+                crate::types::Kind::Sell =>  Cell::new(singleorder.kind.to_string()).fg(Color::Red).set_alignment(CellAlignment::Center),
+            },
+            Cell::new(singleorder.id.unwrap()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.status.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.amount.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.fiat_code.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+            Cell::new(singleorder.payment_method.to_string()).set_alignment(CellAlignment::Center),
             Cell::new(date.unwrap()),
         ]);
         rows.push(r);
