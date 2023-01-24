@@ -32,19 +32,31 @@ impl fmt::Display for Kind {
 }
 
 /// Each status that an order can have
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize,Copy, Clone,ValueEnum,Eq,PartialEq)]
 pub enum Status {
+    /// Active order
     Active,
+    /// Canceled order
     Canceled,
+    /// CanceledByAdmin order
     CanceledByAdmin,
+    /// CompletedByAdmin order
     CompletedByAdmin,
+    /// Dispute order
     Dispute,
+    /// Expired order
     Expired,
+    /// FiatSent order
     FiatSent,
+    /// SettledHoldInvoice order
     SettledHoldInvoice,
+    /// Pending order
     Pending,
+    /// Success order
     Success,
+    /// WaitingBuyerInvoice order
     WaitingBuyerInvoice,
+    /// WaitingPayment order
     WaitingPayment,
 }
 

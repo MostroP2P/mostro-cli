@@ -1,5 +1,6 @@
 use crate::types::Kind as Orderkind;
 use crate::types::Order;
+use crate::types::Status;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
@@ -138,12 +139,14 @@ pub async fn get_events_of_mostro(
 }
 
 pub async fn get_orders_list(
-    status: String,
-    currency: String,
+    pubkey: nostr::secp256k1::XOnlyPublicKey,
+    status: Option<Status>,
+    currency: Option<String>,
     kind : Option<Orderkind>,
     client: &Client,
 ) -> Result<Vec<Order>> {
     let filters = SubscriptionFilter::new()
+        .author(pubkey)
         .kind(Kind::Custom(30000));
 
     info!(
@@ -169,7 +172,7 @@ pub async fn get_orders_list(
         let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
 
         //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
-        if let Ok(rx) = timeout(Duration::from_secs(5), relrequest).await {
+        if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
             match rx {
                 Ok(m) => {
                     if m.is_empty() {
@@ -189,6 +192,7 @@ pub async fn get_orders_list(
     for ordersrow in mostro_req.iter() {
         for ord in ordersrow {
             let order = Order::from_json(&ord.content);
+
             if order.is_err() {
                 error!("{order:?}");
                 continue;
@@ -197,29 +201,34 @@ pub async fn get_orders_list(
 
             info!("Found Order id : {:?}", order.id.unwrap());
 
-            //Just add selected status
-            if order.status.to_string() == status {
+            //Match order status
+            if let Some(st) = status {
                 //If order is yet present go on...
-                if idlist.contains(&order.id.unwrap()) {
+                if idlist.contains(&order.id.unwrap()) || st != order.status {
                     info!("Found same id order {}", order.id.unwrap());
                     continue;
-                };
-                //Match currency
-                if currency != String::from("ALL") && currency != order.fiat_code{
-                    info!("Not requested currency offer - you requested this currency {}", currency);
+                }
+            }
+
+            //Match currency
+            if let Some(ref curr) = currency{
+                if *curr != order.fiat_code{
+                    info!("Not requested currency offer - you requested this currency {:?}", currency);
                     continue;
                 }
-                //Match order kind
-                if let Some(reqkind) = kind {
-                    if reqkind != order.kind {
-                        info!("Not requested kind - you requested {:?} offers", reqkind);
-                        continue;
-                    }
-                }
-                idlist.push(order.id.unwrap());
-                orderslist.push(order);
-
             }
+
+            //Match order kind
+            if let Some(reqkind) = kind {
+                if reqkind != order.kind {
+                    info!("Not requested kind - you requested {:?} offers", kind);
+                    continue;
+                }
+            }
+
+            idlist.push(order.id.unwrap());
+            orderslist.push(order);
+        
         }
     }
 

@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::types::Kind;
+use crate::types::{Kind, Status};
 
 #[derive(Parser)]
 #[command(
@@ -31,11 +31,11 @@ pub struct Cli {
 pub enum Commands {
     /// Requests open orders from mostro pubkey ()
     Listorders {
-        #[clap(default_value = "Pending")]
-        orderstatus: String,
         #[arg(short, long)]
-        #[clap(default_value = "ALL")]
-        currency: String,
+        #[clap(default_value = "pending")]
+        orderstatus: Option<Status>,
+        #[arg(short, long)]
+        currency: Option<String>,
         #[arg(value_enum)]
         #[arg(short, long)]
         kindorder: Option<Kind>,
