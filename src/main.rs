@@ -27,18 +27,31 @@ async fn main() -> Result<()> {
     let client = crate::util::connect_nostr().await?;
 
     match &cli.command {
-        Some(cli::Commands::Listorders { orderstatus , currency , kindorder }) => {
+        Some(cli::Commands::ListOrders {
+            order_status,
+            currency,
+            kind_order,
+        }) => {
             let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
 
             println!(
                 "Requesting orders from mostro pubId - {}",
                 mostro_key.clone()
             );
-            println!("You are searching {:?} orders", orderstatus.unwrap().clone());
+            println!(
+                "You are searching {:?} orders",
+                order_status.unwrap().clone()
+            );
 
             //Get orders from relays
-            let tableoforders =
-                get_orders_list( mostro_key, orderstatus.to_owned(), currency.clone(), kindorder.clone(), &client).await?;
+            let tableoforders = get_orders_list(
+                mostro_key,
+                order_status.to_owned(),
+                currency.clone(),
+                *kind_order,
+                &client,
+            )
+            .await?;
             let table = print_orders_table(tableoforders)?;
             println!("{}", table);
             std::process::exit(0);

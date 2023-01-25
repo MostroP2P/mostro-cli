@@ -8,7 +8,7 @@ use comfy_table::*;
 use dotenvy::var;
 use log::{error, info};
 use nostr::key::FromSkStr;
-use nostr::{ClientMessage, Event, RelayMessage,Kind, SubscriptionFilter};
+use nostr::{ClientMessage, Event, Kind, RelayMessage, SubscriptionFilter};
 use nostr_sdk::{Client, Relay, RelayPoolNotifications};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -141,7 +141,7 @@ pub async fn get_orders_list(
     pubkey: nostr::secp256k1::XOnlyPublicKey,
     status: Option<Status>,
     currency: Option<String>,
-    kind : Option<Orderkind>,
+    kind: Option<Orderkind>,
     client: &Client,
 ) -> Result<Vec<Order>> {
     let filters = SubscriptionFilter::new()
@@ -210,9 +210,12 @@ pub async fn get_orders_list(
             }
 
             //Match currency
-            if let Some(ref curr) = currency{
-                if *curr != order.fiat_code{
-                    info!("Not requested currency offer - you requested this currency {:?}", currency);
+            if let Some(ref curr) = currency {
+                if *curr != order.fiat_code {
+                    info!(
+                        "Not requested currency offer - you requested this currency {:?}",
+                        currency
+                    );
                     continue;
                 }
             }
@@ -227,7 +230,6 @@ pub async fn get_orders_list(
 
             idlist.push(order.id.unwrap());
             orderslist.push(order);
-        
         }
     }
 
@@ -241,14 +243,30 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
         .set_header(vec![
-            Cell::new("Buy/Sell").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Order Id").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Status").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Amount").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Fiat Code").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Fiat Amount").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Payment method").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
-            Cell::new("Created").add_attribute(Attribute::Bold).set_alignment(CellAlignment::Center),
+            Cell::new("Buy/Sell")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Order Id")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Status")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Amount")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Code")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Amount")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Payment method")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Created")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
         ]);
 
     //Table rows
@@ -258,12 +276,15 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
     for singleorder in orderstable.into_iter() {
         let date = NaiveDateTime::from_timestamp_opt(singleorder.created_at.unwrap() as i64, 0);
 
-
         let r = Row::from(vec![
             // Cell::new(singleorder.kind.to_string()),
             match singleorder.kind {
-                crate::types::Kind::Buy  =>  Cell::new(singleorder.kind.to_string()).fg(Color::Green).set_alignment(CellAlignment::Center),
-                crate::types::Kind::Sell =>  Cell::new(singleorder.kind.to_string()).fg(Color::Red).set_alignment(CellAlignment::Center),
+                crate::types::Kind::Buy => Cell::new(singleorder.kind.to_string())
+                    .fg(Color::Green)
+                    .set_alignment(CellAlignment::Center),
+                crate::types::Kind::Sell => Cell::new(singleorder.kind.to_string())
+                    .fg(Color::Red)
+                    .set_alignment(CellAlignment::Center),
             },
             Cell::new(singleorder.id.unwrap()).set_alignment(CellAlignment::Center),
             Cell::new(singleorder.status.to_string()).set_alignment(CellAlignment::Center),

@@ -30,14 +30,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Requests open orders from mostro pubkey ()
-    Listorders {
+    ListOrders {
         #[arg(short, long)]
         #[clap(default_value = "pending")]
-        orderstatus: Option<Status>,
+        order_status: Option<Status>,
         #[arg(short, long)]
         currency: Option<String>,
         #[arg(value_enum)]
         #[arg(short, long)]
-        kindorder: Option<Kind>,
+        kind_order: Option<Kind>,
     },
 }

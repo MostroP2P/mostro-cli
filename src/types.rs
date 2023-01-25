@@ -1,8 +1,8 @@
 use anyhow::{Ok, Result};
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-use clap::ValueEnum;
 
 /// Orders can be only Buy or Sell
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -32,7 +32,7 @@ impl fmt::Display for Kind {
 }
 
 /// Each status that an order can have
-#[derive(Debug, Deserialize, Serialize,Copy, Clone,ValueEnum,Eq,PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, ValueEnum, Eq, PartialEq)]
 pub enum Status {
     /// Active order
     Active,
