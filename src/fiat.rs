@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use serde_json::Result;
 
 pub type FiatNames = HashMap<String, FiatNamesValue>;
+pub type FiatList  = Vec<(String, String)>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FiatNamesValue {
@@ -51,7 +52,7 @@ pub struct FiatNamesValue {
 }
 
 
-pub fn load_fiat_values() -> Result<FiatNames> {
+pub fn load_fiat_values() -> FiatList {
 
   let fiat_names = r#"
     {
@@ -1447,9 +1448,19 @@ pub fn load_fiat_values() -> Result<FiatNames> {
     }"#;
 
 
-  let fiat_json = serde_json::from_str(fiat_names).unwrap();
+  let fiat_json : FiatNames = serde_json::from_str(fiat_names).unwrap();
 
-  fiat_json
+  let mut fiatlist = FiatList::new();
+  
+  for elem in fiat_json.iter() {
+    fiatlist.push((elem.0.to_string(), elem.1.name.clone()));
+  }
+
+  //Return list
+  fiatlist.sort_by(|a,b| a.0.cmp(&b.0));
+
+  fiatlist
+  
 
 }
 

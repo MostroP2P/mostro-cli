@@ -22,11 +22,10 @@ async fn main() -> Result<()> {
         set_var("RUST_LOG", "info");
     }
 
-    let fiat = load_fiat_values().unwrap();
-
-    for f in fiat.iter(){
-        println!("{:?}",f.0 );
-        println!("{:?}",f.1);
+    //Load list of available currencies
+    let fiatlist = load_fiat_values();
+    for i in fiatlist.iter(){
+        println!("Ticker {} - Description : {}", i.0,i.1);
     }
 
     // mostro pubkey
