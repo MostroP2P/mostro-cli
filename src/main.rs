@@ -7,7 +7,9 @@ use std::env::set_var;
 pub mod cli;
 pub mod types;
 pub mod util;
+pub mod fiat;
 use crate::util::{get_orders_list, print_orders_table};
+use crate::fiat::{load_fiat_values};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -18,6 +20,13 @@ async fn main() -> Result<()> {
     //Init logger
     if cli.verbose {
         set_var("RUST_LOG", "info");
+    }
+
+    let fiat = load_fiat_values().unwrap();
+
+    for f in fiat.iter(){
+        println!("{:?}",f.0 );
+        println!("{:?}",f.1);
     }
 
     // mostro pubkey
