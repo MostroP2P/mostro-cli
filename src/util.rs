@@ -7,25 +7,23 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use dotenvy::var;
 use log::{error, info};
-use nostr::key::FromSkStr;
-use nostr::{ClientMessage, Event, Kind, RelayMessage, SubscriptionFilter};
-use nostr_sdk::{Client, Relay, RelayPoolNotifications};
+use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
 
-pub fn get_keys() -> Result<nostr::Keys> {
+pub fn get_keys() -> Result<Keys> {
     // nostr private key
     let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
-    let my_keys = nostr::key::Keys::from_sk_str(&nsec1privkey)?;
+    let my_keys = Keys::from_sk_str(&nsec1privkey)?;
     Ok(my_keys)
 }
 
-pub async fn connect_nostr() -> Result<nostr_sdk::Client> {
+pub async fn connect_nostr() -> Result<Client> {
     let my_keys = crate::util::get_keys()?;
 
     // Create new client
-    let client = nostr_sdk::Client::new(&my_keys);
+    let client = Client::new(&my_keys);
 
     let relays = vec![
         "wss://nostr.p2sh.co",
@@ -66,12 +64,12 @@ pub async fn connect_nostr() -> Result<nostr_sdk::Client> {
     ];
 
     // Add relays
-    for r in relays {
+    for r in relays.into_iter() {
         client.add_relay(r, None).await?;
     }
 
     // Connect to relays and keep connection alive
-    client.connect().await?;
+    client.connect().await;
 
     Ok(client)
 }
@@ -95,13 +93,13 @@ pub async fn get_events_of_mostro(
     info!("Message sent : {:?}", msg);
 
     //Send msg to relay
-    relay.send_msg(msg.clone()).await?;
+    relay.send_msg(msg.clone(), false).await?;
 
     // let mut notifications = rx.notifications();
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotifications::ReceivedMessage(msg) = notification {
+        if let RelayPoolNotification::Message(_, msg) = notification {
             match msg {
                 RelayMessage::Event {
                     subscription_id,
@@ -122,13 +120,15 @@ pub async fn get_events_of_mostro(
     }
 
     // Unsubscribe
-    relay.send_msg(ClientMessage::close(id.to_string())).await?;
+    relay
+        .send_msg(ClientMessage::close(id.to_string()), false)
+        .await?;
 
     Ok(events)
 }
 
 pub async fn get_orders_list(
-    pubkey: nostr::secp256k1::XOnlyPublicKey,
+    pubkey: XOnlyPublicKey,
     status: Option<Status>,
     currency: Option<String>,
     kind: Option<Orderkind>,

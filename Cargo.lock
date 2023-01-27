@@ -67,6 +67,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
+name = "base64"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
+
+[[package]]
 name = "bech32"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -872,7 +878,6 @@ dependencies = [
  "dotenvy",
  "futures",
  "log",
- "nostr",
  "nostr-sdk",
  "pretty_env_logger",
  "serde",
@@ -883,12 +888,12 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.12.0"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ca336ba5f92744a3e8a1a1301fccec71b541abf4a2e3ba3b34a252744288828"
+checksum = "c6a7a3e8b52d432cdddb409d960a21ba166448de1b6dae6019ee1b917759a964"
 dependencies = [
  "aes",
- "base64",
+ "base64 0.21.0",
  "bip39",
  "bitcoin",
  "cbc",
@@ -899,20 +904,20 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_repr",
  "thiserror",
  "url",
 ]
 
 [[package]]
 name = "nostr-sdk"
-version = "0.12.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca27fb8b88c6b9b9e063e7f1cc2211362d41b34a4cc1910c772afc19595ed925"
+checksum = "ff34681bc3bbc52401233a6bd0510fe402f554badd593ef7725b0ab9ea3f4fb3"
 dependencies = [
  "futures-util",
  "log",
  "nostr",
+ "once_cell",
  "thiserror",
  "tokio",
  "tokio-rustls",
@@ -1136,7 +1141,7 @@ version = "0.11.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68cc60575865c7831548863cc02356512e3f1dc2f3f82cb837d7fc4cc8f3c97c"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -1226,7 +1231,7 @@ version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0864aeff53f8c05aa08d86e5ef839d3dfcf07aeba2db32f12db0ef716e87bd55"
 dependencies = [
- "base64",
+ "base64 0.13.1",
 ]
 
 [[package]]
@@ -1328,17 +1333,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serde_repr"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a5ec9fa74a20ebbe5d9ac23dac1fc96ba0ecfe9f50f2843b52e537b10fbcb4e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1698,7 +1692,7 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30ee6ab729cd4cf0fd55218530c4522ed30b7b6081752839b68fcec8d0960788"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "byteorder",
  "bytes",
  "http",
