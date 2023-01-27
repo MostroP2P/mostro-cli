@@ -1,7 +1,6 @@
 use clap::Parser;
 use dotenvy::{dotenv, var};
-use nostr::util::nips::nip19::FromBech32;
-use nostr_sdk::Result;
+use nostr_sdk::prelude::*;
 use std::env::set_var;
 
 pub mod cli;
@@ -32,7 +31,7 @@ async fn main() -> Result<()> {
             currency,
             kind_order,
         }) => {
-            let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             println!(
                 "Requesting orders from mostro pubId - {}",
@@ -53,7 +52,7 @@ async fn main() -> Result<()> {
             )
             .await?;
             let table = print_orders_table(tableoforders)?;
-            println!("{}", table);
+            println!("{table}");
             std::process::exit(0);
         }
         None => {}
