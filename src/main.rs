@@ -9,7 +9,7 @@ pub mod types;
 pub mod util;
 pub mod fiat;
 use crate::util::{get_orders_list, print_orders_table};
-use crate::fiat::{load_fiat_values};
+use crate::fiat::{check_currency_ticker};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,14 +22,10 @@ async fn main() -> Result<()> {
         set_var("RUST_LOG", "info");
     }
 
-    //Load list of available currencies
-    let fiatlist = load_fiat_values();
-    for i in fiatlist.iter(){
-        println!("Ticker {} - Description : {}", i.0,i.1);
-    }
-
     // mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+    //Used to get upper currency string to check against a list of tickers
+    let mut upper_currency = None;
 
     // Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
@@ -41,6 +37,15 @@ async fn main() -> Result<()> {
             kind_order,
         }) => {
             let mostro_key = nostr::key::XOnlyPublicKey::from_bech32(pubkey)?;
+
+            //Validate currency ticker
+            if currency.is_some()  {          
+                upper_currency = check_currency_ticker(currency.clone().unwrap());
+                if upper_currency.is_none(){
+                    println!("The currency ticker {} you have selected is not available, use a valid one!", currency.clone().unwrap());
+                    std::process::exit(0)
+                }
+            }
 
             println!(
                 "Requesting orders from mostro pubId - {}",
@@ -55,7 +60,7 @@ async fn main() -> Result<()> {
             let tableoforders = get_orders_list(
                 mostro_key,
                 order_status.to_owned(),
-                currency.clone(),
+                upper_currency.clone(),
                 *kind_order,
                 &client,
             )

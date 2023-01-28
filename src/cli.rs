@@ -29,7 +29,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Requests open orders from mostro pubkey ()
+    /// Requests open orders from mostro pubkey
     ListOrders {
         #[arg(short, long)]
         #[clap(default_value = "pending")]

@@ -1,19 +1,6 @@
-// Example code that deserializes and serializes the model.
-// extern crate serde;
-// #[macro_use]
-// extern crate serde_derive;
-// extern crate serde_json;
-//
-// use generated_module::fiat_names;
-//
-// fn main() {
-//     let json = r#"{"answer": 42}"#;
-//     let model: fiat_names = serde_json::from_str(&json).unwrap();
-// }
-
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use serde_json::Result;
+
 
 pub type FiatNames = HashMap<String, FiatNamesValue>;
 pub type FiatList  = Vec<(String, String)>;
@@ -49,6 +36,30 @@ pub struct FiatNamesValue {
 
     #[serde(rename = "locale")]
     locale: Option<String>,
+}
+
+pub fn check_currency_ticker( currency : String ) -> Option<String> {
+
+  let upper = currency.to_uppercase();
+  let mut selectedcurrency : Option<String> = None;
+  let mut description = String::new();
+
+  let list = load_fiat_values();
+
+  for curr in list.iter(){
+    if curr.0 == upper
+    {
+      selectedcurrency = Some(curr.0.to_owned());
+      description = curr.1.to_owned();
+    }
+  }
+
+  match selectedcurrency.clone(){
+    Some(s) => println!("You have selected all offers of {} - {}",s,description),
+    None            => println!("You have selected offers of all supported currencies") 
+  }
+
+  selectedcurrency
 }
 
 
