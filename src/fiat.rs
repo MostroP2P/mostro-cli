@@ -56,7 +56,7 @@ pub fn check_currency_ticker( currency : String ) -> Option<String> {
 
   match selectedcurrency.clone(){
     Some(s) => println!("You have selected all offers of {} - {}",s,description),
-    None            => println!("You have selected offers of all supported currencies") 
+    None            => println!("Mmmmhhh you shouldn't be arrived here...something bad!") 
   }
 
   selectedcurrency

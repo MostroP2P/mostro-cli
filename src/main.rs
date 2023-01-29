@@ -38,12 +38,15 @@ async fn main() -> Result<()> {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             //Validate currency ticker
-            if currency.is_some()  {          
-                upper_currency = check_currency_ticker(currency.clone().unwrap());
-                if upper_currency.is_none(){
-                    println!("The currency ticker {} you have selected is not available, use a valid one!", currency.clone().unwrap());
-                    std::process::exit(0)
-                }
+            match currency  {  
+                Some(cur)  => {   
+                    upper_currency = check_currency_ticker(cur.clone());
+                    if upper_currency.is_none(){
+                        println!("The currency ticker {} you have selected is not available, use a valid one!", cur.clone());
+                        std::process::exit(0)
+                    }
+                },
+                None => println!("You have selected offers of all supported currencies") 
             }
 
             println!(
