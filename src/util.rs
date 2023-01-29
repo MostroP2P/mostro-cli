@@ -226,7 +226,33 @@ pub async fn get_orders_list(
 
 pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
     let mut table = Table::new();
-    table
+
+    //Table rows
+    let mut rows: Vec<Row> = Vec::new();
+
+    if orderstable.is_empty(){
+        table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(160)
+        .set_header(vec![
+            Cell::new("Sorry...")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            ]);
+
+        // Single row for error
+        let mut r = Row::new();
+
+        r.add_cell(Cell::new("No offers found with requested parameters...").fg(Color::Red).set_alignment(CellAlignment::Center));
+
+        //Push single error row
+        rows.push(r);
+        
+    }   
+    else 
+    {
+        table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
@@ -256,38 +282,36 @@ pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
         ]);
+    
 
-    //Table rows
-    let mut rows: Vec<Row> = Vec::new();
 
-    //Iterate to create table of orders
-    for singleorder in orderstable.into_iter() {
-        let date = NaiveDateTime::from_timestamp_opt(singleorder.created_at.unwrap() as i64, 0);
+        //Iterate to create table of orders
+        for singleorder in orderstable.into_iter() {
+            let date = NaiveDateTime::from_timestamp_opt(singleorder.created_at.unwrap() as i64, 0);
 
-        let r = Row::from(vec![
-            // Cell::new(singleorder.kind.to_string()),
-            match singleorder.kind {
-                crate::types::Kind::Buy => Cell::new(singleorder.kind.to_string())
-                    .fg(Color::Green)
-                    .set_alignment(CellAlignment::Center),
-                crate::types::Kind::Sell => Cell::new(singleorder.kind.to_string())
-                    .fg(Color::Red)
-                    .set_alignment(CellAlignment::Center),
-            },
-            Cell::new(singleorder.id.unwrap()).set_alignment(CellAlignment::Center),
-            Cell::new(singleorder.status.to_string()).set_alignment(CellAlignment::Center),
-            Cell::new(singleorder.amount.to_string()).set_alignment(CellAlignment::Center),
-            Cell::new(singleorder.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-            Cell::new(singleorder.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
-            Cell::new(singleorder.payment_method.to_string()).set_alignment(CellAlignment::Center),
-            Cell::new(date.unwrap()),
-        ]);
-        rows.push(r);
+            let r = Row::from(vec![
+                // Cell::new(singleorder.kind.to_string()),
+                match singleorder.kind {
+                    crate::types::Kind::Buy => Cell::new(singleorder.kind.to_string())
+                        .fg(Color::Green)
+                        .set_alignment(CellAlignment::Center),
+                    crate::types::Kind::Sell => Cell::new(singleorder.kind.to_string())
+                        .fg(Color::Red)
+                        .set_alignment(CellAlignment::Center),
+                },
+                Cell::new(singleorder.id.unwrap()).set_alignment(CellAlignment::Center),
+                Cell::new(singleorder.status.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(singleorder.amount.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(singleorder.fiat_code.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(singleorder.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(singleorder.payment_method.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(date.unwrap()),
+            ]);
+            rows.push(r);
+        }
     }
 
     table.add_rows(rows);
-
-    //println!("{table}");
 
     Ok(table.to_string())
 }

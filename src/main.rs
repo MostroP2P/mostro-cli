@@ -8,7 +8,7 @@ pub mod types;
 pub mod util;
 pub mod fiat;
 use crate::util::{get_orders_list, print_orders_table};
-use crate::fiat::{check_currency_ticker};
+// use crate::fiat::{check_currency_ticker};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,16 +37,22 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            //Commented for later use maybe...
             //Validate currency ticker
-            match currency  {  
-                Some(cur)  => {   
-                    upper_currency = check_currency_ticker(cur.clone());
-                    if upper_currency.is_none(){
-                        println!("The currency ticker {} you have selected is not available, use a valid one!", cur.clone());
-                        std::process::exit(0)
-                    }
-                },
-                None => println!("You have selected offers of all supported currencies") 
+            // match currency  {  
+            //     Some(cur)  => {   
+            //         upper_currency = check_currency_ticker(cur.clone());
+            //         if upper_currency.is_none(){
+            //             println!("The currency ticker {} you have selected is not available, use a valid one!", cur.clone());
+            //             std::process::exit(0)
+            //         }
+            //     },
+            //     None => println!("You have selected offers of all supported currencies") 
+            // }
+            
+            //Uppercase currency
+            if let Some(curr) = currency {
+                upper_currency = Some(curr.to_uppercase());
             }
 
             println!(
