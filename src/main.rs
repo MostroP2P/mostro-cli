@@ -7,11 +7,11 @@ pub mod cli;
 pub mod types;
 pub mod util;
 use crate::util::{get_orders_list, print_orders_table};
+// use crate::fiat::{check_currency_ticker};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    pretty_env_logger::init();
     // TODO: handle arguments
     let cli = cli::Cli::parse();
     //Init logger
@@ -19,8 +19,12 @@ async fn main() -> Result<()> {
         set_var("RUST_LOG", "info");
     }
 
-    // mostro pubkey
+    pretty_env_logger::init();
+
+    // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+    // Used to get upper currency string to check against a list of tickers
+    let mut upper_currency = None;
 
     // Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
@@ -33,6 +37,11 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            // Uppercase currency
+            if let Some(curr) = currency {
+                upper_currency = Some(curr.to_uppercase());
+            }
+
             println!(
                 "Requesting orders from mostro pubId - {}",
                 mostro_key.clone()
@@ -43,15 +52,15 @@ async fn main() -> Result<()> {
             );
 
             //Get orders from relays
-            let tableoforders = get_orders_list(
+            let table_of_orders = get_orders_list(
                 mostro_key,
                 order_status.to_owned(),
-                currency.clone(),
+                upper_currency.clone(),
                 *kind_order,
                 &client,
             )
             .await?;
-            let table = print_orders_table(tableoforders)?;
+            let table = print_orders_table(table_of_orders)?;
             println!("{table}");
             std::process::exit(0);
         }
