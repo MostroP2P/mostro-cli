@@ -224,87 +224,85 @@ pub async fn get_orders_list(
     Ok(orderslist)
 }
 
-pub fn print_orders_table(orderstable: Vec<Order>) -> Result<String> {
+pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
     let mut table = Table::new();
 
     //Table rows
     let mut rows: Vec<Row> = Vec::new();
 
-    if orderstable.is_empty(){
+    if orders_table.is_empty() {
         table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(160)
-        .set_header(vec![
-            Cell::new("Sorry...")
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_width(160)
+            .set_header(vec![Cell::new("Sorry...")
                 .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            ]);
+                .set_alignment(CellAlignment::Center)]);
 
         // Single row for error
         let mut r = Row::new();
 
-        r.add_cell(Cell::new("No offers found with requested parameters...").fg(Color::Red).set_alignment(CellAlignment::Center));
+        r.add_cell(
+            Cell::new("No offers found with requested parameters...")
+                .fg(Color::Red)
+                .set_alignment(CellAlignment::Center),
+        );
 
         //Push single error row
         rows.push(r);
-        
-    }   
-    else 
-    {
+    } else {
         table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(160)
-        .set_header(vec![
-            Cell::new("Buy/Sell")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Order Id")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Status")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Amount")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Fiat Code")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Fiat Amount")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Payment method")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Created")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    
-
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_width(160)
+            .set_header(vec![
+                Cell::new("Buy/Sell")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Order Id")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Status")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Amount")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Fiat Code")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Fiat Amount")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Payment method")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Created")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+            ]);
 
         //Iterate to create table of orders
-        for singleorder in orderstable.into_iter() {
-            let date = NaiveDateTime::from_timestamp_opt(singleorder.created_at.unwrap() as i64, 0);
+        for single_order in orders_table.into_iter() {
+            let date = NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap() as i64, 0);
 
             let r = Row::from(vec![
-                // Cell::new(singleorder.kind.to_string()),
-                match singleorder.kind {
-                    crate::types::Kind::Buy => Cell::new(singleorder.kind.to_string())
+                // Cell::new(single_order.kind.to_string()),
+                match single_order.kind {
+                    crate::types::Kind::Buy => Cell::new(single_order.kind.to_string())
                         .fg(Color::Green)
                         .set_alignment(CellAlignment::Center),
-                    crate::types::Kind::Sell => Cell::new(singleorder.kind.to_string())
+                    crate::types::Kind::Sell => Cell::new(single_order.kind.to_string())
                         .fg(Color::Red)
                         .set_alignment(CellAlignment::Center),
                 },
-                Cell::new(singleorder.id.unwrap()).set_alignment(CellAlignment::Center),
-                Cell::new(singleorder.status.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(singleorder.amount.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(singleorder.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(singleorder.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(singleorder.payment_method.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.id.unwrap()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.status.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.payment_method.to_string())
+                    .set_alignment(CellAlignment::Center),
                 Cell::new(date.unwrap()),
             ]);
             rows.push(r);

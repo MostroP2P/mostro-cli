@@ -6,14 +6,12 @@ use std::env::set_var;
 pub mod cli;
 pub mod types;
 pub mod util;
-pub mod fiat;
 use crate::util::{get_orders_list, print_orders_table};
 // use crate::fiat::{check_currency_ticker};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    pretty_env_logger::init();
     // TODO: handle arguments
     let cli = cli::Cli::parse();
     //Init logger
@@ -21,9 +19,11 @@ async fn main() -> Result<()> {
         set_var("RUST_LOG", "info");
     }
 
-    // mostro pubkey
+    pretty_env_logger::init();
+
+    // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
-    //Used to get upper currency string to check against a list of tickers
+    // Used to get upper currency string to check against a list of tickers
     let mut upper_currency = None;
 
     // Call function to connect to relays
@@ -37,20 +37,7 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
-            //Commented for later use maybe...
-            //Validate currency ticker
-            // match currency  {  
-            //     Some(cur)  => {   
-            //         upper_currency = check_currency_ticker(cur.clone());
-            //         if upper_currency.is_none(){
-            //             println!("The currency ticker {} you have selected is not available, use a valid one!", cur.clone());
-            //             std::process::exit(0)
-            //         }
-            //     },
-            //     None => println!("You have selected offers of all supported currencies") 
-            // }
-            
-            //Uppercase currency
+            // Uppercase currency
             if let Some(curr) = currency {
                 upper_currency = Some(curr.to_uppercase());
             }
@@ -65,7 +52,7 @@ async fn main() -> Result<()> {
             );
 
             //Get orders from relays
-            let tableoforders = get_orders_list(
+            let table_of_orders = get_orders_list(
                 mostro_key,
                 order_status.to_owned(),
                 upper_currency.clone(),
@@ -73,7 +60,7 @@ async fn main() -> Result<()> {
                 &client,
             )
             .await?;
-            let table = print_orders_table(tableoforders)?;
+            let table = print_orders_table(table_of_orders)?;
             println!("{table}");
             std::process::exit(0);
         }
