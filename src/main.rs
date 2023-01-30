@@ -7,7 +7,6 @@ pub mod cli;
 pub mod types;
 pub mod util;
 use crate::util::{get_orders_list, print_orders_table};
-// use crate::fiat::{check_currency_ticker};
 
 #[tokio::main]
 async fn main() -> Result<()> {
