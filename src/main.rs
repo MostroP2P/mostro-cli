@@ -6,7 +6,11 @@ use std::env::set_var;
 pub mod cli;
 pub mod types;
 pub mod util;
-use crate::util::{get_orders_list, print_orders_table};
+pub mod lightning;
+pub mod error;
+
+use crate::util::{get_orders_list, print_orders_table, take_order_id};
+use lightning::is_valid_invoice;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,6 +31,8 @@ async fn main() -> Result<()> {
 
     // Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
+
+    let mut ln_client = crate::lightning::LndConnector::new().await;
 
     match &cli.command {
         Some(cli::Commands::ListOrders {
@@ -63,6 +69,21 @@ async fn main() -> Result<()> {
             println!("{table}");
             std::process::exit(0);
         }
+        Some(cli::Commands::Takesell { 
+            order_id, 
+            invoice 
+        }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+            // Check invoice string
+            let valid_invoice = is_valid_invoice(invoice);
+            match valid_invoice{
+                Ok(_) => {
+                    take_order_id(mostro_key, order_id, invoice).await?
+                },
+                Err(e) => println!("{}",e) 
+            }
+            
+        },
         None => {}
     }
 

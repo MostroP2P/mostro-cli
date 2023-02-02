@@ -12,11 +12,27 @@ use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
 
+use crate::error::MostroError;
+
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
     let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
     let my_keys = Keys::from_sk_str(&nsec1privkey)?;
     Ok(my_keys)
+}
+
+pub async fn send_dm(
+    client: &Client,
+    sender_keys: &Keys,
+    receiver_pubkey: &XOnlyPublicKey,
+    content: String,
+) -> Result<()> {
+    let event = EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content)?
+        .to_event(sender_keys)?;
+    info!("Sending event: {event:#?}");
+    client.send_event(event).await?;
+
+    Ok(())
 }
 
 pub async fn connect_nostr() -> Result<Client> {
@@ -63,6 +79,10 @@ pub async fn connect_nostr() -> Result<Client> {
     client.connect().await;
 
     Ok(client)
+}
+
+pub async fn take_order_id( mostro_pubkey : XOnlyPublicKey, id : &u64 , invoice : &String) -> Result< (), MostroError> {
+    todo!();
 }
 
 pub async fn get_events_of_mostro(

@@ -40,4 +40,12 @@ pub enum Commands {
         #[arg(short, long)]
         kind_order: Option<Kind>,
     },
+    /// Take an order from a mostro pubkey
+    Takesell {
+        // Order id number
+        #[arg(short, long)]
+        order_id: u64,
+        #[arg(short, long)]
+        invoice: String,
+    }
 }
