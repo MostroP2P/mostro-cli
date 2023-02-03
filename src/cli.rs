@@ -44,7 +44,7 @@ pub enum Commands {
     Takesell {
         // Order id number
         #[arg(short, long)]
-        order_id: u64,
+        order_id: i64,
         #[arg(short, long)]
         invoice: String,
     }

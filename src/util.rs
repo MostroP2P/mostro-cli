@@ -1,4 +1,7 @@
+use crate::types::Action;
+use crate::types::Content;
 use crate::types::Kind as Orderkind;
+use crate::types::Message;
 use crate::types::Order;
 use crate::types::Status;
 use anyhow::{Error, Result};
@@ -81,8 +84,21 @@ pub async fn connect_nostr() -> Result<Client> {
     Ok(client)
 }
 
-pub async fn take_order_id( mostro_pubkey : XOnlyPublicKey, id : &u64 , invoice : &String) -> Result< (), MostroError> {
-    todo!();
+pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnlyPublicKey, id : &i64 , invoice : &String) -> Result<()> {
+    
+    let takesell_message = Message::new(
+        0,
+        *id, 
+        Action::TakeSell,
+        Content::PaymentRequest(invoice.to_string()),
+    );
+
+    // Send dm to mostro pub id
+    send_dm(client, &my_key, &mostro_pubkey, takesell_message.unwrap().to_string()).await?;
+
+    let (rxgit)
+
+    Ok(())
 }
 
 pub async fn get_events_of_mostro(

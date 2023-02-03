@@ -3,6 +3,8 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use log::info;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 /// Orders can be only Buy or Sell
@@ -103,6 +105,20 @@ pub enum Content {
 
 #[allow(dead_code)]
 impl Message {
+
+    pub fn new(version : u8, order_id: i64, action: Action,content: Content) -> Result<Value>{
+        let msg = json!({
+            "version"  : version,
+            "order_id" : order_id,
+            "action"   : action,
+            "content"  : content,
+        });
+        
+        info!("Takesell message created : {}",msg.clone());
+
+        Ok(msg)
+    }
+
     /// New message from json string
     pub fn from_json(json: &str) -> Result<Self> {
         Ok(serde_json::from_str(json)?)

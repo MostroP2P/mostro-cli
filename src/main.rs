@@ -26,13 +26,17 @@ async fn main() -> Result<()> {
 
     // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+    
+    // My key
+    let my_key = crate::util::get_keys()?;
+
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency = None;
 
     // Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
 
-    let mut ln_client = crate::lightning::LndConnector::new().await;
+    // let mut ln_client = crate::lightning::LndConnector::new().await;
 
     match &cli.command {
         Some(cli::Commands::ListOrders {
@@ -78,7 +82,7 @@ async fn main() -> Result<()> {
             let valid_invoice = is_valid_invoice(invoice);
             match valid_invoice{
                 Ok(_) => {
-                    take_order_id(mostro_key, order_id, invoice).await?
+                    take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?
                 },
                 Err(e) => println!("{}",e) 
             }
