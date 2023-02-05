@@ -9,18 +9,22 @@ use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use dotenvy::var;
+use futures::future::join;
 use log::{error, info};
 use nostr_sdk::prelude::*;
+use tokio::join;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
 
-use crate::error::MostroError;
 
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
     let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
     let my_keys = Keys::from_sk_str(&nsec1privkey)?;
+    info!("Public : {:?}",my_keys.public_key().clone());
+    info!("private : {:?}",my_keys.secret_key());
+
     Ok(my_keys)
 }
 
@@ -29,10 +33,16 @@ pub async fn send_dm(
     sender_keys: &Keys,
     receiver_pubkey: &XOnlyPublicKey,
     content: String,
+    wait_for_send: Option<bool>,
 ) -> Result<()> {
     let event = EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content)?
         .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
+    // This will update relay send event to wait for tranmission.
+    if let Some(_wait_mes) = wait_for_send{
+        let opts = Options::new().wait_for_send(true);
+        client.update_opts(opts);
+    }
     client.send_event(event).await?;
 
     Ok(())
@@ -70,7 +80,7 @@ pub async fn connect_nostr() -> Result<Client> {
         "wss://nostr.easydns.ca",
         "wss://no-str.org",
         "wss://nostrical.com",
-        "wss://student.chadpolytechnic.com",
+        // "wss://student.chadpolytechnic.com",
     ];
 
     // Add relays
@@ -93,10 +103,10 @@ pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnl
         Content::PaymentRequest(invoice.to_string()),
     );
 
-    // Send dm to mostro pub id
-    send_dm(client, &my_key, &mostro_pubkey, takesell_message.unwrap().to_string()).await?;
+    info!("Takesell message created:\r\n{:?}",takesell_message);
 
-    let (rxgit)
+    // Send dm to mostro pub id
+    send_dm(client, my_key, &mostro_pubkey, takesell_message.unwrap().to_string(),Some(true)).await?;
 
     Ok(())
 }

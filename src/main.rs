@@ -1,6 +1,8 @@
 use clap::Parser;
 use dotenvy::{dotenv, var};
+use futures::executor::block_on;
 use nostr_sdk::prelude::*;
+use tokio::join;
 use std::env::set_var;
 
 pub mod cli;
@@ -78,15 +80,22 @@ async fn main() -> Result<()> {
             invoice 
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+            println!(
+                "Request of take order {} from mostro pubId {}",
+                order_id,
+                mostro_key.clone()
+            );
+
             // Check invoice string
             let valid_invoice = is_valid_invoice(invoice);
             match valid_invoice{
                 Ok(_) => {
-                    take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?
+                   take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?;
+                //    std::thread::sleep(std::time::Duration::from_secs(2));
                 },
                 Err(e) => println!("{}",e) 
             }
-            
         },
         None => {}
     }
