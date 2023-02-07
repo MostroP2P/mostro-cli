@@ -9,10 +9,8 @@ use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use dotenvy::var;
-use futures::future::join;
 use log::{error, info};
 use nostr_sdk::prelude::*;
-use tokio::join;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -33,14 +31,14 @@ pub async fn send_dm(
     sender_keys: &Keys,
     receiver_pubkey: &XOnlyPublicKey,
     content: String,
-    wait_for_send: Option<bool>,
+    wait_for_connection: Option<bool>,
 ) -> Result<()> {
     let event = EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content)?
         .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
     // This will update relay send event to wait for tranmission.
-    if let Some(_wait_mes) = wait_for_send{
-        let opts = Options::new().wait_for_send(true);
+    if let Some(_wait_mes) = wait_for_connection{
+        let opts = Options::new().wait_for_connection(true);
         client.update_opts(opts);
     }
     client.send_event(event).await?;
@@ -85,10 +83,13 @@ pub async fn connect_nostr() -> Result<Client> {
 
     // Add relays
     for r in relays.into_iter() {
+        let opts = Options::new().wait_for_connection(true).wait_for_send(true);
+        client.update_opts(opts);
         client.add_relay(r, None).await?;
     }
 
     // Connect to relays and keep connection alive
+    
     client.connect().await;
 
     Ok(client)
@@ -103,10 +104,20 @@ pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnl
         Content::PaymentRequest(invoice.to_string()),
     );
 
-    info!("Takesell message created:\r\n{:?}",takesell_message);
+    // info!("Takesell message created:\r\n{:?}",takesell_message);
 
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, takesell_message.unwrap().to_string(),Some(true)).await?;
+    send_dm(client, my_key, &mostro_pubkey, takesell_message.unwrap().to_string(), Some(true)).await?;
+
+    let mut notifications = client.notifications();
+
+    while let Ok(notification) = notifications.recv().await {
+        if let RelayPoolNotification::Message(_, msg) = notification {
+            if let RelayMessage::Ok { event_id, status,message } = msg {
+                        break;
+                    }
+                }                
+            };
 
     Ok(())
 }
