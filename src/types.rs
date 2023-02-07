@@ -3,6 +3,7 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use uuid::Uuid;
 
 /// Orders can be only Buy or Sell
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -167,7 +168,7 @@ impl Message {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Order {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<i64>,
+    pub id: Option<Uuid>,
     pub kind: Kind,
     pub status: Status,
     pub amount: u32,
@@ -176,16 +177,16 @@ pub struct Order {
     pub payment_method: String,
     pub prime: i8,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub payment_request: Option<String>,
+    pub buyer_invoice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<u64>, // unix timestamp seconds
+    pub created_at: Option<u64>,
 }
 
 #[allow(dead_code)]
 impl Order {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        id: Option<i64>,
+        id: Option<Uuid>,
         kind: Kind,
         status: Status,
         amount: u32,
@@ -193,7 +194,7 @@ impl Order {
         fiat_amount: u32,
         payment_method: String,
         prime: i8,
-        payment_request: Option<String>,
+        buyer_invoice: Option<String>,
         created_at: Option<u64>,
     ) -> Self {
         Self {
@@ -205,7 +206,7 @@ impl Order {
             fiat_amount,
             payment_method,
             prime,
-            payment_request,
+            buyer_invoice,
             created_at,
         }
     }

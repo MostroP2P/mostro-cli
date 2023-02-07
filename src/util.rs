@@ -26,31 +26,24 @@ pub async fn connect_nostr() -> Result<Client> {
     let client = Client::new(&my_keys);
 
     let relays = vec![
-        "wss://nostr.p2sh.co",
         "wss://relay.nostr.vision",
         "wss://nostr.itssilvestre.com",
         "wss://nostr.drss.io",
         "wss://nostr.zebedee.cloud",
-        "wss://nostr.fmt.wiz.biz",
         "wss://public.nostr.swissrouting.com",
         "wss://nostr.slothy.win",
         "wss://nostr.rewardsbunny.com",
         "wss://relay.nostropolis.xyz/websocket",
         "wss://nostr.supremestack.xyz",
         "wss://nostr.shawnyeager.net",
-        "wss://relay.ryzizub.com",
         "wss://relay.nostrmoto.xyz",
-        "wss://jiggytom.ddns.net",
         "wss://nostr.roundrockbitcoiners.com",
         "wss://nostr.utxo.lol",
-        "wss://relay.nostrid.com",
-        "wss://nostr1.starbackr.me",
         "wss://nostr-relay.schnitzel.world",
         "wss://sg.qemura.xyz",
         "wss://nostr.digitalreformation.info",
         "wss://nostr-relay.usebitcoin.space",
         "wss://nostr.bch.ninja",
-        "wss://nostr.demovement.net",
         "wss://nostr.massmux.com",
         "wss://nostr-pub1.southflorida.ninja",
         "wss://nostr.itssilvestre.com",
@@ -151,7 +144,7 @@ pub async fn get_orders_list(
     let mut orderslist = Vec::<Order>::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut idlist = Vec::<i64>::new();
+    let mut idlist = Vec::<Uuid>::new();
 
     for relay in relays.iter() {
         info!("Requesting to relay : {}", relay.0.as_str());
@@ -284,7 +277,8 @@ pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
 
         //Iterate to create table of orders
         for single_order in orders_table.into_iter() {
-            let date = NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap() as i64, 0);
+            let date =
+                NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap_or(0) as i64, 0);
 
             let r = Row::from(vec![
                 // Cell::new(single_order.kind.to_string()),
@@ -300,7 +294,8 @@ pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
                 Cell::new(single_order.status.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.fiat_amount.to_string())
+                    .set_alignment(CellAlignment::Center),
                 Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
                 Cell::new(date.unwrap()),
