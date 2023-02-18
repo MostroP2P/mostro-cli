@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use log::info;
-use serde_json::{json, Value};
+use serde_json::{json};
 use uuid::Uuid;
 
 /// Orders can be only Buy or Sell
@@ -106,7 +106,7 @@ pub enum Content {
 #[allow(dead_code)]
 impl Message {
 
-    pub fn new(version : u8, order_id: i64, action: Action,content: Content) -> Result<Value>{
+    pub fn new( version : u8, order_id: i64, action: Action,content: Content) -> Self{
         let msg = json!({
             "version"  : version,
             "order_id" : order_id,
@@ -114,9 +114,11 @@ impl Message {
             "content"  : content,
         });
         
-        info!("Takesell message created : {}",msg.clone());
+        // Print info message
+        info!("Takesell message created : {}",msg);
 
-        Ok(msg)
+        // Get message from Json value parse
+        serde_json::from_value(msg).unwrap()
     }
 
     /// New message from json string

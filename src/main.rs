@@ -9,7 +9,7 @@ pub mod util;
 pub mod lightning;
 pub mod error;
 
-use crate::util::{get_orders_list, print_orders_table, take_order_id};
+use crate::util::{get_orders_list, print_orders_table, take_order_id, get_direct_messages};
 use lightning::is_valid_invoice;
 
 #[tokio::main]
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
             println!("{table}");
             std::process::exit(0);
         }
-        Some(cli::Commands::Takesell { 
+        Some(cli::Commands::TakeSell { 
             order_id, 
             invoice 
         }) => {
@@ -95,8 +95,14 @@ async fn main() -> Result<()> {
                 Err(e) => println!("{}",e) 
             }
         },
+        Some(cli::Commands::GetDm) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+            get_direct_messages(&client,mostro_key,&my_key).await?;
+        },
         None => {}
-    }
+    };
+
     println!("Bye Bye!");
     Ok(())
 }

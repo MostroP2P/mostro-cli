@@ -9,20 +9,18 @@ use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use dotenvy::var;
-use log::{error, info};
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
+use log::{error, info};
 
 
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
     let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
     let my_keys = Keys::from_sk_str(&nsec1privkey)?;
-    info!("Public : {:?}",my_keys.public_key().clone());
-    info!("private : {:?}",my_keys.secret_key());
-
+    
     Ok(my_keys)
 }
 
@@ -102,20 +100,17 @@ pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnl
         *id, 
         Action::TakeSell,
         Content::PaymentRequest(invoice.to_string()),
-    );
-
-    // info!("Takesell message created:\r\n{:?}",takesell_message);
+        
+    ).as_json().unwrap();
 
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, takesell_message.unwrap().to_string(), Some(true)).await?;
+    send_dm(client, my_key, &mostro_pubkey, takesell_message , Some(true)).await?;
 
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotification::Message(_, msg) = notification {
-            if let RelayMessage::Ok { event_id, status,message } = msg {
-                        break;
-                    }
+        if let RelayPoolNotification::Message(_, RelayMessage::Ok { event_id:_, status:_,message:_ }) = notification {
+                    break;
                 }                
             };
 
@@ -175,6 +170,63 @@ pub async fn get_events_of_mostro(
     Ok(events)
 }
 
+pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKey, my_key : &Keys) -> Result<()>{
+
+    let since_time = chrono::Utc::now();
+
+
+    let filters = SubscriptionFilter::new()
+        .author(mostro_pubkey)
+        .kind(Kind::EncryptedDirectMessage)
+        .pubkey(my_key.public_key())
+        .since(since_time.checked_sub_signed(chrono::Duration::seconds(5)).unwrap().timestamp() as u64);
+    
+    info!(
+        "Request to mostro id : {:?} with event kind : {:?} ",
+        filters.authors.as_ref().unwrap(),
+        filters.kinds.as_ref().unwrap()
+    );
+
+    let relays = client.relays().await;
+
+    // Collector of mostro orders on a specific relay
+    let mut mostro_req: Vec<Vec<Event>> = vec![];
+
+    for relay in relays.iter() {
+        info!("Requesting to relay : {}", relay.0.as_str());
+
+        let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
+
+        //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
+        if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
+            match rx {
+                Ok(m) => {
+                    if m.is_empty() {
+                        info!("No message found on relay {}", relay.0.to_string());
+                    } else {
+                        mostro_req.push(m)
+                    }
+                }
+                Err(_e) => println!("Error"),
+            }
+        } else {
+            println!("Timeout on request from {}", relay.0);
+        };
+    }
+
+    for dms in mostro_req.iter(){
+        for dm in dms{
+            let message = decrypt(&my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
+            println!("{}", message.unwrap());
+        }
+    }
+
+
+
+    Ok(())
+
+}
+
 pub async fn get_orders_list(
     pubkey: XOnlyPublicKey,
     status: Option<Status>,
@@ -225,7 +277,7 @@ pub async fn get_orders_list(
         };
     }
 
-    //Scan events to extract all orders
+        //Scan events to extract all orders
     for ordersrow in mostro_req.iter() {
         for ord in ordersrow {
             let order = Order::from_json(&ord.content);
@@ -270,7 +322,6 @@ pub async fn get_orders_list(
             orderslist.push(order);
         }
     }
-
     Ok(orderslist)
 }
 
