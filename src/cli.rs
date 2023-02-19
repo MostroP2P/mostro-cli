@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use crate::types::{Kind, Status};
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(
@@ -44,9 +45,10 @@ pub enum Commands {
     TakeSell {
         // Order id number
         #[arg(short, long)]
-        order_id: i64,
+        order_id: Uuid,
         #[arg(short, long)]
         invoice: String,
     },
+    /// Get the list of mostro direct message since the last hour - used to check order state.
     GetDm
 }

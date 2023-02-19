@@ -76,7 +76,7 @@ pub async fn connect_nostr() -> Result<Client> {
         "wss://nostr.easydns.ca",
         "wss://no-str.org",
         "wss://nostrical.com",
-        // "wss://student.chadpolytechnic.com",
+        "wss://student.chadpolytechnic.com",
     ];
 
     // Add relays
@@ -93,7 +93,7 @@ pub async fn connect_nostr() -> Result<Client> {
     Ok(client)
 }
 
-pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnlyPublicKey, id : &i64 , invoice : &String) -> Result<()> {
+pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnlyPublicKey, id : &Uuid , invoice : &String) -> Result<()> {
     
     let takesell_message = Message::new(
         0,
@@ -170,7 +170,7 @@ pub async fn get_events_of_mostro(
     Ok(events)
 }
 
-pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKey, my_key : &Keys) -> Result<()>{
+pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKey, my_key : &Keys) -> Vec<String>{
 
     let since_time = chrono::Utc::now();
 
@@ -179,7 +179,7 @@ pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKe
         .author(mostro_pubkey)
         .kind(Kind::EncryptedDirectMessage)
         .pubkey(my_key.public_key())
-        .since(since_time.checked_sub_signed(chrono::Duration::seconds(5)).unwrap().timestamp() as u64);
+        .since(since_time.checked_sub_signed(chrono::Duration::hours(1)).unwrap().timestamp() as u64);
     
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
@@ -214,17 +214,15 @@ pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKe
         };
     }
 
+    let mut direct_messages : Vec<String> = Vec::new();
+
     for dms in mostro_req.iter(){
         for dm in dms{
             let message = decrypt(&my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
-            println!("{}", message.unwrap());
+            direct_messages.push(message.unwrap());
         }
     }
-
-
-
-    Ok(())
-
+    direct_messages
 }
 
 pub async fn get_orders_list(
@@ -323,6 +321,36 @@ pub async fn get_orders_list(
         }
     }
     Ok(orderslist)
+}
+
+pub fn print_message_list(dm_list : Vec<String>) -> Result<String>{
+        
+    let mut table = Table::new();
+
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(160)
+        .set_header(vec![Cell::new("Direct messages from Mostro")
+            .add_attribute(Attribute::Bold)
+            .fg(Color::Green)
+            .set_alignment(CellAlignment::Center)]);
+
+
+    //Table rows
+    let mut rows: Vec<Row> = Vec::new();
+
+    for dm in dm_list.iter() {        
+        let mut r : Row = Row::new();
+        r.add_cell(Cell::new(dm).set_alignment(CellAlignment::Center));
+        rows.push(r);
+    };
+
+    table.add_rows(rows);
+
+    Ok(table.to_string())
+
+    
 }
 
 pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {

@@ -91,7 +91,7 @@ impl fmt::Display for Action {
 pub struct Message {
     pub version: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub order_id: Option<i64>,
+    pub order_id: Option<Uuid>,
     pub action: Action,
     pub content: Option<Content>,
 }
@@ -106,7 +106,7 @@ pub enum Content {
 #[allow(dead_code)]
 impl Message {
 
-    pub fn new( version : u8, order_id: i64, action: Action,content: Content) -> Self{
+    pub fn new( version : u8, order_id: Uuid, action: Action,content: Content) -> Self{
         let msg = json!({
             "version"  : version,
             "order_id" : order_id,
