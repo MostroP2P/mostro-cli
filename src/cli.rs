@@ -50,5 +50,5 @@ pub enum Commands {
         invoice: String,
     },
     /// Get the list of mostro direct message since the last hour - used to check order state.
-    GetDm
+    GetDm,
 }

@@ -6,21 +6,20 @@ use crate::types::Order;
 use crate::types::Status;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
-use comfy_table::presets::UTF8_FULL;
-use comfy_table::*;
 use dotenvy::var;
+use log::{error, info};
 use nostr_sdk::prelude::*;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
-use log::{error, info};
-
+use crate::pretty_table::{print_message_list,print_orders_table};
 
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
     let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
     let my_keys = Keys::from_sk_str(&nsec1privkey)?;
-    
+
     Ok(my_keys)
 }
 
@@ -35,7 +34,7 @@ pub async fn send_dm(
         .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
     // This will update relay send event to wait for tranmission.
-    if let Some(_wait_mes) = wait_for_connection{
+    if let Some(_wait_mes) = wait_for_connection {
         let opts = Options::new().wait_for_connection(true);
         client.update_opts(opts);
     }
@@ -87,33 +86,86 @@ pub async fn connect_nostr() -> Result<Client> {
     }
 
     // Connect to relays and keep connection alive
-    
+
     client.connect().await;
 
     Ok(client)
 }
 
-pub async fn take_order_id(client: &Client, my_key : &Keys, mostro_pubkey : XOnlyPublicKey, id : &Uuid , invoice : &String) -> Result<()> {
-    
+pub async fn take_order_id(
+    client: &Client,
+    my_key: &Keys,
+    mostro_pubkey: XOnlyPublicKey,
+    id: &Uuid,
+    invoice: &String,
+) -> Result<()> {
     let takesell_message = Message::new(
         0,
-        *id, 
+        *id,
         Action::TakeSell,
         Content::PaymentRequest(invoice.to_string()),
-        
-    ).as_json().unwrap();
+    )
+    .as_json()
+    .unwrap();
 
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, takesell_message , Some(true)).await?;
+    send_dm(client, my_key, &mostro_pubkey, takesell_message, Some(true)).await?;
 
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotification::Message(_, RelayMessage::Ok { event_id:_, status:_,message:_ }) = notification {
-                    break;
-                }                
-            };
+        if let RelayPoolNotification::Message(
+            _,
+            RelayMessage::Ok {
+                event_id: _,
+                status: _,
+                message: _,
+            },
+        ) = notification
+        {
+            break;
+        }
+    }
+    Ok(())
+}
 
+pub async fn requests_relay(client : &Client, relay : (Url, Relay), filters: SubscriptionFilter, event_vector : Vec<Vec<Event>>) -> Result<()> {
+    
+    let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
+
+    //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
+    if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
+        match rx {
+            Ok(m) => {
+                if m.is_empty() {
+                    info!("No requested events found on relay {}", relay.0.to_string());
+                } else {
+                    mostro_req.push(m)
+                }
+            }
+            Err(_e) => println!("Error"),
+        }
+    } else {
+        println!("Timeout on request from {}", relay.0);
+    };
+    Ok(())
+}
+
+
+pub async fn send_relays_requests(client : &Client, filters: SubscriptionFilter, event_vector : Vec<Vec<Event>>) -> Result<()> {
+
+    let relays = client.relays().await;
+
+    for relay in relays.into_iter() {
+        info!("Requesting to relay : {}", relay.0.as_str());
+        let client_clone = client.clone();
+        let relay_clone = relay.clone();
+        let filter_clone = filters.clone();
+
+        tokio::spawn(async move {
+            requests_relay(&client_clone, relay_clone,  filter_clone, event_vector).await
+        });
+    }
     Ok(())
 }
 
@@ -170,17 +222,24 @@ pub async fn get_events_of_mostro(
     Ok(events)
 }
 
-pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKey, my_key : &Keys) -> Vec<String>{
-
+pub async fn get_direct_messages(
+    client: &Client,
+    mostro_pubkey: XOnlyPublicKey,
+    my_key: &Keys,
+) -> Vec<String> {
     let since_time = chrono::Utc::now();
-
 
     let filters = SubscriptionFilter::new()
         .author(mostro_pubkey)
         .kind(Kind::EncryptedDirectMessage)
         .pubkey(my_key.public_key())
-        .since(since_time.checked_sub_signed(chrono::Duration::hours(1)).unwrap().timestamp() as u64);
-    
+        .since(
+            since_time
+                .checked_sub_signed(chrono::Duration::hours(1))
+                .unwrap()
+                .timestamp() as u64,
+        );
+
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
         filters.authors.as_ref().unwrap(),
@@ -190,35 +249,41 @@ pub async fn get_direct_messages(client : &Client, mostro_pubkey : XOnlyPublicKe
     let relays = client.relays().await;
 
     // Collector of mostro orders on a specific relay
-    let mut mostro_req: Vec<Vec<Event>> = vec![];
+    // let mut mostro_req: Vec<Vec<Event>> = vec![];
 
-    for relay in relays.iter() {
-        info!("Requesting to relay : {}", relay.0.as_str());
+    let mut mostro_req = Arc::new(Vec<Event>);
 
-        let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
+    // for relay in relays.iter() {
+    //     info!("Requesting to relay : {}", relay.0.as_str());
 
-        //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
-        if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
-            match rx {
-                Ok(m) => {
-                    if m.is_empty() {
-                        info!("No message found on relay {}", relay.0.to_string());
-                    } else {
-                        mostro_req.push(m)
-                    }
-                }
-                Err(_e) => println!("Error"),
-            }
-        } else {
-            println!("Timeout on request from {}", relay.0);
-        };
-    }
+    //     let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
 
-    let mut direct_messages : Vec<String> = Vec::new();
+    //     //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
+    //     if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
+    //         match rx {
+    //             Ok(m) => {
+    //                 if m.is_empty() {
+    //                     info!("No message found on relay {}", relay.0.to_string());
+    //                 } else {
+    //                     mostro_req.push(m)
+    //                 }
+    //             }
+    //             Err(_e) => println!("Error"),
+    //         }
+    //     } else {
+    //         println!("Timeout on request from {}", relay.0);
+    //     };
+    // }
 
-    for dms in mostro_req.iter(){
-        for dm in dms{
-            let message = decrypt(&my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
+    let mut direct_messages: Vec<String> = Vec::new();
+
+    for dms in mostro_req.iter() {
+        for dm in dms {
+            let message = decrypt(
+                &my_key.secret_key().unwrap(),
+                &dm.pubkey,
+                dm.content.clone(),
+            );
             direct_messages.push(message.unwrap());
         }
     }
@@ -275,7 +340,7 @@ pub async fn get_orders_list(
         };
     }
 
-        //Scan events to extract all orders
+    //Scan events to extract all orders
     for ordersrow in mostro_req.iter() {
         for ord in ordersrow {
             let order = Order::from_json(&ord.content);
@@ -323,124 +388,3 @@ pub async fn get_orders_list(
     Ok(orderslist)
 }
 
-pub fn print_message_list(dm_list : Vec<String>) -> Result<String>{
-        
-    let mut table = Table::new();
-
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(160)
-        .set_header(vec![Cell::new("Direct messages from Mostro")
-            .add_attribute(Attribute::Bold)
-            .fg(Color::Green)
-            .set_alignment(CellAlignment::Center)]);
-
-
-    //Table rows
-    let mut rows: Vec<Row> = Vec::new();
-
-    for dm in dm_list.iter() {        
-        let mut r : Row = Row::new();
-        r.add_cell(Cell::new(dm).set_alignment(CellAlignment::Center));
-        rows.push(r);
-    };
-
-    table.add_rows(rows);
-
-    Ok(table.to_string())
-
-    
-}
-
-pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
-    let mut table = Table::new();
-
-    //Table rows
-    let mut rows: Vec<Row> = Vec::new();
-
-    if orders_table.is_empty() {
-        table
-            .load_preset(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_width(160)
-            .set_header(vec![Cell::new("Sorry...")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center)]);
-
-        // Single row for error
-        let mut r = Row::new();
-
-        r.add_cell(
-            Cell::new("No offers found with requested parameters...")
-                .fg(Color::Red)
-                .set_alignment(CellAlignment::Center),
-        );
-
-        //Push single error row
-        rows.push(r);
-    } else {
-        table
-            .load_preset(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_width(160)
-            .set_header(vec![
-                Cell::new("Buy/Sell")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Order Id")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Status")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Amount")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Fiat Code")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Fiat Amount")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Payment method")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Created")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-            ]);
-
-        //Iterate to create table of orders
-        for single_order in orders_table.into_iter() {
-            let date =
-                NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap_or(0) as i64, 0);
-
-            let r = Row::from(vec![
-                // Cell::new(single_order.kind.to_string()),
-                match single_order.kind {
-                    crate::types::Kind::Buy => Cell::new(single_order.kind.to_string())
-                        .fg(Color::Green)
-                        .set_alignment(CellAlignment::Center),
-                    crate::types::Kind::Sell => Cell::new(single_order.kind.to_string())
-                        .fg(Color::Red)
-                        .set_alignment(CellAlignment::Center),
-                },
-                Cell::new(single_order.id.unwrap()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.status.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.fiat_amount.to_string())
-                    .set_alignment(CellAlignment::Center),
-                Cell::new(single_order.payment_method.to_string())
-                    .set_alignment(CellAlignment::Center),
-                Cell::new(date.unwrap()),
-            ]);
-            rows.push(r);
-        }
-    }
-
-    table.add_rows(rows);
-
-    Ok(table.to_string())
-}

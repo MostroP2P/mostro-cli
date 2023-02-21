@@ -8,8 +8,9 @@ pub mod types;
 pub mod util;
 pub mod lightning;
 pub mod error;
+pub mod pretty_table;
 
-use crate::util::{get_orders_list, print_orders_table, take_order_id, get_direct_messages,print_message_list};
+use util::*;
 use lightning::is_valid_invoice;
 
 #[tokio::main]
@@ -36,7 +37,6 @@ async fn main() -> Result<()> {
     // Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
 
-    // let mut ln_client = crate::lightning::LndConnector::new().await;
 
     match &cli.command {
         Some(cli::Commands::ListOrders {
