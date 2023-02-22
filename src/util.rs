@@ -9,11 +9,9 @@ use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
 use nostr_sdk::prelude::*;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
-use crate::pretty_table::{print_message_list,print_orders_table};
 
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
@@ -35,7 +33,7 @@ pub async fn send_dm(
     info!("Sending event: {event:#?}");
     // This will update relay send event to wait for tranmission.
     if let Some(_wait_mes) = wait_for_connection {
-        let opts = Options::new().wait_for_connection(true);
+        let opts = Options::new().wait_for_connection(false);
         client.update_opts(opts);
     }
     client.send_event(event).await?;
@@ -80,13 +78,10 @@ pub async fn connect_nostr() -> Result<Client> {
 
     // Add relays
     for r in relays.into_iter() {
-        let opts = Options::new().wait_for_connection(true).wait_for_send(true);
-        client.update_opts(opts);
         client.add_relay(r, None).await?;
     }
 
     // Connect to relays and keep connection alive
-
     client.connect().await;
 
     Ok(client)
@@ -123,56 +118,69 @@ pub async fn take_order_id(
             },
         ) = notification
         {
+            println!("Message correctly sent to Mostro! Check messages with get-dm command");
             break;
         }
     }
     Ok(())
 }
 
-pub async fn requests_relay(client : &Client, relay : (Url, Relay), filters: SubscriptionFilter, event_vector : Vec<Vec<Event>>) -> Result<()> {
-    
-    let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
+pub async fn requests_relay(
+    client: Client,
+    relay: (Url, Relay),
+    filters: SubscriptionFilter,
+) -> Vec<Event> {
+    let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], client);
 
-    //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
+    // Buffer vector
+    let mut res: Vec<Event> = Vec::new();
+
+    //Using a timeout of 3 seconds to avoid unresponsive relays to block the loop forever.
     if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
         match rx {
             Ok(m) => {
                 if m.is_empty() {
                     info!("No requested events found on relay {}", relay.0.to_string());
-                } else {
-                    mostro_req.push(m)
                 }
+                res = m
             }
             Err(_e) => println!("Error"),
         }
     } else {
         println!("Timeout on request from {}", relay.0);
     };
-    Ok(())
+    res
 }
 
-
-pub async fn send_relays_requests(client : &Client, filters: SubscriptionFilter, event_vector : Vec<Vec<Event>>) -> Result<()> {
-
+pub async fn send_relays_requests(client: &Client, filters: SubscriptionFilter) -> Vec<Vec<Event>> {
     let relays = client.relays().await;
+
+    let relays_requests = relays.len();
+    let mut requests: Vec<tokio::task::JoinHandle<Vec<Event>>> =
+        Vec::with_capacity(relays_requests);
+    let mut answers_requests = Vec::with_capacity(relays_requests);
 
     for relay in relays.into_iter() {
         info!("Requesting to relay : {}", relay.0.as_str());
-        let client_clone = client.clone();
-        let relay_clone = relay.clone();
-        let filter_clone = filters.clone();
-
-        tokio::spawn(async move {
-            requests_relay(&client_clone, relay_clone,  filter_clone, event_vector).await
-        });
+        // Spawn futures and join them at the end
+        requests.push(tokio::spawn(requests_relay(
+            client.clone(),
+            relay.clone(),
+            filters.clone(),
+        )));
     }
-    Ok(())
+
+    // Get answers from relay
+    for req in requests {
+        answers_requests.push(req.await.unwrap());
+    }
+    answers_requests
 }
 
 pub async fn get_events_of_mostro(
     relay: &Relay,
     filters: Vec<SubscriptionFilter>,
-    client: &Client,
+    client: Client,
 ) -> Result<Vec<Event>, Error> {
     let mut events: Vec<Event> = Vec::new();
 
@@ -187,10 +195,10 @@ pub async fn get_events_of_mostro(
 
     info!("Message sent : {:?}", msg);
 
-    //Send msg to relay
+    // Send msg to relay
     relay.send_msg(msg.clone(), false).await?;
 
-    // let mut notifications = rx.notifications();
+    // Wait notification from relays
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
@@ -226,7 +234,8 @@ pub async fn get_direct_messages(
     client: &Client,
     mostro_pubkey: XOnlyPublicKey,
     my_key: &Keys,
-) -> Vec<String> {
+    since: i64,
+) -> Vec<(String, String)> {
     let since_time = chrono::Utc::now();
 
     let filters = SubscriptionFilter::new()
@@ -235,7 +244,7 @@ pub async fn get_direct_messages(
         .pubkey(my_key.public_key())
         .since(
             since_time
-                .checked_sub_signed(chrono::Duration::hours(1))
+                .checked_sub_signed(chrono::Duration::minutes(since))
                 .unwrap()
                 .timestamp() as u64,
         );
@@ -246,45 +255,27 @@ pub async fn get_direct_messages(
         filters.kinds.as_ref().unwrap()
     );
 
-    let relays = client.relays().await;
+    // Send all requests to relays
+    let mostro_req = send_relays_requests(client, filters).await;
 
-    // Collector of mostro orders on a specific relay
-    // let mut mostro_req: Vec<Vec<Event>> = vec![];
+    // Buffer vector for direct messages
+    let mut direct_messages: Vec<(String, String)> = Vec::new();
 
-    let mut mostro_req = Arc::new(Vec<Event>);
-
-    // for relay in relays.iter() {
-    //     info!("Requesting to relay : {}", relay.0.as_str());
-
-    //     let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
-
-    //     //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
-    //     if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
-    //         match rx {
-    //             Ok(m) => {
-    //                 if m.is_empty() {
-    //                     info!("No message found on relay {}", relay.0.to_string());
-    //                 } else {
-    //                     mostro_req.push(m)
-    //                 }
-    //             }
-    //             Err(_e) => println!("Error"),
-    //         }
-    //     } else {
-    //         println!("Timeout on request from {}", relay.0);
-    //     };
-    // }
-
-    let mut direct_messages: Vec<String> = Vec::new();
+    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+    let mut idlist = Vec::<Sha256Hash>::new();
 
     for dms in mostro_req.iter() {
         for dm in dms {
-            let message = decrypt(
-                &my_key.secret_key().unwrap(),
-                &dm.pubkey,
-                dm.content.clone(),
-            );
-            direct_messages.push(message.unwrap());
+            if !idlist.contains(&dm.id) {
+                idlist.push(dm.id);
+                let date = NaiveDateTime::from_timestamp_opt(dm.created_at as i64, 0);
+                let message = decrypt(
+                    &my_key.secret_key().unwrap(),
+                    &dm.pubkey,
+                    dm.content.clone(),
+                );
+                direct_messages.push(((message.unwrap()), (date.unwrap().to_string())));
+            }
         }
     }
     direct_messages
@@ -307,38 +298,14 @@ pub async fn get_orders_list(
         filters.kinds.as_ref().unwrap()
     );
 
-    let relays = client.relays().await;
-
-    // Collector of mostro orders on a specific relay
-    let mut mostro_req: Vec<Vec<Event>> = vec![];
-
     // Extracted Orders List
     let mut orderslist = Vec::<Order>::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
     let mut idlist = Vec::<Uuid>::new();
 
-    for relay in relays.iter() {
-        info!("Requesting to relay : {}", relay.0.as_str());
-
-        let relrequest = get_events_of_mostro(relay.1, vec![filters.clone()], client);
-
-        //Using a timeout of 5 seconds to avoid unresponsive relays to block the loop forever.
-        if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
-            match rx {
-                Ok(m) => {
-                    if m.is_empty() {
-                        info!("No order found on relay {}", relay.0.to_string());
-                    } else {
-                        mostro_req.push(m)
-                    }
-                }
-                Err(_e) => println!("Error"),
-            }
-        } else {
-            println!("Timeout on request from {}", relay.0);
-        };
-    }
+    //Send all requests to relays
+    let mostro_req = send_relays_requests(client, filters).await;
 
     //Scan events to extract all orders
     for ordersrow in mostro_req.iter() {
@@ -387,4 +354,3 @@ pub async fn get_orders_list(
     }
     Ok(orderslist)
 }
-

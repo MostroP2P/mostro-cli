@@ -4,14 +4,15 @@ use nostr_sdk::prelude::*;
 use std::env::set_var;
 
 pub mod cli;
+pub mod error;
+pub mod lightning;
+pub mod pretty_table;
 pub mod types;
 pub mod util;
-pub mod lightning;
-pub mod error;
-pub mod pretty_table;
 
-use util::*;
 use lightning::is_valid_invoice;
+use pretty_table::*;
+use util::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,7 +28,7 @@ async fn main() -> Result<()> {
 
     // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
-    
+
     // My key
     let my_key = crate::util::get_keys()?;
 
@@ -36,7 +37,6 @@ async fn main() -> Result<()> {
 
     // Call function to connect to relays
     let client = crate::util::connect_nostr().await?;
-
 
     match &cli.command {
         Some(cli::Commands::ListOrders {
@@ -73,10 +73,7 @@ async fn main() -> Result<()> {
             println!("{table}");
             std::process::exit(0);
         }
-        Some(cli::Commands::TakeSell { 
-            order_id, 
-            invoice 
-        }) => {
+        Some(cli::Commands::TakeSell { order_id, invoice }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             println!(
@@ -87,23 +84,22 @@ async fn main() -> Result<()> {
 
             // Check invoice string
             let valid_invoice = is_valid_invoice(invoice);
-            match valid_invoice{
+            match valid_invoice {
                 Ok(_) => {
-                    take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?;                
+                    take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?;
                     std::process::exit(0);
-                },
-                Err(e) => println!("{}",e) 
+                }
+                Err(e) => println!("{}", e),
             }
-        },
-        Some(cli::Commands::GetDm) => {
+        }
+        Some(cli::Commands::GetDm { since }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
-            let dm = get_direct_messages(&client,mostro_key,&my_key).await;
+            let dm = get_direct_messages(&client, mostro_key, &my_key, *since).await;
             let mess = print_message_list(dm).unwrap();
             println!("{mess}");
-            std::process::exit(0);            
-                    
-        },
+            std::process::exit(0);
+        }
         None => {}
     };
 

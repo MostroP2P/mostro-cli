@@ -1,6 +1,5 @@
 use anyhow::{Ok, Result};
 use clap::ValueEnum;
-use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt;
@@ -112,9 +111,6 @@ impl Message {
             "action"   : action,
             "content"  : content,
         });
-
-        // Print info message
-        info!("Takesell message created : {}", msg);
 
         // Get message from Json value parse
         serde_json::from_value(msg).unwrap()

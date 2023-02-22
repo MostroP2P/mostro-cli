@@ -4,24 +4,30 @@ use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
-pub fn print_message_list(dm_list: Vec<String>) -> Result<String> {
+pub fn print_message_list(dm_list: Vec<(String, String)>) -> Result<String> {
     let mut table = Table::new();
 
     table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
-        .set_header(vec![Cell::new("Direct messages from Mostro")
-            .add_attribute(Attribute::Bold)
-            .fg(Color::Green)
-            .set_alignment(CellAlignment::Center)]);
+        .set_header(vec![
+            Cell::new("Direct messages from Mostro")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Green)
+                .set_alignment(CellAlignment::Left),
+            Cell::new("Created")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
 
     //Table rows
     let mut rows: Vec<Row> = Vec::new();
 
     for dm in dm_list.iter() {
         let mut r: Row = Row::new();
-        r.add_cell(Cell::new(dm).set_alignment(CellAlignment::Center));
+        r.add_cell(Cell::new(&dm.0).set_alignment(CellAlignment::Center));
+        r.add_cell(Cell::new(&dm.1).set_alignment(CellAlignment::Center));
         rows.push(r);
     }
 

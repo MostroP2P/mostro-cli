@@ -50,5 +50,10 @@ pub enum Commands {
         invoice: String,
     },
     /// Get the list of mostro direct message since the last hour - used to check order state.
-    GetDm,
+    GetDm {
+        // Since time of the messages in minutes
+        #[arg(short, long)]
+        #[clap(default_value_t = 30)]
+        since: i64,
+    },
 }
