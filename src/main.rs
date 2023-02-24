@@ -4,9 +4,15 @@ use nostr_sdk::prelude::*;
 use std::env::set_var;
 
 pub mod cli;
+pub mod error;
+pub mod lightning;
+pub mod pretty_table;
 pub mod types;
 pub mod util;
-use crate::util::{get_orders_list, print_orders_table};
+
+use lightning::is_valid_invoice;
+use pretty_table::*;
+use util::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,6 +28,10 @@ async fn main() -> Result<()> {
 
     // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+
+    // My key
+    let my_key = crate::util::get_keys()?;
+
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency = None;
 
@@ -63,8 +73,36 @@ async fn main() -> Result<()> {
             println!("{table}");
             std::process::exit(0);
         }
-        None => {}
-    }
+        Some(cli::Commands::TakeSell { order_id, invoice }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            println!(
+                "Request of take order {} from mostro pubId {}",
+                order_id,
+                mostro_key.clone()
+            );
+
+            // Check invoice string
+            let valid_invoice = is_valid_invoice(invoice);
+            match valid_invoice {
+                Ok(_) => {
+                    take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?;
+                    std::process::exit(0);
+                }
+                Err(e) => println!("{}", e),
+            }
+        }
+        Some(cli::Commands::GetDm { since }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+            let dm = get_direct_messages(&client, mostro_key, &my_key, *since).await;
+            let mess = print_message_list(dm).unwrap();
+            println!("{mess}");
+            std::process::exit(0);
+        }
+        None => {}
+    };
+
+    println!("Bye Bye!");
     Ok(())
 }

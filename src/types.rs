@@ -1,6 +1,7 @@
 use anyhow::{Ok, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::fmt;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -89,7 +90,7 @@ impl fmt::Display for Action {
 pub struct Message {
     pub version: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub order_id: Option<i64>,
+    pub order_id: Option<Uuid>,
     pub action: Action,
     pub content: Option<Content>,
 }
@@ -103,6 +104,18 @@ pub enum Content {
 
 #[allow(dead_code)]
 impl Message {
+    pub fn new(version: u8, order_id: Uuid, action: Action, content: Content) -> Self {
+        let msg = json!({
+            "version"  : version,
+            "order_id" : order_id,
+            "action"   : action,
+            "content"  : content,
+        });
+
+        // Get message from Json value parse
+        serde_json::from_value(msg).unwrap()
+    }
+
     /// New message from json string
     pub fn from_json(json: &str) -> Result<Self> {
         Ok(serde_json::from_str(json)?)
