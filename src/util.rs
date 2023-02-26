@@ -87,24 +87,16 @@ pub async fn connect_nostr() -> Result<Client> {
     Ok(client)
 }
 
-pub async fn take_order_id(
+pub async fn send_order_id_cmd(
     client: &Client,
     my_key: &Keys,
     mostro_pubkey: XOnlyPublicKey,
-    id: &Uuid,
-    invoice: &String,
+    message: String,
 ) -> Result<()> {
-    let takesell_message = Message::new(
-        0,
-        *id,
-        Action::TakeSell,
-        Content::PaymentRequest(invoice.to_string()),
-    )
-    .as_json()
-    .unwrap();
-
+    
+    
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, takesell_message, Some(true)).await?;
+    send_dm(client, my_key, &mostro_pubkey, message, Some(true)).await?;
 
     let mut notifications = client.notifications();
 

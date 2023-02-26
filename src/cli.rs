@@ -60,4 +60,11 @@ pub enum Commands {
         #[clap(default_value_t = 30)]
         since: i64,
     },
+    /// Send fiat sent message to confirm payment to other user
+    FiatSent
+    {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+    }
 }

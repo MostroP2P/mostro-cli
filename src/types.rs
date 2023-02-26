@@ -104,13 +104,21 @@ pub enum Content {
 
 #[allow(dead_code)]
 impl Message {
-    pub fn new(version: u8, order_id: Uuid, action: Action, content: Content) -> Self {
-        let msg = json!({
-            "version"  : version,
-            "order_id" : order_id,
-            "action"   : action,
-            "content"  : content,
-        });
+    pub fn new(version: u8, order_id: Uuid, action: Action, content: Option<Content>) -> Self {
+        if content.is_some() {
+            let msg = json!({
+                    "version"  : version,
+                    "order_id" : order_id,
+                    "action"   : action,
+                    "content"  : content,
+            })
+            else{
+                let msg = json!({
+                    "version"  : version,
+                    "order_id" : order_id,
+                    "action"   : action,
+                });
+        };
 
         // Get message from Json value parse
         serde_json::from_value(msg).unwrap()
