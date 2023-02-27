@@ -93,8 +93,6 @@ pub async fn send_order_id_cmd(
     mostro_pubkey: XOnlyPublicKey,
     message: String,
 ) -> Result<()> {
-    
-    
     // Send dm to mostro pub id
     send_dm(client, my_key, &mostro_pubkey, message, Some(true)).await?;
 
