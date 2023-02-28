@@ -100,7 +100,7 @@ pub async fn send_order_id_cmd(
             },
         ) = notification
         {
-            println!("Message correctly sent to Mostro! Check messages with get-dm command");
+            println!("Message correctly sent to Mostro! Check messages with getdm command");
             break;
         }
     }
