@@ -10,12 +10,12 @@ pub mod pretty_table;
 pub mod types;
 pub mod util;
 
+use crate::types::Action;
+use crate::types::Content;
+use crate::types::Message;
 use lightning::is_valid_invoice;
 use pretty_table::*;
 use util::*;
-use crate::types::Message;
-use crate::types::Content;
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
             // Create takesell message
             let takesell_message = Message::new(
                 0,
-                order_id,
+                *order_id,
                 Action::TakeSell,
                 Some(Content::PaymentRequest(invoice.to_string())),
             )
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
             println!("{mess}");
             std::process::exit(0);
         }
-        Some(cli::Commands::FiatSent { order_id }) =>{
+        Some(cli::Commands::FiatSent { order_id }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             println!(
@@ -123,23 +123,15 @@ async fn main() -> Result<()> {
                 mostro_key.clone()
             );
 
-            // Check invoice string
-            let valid_invoice = is_valid_invoice(invoice);
-
             // Create fiat sent message
-            let fiatsent_message = Message::new(
-                0,
-                order_id,
-                Action::FiatSent,
-                None,
-            )
-            .as_json()
-            .unwrap();
+            let fiatsent_message = Message::new(0, *order_id, Action::FiatSent, None)
+                .as_json()
+                .unwrap();
 
-            send_order_id_cmd(&client, &my_key, mostro_key, takesell_message).await?;
+            send_order_id_cmd(&client, &my_key, mostro_key, fiatsent_message).await?;
             std::process::exit(0);
-            }
         }
+
         None => {}
     };
 

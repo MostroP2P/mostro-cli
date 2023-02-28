@@ -61,10 +61,9 @@ pub enum Commands {
         since: i64,
     },
     /// Send fiat sent message to confirm payment to other user
-    FiatSent
-    {
+    FiatSent {
         /// Order id number
         #[arg(short, long)]
         order_id: Uuid,
-    }
+    },
 }
