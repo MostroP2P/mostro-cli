@@ -10,6 +10,9 @@ pub mod pretty_table;
 pub mod types;
 pub mod util;
 
+use crate::types::Action;
+use crate::types::Content;
+use crate::types::Message;
 use lightning::is_valid_invoice;
 use pretty_table::*;
 use util::*;
@@ -84,9 +87,20 @@ async fn main() -> Result<()> {
 
             // Check invoice string
             let valid_invoice = is_valid_invoice(invoice);
+
+            // Create takesell message
+            let takesell_message = Message::new(
+                0,
+                *order_id,
+                Action::TakeSell,
+                Some(Content::PaymentRequest(invoice.to_string())),
+            )
+            .as_json()
+            .unwrap();
+
             match valid_invoice {
                 Ok(_) => {
-                    take_order_id(&client, &my_key, mostro_key, order_id, invoice).await?;
+                    send_order_id_cmd(&client, &my_key, mostro_key, takesell_message).await?;
                     std::process::exit(0);
                 }
                 Err(e) => println!("{}", e),
@@ -100,6 +114,35 @@ async fn main() -> Result<()> {
             println!("{mess}");
             std::process::exit(0);
         }
+        Some(cli::Commands::FiatSent { order_id }) | Some(cli::Commands::Release { order_id }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+            // Get desised action based on command from CLI
+            let requested_action = match &cli.command {
+                Some(cli::Commands::FiatSent { order_id: _ }) => Action::FiatSent,
+                Some(cli::Commands::Release { order_id: _ }) => Action::Release,
+                _ => {
+                    println!("Not a valid command!");
+                    std::process::exit(0);
+                }
+            };
+
+            println!(
+                "Sending {} command for order {} to mostro pubId {}",
+                requested_action,
+                order_id,
+                mostro_key.clone()
+            );
+
+            // Create fiat sent message
+            let message = Message::new(0, *order_id, requested_action, None)
+                .as_json()
+                .unwrap();
+
+            send_order_id_cmd(&client, &my_key, mostro_key, message).await?;
+            std::process::exit(0);
+        }
+
         None => {}
     };
 

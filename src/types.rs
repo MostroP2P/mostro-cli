@@ -1,7 +1,6 @@
 use anyhow::{Ok, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::fmt;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -69,7 +68,7 @@ impl fmt::Display for Status {
 }
 
 /// Action is used to identify each message between Mostro and users
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 pub enum Action {
     Order,
     TakeSell,
@@ -92,6 +91,7 @@ pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order_id: Option<Uuid>,
     pub action: Action,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Content>,
 }
 
@@ -104,16 +104,13 @@ pub enum Content {
 
 #[allow(dead_code)]
 impl Message {
-    pub fn new(version: u8, order_id: Uuid, action: Action, content: Content) -> Self {
-        let msg = json!({
-            "version"  : version,
-            "order_id" : order_id,
-            "action"   : action,
-            "content"  : content,
-        });
-
-        // Get message from Json value parse
-        serde_json::from_value(msg).unwrap()
+    pub fn new(version: u8, order_id: Uuid, action: Action, content: Option<Content>) -> Self {
+        Self {
+            version,
+            order_id: Some(order_id),
+            action,
+            content,
+        }
     }
 
     /// New message from json string

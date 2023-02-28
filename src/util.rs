@@ -1,7 +1,4 @@
-use crate::types::Action;
-use crate::types::Content;
 use crate::types::Kind as Orderkind;
-use crate::types::Message;
 use crate::types::Order;
 use crate::types::Status;
 use anyhow::{Error, Result};
@@ -49,13 +46,10 @@ pub async fn connect_nostr() -> Result<Client> {
 
     let relays = vec![
         "wss://relay.nostr.vision",
-        "wss://nostr.itssilvestre.com",
-        "wss://nostr.drss.io",
         "wss://nostr.zebedee.cloud",
         "wss://public.nostr.swissrouting.com",
         "wss://nostr.slothy.win",
         "wss://nostr.rewardsbunny.com",
-        "wss://relay.nostropolis.xyz/websocket",
         "wss://nostr.supremestack.xyz",
         "wss://nostr.shawnyeager.net",
         "wss://relay.nostrmoto.xyz",
@@ -68,12 +62,10 @@ pub async fn connect_nostr() -> Result<Client> {
         "wss://nostr.bch.ninja",
         "wss://nostr.massmux.com",
         "wss://nostr-pub1.southflorida.ninja",
-        "wss://nostr.itssilvestre.com",
         "wss://relay.nostr.nu",
         "wss://nostr.easydns.ca",
-        "wss://no-str.org",
         "wss://nostrical.com",
-        "wss://student.chadpolytechnic.com",
+        "wss://relay.damus.io",
     ];
 
     // Add relays
@@ -87,24 +79,14 @@ pub async fn connect_nostr() -> Result<Client> {
     Ok(client)
 }
 
-pub async fn take_order_id(
+pub async fn send_order_id_cmd(
     client: &Client,
     my_key: &Keys,
     mostro_pubkey: XOnlyPublicKey,
-    id: &Uuid,
-    invoice: &String,
+    message: String,
 ) -> Result<()> {
-    let takesell_message = Message::new(
-        0,
-        *id,
-        Action::TakeSell,
-        Content::PaymentRequest(invoice.to_string()),
-    )
-    .as_json()
-    .unwrap();
-
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, takesell_message, Some(true)).await?;
+    send_dm(client, my_key, &mostro_pubkey, message, Some(true)).await?;
 
     let mut notifications = client.notifications();
 

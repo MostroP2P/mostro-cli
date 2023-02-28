@@ -29,6 +29,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[clap(rename_all = "lower")]
 pub enum Commands {
     /// Requests open orders from mostro pubkey
     ListOrders {
@@ -59,5 +60,17 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
+    },
+    /// Send fiat sent message to confirm payment to other user
+    FiatSent {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+    },
+    /// Settle the hold invoice and pay to buyer.
+    Release {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
     },
 }
