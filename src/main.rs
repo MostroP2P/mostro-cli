@@ -114,17 +114,25 @@ async fn main() -> Result<()> {
             println!("{mess}");
             std::process::exit(0);
         }
-        Some(cli::Commands::FiatSent { order_id }) => {
+        Some(cli::Commands::FiatSent { order_id }) | Some(cli::Commands::Release { order_id }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            // Get desised action based on command from CLI
+            let requested_action = match &cli.command {
+                Some(cli::Commands::FiatSent { order_id:_ }) => Action::FiatSent,
+                Some(cli::Commands::Release  { order_id:_ }) => Action::Release,
+                _ => { println!("Not a valid command!") ; std::process::exit(0);}
+            };
+
             println!(
-                "Sending Fiatsent c of take order {} from mostro pubId {}",
+                "Sending {} command for order {} to mostro pubId {}",
+                requested_action,
                 order_id,
                 mostro_key.clone()
             );
 
             // Create fiat sent message
-            let fiatsent_message = Message::new(0, *order_id, Action::FiatSent, None)
+            let fiatsent_message = Message::new(0, *order_id, requested_action , None)
                 .as_json()
                 .unwrap();
 
