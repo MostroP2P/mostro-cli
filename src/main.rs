@@ -119,9 +119,12 @@ async fn main() -> Result<()> {
 
             // Get desised action based on command from CLI
             let requested_action = match &cli.command {
-                Some(cli::Commands::FiatSent { order_id:_ }) => Action::FiatSent,
-                Some(cli::Commands::Release  { order_id:_ }) => Action::Release,
-                _ => { println!("Not a valid command!") ; std::process::exit(0);}
+                Some(cli::Commands::FiatSent { order_id: _ }) => Action::FiatSent,
+                Some(cli::Commands::Release { order_id: _ }) => Action::Release,
+                _ => {
+                    println!("Not a valid command!");
+                    std::process::exit(0);
+                }
             };
 
             println!(
@@ -132,11 +135,11 @@ async fn main() -> Result<()> {
             );
 
             // Create fiat sent message
-            let fiatsent_message = Message::new(0, *order_id, requested_action , None)
+            let message = Message::new(0, *order_id, requested_action, None)
                 .as_json()
                 .unwrap();
 
-            send_order_id_cmd(&client, &my_key, mostro_key, fiatsent_message).await?;
+            send_order_id_cmd(&client, &my_key, mostro_key, message).await?;
             std::process::exit(0);
         }
 
