@@ -132,23 +132,14 @@ impl Message {
                 }
                 matches!(&self.content, Some(Content::PaymentRequest(_)))
             }
-            Action::TakeBuy => {
-                todo!()
+            Action::TakeBuy | Action::FiatSent | Action::Release => {
+                if self.order_id.is_none() {
+                    return false;
+                }
+                true
             }
             Action::PayInvoice => {
                 todo!()
-            }
-            Action::FiatSent => {
-                if self.order_id.is_none() {
-                    return false;
-                }
-                true
-            }
-            Action::Release => {
-                if self.order_id.is_none() {
-                    return false;
-                }
-                true
             }
         }
     }
