@@ -45,7 +45,7 @@ pub enum Commands {
         #[arg(short, long)]
         kind_order: Option<Kind>,
     },
-    /// Take an order from a mostro pubkey
+    /// Take a sell order from a mostro pubkey
     TakeSell {
         /// Order id number
         #[arg(short, long)]
@@ -53,6 +53,12 @@ pub enum Commands {
         /// Invoice string
         #[arg(short, long)]
         invoice: String,
+    },
+    /// Take a buy order from a mostro pubkey
+    TakeBuy {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
     },
     /// Get the list of mostro direct message since the last hour - used to check order state.
     GetDm {

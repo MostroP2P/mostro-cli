@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             println!(
-                "Request of take order {} from mostro pubId {}",
+                "Request of take sell order {} from mostro pubId {}",
                 order_id,
                 mostro_key.clone()
             );
@@ -105,6 +105,23 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => println!("{}", e),
             }
+        }
+        Some(cli::Commands::TakeBuy { order_id }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+            println!(
+                "Request of take buy order {} from mostro pubId {}",
+                order_id,
+                mostro_key.clone()
+            );
+
+            // Create takebuy message
+            let takebuy_message = Message::new(0, *order_id, Action::TakeBuy, None)
+                .as_json()
+                .unwrap();
+
+            send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message).await?;
+            std::process::exit(0);
         }
         Some(cli::Commands::GetDm { since }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
