@@ -79,4 +79,31 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
+    /// Create a new buy/sell order on mostro
+    Neworder {
+        /// Choose an order kind
+        #[arg(value_enum)]
+        #[arg(short, long)]
+        #[clap(default_value = "sell")]
+        kind_order: Option<Kind>,
+        /// Currency selected
+        #[arg(short, long)]
+        fiat_code: String,
+        /// Sats amount
+        #[arg(short, long)]
+        amount: u32,
+        /// Fiat amount
+        #[arg(short = 'm', long)]
+        fiat_amount: u32,
+        /// Payment method
+        #[arg(short, long)]
+        payment_method: String,
+        /// Premium on price
+        #[arg(short = 'r', long)]
+        #[clap(default_value_t = 0)]
+        prime: i8,
+        /// Invoice string
+        #[arg(short, long)]
+        invoice: String,
+    },
 }
