@@ -13,6 +13,7 @@ pub mod util;
 use crate::types::Action;
 use crate::types::Content;
 use crate::types::Message;
+use crate::types::Order;
 use lightning::is_valid_invoice;
 use pretty_table::*;
 use util::*;
@@ -91,7 +92,7 @@ async fn main() -> Result<()> {
             // Create takesell message
             let takesell_message = Message::new(
                 0,
-                *order_id,
+                Some(*order_id),
                 Action::TakeSell,
                 Some(Content::PaymentRequest(invoice.to_string())),
             )
@@ -116,7 +117,7 @@ async fn main() -> Result<()> {
             );
 
             // Create takebuy message
-            let takebuy_message = Message::new(0, *order_id, Action::TakeBuy, None)
+            let takebuy_message = Message::new(0, Some(*order_id), Action::TakeBuy, None)
                 .as_json()
                 .unwrap();
 
@@ -152,14 +153,45 @@ async fn main() -> Result<()> {
             );
 
             // Create fiat sent message
-            let message = Message::new(0, *order_id, requested_action, None)
+            let message = Message::new(0, Some(*order_id), requested_action, None)
                 .as_json()
                 .unwrap();
 
             send_order_id_cmd(&client, &my_key, mostro_key, message).await?;
             std::process::exit(0);
         }
+        Some(cli::Commands::Neworder {
+            kind_order,
+            fiat_code,
+            amount,
+            fiat_amount,
+            payment_method,
+            prime,
+            invoice,
+        }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            let order_content = Content::Order(Order::new(
+                None,
+                kind_order.unwrap(),
+                types::Status::Pending,
+                *amount,
+                fiat_code.to_owned(),
+                *fiat_amount,
+                payment_method.to_owned(),
+                *prime,
+                Some(invoice.to_owned()),
+                None,
+            ));
+
+            // Create fiat sent message
+            let message = Message::new(0, None, Action::Order, Some(order_content))
+                .as_json()
+                .unwrap();
+
+            send_order_id_cmd(&client, &my_key, mostro_key, message).await?;
+            std::process::exit(0);
+        }
         None => {}
     };
 

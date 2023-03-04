@@ -104,10 +104,15 @@ pub enum Content {
 
 #[allow(dead_code)]
 impl Message {
-    pub fn new(version: u8, order_id: Uuid, action: Action, content: Option<Content>) -> Self {
+    pub fn new(
+        version: u8,
+        order_id: Option<Uuid>,
+        action: Action,
+        content: Option<Content>,
+    ) -> Self {
         Self {
             version,
-            order_id: Some(order_id),
+            order_id,
             action,
             content,
         }

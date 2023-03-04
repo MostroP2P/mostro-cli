@@ -30,7 +30,7 @@ pub async fn send_dm(
     info!("Sending event: {event:#?}");
     // This will update relay send event to wait for tranmission.
     if let Some(_wait_mes) = wait_for_connection {
-        let opts = Options::new().wait_for_connection(false);
+        let opts = Options::new().wait_for_send(true);
         client.update_opts(opts);
     }
     client.send_event(event).await?;
