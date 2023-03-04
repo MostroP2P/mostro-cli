@@ -47,7 +47,6 @@ pub async fn connect_nostr() -> Result<Client> {
     let relays = vec![
         "wss://relay.nostr.vision",
         "wss://nostr.zebedee.cloud",
-        "wss://public.nostr.swissrouting.com",
         "wss://nostr.slothy.win",
         "wss://nostr.rewardsbunny.com",
         "wss://nostr.supremestack.xyz",

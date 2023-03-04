@@ -31,7 +31,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 #[clap(rename_all = "lower")]
 pub enum Commands {
-    /// Requests open orders from mostro pubkey
+    /// Requests open orders from Mostro pubkey
     ListOrders {
         /// Status of the order
         #[arg(short, long)]
@@ -45,7 +45,33 @@ pub enum Commands {
         #[arg(short, long)]
         kind_order: Option<Kind>,
     },
-    /// Take a sell order from a mostro pubkey
+    /// Create a new buy/sell order on Mostro
+    Neworder {
+        /// Choose an order kind
+        #[arg(value_enum)]
+        #[arg(short, long)]
+        kind: Option<Kind>,
+        /// Sats amount
+        #[arg(short, long)]
+        amount: u32,
+        /// Currency selected
+        #[arg(short = 'c', long)]
+        fiat_code: String,
+        /// Fiat amount
+        #[arg(short, long)]
+        fiat_amount: u32,
+        /// Payment method
+        #[arg(short = 'm', long)]
+        payment_method: String,
+        /// Premium on price
+        #[arg(short, long)]
+        #[clap(default_value_t = 0)]
+        prime: i8,
+        /// Invoice string
+        #[arg(short, long)]
+        invoice: Option<String>,
+    },
+    /// Take a sell order from a Mostro pubkey
     TakeSell {
         /// Order id number
         #[arg(short, long)]
@@ -54,13 +80,13 @@ pub enum Commands {
         #[arg(short, long)]
         invoice: String,
     },
-    /// Take a buy order from a mostro pubkey
+    /// Take a buy order from a Mostro pubkey
     TakeBuy {
         /// Order id number
         #[arg(short, long)]
         order_id: Uuid,
     },
-    /// Get the list of mostro direct message since the last hour - used to check order state.
+    /// Get the list of Mostro direct messages since the last hour, used to check order state
     GetDm {
         /// Since time of the messages in minutes
         #[arg(short, long)]
@@ -78,32 +104,5 @@ pub enum Commands {
         /// Order id number
         #[arg(short, long)]
         order_id: Uuid,
-    },
-    /// Create a new buy/sell order on mostro
-    Neworder {
-        /// Choose an order kind
-        #[arg(value_enum)]
-        #[arg(short, long)]
-        #[clap(default_value = "sell")]
-        kind_order: Option<Kind>,
-        /// Currency selected
-        #[arg(short, long)]
-        fiat_code: String,
-        /// Sats amount
-        #[arg(short, long)]
-        amount: u32,
-        /// Fiat amount
-        #[arg(short = 'm', long)]
-        fiat_amount: u32,
-        /// Payment method
-        #[arg(short, long)]
-        payment_method: String,
-        /// Premium on price
-        #[arg(short = 'r', long)]
-        #[clap(default_value_t = 0)]
-        prime: i8,
-        /// Invoice string
-        #[arg(short, long)]
-        invoice: String,
     },
 }

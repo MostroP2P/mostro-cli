@@ -161,7 +161,7 @@ async fn main() -> Result<()> {
             std::process::exit(0);
         }
         Some(cli::Commands::Neworder {
-            kind_order,
+            kind,
             fiat_code,
             amount,
             fiat_amount,
@@ -173,14 +173,14 @@ async fn main() -> Result<()> {
 
             let order_content = Content::Order(Order::new(
                 None,
-                kind_order.unwrap(),
+                kind.unwrap(),
                 types::Status::Pending,
                 *amount,
                 fiat_code.to_owned(),
                 *fiat_amount,
                 payment_method.to_owned(),
                 *prime,
-                Some(invoice.to_owned()),
+                invoice.as_ref().to_owned().cloned(),
                 None,
             ));
 
