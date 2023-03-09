@@ -203,13 +203,17 @@ async fn main() -> Result<()> {
             let mut answer = stdin().lock();
             answer.read_line(&mut user_input)?;
 
-            match user_input.as_str() {
-                "Yes" => {}
-                _ => {
+            match user_input.as_str().trim_end() {
+                "Yes" => {},
+                "No"  => {
                     println!("Try again!");
                     std::process::exit(0);
+                },
+                &_  =>{
+                    println!("Can't get what you're sayin!");
+                    std::process::exit(0);
                 }
-            }
+            };
 
             // Create fiat sent message
             let message = Message::new(0, None, Action::Order, Some(order_content))
