@@ -71,6 +71,8 @@ pub async fn connect_nostr() -> Result<Client> {
     for r in relays.into_iter() {
         client.add_relay(r, None).await?;
     }
+    let opts = Options::new().wait_for_connection(true);
+    client.update_opts(opts);
 
     // Connect to relays and keep connection alive
     client.connect().await;

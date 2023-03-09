@@ -2,6 +2,7 @@ use clap::Parser;
 use dotenvy::{dotenv, var};
 use nostr_sdk::prelude::*;
 use std::env::set_var;
+use std::io::{stdin, BufRead};
 
 pub mod cli;
 pub mod error;
@@ -171,6 +172,14 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            // let mut yadio_API_exchange = String::from("https://api.yadio.io/exrates/");
+            // yadio_API_exchange.push_str(&fiat_code);
+
+            // //Request quotation in selected currency
+            // let yadio_ans = reqwest::blocking::get(yadio_API_exchange).unwrap().json()?;
+
+            // println!("{:?}",yadio_ans);
+
             let order_content = Content::Order(Order::new(
                 None,
                 kind.unwrap(),
@@ -183,6 +192,24 @@ async fn main() -> Result<()> {
                 invoice.as_ref().to_owned().cloned(),
                 None,
             ));
+
+            // Print order preview
+            let ord_preview = print_order_preview(order_content.clone()).unwrap();
+            println!("{ord_preview}");
+            let mut user_input = String::new();
+            let _input = stdin();
+            println!("Check your order! Is it correct? (Yes/No)");
+
+            let mut answer = stdin().lock();
+            answer.read_line(&mut user_input)?;
+
+            match user_input.as_str() {
+                "Yes" => {}
+                _ => {
+                    println!("Try again!");
+                    std::process::exit(0);
+                }
+            }
 
             // Create fiat sent message
             let message = Message::new(0, None, Action::Order, Some(order_content))

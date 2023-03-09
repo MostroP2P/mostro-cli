@@ -1,8 +1,67 @@
-use crate::types::Order;
+use crate::types::{Content, Order};
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
+
+pub fn print_order_preview(ord: Content) -> Result<String, String> {
+    let single_order = match ord {
+        Content::Order(o) => o,
+        _ => return Err("Error".to_string()),
+    };
+
+    let mut table = Table::new();
+
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(160)
+        .set_header(vec![
+            Cell::new("Buy/Sell")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Sats Amount")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Code")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Fiat Amount")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Payment method")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Premium %")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
+
+    //Table rows
+    let r = Row::from(vec![
+        match single_order.kind {
+            crate::types::Kind::Buy => Cell::new(single_order.kind.to_string())
+                .fg(Color::Green)
+                .set_alignment(CellAlignment::Center),
+            crate::types::Kind::Sell => Cell::new(single_order.kind.to_string())
+                .fg(Color::Red)
+                .set_alignment(CellAlignment::Center),
+        },
+        if single_order.amount.is_none() {
+            Cell::new("market price").set_alignment(CellAlignment::Center)
+        } else {
+            Cell::new(single_order.amount.unwrap()).set_alignment(CellAlignment::Center)
+        },
+        Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
+        Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+        Cell::new(single_order.payment_method.to_string()).set_alignment(CellAlignment::Center),
+        Cell::new(single_order.prime.to_string()).set_alignment(CellAlignment::Center),
+    ]);
+
+    table.add_row(r);
+
+    Ok(table.to_string())
+}
 
 pub fn print_message_list(dm_list: Vec<(String, String)>) -> Result<String> {
     let mut table = Table::new();
@@ -111,7 +170,8 @@ pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
                 },
                 Cell::new(single_order.id.unwrap()).set_alignment(CellAlignment::Center),
                 Cell::new(single_order.status.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center),
+                Cell::new(single_order.amount.unwrap().to_string())
+                    .set_alignment(CellAlignment::Center),
                 Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(single_order.fiat_amount.to_string())
                     .set_alignment(CellAlignment::Center),

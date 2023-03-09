@@ -3,6 +3,56 @@ use clap::{Parser, Subcommand};
 use crate::types::{Kind, Status};
 use uuid::Uuid;
 
+/// Check range simple version for just a single value
+fn check_fiat_range(s: &str) -> Result<u32, String> {
+    match s.parse::<u32>() {
+        Ok(val) => Ok(val),
+        Err(_e) => Err(String::from("Error on parsing sats value")),
+    }
+}
+
+// // Check range with two values value
+// fn check_fiat_range(s: &str) -> Result<String, String> {
+//     if s.contains('-') {
+
+//         let min : u32;
+//         let max : u32;
+
+//         // Get values from CLI
+//         let values : Vec<&str> = s.split('-').collect();
+
+//         // Check if more than two values
+//         if values.len() > 2 { return Err( String::from("Error")) };
+
+//         // Get ranged command
+//         if let Err(e) = values[0].parse::<u32>() {
+//             return Err(String::from("Error on parsing, check if you write a digit!"))
+//         } else {
+//             min = values[0].parse().unwrap();
+//         }
+
+//         if let Err(e) = values[1].parse::<u32>() {
+//             return Err(String::from("Error on parsing, check if you write a digit!"))
+//         } else {
+//             max = values[1].parse().unwrap();
+//         }
+
+//         // Check min below max
+//         if min >= max { return Err( String::from("Range of values must be 100-200 for example...")) };
+
+//         println!("{},{}",min,max);
+
+//         Ok(s.to_string())
+//     }
+//     else{
+//        match s.parse::<u32>(){
+//             Ok(_) =>  Ok(s.to_string()),
+//             Err(e) => Err(String::from("Error on parsing sats value")),
+//        }
+//     }
+
+// }
+
 #[derive(Parser)]
 #[command(
     name = "mostro-cli",
@@ -51,14 +101,15 @@ pub enum Commands {
         #[arg(value_enum)]
         #[arg(short, long)]
         kind: Option<Kind>,
-        /// Sats amount
+        /// Sats amount - leave empty for market price
         #[arg(short, long)]
-        amount: u32,
+        amount: Option<u32>,
         /// Currency selected
         #[arg(short = 'c', long)]
         fiat_code: String,
         /// Fiat amount
         #[arg(short, long)]
+        #[clap(value_parser=check_fiat_range)]
         fiat_amount: u32,
         /// Payment method
         #[arg(short = 'm', long)]
