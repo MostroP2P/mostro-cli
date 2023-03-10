@@ -2,6 +2,7 @@ use clap::Parser;
 use dotenvy::{dotenv, var};
 use nostr_sdk::prelude::*;
 use std::env::set_var;
+use std::io::{stdin, stdout, BufRead, Write};
 
 pub mod cli;
 pub mod error;
@@ -171,6 +172,7 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
+            // Create new order for mostro
             let order_content = Content::Order(Order::new(
                 None,
                 kind.unwrap(),
@@ -183,6 +185,29 @@ async fn main() -> Result<()> {
                 invoice.as_ref().to_owned().cloned(),
                 None,
             ));
+
+            // Print order preview
+            let ord_preview = print_order_preview(order_content.clone()).unwrap();
+            println!("{ord_preview}");
+            let mut user_input = String::new();
+            let _input = stdin();
+            print!("Check your order! Is it correct? (Y/n) > ");
+            stdout().flush()?;
+
+            let mut answer = stdin().lock();
+            answer.read_line(&mut user_input)?;
+
+            match user_input.to_lowercase().as_str().trim_end() {
+                "y" | "" => {}
+                "n" => {
+                    println!("Ok you have cancelled the order, create another one please");
+                    std::process::exit(0);
+                }
+                &_ => {
+                    println!("Can't get what you're sayin!");
+                    std::process::exit(0);
+                }
+            };
 
             // Create fiat sent message
             let message = Message::new(0, None, Action::Order, Some(order_content))

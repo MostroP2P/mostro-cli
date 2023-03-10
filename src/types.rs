@@ -96,7 +96,7 @@ pub struct Message {
 }
 
 /// Message content
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum Content {
     Order(Order),
     PaymentRequest(String),
@@ -171,13 +171,13 @@ impl Message {
 }
 
 /// Mostro Order
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Order {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Uuid>,
     pub kind: Kind,
     pub status: Status,
-    pub amount: u32,
+    pub amount: Option<u32>,
     pub fiat_code: String,
     pub fiat_amount: u32,
     pub payment_method: String,
@@ -195,7 +195,7 @@ impl Order {
         id: Option<Uuid>,
         kind: Kind,
         status: Status,
-        amount: u32,
+        amount: Option<u32>,
         fiat_code: String,
         fiat_amount: u32,
         payment_method: String,

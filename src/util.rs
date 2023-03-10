@@ -71,6 +71,8 @@ pub async fn connect_nostr() -> Result<Client> {
     for r in relays.into_iter() {
         client.add_relay(r, None).await?;
     }
+    let opts = Options::new().wait_for_connection(true);
+    client.update_opts(opts);
 
     // Connect to relays and keep connection alive
     client.connect().await;
@@ -99,7 +101,9 @@ pub async fn send_order_id_cmd(
             },
         ) = notification
         {
-            println!("Message correctly sent to Mostro! Check messages with getdm command");
+            println!(
+                "Message correctly sent to Mostro! Check messages with getdm or listorders command"
+            );
             break;
         }
     }
