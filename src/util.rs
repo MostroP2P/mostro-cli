@@ -101,7 +101,9 @@ pub async fn send_order_id_cmd(
             },
         ) = notification
         {
-            println!("Message correctly sent to Mostro! Check messages with getdm or listorders command");
+            println!(
+                "Message correctly sent to Mostro! Check messages with getdm or listorders command"
+            );
             break;
         }
     }

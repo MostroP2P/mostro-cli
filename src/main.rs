@@ -2,7 +2,7 @@ use clap::Parser;
 use dotenvy::{dotenv, var};
 use nostr_sdk::prelude::*;
 use std::env::set_var;
-use std::io::{stdin, BufRead};
+use std::io::{stdin, stdout, BufRead, Write};
 
 pub mod cli;
 pub mod error;
@@ -172,14 +172,7 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
-            // let mut yadio_API_exchange = String::from("https://api.yadio.io/exrates/");
-            // yadio_API_exchange.push_str(&fiat_code);
-
-            // //Request quotation in selected currency
-            // let yadio_ans = reqwest::blocking::get(yadio_API_exchange).unwrap().json()?;
-
-            // println!("{:?}",yadio_ans);
-
+            // Create new order for mostro
             let order_content = Content::Order(Order::new(
                 None,
                 kind.unwrap(),
@@ -198,18 +191,19 @@ async fn main() -> Result<()> {
             println!("{ord_preview}");
             let mut user_input = String::new();
             let _input = stdin();
-            println!("Check your order! Is it correct? (Yes/No)");
+            print!("Check your order! Is it correct? (Y/n) > ");
+            stdout().flush()?;
 
             let mut answer = stdin().lock();
             answer.read_line(&mut user_input)?;
 
-            match user_input.as_str().trim_end() {
-                "Yes" => {},
-                "No"  => {
-                    println!("Try again!");
+            match user_input.to_lowercase().as_str().trim_end() {
+                "y" | "" => {}
+                "n" => {
+                    println!("Ok you have cancelled the order, create another one please");
                     std::process::exit(0);
-                },
-                &_  =>{
+                }
+                &_ => {
                     println!("Can't get what you're sayin!");
                     std::process::exit(0);
                 }
