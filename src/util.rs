@@ -108,7 +108,7 @@ pub async fn send_order_id_cmd(
                                 ord.id.unwrap()
                             );
                             println!();
-                            println!("Copy this string -->  {}", inv);
+                            println!("Pay this invoice -->  {}", inv);
                             println!();println!();
                         }
                     }
