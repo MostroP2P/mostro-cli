@@ -109,12 +109,13 @@ pub async fn send_order_id_cmd(
                             );
                             println!();
                             println!("Copy this string -->  {}", inv);
-                            println!();
-                            println!();
+                            println!();println!();
                         }
                     }
                     Err(_) => {
+                        println!("NEW MESSAGE:");
                         println!("Mostro sent you this message -->  {}", el.0);
+                        println!();println!();
                     }
                 }
             }
