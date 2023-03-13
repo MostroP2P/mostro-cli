@@ -108,14 +108,15 @@ pub async fn send_order_id_cmd(
                                 ord.id.unwrap()
                             );
                             println!();
-                            println!("Pay this invoice -->  {}", inv);
-                            println!();println!();
+                            println!("Pay this invoice to continue -->  {}", inv);
+                            println!();
                         }
                     }
                     Err(_) => {
                         println!("NEW MESSAGE:");
+                        println!();
                         println!("Mostro sent you this message -->  {}", el.0);
-                        println!();println!();
+                        println!();
                     }
                 }
             }
@@ -148,7 +149,7 @@ pub async fn requests_relay(
     // Buffer vector
     let mut res: Vec<Event> = Vec::new();
 
-    //Using a timeout of 3 seconds to avoid unresponsive relays to block the loop forever.
+    // Using a timeout of 3 seconds to avoid unresponsive relays to block the loop forever.
     if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
         match rx {
             Ok(m) => {
@@ -159,9 +160,8 @@ pub async fn requests_relay(
             }
             Err(_e) => println!("Error"),
         }
-    } else {
-        println!("Timeout on request from {}", relay.0);
-    };
+    }
+
     res
 }
 
