@@ -198,7 +198,7 @@ async fn main() -> Result<()> {
             // Create new order for mostro
             let order_content = Content::Order(Order::new(
                 None,
-                kind.unwrap(),
+                *kind,
                 types::Status::Pending,
                 *amount,
                 fiat_code.to_owned(),

@@ -100,7 +100,7 @@ pub enum Commands {
         /// Choose an order kind
         #[arg(value_enum)]
         #[arg(short, long)]
-        kind: Option<Kind>,
+        kind: Kind,
         /// Sats amount - leave empty for market price
         #[arg(short, long)]
         amount: Option<u32>,
