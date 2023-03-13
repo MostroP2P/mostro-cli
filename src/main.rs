@@ -29,8 +29,6 @@ async fn main() -> Result<()> {
         set_var("RUST_LOG", "info");
     }
 
-    pretty_env_logger::init();
-
     // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
 
