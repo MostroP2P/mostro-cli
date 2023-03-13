@@ -100,6 +100,7 @@ pub struct Message {
 pub enum Content {
     Order(Order),
     PaymentRequest(String),
+    PayHoldInvoice(Order, String),
 }
 
 #[allow(dead_code)]

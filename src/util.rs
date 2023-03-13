@@ -1,4 +1,6 @@
+use crate::types::Content;
 use crate::types::Kind as Orderkind;
+use crate::types::Message;
 use crate::types::Order;
 use crate::types::Status;
 use anyhow::{Error, Result};
@@ -30,7 +32,7 @@ pub async fn send_dm(
     info!("Sending event: {event:#?}");
     // This will update relay send event to wait for tranmission.
     if let Some(_wait_mes) = wait_for_connection {
-        let opts = Options::new().wait_for_send(true);
+        let opts = Options::new().wait_for_send(false);
         client.update_opts(opts);
     }
     client.send_event(event).await?;
@@ -85,14 +87,40 @@ pub async fn send_order_id_cmd(
     my_key: &Keys,
     mostro_pubkey: XOnlyPublicKey,
     message: String,
+    wait_for_dm_ans: bool,
 ) -> Result<()> {
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, message, Some(true)).await?;
+    send_dm(client, my_key, &mostro_pubkey, message, Some(false)).await?;
 
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotification::Message(
+        if wait_for_dm_ans {
+            let dm = get_direct_messages(client, mostro_pubkey, my_key, 1).await;
+
+            for el in dm.iter() {
+                match Message::from_json(&el.0) {
+                    Ok(m) => {
+                        if let Some(Content::PayHoldInvoice(ord, inv)) = m.content {
+                            println!("NEW MESSAGE:");
+                            println!(
+                                "Mostro sent you this hold invoice for order id: {}",
+                                ord.id.unwrap()
+                            );
+                            println!();
+                            println!("Pay this invoice -->  {}", inv);
+                            println!();println!();
+                        }
+                    }
+                    Err(_) => {
+                        println!("NEW MESSAGE:");
+                        println!("Mostro sent you this message -->  {}", el.0);
+                        println!();println!();
+                    }
+                }
+            }
+            break;
+        } else if let RelayPoolNotification::Message(
             _,
             RelayMessage::Ok {
                 event_id: _,

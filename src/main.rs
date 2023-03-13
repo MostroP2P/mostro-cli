@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
 
             match valid_invoice {
                 Ok(_) => {
-                    send_order_id_cmd(&client, &my_key, mostro_key, takesell_message).await?;
+                    send_order_id_cmd(&client, &my_key, mostro_key, takesell_message, true).await?;
                     std::process::exit(0);
                 }
                 Err(e) => println!("{}", e),
@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
                 .as_json()
                 .unwrap();
 
-            send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message).await?;
+            send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message, false).await?;
             std::process::exit(0);
         }
         Some(cli::Commands::GetDm { since }) => {
@@ -158,7 +158,7 @@ async fn main() -> Result<()> {
                 .as_json()
                 .unwrap();
 
-            send_order_id_cmd(&client, &my_key, mostro_key, message).await?;
+            send_order_id_cmd(&client, &my_key, mostro_key, message, false).await?;
             std::process::exit(0);
         }
         Some(cli::Commands::Neworder {
@@ -214,7 +214,7 @@ async fn main() -> Result<()> {
                 .as_json()
                 .unwrap();
 
-            send_order_id_cmd(&client, &my_key, mostro_key, message).await?;
+            send_order_id_cmd(&client, &my_key, mostro_key, message, false).await?;
             std::process::exit(0);
         }
         None => {}
