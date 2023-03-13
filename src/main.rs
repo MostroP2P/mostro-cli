@@ -127,24 +127,30 @@ async fn main() -> Result<()> {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             let dm = get_direct_messages(&client, mostro_key, &my_key, *since).await;
-            for el in dm.iter() {
-                match Message::from_json(&el.0) {
-                    Ok(m) => {
-                        if let Some(Content::PayHoldInvoice(ord, inv)) = m.content {
-                            println!(
-                                "Mostro sent you this hold invoice for order id: {}",
-                                ord.id.unwrap()
-                            );
+            if dm.is_empty() {
+                println!();
+                println!("No new messages from Mostro");
+                println!();
+            } else {
+                for el in dm.iter() {
+                    match Message::from_json(&el.0) {
+                        Ok(m) => {
+                            if let Some(Content::PayHoldInvoice(ord, inv)) = m.content {
+                                println!(
+                                    "Mostro sent you this hold invoice for order id: {}",
+                                    ord.id.unwrap()
+                                );
+                                println!();
+                                println!("Pay this invoice to continue -->  {}", inv);
+                                println!();
+                            }
+                        }
+                        Err(_) => {
+                            println!("Mostro sent you this message:");
                             println!();
-                            println!("Pay this invoice to continue -->  {}", inv);
+                            println!("{}", el.0);
                             println!();
                         }
-                    }
-                    Err(_) => {
-                        println!("Mostro sent you this message:");
-                        println!();
-                        println!("{}", el.0);
-                        println!();
                     }
                 }
             }
