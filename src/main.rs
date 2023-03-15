@@ -17,8 +17,8 @@ use crate::types::Message;
 use crate::types::Order;
 use lightning::is_valid_invoice;
 use pretty_table::*;
-use util::*;
 use std::collections::HashMap;
+use util::*;
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -200,15 +200,18 @@ async fn main() -> Result<()> {
 
             // Check if fiat currency selected is available on Yadio and eventually force user to set amount
             // this is in the case of crypto <--> crypto offer for example
-            if amount.is_none() 
-            {
+            if *amount == 0 {
                 // Get Fiat list
                 let api_req_string = "https://api.yadio.io/currencies".to_string();
-                let fiat_list_check = reqwest::get(api_req_string).await?.json::<FiatNames>().await?.contains_key(fiat_code);
+                let fiat_list_check = reqwest::get(api_req_string)
+                    .await?
+                    .json::<FiatNames>()
+                    .await?
+                    .contains_key(fiat_code);
                 if !fiat_list_check {
                     println!("{} is not present in the fiat market, please specify an amount with -a flag to fix the rate", fiat_code);
                     std::process::exit(0);
-                }   
+                }
             }
 
             // Create new order for mostro

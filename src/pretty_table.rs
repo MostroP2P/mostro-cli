@@ -47,10 +47,10 @@ pub fn print_order_preview(ord: Content) -> Result<String, String> {
                 .fg(Color::Red)
                 .set_alignment(CellAlignment::Center),
         },
-        if single_order.amount.is_none() {
+        if single_order.amount == 0 {
             Cell::new("market price").set_alignment(CellAlignment::Center)
         } else {
-            Cell::new(single_order.amount.unwrap()).set_alignment(CellAlignment::Center)
+            Cell::new(single_order.amount).set_alignment(CellAlignment::Center)
         },
         Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
         Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
@@ -138,8 +138,11 @@ pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
                 },
                 Cell::new(single_order.id.unwrap()).set_alignment(CellAlignment::Center),
                 Cell::new(single_order.status.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.amount.unwrap().to_string())
-                    .set_alignment(CellAlignment::Center),
+                if single_order.amount == 0 {
+                    Cell::new("market price").set_alignment(CellAlignment::Center)
+                } else {
+                    Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center)
+                },
                 Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(single_order.fiat_amount.to_string())
                     .set_alignment(CellAlignment::Center),
