@@ -103,7 +103,8 @@ pub enum Commands {
         kind: Kind,
         /// Sats amount - leave empty for market price
         #[arg(short, long)]
-        amount: Option<u32>,
+        #[clap(default_value_t = 0)]
+        amount: u32,
         /// Currency selected
         #[arg(short = 'c', long)]
         fiat_code: String,
