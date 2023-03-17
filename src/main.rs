@@ -194,7 +194,8 @@ async fn main() -> Result<()> {
             invoice,
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
-
+            // Uppercase currency
+            let fiat_code = fiat_code.to_uppercase();
             // Check if fiat currency selected is available on Yadio and eventually force user to set amount
             // this is in the case of crypto <--> crypto offer for example
             if *amount == 0 {
@@ -204,7 +205,7 @@ async fn main() -> Result<()> {
                     .await?
                     .json::<FiatNames>()
                     .await?
-                    .contains_key(fiat_code);
+                    .contains_key(&fiat_code);
                 if !fiat_list_check {
                     println!("{} is not present in the fiat market, please specify an amount with -a flag to fix the rate", fiat_code);
                     std::process::exit(0);
@@ -217,7 +218,7 @@ async fn main() -> Result<()> {
                 *kind,
                 types::Status::Pending,
                 *amount,
-                fiat_code.to_owned(),
+                fiat_code,
                 *fiat_amount,
                 payment_method.to_owned(),
                 *prime,
