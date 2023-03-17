@@ -130,7 +130,7 @@ pub enum Commands {
         order_id: Uuid,
         /// Invoice string
         #[arg(short, long)]
-        invoice: String,
+        invoice: Option<String>,
     },
     /// Take a buy order from a Mostro pubkey
     TakeBuy {

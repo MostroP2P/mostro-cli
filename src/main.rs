@@ -87,27 +87,24 @@ async fn main() -> Result<()> {
                 order_id,
                 mostro_key.clone()
             );
+            let mut content = None;
 
-            // Check invoice string
-            let valid_invoice = is_valid_invoice(invoice);
+            if invoice.is_some() {
+                // Check invoice string
+                let valid_invoice = is_valid_invoice(invoice.as_ref().unwrap());
+                match valid_invoice {
+                    Ok(i) => content = Some(Content::PaymentRequest(i.to_string())),
+                    Err(e) => println!("{}", e),
+                }
+            }
 
             // Create takesell message
-            let takesell_message = Message::new(
-                0,
-                Some(*order_id),
-                Action::TakeSell,
-                Some(Content::PaymentRequest(invoice.to_string())),
-            )
-            .as_json()
-            .unwrap();
+            let takesell_message = Message::new(0, Some(*order_id), Action::TakeSell, content)
+                .as_json()
+                .unwrap();
 
-            match valid_invoice {
-                Ok(_) => {
-                    send_order_id_cmd(&client, &my_key, mostro_key, takesell_message, true).await?;
-                    std::process::exit(0);
-                }
-                Err(e) => println!("{}", e),
-            }
+            send_order_id_cmd(&client, &my_key, mostro_key, takesell_message, true).await?;
+            std::process::exit(0);
         }
         Some(cli::Commands::TakeBuy { order_id }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
