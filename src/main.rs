@@ -46,9 +46,9 @@ async fn main() -> Result<()> {
 
     match &cli.command {
         Some(cli::Commands::ListOrders {
-            order_status,
+            status,
             currency,
-            kind_order,
+            kind,
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
@@ -61,17 +61,14 @@ async fn main() -> Result<()> {
                 "Requesting orders from mostro pubId - {}",
                 mostro_key.clone()
             );
-            println!(
-                "You are searching {:?} orders",
-                order_status.unwrap().clone()
-            );
+            println!("You are searching {:?} orders", status.unwrap().clone());
 
             //Get orders from relays
             let table_of_orders = get_orders_list(
                 mostro_key,
-                order_status.to_owned(),
+                status.to_owned(),
                 upper_currency.clone(),
-                *kind_order,
+                *kind,
                 &client,
             )
             .await?;

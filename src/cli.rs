@@ -86,14 +86,14 @@ pub enum Commands {
         /// Status of the order
         #[arg(short, long)]
         #[clap(default_value = "pending")]
-        order_status: Option<Status>,
+        status: Option<Status>,
         /// Currency selected
         #[arg(short, long)]
         currency: Option<String>,
         /// Choose an order kind
         #[arg(value_enum)]
         #[arg(short, long)]
-        kind_order: Option<Kind>,
+        kind: Option<Kind>,
     },
     /// Create a new buy/sell order on Mostro
     Neworder {
