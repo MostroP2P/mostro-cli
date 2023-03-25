@@ -76,6 +76,7 @@ pub enum Action {
     PayInvoice,
     FiatSent,
     Release,
+    Cancel,
 }
 
 impl fmt::Display for Action {
@@ -138,7 +139,7 @@ impl Message {
                 }
                 matches!(&self.content, Some(Content::PaymentRequest(_)))
             }
-            Action::TakeBuy | Action::FiatSent | Action::Release => {
+            Action::TakeBuy | Action::FiatSent | Action::Release | Action::Cancel => {
                 if self.order_id.is_none() {
                     return false;
                 }

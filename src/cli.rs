@@ -157,4 +157,10 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
+    /// Cancel a pending order
+    Cancel {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+    },
 }
