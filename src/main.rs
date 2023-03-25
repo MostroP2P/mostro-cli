@@ -153,13 +153,16 @@ async fn main() -> Result<()> {
             }
             std::process::exit(0);
         }
-        Some(cli::Commands::FiatSent { order_id }) | Some(cli::Commands::Release { order_id }) => {
+        Some(cli::Commands::FiatSent { order_id })
+        | Some(cli::Commands::Release { order_id })
+        | Some(cli::Commands::Cancel { order_id }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
             // Get desised action based on command from CLI
             let requested_action = match &cli.command {
                 Some(cli::Commands::FiatSent { order_id: _ }) => Action::FiatSent,
                 Some(cli::Commands::Release { order_id: _ }) => Action::Release,
+                Some(cli::Commands::Cancel { order_id: _ }) => Action::Cancel,
                 _ => {
                     println!("Not a valid command!");
                     std::process::exit(0);
