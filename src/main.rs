@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
                 .as_json()
                 .unwrap();
 
-            send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message, false).await?;
+            send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message, true).await?;
             std::process::exit(0);
         }
         Some(cli::Commands::GetDm { since }) => {
