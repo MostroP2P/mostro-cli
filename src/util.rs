@@ -80,11 +80,11 @@ pub async fn send_order_id_cmd(
             for el in dm.iter() {
                 match Message::from_json(&el.0) {
                     Ok(m) => {
-                        if let Some(Content::PayHoldInvoice(ord, inv)) = m.content {
+                        if let Some(Content::PaymentRequest(ord, inv)) = m.content {
                             println!("NEW MESSAGE:");
                             println!(
                                 "Mostro sent you this hold invoice for order id: {}",
-                                ord.id.unwrap()
+                                ord.unwrap().id.unwrap()
                             );
                             println!();
                             println!("Pay this invoice to continue -->  {}", inv);

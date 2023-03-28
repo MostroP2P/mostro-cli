@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
                 // Check invoice string
                 let valid_invoice = is_valid_invoice(invoice.as_ref().unwrap());
                 match valid_invoice {
-                    Ok(i) => content = Some(Content::PaymentRequest(i.to_string())),
+                    Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string())),
                     Err(e) => println!("{}", e),
                 }
             }
@@ -132,10 +132,10 @@ async fn main() -> Result<()> {
                 for el in dm.iter() {
                     match Message::from_json(&el.0) {
                         Ok(m) => {
-                            if let Some(Content::PayHoldInvoice(ord, inv)) = m.content {
+                            if let Some(Content::PaymentRequest(ord, inv)) = m.content {
                                 println!(
                                     "Mostro sent you this hold invoice for order id: {}",
-                                    ord.id.unwrap()
+                                    ord.unwrap().id.unwrap()
                                 );
                                 println!();
                                 println!("Pay this invoice to continue -->  {}", inv);
