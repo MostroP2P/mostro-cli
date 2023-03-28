@@ -1,4 +1,5 @@
-use crate::types::{Content, Order};
+use mostro_core::{Content,Kind};
+use mostro_core::order::Order;
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
@@ -40,10 +41,10 @@ pub fn print_order_preview(ord: Content) -> Result<String, String> {
     //Table rows
     let r = Row::from(vec![
         match single_order.kind {
-            crate::types::Kind::Buy => Cell::new(single_order.kind.to_string())
+            Kind::Buy => Cell::new(single_order.kind.to_string())
                 .fg(Color::Green)
                 .set_alignment(CellAlignment::Center),
-            crate::types::Kind::Sell => Cell::new(single_order.kind.to_string())
+            Kind::Sell => Cell::new(single_order.kind.to_string())
                 .fg(Color::Red)
                 .set_alignment(CellAlignment::Center),
         },
@@ -129,10 +130,10 @@ pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
             let r = Row::from(vec![
                 // Cell::new(single_order.kind.to_string()),
                 match single_order.kind {
-                    crate::types::Kind::Buy => Cell::new(single_order.kind.to_string())
+                    Kind::Buy => Cell::new(single_order.kind.to_string())
                         .fg(Color::Green)
                         .set_alignment(CellAlignment::Center),
-                    crate::types::Kind::Sell => Cell::new(single_order.kind.to_string())
+                    Kind::Sell => Cell::new(single_order.kind.to_string())
                         .fg(Color::Red)
                         .set_alignment(CellAlignment::Center),
                 },

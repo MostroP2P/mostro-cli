@@ -8,13 +8,9 @@ pub mod cli;
 pub mod error;
 pub mod lightning;
 pub mod pretty_table;
-pub mod types;
 pub mod util;
 
-use crate::types::Action;
-use crate::types::Content;
-use crate::types::Message;
-use crate::types::Order;
+use mostro_core::{*, order::Order};
 use lightning::is_valid_invoice;
 use pretty_table::*;
 use std::collections::HashMap;
@@ -216,7 +212,7 @@ async fn main() -> Result<()> {
             let order_content = Content::Order(Order::new(
                 None,
                 *kind,
-                types::Status::Pending,
+                Status::Pending,
                 *amount,
                 fiat_code,
                 *fiat_amount,

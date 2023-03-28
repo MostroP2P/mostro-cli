@@ -1,8 +1,4 @@
-use crate::types::Content;
-use crate::types::Kind as Orderkind;
-use crate::types::Message;
-use crate::types::Order;
-use crate::types::Status;
+use mostro_core::{*, order::Order};
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use dotenvy::var;
@@ -277,7 +273,7 @@ pub async fn get_orders_list(
     pubkey: XOnlyPublicKey,
     status: Option<Status>,
     currency: Option<String>,
-    kind: Option<Orderkind>,
+    kind: Option<Order>,
     client: &Client,
 ) -> Result<Vec<Order>> {
     let filters = SubscriptionFilter::new()

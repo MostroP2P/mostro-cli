@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::types::{Kind, Status};
+use mostro_core::{Kind, Status};
 use uuid::Uuid;
 
 /// Check range simple version for just a single value
