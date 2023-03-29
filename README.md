@@ -1,4 +1,6 @@
-# Mostro CLI
+# Mostro CLI 🧌
+
+![Mostro-logo](static/logo.png)
 
 Very simple command line interface that show all new replaceable events from [Mostro](https://github.com/MostroP2P/mostro)
 
