@@ -1,5 +1,6 @@
 use clap::Parser;
 use dotenvy::{dotenv, var};
+use mostro_core::order::NewOrder;
 use nostr_sdk::prelude::*;
 use std::env::set_var;
 use std::io::{stdin, stdout, BufRead, Write};
@@ -10,7 +11,9 @@ pub mod lightning;
 pub mod pretty_table;
 pub mod util;
 
-use mostro_core::{*, order::Order};
+use mostro_core::*;
+use mostro_core::Message as MostroMessage;
+
 use lightning::is_valid_invoice;
 use pretty_table::*;
 use std::collections::HashMap;
@@ -92,7 +95,7 @@ async fn main() -> Result<()> {
             }
 
             // Create takesell message
-            let takesell_message = Message::new(0, Some(*order_id), Action::TakeSell, content)
+            let takesell_message = MostroMessage::new(0, Some(*order_id), Action::TakeSell, content)
                 .as_json()
                 .unwrap();
 
@@ -109,7 +112,7 @@ async fn main() -> Result<()> {
             );
 
             // Create takebuy message
-            let takebuy_message = Message::new(0, Some(*order_id), Action::TakeBuy, None)
+            let takebuy_message = MostroMessage::new(0, Some(*order_id), Action::TakeBuy, None)
                 .as_json()
                 .unwrap();
 
@@ -126,7 +129,7 @@ async fn main() -> Result<()> {
                 println!();
             } else {
                 for el in dm.iter() {
-                    match Message::from_json(&el.0) {
+                    match MostroMessage::from_json(&el.0) {
                         Ok(m) => {
                             if let Some(Content::PaymentRequest(ord, inv)) = m.content {
                                 println!(
@@ -173,7 +176,7 @@ async fn main() -> Result<()> {
             );
 
             // Create fiat sent message
-            let message = Message::new(0, Some(*order_id), requested_action, None)
+            let message = MostroMessage::new(0, Some(*order_id), requested_action, None)
                 .as_json()
                 .unwrap();
 
@@ -209,7 +212,7 @@ async fn main() -> Result<()> {
             }
 
             // Create new order for mostro
-            let order_content = Content::Order(Order::new(
+            let order_content = Content::Order(NewOrder::new(
                 None,
                 *kind,
                 Status::Pending,
@@ -246,7 +249,7 @@ async fn main() -> Result<()> {
             };
 
             // Create fiat sent message
-            let message = Message::new(0, None, Action::Order, Some(order_content))
+            let message = MostroMessage::new(0, None, Action::Order, Some(order_content))
                 .as_json()
                 .unwrap();
 

@@ -1,4 +1,7 @@
-use mostro_core::{*, order::Order};
+use mostro_core::order::NewOrder;
+use mostro_core::{Status,Content};
+use mostro_core::Message as MostroMessage;
+use mostro_core::Kind as MostroKind;
 use anyhow::{Error, Result};
 use chrono::NaiveDateTime;
 use dotenvy::var;
@@ -74,7 +77,7 @@ pub async fn send_order_id_cmd(
             let dm = get_direct_messages(client, mostro_pubkey, my_key, 1).await;
 
             for el in dm.iter() {
-                match Message::from_json(&el.0) {
+                match MostroMessage::from_json(&el.0) {
                     Ok(m) => {
                         if let Some(Content::PaymentRequest(ord, inv)) = m.content {
                             println!("NEW MESSAGE:");
@@ -273,9 +276,9 @@ pub async fn get_orders_list(
     pubkey: XOnlyPublicKey,
     status: Option<Status>,
     currency: Option<String>,
-    kind: Option<Order>,
+    kind: Option<MostroKind>,
     client: &Client,
-) -> Result<Vec<Order>> {
+) -> Result<Vec<NewOrder>> {
     let filters = SubscriptionFilter::new()
         .author(pubkey)
         .kind(Kind::Custom(30000));
@@ -287,7 +290,7 @@ pub async fn get_orders_list(
     );
 
     // Extracted Orders List
-    let mut orderslist = Vec::<Order>::new();
+    let mut orderslist = Vec::<NewOrder>::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
     let mut idlist = Vec::<Uuid>::new();
@@ -298,7 +301,7 @@ pub async fn get_orders_list(
     //Scan events to extract all orders
     for ordersrow in mostro_req.iter() {
         for ord in ordersrow {
-            let order = Order::from_json(&ord.content);
+            let order = NewOrder::from_json(&ord.content);
 
             if order.is_err() {
                 error!("{order:?}");
@@ -309,9 +312,9 @@ pub async fn get_orders_list(
             info!("Found Order id : {:?}", order.id.unwrap());
 
             //Match order status
-            if let Some(st) = status {
+            if let Some(ref st) = status {
                 //If order is yet present go on...
-                if idlist.contains(&order.id.unwrap()) || st != order.status {
+                if idlist.contains(&order.id.unwrap()) || *st != order.status {
                     info!("Found same id order {}", order.id.unwrap());
                     continue;
                 }
@@ -329,8 +332,8 @@ pub async fn get_orders_list(
             }
 
             //Match order kind
-            if let Some(reqkind) = kind {
-                if reqkind != order.kind {
+            if let Some(ref reqkind) = kind {
+                if *reqkind != order.kind {
                     info!("Not requested kind - you requested {:?} offers", kind);
                     continue;
                 }

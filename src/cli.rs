@@ -104,21 +104,21 @@ pub enum Commands {
         /// Sats amount - leave empty for market price
         #[arg(short, long)]
         #[clap(default_value_t = 0)]
-        amount: u32,
+        amount: i64,
         /// Currency selected
         #[arg(short = 'c', long)]
         fiat_code: String,
         /// Fiat amount
         #[arg(short, long)]
         #[clap(value_parser=check_fiat_range)]
-        fiat_amount: u32,
+        fiat_amount: i64,
         /// Payment method
         #[arg(short = 'm', long)]
         payment_method: String,
         /// Premium on price
         #[arg(short, long)]
         #[clap(default_value_t = 0)]
-        prime: i8,
+        prime: i64,
         /// Invoice string
         #[arg(short, long)]
         invoice: Option<String>,

@@ -1,5 +1,5 @@
 use mostro_core::{Content,Kind};
-use mostro_core::order::Order;
+use mostro_core::order::NewOrder;
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
@@ -64,7 +64,7 @@ pub fn print_order_preview(ord: Content) -> Result<String, String> {
     Ok(table.to_string())
 }
 
-pub fn print_orders_table(orders_table: Vec<Order>) -> Result<String> {
+pub fn print_orders_table(orders_table: Vec<NewOrder>) -> Result<String> {
     let mut table = Table::new();
 
     //Table rows
