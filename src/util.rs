@@ -1,11 +1,12 @@
-use mostro_core::order::NewOrder;
-use mostro_core::{Status,Content};
-use mostro_core::Message as MostroMessage;
-use mostro_core::Kind as MostroKind;
 use anyhow::{Error, Result};
+use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
+use mostro_core::order::NewOrder;
+use mostro_core::Kind as MostroKind;
+use mostro_core::Message as MostroMessage;
+use mostro_core::{Content, Status};
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -24,16 +25,17 @@ pub async fn send_dm(
     sender_keys: &Keys,
     receiver_pubkey: &XOnlyPublicKey,
     content: String,
-    wait_for_connection: Option<bool>,
+    _wait_for_connection: Option<bool>,
 ) -> Result<()> {
     let event = EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content)?
         .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
+    // FIX: The client by default is created with wait_for_send = false, we probably don't need this
     // This will update relay send event to wait for tranmission.
-    if let Some(_wait_mes) = wait_for_connection {
-        let opts = Options::new().wait_for_send(false);
-        client.update_opts(opts);
-    }
+    // if let Some(_wait_mes) = wait_for_connection {
+    //     let opts = Options::new().wait_for_send(false);
+    //     Client::new_with_opts(sender_keys, opts);
+    // }
     client.send_event(event).await?;
 
     Ok(())
@@ -42,18 +44,15 @@ pub async fn send_dm(
 pub async fn connect_nostr() -> Result<Client> {
     let my_keys = crate::util::get_keys()?;
 
-    // Create new client
-    let client = Client::new(&my_keys);
     let relays = var("RELAYS").expect("RELAYS is not set");
     let relays = relays.split(',').collect::<Vec<&str>>();
-
+    // Create new client
+    let opts = Options::new().wait_for_connection(false);
+    let client = Client::new_with_opts(&my_keys, opts);
     // Add relays
     for r in relays.into_iter() {
         client.add_relay(r, None).await?;
     }
-    let opts = Options::new().wait_for_connection(false);
-    client.update_opts(opts);
-
     // Connect to relays and keep connection alive
     client.connect().await;
 
@@ -117,11 +116,7 @@ pub async fn send_order_id_cmd(
     Ok(())
 }
 
-pub async fn requests_relay(
-    client: Client,
-    relay: (Url, Relay),
-    filters: SubscriptionFilter,
-) -> Vec<Event> {
+pub async fn requests_relay(client: Client, relay: (Url, Relay), filters: Filter) -> Vec<Event> {
     let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], client);
 
     // Buffer vector
@@ -143,7 +138,7 @@ pub async fn requests_relay(
     res
 }
 
-pub async fn send_relays_requests(client: &Client, filters: SubscriptionFilter) -> Vec<Vec<Event>> {
+pub async fn send_relays_requests(client: &Client, filters: Filter) -> Vec<Vec<Event>> {
     let relays = client.relays().await;
 
     let relays_requests = relays.len();
@@ -170,19 +165,18 @@ pub async fn send_relays_requests(client: &Client, filters: SubscriptionFilter) 
 
 pub async fn get_events_of_mostro(
     relay: &Relay,
-    filters: Vec<SubscriptionFilter>,
+    filters: Vec<Filter>,
     client: Client,
 ) -> Result<Vec<Event>, Error> {
     let mut events: Vec<Event> = Vec::new();
-
-    let id = Uuid::new_v4();
 
     // Subscribe
     info!(
         "Subscribing for all mostro orders to relay : {}",
         relay.url().to_string()
     );
-    let msg = ClientMessage::new_req(id.to_string(), filters.clone());
+    let id = SubscriptionId::new(Uuid::new_v4().to_string());
+    let msg = ClientMessage::new_req(id.clone(), filters.clone());
 
     info!("Message sent : {:?}", msg);
 
@@ -199,12 +193,12 @@ pub async fn get_events_of_mostro(
                     subscription_id,
                     event,
                 } => {
-                    if subscription_id == id.to_string() {
+                    if subscription_id == id {
                         events.push(event.as_ref().clone());
                     }
                 }
-                RelayMessage::EndOfStoredEvents { subscription_id } => {
-                    if subscription_id == id.to_string() {
+                RelayMessage::EndOfStoredEvents(subscription_id) => {
+                    if subscription_id == id {
                         break;
                     }
                 }
@@ -214,9 +208,7 @@ pub async fn get_events_of_mostro(
     }
 
     // Unsubscribe
-    relay
-        .send_msg(ClientMessage::close(id.to_string()), false)
-        .await?;
+    relay.send_msg(ClientMessage::close(id), false).await?;
 
     Ok(events)
 }
@@ -227,18 +219,17 @@ pub async fn get_direct_messages(
     my_key: &Keys,
     since: i64,
 ) -> Vec<(String, String)> {
-    let since_time = chrono::Utc::now();
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(since))
+        .unwrap()
+        .timestamp() as u64;
 
-    let filters = SubscriptionFilter::new()
+    let timestamp = Timestamp::from(since_time);
+    let filters = Filter::new()
         .author(mostro_pubkey)
         .kind(Kind::EncryptedDirectMessage)
         .pubkey(my_key.public_key())
-        .since(
-            since_time
-                .checked_sub_signed(chrono::Duration::minutes(since))
-                .unwrap()
-                .timestamp() as u64,
-        );
+        .since(timestamp);
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
@@ -253,13 +244,13 @@ pub async fn get_direct_messages(
     let mut direct_messages: Vec<(String, String)> = Vec::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut idlist = Vec::<Sha256Hash>::new();
+    let mut id_list = Vec::<Sha256Hash>::new();
 
     for dms in mostro_req.iter() {
         for dm in dms {
-            if !idlist.contains(&dm.id) {
-                idlist.push(dm.id);
-                let date = NaiveDateTime::from_timestamp_opt(dm.created_at as i64, 0);
+            if !id_list.contains(&dm.id.inner()) {
+                id_list.push(dm.id.inner());
+                let date = NaiveDateTime::from_timestamp_opt(dm.created_at.as_i64(), 0);
                 let message = decrypt(
                     &my_key.secret_key().unwrap(),
                     &dm.pubkey,
@@ -279,9 +270,7 @@ pub async fn get_orders_list(
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<NewOrder>> {
-    let filters = SubscriptionFilter::new()
-        .author(pubkey)
-        .kind(Kind::Custom(30000));
+    let filters = Filter::new().author(pubkey).kind(Kind::Custom(30000));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",

@@ -1,9 +1,9 @@
-use mostro_core::{Content,Kind};
-use mostro_core::order::NewOrder;
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
+use mostro_core::order::NewOrder;
+use mostro_core::{Content, Kind};
 
 pub fn print_order_preview(ord: Content) -> Result<String, String> {
     let single_order = match ord {
@@ -124,8 +124,7 @@ pub fn print_orders_table(orders_table: Vec<NewOrder>) -> Result<String> {
 
         //Iterate to create table of orders
         for single_order in orders_table.into_iter() {
-            let date =
-                NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap_or(0) as i64, 0);
+            let date = NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap_or(0), 0);
 
             let r = Row::from(vec![
                 // Cell::new(single_order.kind.to_string()),

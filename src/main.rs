@@ -11,8 +11,8 @@ pub mod lightning;
 pub mod pretty_table;
 pub mod util;
 
-use mostro_core::*;
 use mostro_core::Message as MostroMessage;
+use mostro_core::*;
 
 use lightning::is_valid_invoice;
 use pretty_table::*;
@@ -95,9 +95,10 @@ async fn main() -> Result<()> {
             }
 
             // Create takesell message
-            let takesell_message = MostroMessage::new(0, Some(*order_id), Action::TakeSell, content)
-                .as_json()
-                .unwrap();
+            let takesell_message =
+                MostroMessage::new(0, Some(*order_id), Action::TakeSell, content)
+                    .as_json()
+                    .unwrap();
 
             send_order_id_cmd(&client, &my_key, mostro_key, takesell_message, true).await?;
             std::process::exit(0);
