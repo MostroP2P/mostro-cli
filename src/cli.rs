@@ -4,8 +4,8 @@ use mostro_core::{Kind, Status};
 use uuid::Uuid;
 
 /// Check range simple version for just a single value
-fn check_fiat_range(s: &str) -> Result<u32, String> {
-    match s.parse::<u32>() {
+fn check_fiat_range(s: &str) -> Result<i64, String> {
+    match s.parse::<i64>() {
         Ok(val) => Ok(val),
         Err(_e) => Err(String::from("Error on parsing sats value")),
     }
