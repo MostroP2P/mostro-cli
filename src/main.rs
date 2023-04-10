@@ -132,13 +132,21 @@ async fn main() -> Result<()> {
                 for el in dm.iter() {
                     match MostroMessage::from_json(&el.0) {
                         Ok(m) => {
-                            if let Some(Content::PaymentRequest(ord, inv)) = m.content {
-                                println!(
-                                    "Mostro sent you this hold invoice for order id: {}",
-                                    ord.unwrap().id.unwrap()
-                                );
+                            println!(
+                                "Mostro sent you this message for order id: {}",
+                                m.order_id.unwrap()
+                            );
+                            if let Some(Content::PaymentRequest(_, inv)) = m.content {
                                 println!();
-                                println!("Pay this invoice to continue -->  {}", inv);
+                                println!("Pay this invoice to continue --> {}", inv);
+                                println!();
+                            } else if let Some(Content::TextMessage(text)) = m.content {
+                                println!();
+                                println!("{text}");
+                                println!();
+                            } else {
+                                println!();
+                                println!("{:#?}", m.content);
                                 println!();
                             }
                         }
