@@ -118,7 +118,7 @@ pub enum Commands {
         /// Premium on price
         #[arg(short, long)]
         #[clap(default_value_t = 0)]
-        prime: i64,
+        premium: i64,
         /// Invoice string
         #[arg(short, long)]
         invoice: Option<String>,

@@ -146,7 +146,8 @@ async fn main() -> Result<()> {
                                 println!();
                             } else {
                                 println!();
-                                println!("{:#?}", m.content);
+                                println!("Action: {}", m.action);
+                                println!("Content: {:#?}", m.content);
                                 println!();
                             }
                         }
@@ -198,7 +199,7 @@ async fn main() -> Result<()> {
             amount,
             fiat_amount,
             payment_method,
-            prime,
+            premium,
             invoice,
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
@@ -229,7 +230,7 @@ async fn main() -> Result<()> {
                 fiat_code,
                 *fiat_amount,
                 payment_method.to_owned(),
-                *prime,
+                *premium,
                 invoice.as_ref().to_owned().cloned(),
                 None,
             ));

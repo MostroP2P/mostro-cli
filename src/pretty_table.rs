@@ -56,7 +56,7 @@ pub fn print_order_preview(ord: Content) -> Result<String, String> {
         Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
         Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
         Cell::new(single_order.payment_method.to_string()).set_alignment(CellAlignment::Center),
-        Cell::new(single_order.prime.to_string()).set_alignment(CellAlignment::Center),
+        Cell::new(single_order.premium.to_string()).set_alignment(CellAlignment::Center),
     ]);
 
     table.add_row(r);
