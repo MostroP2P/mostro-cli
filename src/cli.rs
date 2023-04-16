@@ -138,6 +138,15 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
+    /// Take a buy order from a Mostro pubkey
+    AddInvoice {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Invoice string
+        #[arg(short, long)]
+        invoice: String,
+    },
     /// Get the list of Mostro direct messages since the last hour, used to check order state
     GetDm {
         /// Since time of the messages in minutes

@@ -120,6 +120,30 @@ async fn main() -> Result<()> {
             send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message, true).await?;
             std::process::exit(0);
         }
+        Some(cli::Commands::AddInvoice { order_id, invoice }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey.clone())?;
+
+            println!(
+                "Sending a lightning invoice {} to mostro pubId {}",
+                order_id, pubkey
+            );
+            let mut content = None;
+            // Check invoice string
+            let valid_invoice = is_valid_invoice(invoice);
+            match valid_invoice {
+                Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string())),
+                Err(e) => println!("{}", e),
+            }
+
+            // Create AddInvoice message
+            let add_invoice_message =
+                MostroMessage::new(0, Some(*order_id), Action::AddInvoice, content)
+                    .as_json()
+                    .unwrap();
+
+            send_order_id_cmd(&client, &my_key, mostro_key, add_invoice_message, true).await?;
+            std::process::exit(0);
+        }
         Some(cli::Commands::GetDm { since }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
