@@ -172,4 +172,16 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
+    /// Vote counterpart
+    Vote {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Npub of counterpart
+        #[arg(short, long)]
+        counterpart_npub: String,
+        /// Vote from 1 to 5
+        #[arg(short, long)]
+        vote: u64,
+    },
 }

@@ -14,6 +14,7 @@ pub mod util;
 use mostro_core::Message as MostroMessage;
 use mostro_core::*;
 
+
 use lightning::is_valid_invoice;
 use pretty_table::*;
 use std::collections::HashMap;
@@ -290,6 +291,32 @@ async fn main() -> Result<()> {
             send_order_id_cmd(&client, &my_key, mostro_key, message, false).await?;
             std::process::exit(0);
         }
+        Some(cli::Commands::Vote {
+            order_id,
+            counterpart_npub,
+            vote,
+        }) => {
+            let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+            let vote_content;
+            if let 1..=5 = *vote{
+                vote_content = Content::Peer(Peer::new(counterpart_npub.to_string(), Some(*vote)));
+            }
+            else{
+                println!("Vote must be in the range 1 - 5");
+                std::process::exit(0);
+            }
+
+            // Create vote message
+            let voting_message = MostroMessage::new(0, Some(*order_id), Action::VoteUser, Some(vote_content))
+                .as_json()
+                .unwrap();
+
+            send_order_id_cmd(&client, &my_key, mostro_key, voting_message, true).await?;
+            std::process::exit(0);
+
+        }
+    
         None => {}
     };
 
