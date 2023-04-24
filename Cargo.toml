@@ -9,6 +9,14 @@ authors = [
 ]
 description = "Mostro P2P cli client"
 
+[lib]
+name = "mostro_client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mostro_cli"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.68"
 clap = { version = "4.0.32", features = ["derive"] }
