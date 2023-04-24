@@ -14,7 +14,7 @@ name = "mostro_client"
 path = "src/lib.rs"
 
 [[bin]]
-name = "mostro_cli"
+name = "mostro-cli"
 path = "src/main.rs"
 
 [dependencies]
