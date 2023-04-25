@@ -173,7 +173,7 @@ pub enum Commands {
         order_id: Uuid,
     },
     /// Vote counterpart
-    Vote {
+    Rate {
         /// Order id number
         #[arg(short, long)]
         order_id: Uuid,
@@ -182,6 +182,6 @@ pub enum Commands {
         counterpart_npub: String,
         /// Vote from 1 to 5
         #[arg(short, long)]
-        vote: u64,
+        rating: u64,
     },
 }
