@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
 
             // Create takesell message
             let takesell_message =
-                MostroMessage::new(0, Some(*order_id), Action::TakeSell, content)
+                MostroMessage::new(0, Some(*order_id), None, Action::TakeSell, content)
                     .as_json()
                     .unwrap();
 
@@ -113,9 +113,10 @@ async fn main() -> Result<()> {
             );
 
             // Create takebuy message
-            let takebuy_message = MostroMessage::new(0, Some(*order_id), Action::TakeBuy, None)
-                .as_json()
-                .unwrap();
+            let takebuy_message =
+                MostroMessage::new(0, Some(*order_id), None, Action::TakeBuy, None)
+                    .as_json()
+                    .unwrap();
 
             send_order_id_cmd(&client, &my_key, mostro_key, takebuy_message, true).await?;
             std::process::exit(0);
@@ -137,7 +138,7 @@ async fn main() -> Result<()> {
 
             // Create AddInvoice message
             let add_invoice_message =
-                MostroMessage::new(0, Some(*order_id), Action::AddInvoice, content)
+                MostroMessage::new(0, Some(*order_id), None, Action::AddInvoice, content)
                     .as_json()
                     .unwrap();
 
@@ -210,7 +211,7 @@ async fn main() -> Result<()> {
             );
 
             // Create fiat sent message
-            let message = MostroMessage::new(0, Some(*order_id), requested_action, None)
+            let message = MostroMessage::new(0, Some(*order_id), None, requested_action, None)
                 .as_json()
                 .unwrap();
 
@@ -255,6 +256,8 @@ async fn main() -> Result<()> {
                 *fiat_amount,
                 payment_method.to_owned(),
                 *premium,
+                None,
+                None,
                 invoice.as_ref().to_owned().cloned(),
                 None,
             ));
@@ -283,7 +286,7 @@ async fn main() -> Result<()> {
             };
 
             // Create fiat sent message
-            let message = MostroMessage::new(0, None, Action::Order, Some(order_content))
+            let message = MostroMessage::new(0, None, None, Action::Order, Some(order_content))
                 .as_json()
                 .unwrap();
 
@@ -297,22 +300,27 @@ async fn main() -> Result<()> {
         }) => {
             let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
 
-            let vote_content;
+            let rating_content;
             if let 1..=5 = *rating {
-                vote_content = Content::Peer(Peer::new(
+                rating_content = Content::Peer(Peer::new(
                     counterpart_npub.to_string(),
                     Some((*rating) as f64),
                 ));
             } else {
-                println!("Vote must be in the range 1 - 5");
+                println!("Rating must be in the range 1 - 5");
                 std::process::exit(0);
             }
 
-            // Create vote message
-            let voting_message =
-                MostroMessage::new(0, Some(*order_id), Action::RateUser, Some(vote_content))
-                    .as_json()
-                    .unwrap();
+            // Create rating message of counterpart
+            let voting_message = MostroMessage::new(
+                0,
+                Some(*order_id),
+                None,
+                Action::RateUser,
+                Some(rating_content),
+            )
+            .as_json()
+            .unwrap();
 
             send_order_id_cmd(&client, &my_key, mostro_key, voting_message, true).await?;
             std::process::exit(0);
