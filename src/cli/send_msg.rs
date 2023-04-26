@@ -1,18 +1,14 @@
-use mostro_core::Action;
-use uuid::Uuid;
-
-use std::process;
-
+use crate::cli::Commands;
+use crate::util::get_keys;
+use crate::util::send_order_id_cmd;
 use anyhow::Result;
-
+use mostro_core::Action;
 use mostro_core::Message as MostroMessage;
-
+use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
-
-use crate::cli::Commands;
-
-use crate::util::send_order_id_cmd;
+use std::process;
+use uuid::Uuid;
 
 pub async fn execute_send_msg(
     command: Commands,
@@ -38,9 +34,11 @@ pub async fn execute_send_msg(
         order_id,
         mostro_key.clone()
     );
-
+    let keys = get_keys()?;
+    // This should be the master pubkey
+    let master_pubkey = keys.public_key().to_bech32()?;
     // Create fiat sent message
-    let message = MostroMessage::new(0, Some(*order_id), requested_action, None)
+    let message = MostroMessage::new(0, Some(*order_id), master_pubkey, requested_action, None)
         .as_json()
         .unwrap();
 
