@@ -1,57 +1,33 @@
+pub mod add_invoice;
+pub mod get_dm;
+pub mod list_orders;
+pub mod new_order;
+pub mod rate_user;
+pub mod send_msg;
+pub mod take_buy;
+pub mod take_sell;
+
 use clap::{Parser, Subcommand};
 
 use mostro_core::{Kind, Status};
 use uuid::Uuid;
 
-/// Check range simple version for just a single value
-fn check_fiat_range(s: &str) -> Result<i64, String> {
-    match s.parse::<i64>() {
-        Ok(val) => Ok(val),
-        Err(_e) => Err(String::from("Error on parsing sats value")),
-    }
-}
+use std::env::{set_var, var};
 
-// // Check range with two values value
-// fn check_fiat_range(s: &str) -> Result<String, String> {
-//     if s.contains('-') {
+use anyhow::Result;
 
-//         let min : u32;
-//         let max : u32;
+use nostr_sdk::prelude::FromBech32;
+use nostr_sdk::secp256k1::XOnlyPublicKey;
 
-//         // Get values from CLI
-//         let values : Vec<&str> = s.split('-').collect();
-
-//         // Check if more than two values
-//         if values.len() > 2 { return Err( String::from("Error")) };
-
-//         // Get ranged command
-//         if let Err(e) = values[0].parse::<u32>() {
-//             return Err(String::from("Error on parsing, check if you write a digit!"))
-//         } else {
-//             min = values[0].parse().unwrap();
-//         }
-
-//         if let Err(e) = values[1].parse::<u32>() {
-//             return Err(String::from("Error on parsing, check if you write a digit!"))
-//         } else {
-//             max = values[1].parse().unwrap();
-//         }
-
-//         // Check min below max
-//         if min >= max { return Err( String::from("Range of values must be 100-200 for example...")) };
-
-//         println!("{},{}",min,max);
-
-//         Ok(s.to_string())
-//     }
-//     else{
-//        match s.parse::<u32>(){
-//             Ok(_) =>  Ok(s.to_string()),
-//             Err(e) => Err(String::from("Error on parsing sats value")),
-//        }
-//     }
-
-// }
+use crate::cli::add_invoice::execute_add_invoice;
+use crate::cli::get_dm::execute_get_dm;
+use crate::cli::list_orders::execute_list_orders;
+use crate::cli::new_order::execute_new_order;
+use crate::cli::rate_user::execute_rate_user;
+use crate::cli::send_msg::execute_send_msg;
+use crate::cli::take_buy::execute_take_buy;
+use crate::cli::take_sell::execute_take_sell;
+use crate::util;
 
 #[derive(Parser)]
 #[command(
@@ -78,7 +54,7 @@ pub struct Cli {
     pub verbose: bool,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 #[clap(rename_all = "lower")]
 pub enum Commands {
     /// Requests open orders from Mostro pubkey
@@ -184,4 +160,91 @@ pub enum Commands {
         #[arg(short, long)]
         rating: u64,
     },
+}
+
+/// Check range simple version for just a single value
+pub fn check_fiat_range(s: &str) -> Result<i64, String> {
+    match s.parse::<i64>() {
+        Ok(val) => Ok(val),
+        Err(_e) => Err(String::from("Error on parsing sats value")),
+    }
+}
+
+pub async fn run() -> Result<()> {
+    let cli = Cli::parse();
+
+    // Init logger
+    if cli.verbose {
+        set_var("RUST_LOG", "info");
+    }
+    // Mostro pubkey
+    let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+    let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
+
+    // My key
+    let my_key = util::get_keys()?;
+
+    // Call function to connect to relays
+    let client = util::connect_nostr().await?;
+
+    if let Some(cmd) = cli.command {
+        match &cmd {
+            Commands::ListOrders {
+                status,
+                currency,
+                kind,
+            } => execute_list_orders(kind, currency, status, mostro_key, &client).await?,
+            Commands::TakeSell { order_id, invoice } => {
+                execute_take_sell(order_id, invoice, &my_key, mostro_key, &client).await?
+            }
+            Commands::TakeBuy { order_id } => {
+                execute_take_buy(order_id, &my_key, mostro_key, &client).await?
+            }
+            Commands::AddInvoice { order_id, invoice } => {
+                execute_add_invoice(order_id, invoice, &my_key, mostro_key, &client).await?
+            }
+            Commands::GetDm { since } => {
+                execute_get_dm(since, &my_key, mostro_key, &client).await?
+            }
+            Commands::FiatSent { order_id }
+            | Commands::Release { order_id }
+            | Commands::Cancel { order_id } => {
+                execute_send_msg(cmd.clone(), order_id, &my_key, mostro_key, &client).await?
+            }
+            Commands::Neworder {
+                kind,
+                fiat_code,
+                amount,
+                fiat_amount,
+                payment_method,
+                premium,
+                invoice,
+            } => {
+                execute_new_order(
+                    kind,
+                    fiat_code,
+                    fiat_amount,
+                    amount,
+                    payment_method,
+                    premium,
+                    invoice,
+                    &my_key,
+                    mostro_key,
+                    &client,
+                )
+                .await?
+            }
+            Commands::Rate {
+                order_id,
+                counterpart_npub,
+                rating,
+            } => {
+                execute_rate_user(order_id, counterpart_npub, rating, &my_key, &client).await?;
+            }
+        };
+    }
+
+    println!("Bye Bye!");
+
+    Ok(())
 }

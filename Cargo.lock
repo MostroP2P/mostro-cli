@@ -1014,20 +1014,21 @@ dependencies = [
 
 [[package]]
 name = "lightning"
-version = "0.0.114"
+version = "0.0.115"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "800ec68a160529ba3ca12c5db629867c4a8de2df272792c1246602966a5b789b"
+checksum = "e009e1c0c21f66378b491bb40f548682138c63e09db6f3a05af59f8804bb9f4a"
 dependencies = [
  "bitcoin 0.29.2",
 ]
 
 [[package]]
 name = "lightning-invoice"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adfb59c6d13e130aece30fc72a7c17d74b201aed0ffb201b740f36e07aaece32"
+checksum = "c4e44b0e2822c8811470137d2339fdfe67a699b3248bb1606d1d02eb6a1e9f0a"
 dependencies = [
  "bech32",
+ "bitcoin 0.29.2",
  "bitcoin_hashes 0.11.0",
  "lightning",
  "num-traits",
@@ -1106,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "anyhow",
  "bitcoin_hashes 0.12.0",
