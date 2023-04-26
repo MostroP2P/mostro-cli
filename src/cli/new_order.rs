@@ -1,4 +1,5 @@
 use mostro_core::{Action, Content, Kind, Status};
+use nostr_sdk::prelude::ToBech32;
 
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
@@ -13,7 +14,7 @@ use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
 
 use crate::pretty_table::print_order_preview;
-use crate::util::send_order_id_cmd;
+use crate::util::{get_keys, send_order_id_cmd};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -47,6 +48,13 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     }
+    let mut master_buyer_pubkey: Option<String> = None;
+    let mut master_seller_pubkey: Option<String> = None;
+    if kind == &Kind::Buy {
+        master_buyer_pubkey = Some(my_key.public_key().to_bech32()?);
+    } else {
+        master_seller_pubkey = Some(my_key.public_key().to_bech32()?);
+    }
 
     // Create new order for mostro
     let order_content = Content::Order(NewOrder::new(
@@ -58,6 +66,8 @@ pub async fn execute_new_order(
         *fiat_amount,
         payment_method.to_owned(),
         *premium,
+        master_buyer_pubkey,
+        master_seller_pubkey,
         invoice.as_ref().to_owned().cloned(),
         None,
     ));
@@ -84,9 +94,11 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     };
-
+    let keys = get_keys()?;
+    // This should be the master pubkey
+    let master_pubkey = keys.public_key().to_bech32()?;
     // Create fiat sent message
-    let message = MostroMessage::new(0, None, Action::Order, Some(order_content))
+    let message = MostroMessage::new(0, None, master_pubkey, Action::Order, Some(order_content))
         .as_json()
         .unwrap();
 

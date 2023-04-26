@@ -1,14 +1,12 @@
-use mostro_core::Action;
-use uuid::Uuid;
-
 use anyhow::Result;
-
 use mostro_core::Message as MostroMessage;
-
+use mostro_core::{Action, Content, Peer};
+use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
+use uuid::Uuid;
 
-use crate::util::send_order_id_cmd;
+use crate::util::{get_keys, send_order_id_cmd};
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
@@ -21,11 +19,17 @@ pub async fn execute_take_buy(
         order_id,
         mostro_key.clone()
     );
+    let keys = get_keys()?;
+    // This should be the master pubkey
+    let master_pubkey = keys.public_key().to_bech32()?;
+    let peer = Peer::new(master_pubkey.clone(), None);
+    let content = Some(Content::Peer(peer));
 
     // Create takebuy message
-    let takebuy_message = MostroMessage::new(0, Some(*order_id), Action::TakeBuy, None)
-        .as_json()
-        .unwrap();
+    let takebuy_message =
+        MostroMessage::new(0, Some(*order_id), master_pubkey, Action::TakeBuy, content)
+            .as_json()
+            .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, takebuy_message, true).await?;
 
