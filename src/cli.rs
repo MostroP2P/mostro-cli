@@ -2,6 +2,7 @@ pub mod add_invoice;
 pub mod get_dm;
 pub mod list_orders;
 pub mod new_order;
+pub mod rate_user;
 pub mod send_msg;
 pub mod take_buy;
 pub mod take_sell;
@@ -22,6 +23,7 @@ use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::get_dm::execute_get_dm;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
+use crate::cli::rate_user::execute_rate_user;
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_sell::execute_take_sell;
@@ -146,6 +148,18 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
+    /// Rate counterpart after a successful trade
+    Rate {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Npub of counterpart
+        #[arg(short, long)]
+        counterpart_npub: String,
+        /// Rating from 1 to 5
+        #[arg(short, long)]
+        rating: u64,
+    },
 }
 
 /// Check range simple version for just a single value
@@ -219,6 +233,13 @@ pub async fn run() -> Result<()> {
                     &client,
                 )
                 .await?
+            }
+            Commands::Rate {
+                order_id,
+                counterpart_npub,
+                rating,
+            } => {
+                execute_rate_user(order_id, counterpart_npub, rating, &my_key, &client).await?;
             }
         };
     }
