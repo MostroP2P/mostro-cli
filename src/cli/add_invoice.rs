@@ -33,7 +33,7 @@ pub async fn execute_add_invoice(
     let add_invoice_message = MostroMessage::new(
         0,
         Some(*order_id),
-        master_pubkey,
+        Some(master_pubkey),
         Action::AddInvoice,
         content,
     )

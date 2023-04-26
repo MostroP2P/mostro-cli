@@ -35,10 +35,15 @@ pub async fn execute_take_sell(
     let master_pubkey = keys.public_key().to_bech32()?;
 
     // Create takesell message
-    let takesell_message =
-        MostroMessage::new(0, Some(*order_id), master_pubkey, Action::TakeSell, content)
-            .as_json()
-            .unwrap();
+    let takesell_message = MostroMessage::new(
+        0,
+        Some(*order_id),
+        Some(master_pubkey),
+        Action::TakeSell,
+        content,
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, takesell_message, true).await?;
     Ok(())

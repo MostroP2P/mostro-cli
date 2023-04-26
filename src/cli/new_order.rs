@@ -98,9 +98,15 @@ pub async fn execute_new_order(
     // This should be the master pubkey
     let master_pubkey = keys.public_key().to_bech32()?;
     // Create fiat sent message
-    let message = MostroMessage::new(0, None, master_pubkey, Action::Order, Some(order_content))
-        .as_json()
-        .unwrap();
+    let message = MostroMessage::new(
+        0,
+        None,
+        Some(master_pubkey),
+        Action::Order,
+        Some(order_content),
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, message, false).await?;
     Ok(())

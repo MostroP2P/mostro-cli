@@ -26,10 +26,15 @@ pub async fn execute_take_buy(
     let content = Some(Content::Peer(peer));
 
     // Create takebuy message
-    let takebuy_message =
-        MostroMessage::new(0, Some(*order_id), master_pubkey, Action::TakeBuy, content)
-            .as_json()
-            .unwrap();
+    let takebuy_message = MostroMessage::new(
+        0,
+        Some(*order_id),
+        Some(master_pubkey),
+        Action::TakeBuy,
+        content,
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, takebuy_message, true).await?;
 
