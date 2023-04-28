@@ -1,6 +1,6 @@
 use anyhow::Result;
 use mostro_core::Message as MostroMessage;
-use mostro_core::{Action, Content, Peer};
+use mostro_core::{Action, Content};
 use nostr_sdk::{Client, Keys};
 use uuid::Uuid;
 
@@ -8,7 +8,6 @@ use crate::util::send_order_id_cmd;
 
 pub async fn execute_rate_user(
     order_id: &Uuid,
-    counterpart_npub: &String,
     rating: &u64,
     my_key: &Keys,
     client: &Client,
@@ -18,10 +17,7 @@ pub async fn execute_rate_user(
 
     // Check boundaries
     if let 1..=5 = *rating {
-        rating_content = Content::Peer(Peer::new(
-            counterpart_npub.to_string(),
-            Some((*rating) as f64),
-        ));
+        rating_content = Content::RatingUser(*rating);
     } else {
         println!("Rating must be in the range 1 - 5");
         std::process::exit(0);
