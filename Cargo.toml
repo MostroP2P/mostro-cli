@@ -8,6 +8,8 @@ authors = [
   "Baba O'reily <pinballwizard@nostr.red>",
 ]
 description = "Mostro P2P cli client"
+homepage = "https://github.com/MostroP2P/mostro-cli"
+repository = "https://github.com/MostroP2P/mostro-cli"
 
 [lib]
 name = "mostro_client"
