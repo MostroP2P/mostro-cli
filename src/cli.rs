@@ -153,9 +153,6 @@ pub enum Commands {
         /// Order id number
         #[arg(short, long)]
         order_id: Uuid,
-        /// Npub of counterpart
-        #[arg(short, long)]
-        counterpart_npub: String,
         /// Rating from 1 to 5
         #[arg(short, long)]
         rating: u64,
@@ -234,12 +231,8 @@ pub async fn run() -> Result<()> {
                 )
                 .await?
             }
-            Commands::Rate {
-                order_id,
-                counterpart_npub,
-                rating,
-            } => {
-                execute_rate_user(order_id, counterpart_npub, rating, &my_key, &client).await?;
+            Commands::Rate { order_id, rating } => {
+                execute_rate_user(order_id, rating, &my_key, &client).await?;
             }
         };
     }

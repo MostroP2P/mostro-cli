@@ -22,7 +22,7 @@ pub async fn execute_take_buy(
     let keys = get_keys()?;
     // This should be the master pubkey
     let master_pubkey = keys.public_key().to_bech32()?;
-    let peer = Peer::new(master_pubkey.clone(), None);
+    let peer = Peer::new(master_pubkey.clone());
     let content = Some(Content::Peer(peer));
 
     // Create takebuy message
