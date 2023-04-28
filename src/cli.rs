@@ -232,7 +232,7 @@ pub async fn run() -> Result<()> {
                 .await?
             }
             Commands::Rate { order_id, rating } => {
-                execute_rate_user(order_id, rating, &my_key, &client).await?;
+                execute_rate_user(order_id, rating, &my_key, mostro_key, &client).await?;
             }
         };
     }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use mostro_core::Message as MostroMessage;
 use mostro_core::{Action, Content};
+use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
 use uuid::Uuid;
 
@@ -10,6 +11,7 @@ pub async fn execute_rate_user(
     order_id: &Uuid,
     rating: &u64,
     my_key: &Keys,
+    mostro_key: XOnlyPublicKey,
     client: &Client,
 ) -> Result<()> {
     // User rating
@@ -24,7 +26,7 @@ pub async fn execute_rate_user(
     }
 
     // Create rating message of counterpart
-    let voting_message = MostroMessage::new(
+    let rate_message = MostroMessage::new(
         0,
         Some(*order_id),
         None,
@@ -34,7 +36,7 @@ pub async fn execute_rate_user(
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(client, my_key, my_key.public_key(), voting_message, true).await?;
+    send_order_id_cmd(client, my_key, mostro_key, rate_message, true).await?;
 
     std::process::exit(0);
 }
