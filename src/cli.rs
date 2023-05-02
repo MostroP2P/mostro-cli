@@ -155,7 +155,13 @@ pub enum Commands {
         order_id: Uuid,
         /// Rating from 1 to 5
         #[arg(short, long)]
-        rating: u64,
+        rating: u8,
+    },
+    /// Send dispute message to start a dispute
+    Dispute {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
     },
 }
 
@@ -205,6 +211,7 @@ pub async fn run() -> Result<()> {
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
+            | Commands::Dispute { order_id }
             | Commands::Cancel { order_id } => {
                 execute_send_msg(cmd.clone(), order_id, &my_key, mostro_key, &client).await?
             }

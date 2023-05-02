@@ -9,7 +9,7 @@ use crate::util::send_order_id_cmd;
 
 pub async fn execute_rate_user(
     order_id: &Uuid,
-    rating: &u64,
+    rating: &u8,
     my_key: &Keys,
     mostro_key: XOnlyPublicKey,
     client: &Client,

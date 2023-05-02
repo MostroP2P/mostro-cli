@@ -22,6 +22,7 @@ pub async fn execute_send_msg(
         Commands::FiatSent { order_id: _ } => Action::FiatSent,
         Commands::Release { order_id: _ } => Action::Release,
         Commands::Cancel { order_id: _ } => Action::Cancel,
+        Commands::Dispute { order_id: _ } => Action::Dispute,
         _ => {
             println!("Not a valid command!");
             process::exit(0);
