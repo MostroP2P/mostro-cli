@@ -1,7 +1,9 @@
 use crate::cli::Commands;
 use crate::util::get_keys;
 use crate::util::send_order_id_cmd;
+
 use anyhow::Result;
+use log::info;
 use mostro_core::Action;
 use mostro_core::Message as MostroMessage;
 use nostr_sdk::prelude::ToBech32;
@@ -23,6 +25,7 @@ pub async fn execute_send_msg(
         Commands::Release { order_id: _ } => Action::Release,
         Commands::Cancel { order_id: _ } => Action::Cancel,
         Commands::Dispute { order_id: _ } => Action::Dispute,
+        Commands::AdminCancel { order_id: _ } => Action::AdminCancel,
         _ => {
             println!("Not a valid command!");
             process::exit(0);
@@ -48,7 +51,8 @@ pub async fn execute_send_msg(
     )
     .as_json()
     .unwrap();
-
+    info!("Sending message: {}", message);
     send_order_id_cmd(client, my_key, mostro_key, message, false).await?;
+
     Ok(())
 }
