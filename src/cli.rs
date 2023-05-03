@@ -7,18 +7,6 @@ pub mod send_msg;
 pub mod take_buy;
 pub mod take_sell;
 
-use clap::{Parser, Subcommand};
-
-use mostro_core::{Kind, Status};
-use uuid::Uuid;
-
-use std::env::{set_var, var};
-
-use anyhow::Result;
-
-use nostr_sdk::prelude::FromBech32;
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-
 use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::get_dm::execute_get_dm;
 use crate::cli::list_orders::execute_list_orders;
@@ -28,6 +16,14 @@ use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_sell::execute_take_sell;
 use crate::util;
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use mostro_core::{Kind, Status};
+use nostr_sdk::prelude::FromBech32;
+use nostr_sdk::secp256k1::XOnlyPublicKey;
+use std::env::{set_var, var};
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(
@@ -157,8 +153,14 @@ pub enum Commands {
         #[arg(short, long)]
         rating: u8,
     },
-    /// Send dispute message to start a dispute
+    /// Start a dispute
     Dispute {
+        /// Order id number
+        #[arg(short, long)]
+        order_id: Uuid,
+    },
+    /// Cancel an order (only admin)
+    AdminCancel {
         /// Order id number
         #[arg(short, long)]
         order_id: Uuid,
@@ -212,6 +214,7 @@ pub async fn run() -> Result<()> {
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
+            | Commands::AdminCancel { order_id }
             | Commands::Cancel { order_id } => {
                 execute_send_msg(cmd.clone(), order_id, &my_key, mostro_key, &client).await?
             }
