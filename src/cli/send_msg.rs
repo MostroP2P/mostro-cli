@@ -26,6 +26,7 @@ pub async fn execute_send_msg(
         Commands::Cancel { order_id: _ } => Action::Cancel,
         Commands::Dispute { order_id: _ } => Action::Dispute,
         Commands::AdminCancel { order_id: _ } => Action::AdminCancel,
+        Commands::AdminSettle { order_id: _ } => Action::AdminSettle,
         _ => {
             println!("Not a valid command!");
             process::exit(0);

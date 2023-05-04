@@ -97,7 +97,7 @@ pub enum Commands {
     },
     /// Take a sell order from a Mostro pubkey
     TakeSell {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
         /// Invoice string
@@ -106,13 +106,13 @@ pub enum Commands {
     },
     /// Take a buy order from a Mostro pubkey
     TakeBuy {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
     /// Take a buy order from a Mostro pubkey
     AddInvoice {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
         /// Invoice string
@@ -128,25 +128,25 @@ pub enum Commands {
     },
     /// Send fiat sent message to confirm payment to other user
     FiatSent {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
     /// Settle the hold invoice and pay to buyer.
     Release {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
     /// Cancel a pending order
     Cancel {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
     /// Rate counterpart after a successful trade
     Rate {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
         /// Rating from 1 to 5
@@ -155,13 +155,19 @@ pub enum Commands {
     },
     /// Start a dispute
     Dispute {
-        /// Order id number
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
     /// Cancel an order (only admin)
     AdminCancel {
-        /// Order id number
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+    },
+    /// Settle a seller's hold invoice (only admin)
+    AdminSettle {
+        /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
@@ -215,6 +221,7 @@ pub async fn run() -> Result<()> {
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
             | Commands::AdminCancel { order_id }
+            | Commands::AdminSettle { order_id }
             | Commands::Cancel { order_id } => {
                 execute_send_msg(cmd.clone(), order_id, &my_key, mostro_key, &client).await?
             }
