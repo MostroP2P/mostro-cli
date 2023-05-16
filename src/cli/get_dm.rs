@@ -24,10 +24,12 @@ pub async fn execute_get_dm(
         for el in dm.iter() {
             match MostroMessage::from_json(&el.0) {
                 Ok(m) => {
-                    println!(
-                        "Mostro sent you this message for order id: {}",
-                        m.order_id.unwrap()
-                    );
+                    if m.order_id.is_some() {
+                        println!(
+                            "Mostro sent you this message for order id: {}",
+                            m.order_id.unwrap()
+                        );
+                    }
                     if let Some(Content::PaymentRequest(_, inv)) = m.content {
                         println!();
                         println!("Pay this invoice to continue --> {}", inv);
