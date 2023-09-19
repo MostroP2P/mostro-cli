@@ -6,7 +6,7 @@ use log::{error, info};
 use mostro_core::order::NewOrder;
 use mostro_core::Kind as MostroKind;
 use mostro_core::Message as MostroMessage;
-use mostro_core::{Content, Status};
+use mostro_core::{Content, Status, NOSTR_REPLACEABLE_EVENT_KIND};
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -270,7 +270,9 @@ pub async fn get_orders_list(
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<NewOrder>> {
-    let filters = Filter::new().author(pubkey).kind(Kind::Custom(30000));
+    let filters = Filter::new()
+        .author(pubkey)
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
