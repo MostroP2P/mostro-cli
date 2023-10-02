@@ -1,4 +1,4 @@
-use mostro_core::{Kind, Status};
+use mostro_core::order::{Kind, Status};
 
 use anyhow::Result;
 

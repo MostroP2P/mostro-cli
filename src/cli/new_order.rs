@@ -1,4 +1,4 @@
-use mostro_core::{Action, Content, Kind, Status};
+use mostro_core::{Action, Content};
 use nostr_sdk::prelude::ToBech32;
 
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::process;
 
 use anyhow::Result;
 
-use mostro_core::order::NewOrder;
+use mostro_core::order::{Kind, NewOrder, Status};
 use mostro_core::Message as MostroMessage;
 
 use nostr_sdk::secp256k1::XOnlyPublicKey;

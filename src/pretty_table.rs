@@ -2,8 +2,8 @@ use anyhow::Result;
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
-use mostro_core::order::NewOrder;
-use mostro_core::{Content, Kind};
+use mostro_core::order::{Kind, NewOrder};
+use mostro_core::Content;
 
 pub fn print_order_preview(ord: Content) -> Result<String, String> {
     let single_order = match ord {

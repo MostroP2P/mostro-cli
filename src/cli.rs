@@ -19,7 +19,7 @@ use crate::util;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use mostro_core::{Kind, Status};
+use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::FromBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use std::env::{set_var, var};
