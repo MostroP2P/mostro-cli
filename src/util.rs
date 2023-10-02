@@ -26,8 +26,9 @@ pub async fn send_dm(
     content: String,
     _wait_for_connection: Option<bool>,
 ) -> Result<()> {
-    let event = EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content)?
-        .to_event(sender_keys)?;
+    let event =
+        EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
+            .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
     // FIX: The client by default is created with wait_for_send = false, we probably don't need this
     // This will update relay send event to wait for tranmission.
@@ -47,7 +48,7 @@ pub async fn connect_nostr() -> Result<Client> {
     let relays = relays.split(',').collect::<Vec<&str>>();
     // Create new client
     let opts = Options::new().wait_for_connection(false);
-    let client = Client::new_with_opts(&my_keys, opts);
+    let client = Client::with_opts(&my_keys, opts);
     // Add relays
     for r in relays.into_iter() {
         client.add_relay(r, None).await?;
@@ -180,7 +181,7 @@ pub async fn get_events_of_mostro(
     info!("Message sent : {:?}", msg);
 
     // Send msg to relay
-    relay.send_msg(msg.clone(), false).await?;
+    relay.send_msg(msg.clone(), None).await?;
 
     // Wait notification from relays
     let mut notifications = client.notifications();
@@ -207,7 +208,7 @@ pub async fn get_events_of_mostro(
     }
 
     // Unsubscribe
-    relay.send_msg(ClientMessage::close(id), false).await?;
+    relay.send_msg(ClientMessage::close(id), None).await?;
 
     Ok(events)
 }
@@ -225,15 +226,14 @@ pub async fn get_direct_messages(
 
     let timestamp = Timestamp::from(since_time);
     let filters = Filter::new()
-        .author(mostro_pubkey)
+        .author(mostro_pubkey.to_string())
         .kind(Kind::EncryptedDirectMessage)
         .pubkey(my_key.public_key())
         .since(timestamp);
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors.as_ref().unwrap(),
-        filters.kinds.as_ref().unwrap()
+        filters.authors, filters.kinds
     );
 
     // Send all requests to relays
@@ -270,13 +270,12 @@ pub async fn get_orders_list(
     client: &Client,
 ) -> Result<Vec<NewOrder>> {
     let filters = Filter::new()
-        .author(pubkey)
+        .author(pubkey.to_string())
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors.as_ref().unwrap(),
-        filters.kinds.as_ref().unwrap()
+        filters.authors, filters.kinds
     );
 
     // Extracted Orders List
