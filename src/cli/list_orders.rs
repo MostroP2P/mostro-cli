@@ -1,7 +1,5 @@
-use mostro_core::order::{Kind, Status};
-
 use anyhow::Result;
-
+use mostro_core::order::{Kind, Status};
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::Client;
 
@@ -29,7 +27,7 @@ pub async fn execute_list_orders(
     );
     println!("You are searching {:?} orders", status.unwrap().clone());
 
-    //Get orders from relays
+    // Get orders from relays
     let table_of_orders = get_orders_list(
         mostro_key,
         status.to_owned(),
