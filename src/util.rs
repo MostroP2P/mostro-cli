@@ -36,7 +36,8 @@ pub async fn send_dm(
     //     let opts = Options::new().wait_for_send(false);
     //     Client::new_with_opts(sender_keys, opts);
     // }
-    client.send_event(event).await?;
+    let msg = ClientMessage::new_event(event);
+    client.send_msg(msg).await?;
 
     Ok(())
 }
