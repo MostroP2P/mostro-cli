@@ -337,17 +337,11 @@ pub async fn get_orders_list(
     Ok(orderslist)
 }
 
-// Uppercase first letter of a string.
-pub fn uppercase_first(data: &str) -> String {
-    let mut result = String::new();
-    let mut first = true;
-    for value in data.chars() {
-        if first {
-            result.push(value.to_ascii_uppercase());
-            first = false;
-        } else {
-            result.push(value);
-        }
+/// Uppercase first letter of a string.
+pub fn uppercase_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
-    result
 }
