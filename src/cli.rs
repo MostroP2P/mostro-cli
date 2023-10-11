@@ -19,7 +19,6 @@ use crate::util;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::FromBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use std::env::{set_var, var};
@@ -57,22 +56,19 @@ pub enum Commands {
     ListOrders {
         /// Status of the order
         #[arg(short, long)]
-        #[clap(default_value = "pending")]
-        status: Option<Status>,
+        status: Option<String>,
         /// Currency selected
         #[arg(short, long)]
         currency: Option<String>,
         /// Choose an order kind
-        #[arg(value_enum)]
         #[arg(short, long)]
-        kind: Option<Kind>,
+        kind: Option<String>,
     },
     /// Create a new buy/sell order on Mostro
     Neworder {
         /// Choose an order kind
-        #[arg(value_enum)]
         #[arg(short, long)]
-        kind: Kind,
+        kind: String,
         /// Sats amount - leave empty for market price
         #[arg(short, long)]
         #[clap(default_value_t = 0)]
