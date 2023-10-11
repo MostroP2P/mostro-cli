@@ -1,11 +1,8 @@
-use std::str::FromStr;
-
-use mostro_core::order::{Kind, Status};
-
 use anyhow::Result;
-
+use mostro_core::order::{Kind, Status};
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::Client;
+use std::str::FromStr;
 
 use crate::pretty_table::print_orders_table;
 use crate::util::get_orders_list;
@@ -19,18 +16,18 @@ pub async fn execute_list_orders(
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
-    let mut status_checked: Option<Status> = None;
+    let mut status_checked: Option<Status> = Some(Status::from_str("Pending").unwrap());
     let mut kind_checked: Option<Kind> = None;
 
     // New check against strings
     if let Some(s) = status {
         status_checked = Some(Status::from_str(s).unwrap());
-        println!(
-            "You are searching orders with status {:?}",
-            status_checked.clone()
-        );
     }
 
+    println!(
+        "You are searching orders with status {:?}",
+        status_checked.unwrap()
+    );
     // New check against strings
     if let Some(k) = kind {
         kind_checked = Some(Kind::from_str(k).unwrap());
