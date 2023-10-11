@@ -1156,12 +1156,11 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92204f7a8b5decd90619b91b54b52fd753cdaccf167d2973b76c5286026b5fd2"
+checksum = "3e8e9b7fc5a7766932c93b1f8717578549e3c797fe2719b3ed4fc495c84b46cf"
 dependencies = [
  "anyhow",
- "clap",
  "serde",
  "serde_json",
  "sqlx",

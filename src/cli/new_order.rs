@@ -1,24 +1,20 @@
+use anyhow::Result;
+use mostro_core::order::NewOrder;
+use mostro_core::Message as MostroMessage;
 use mostro_core::{
     order::{Kind, Status},
     Action, Content,
 };
 use nostr_sdk::prelude::ToBech32;
-
+use nostr_sdk::secp256k1::XOnlyPublicKey;
+use nostr_sdk::{Client, Keys};
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
 use std::str::FromStr;
 
-use anyhow::Result;
-
-use mostro_core::order::NewOrder;
-use mostro_core::Message as MostroMessage;
-
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
-
 use crate::pretty_table::print_order_preview;
-use crate::util::{get_keys, send_order_id_cmd};
+use crate::util::{get_keys, send_order_id_cmd, uppercase_first};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -52,9 +48,9 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     }
-
+    let kind = uppercase_first(kind);
     // New check against strings
-    let kind_checked = Kind::from_str(kind).unwrap();
+    let kind_checked = Kind::from_str(&kind).unwrap();
 
     let mut master_buyer_pubkey: Option<String> = None;
     let mut master_seller_pubkey: Option<String> = None;
