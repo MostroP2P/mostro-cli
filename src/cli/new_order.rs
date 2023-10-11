@@ -1,13 +1,17 @@
-use mostro_core::{Action, Content};
+use mostro_core::{
+    order::{Kind, Status},
+    Action, Content,
+};
 use nostr_sdk::prelude::ToBech32;
 
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
+use std::str::FromStr;
 
 use anyhow::Result;
 
-use mostro_core::order::{Kind, NewOrder, Status};
+use mostro_core::order::NewOrder;
 use mostro_core::Message as MostroMessage;
 
 use nostr_sdk::secp256k1::XOnlyPublicKey;
@@ -20,7 +24,7 @@ pub type FiatNames = HashMap<String, String>;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_new_order(
-    kind: &Kind,
+    kind: &str,
     fiat_code: &str,
     fiat_amount: &i64,
     amount: &i64,
@@ -48,9 +52,13 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     }
+
+    // New check against strings
+    let kind_checked = Kind::from_str(kind).unwrap();
+
     let mut master_buyer_pubkey: Option<String> = None;
     let mut master_seller_pubkey: Option<String> = None;
-    if kind == &Kind::Buy {
+    if kind_checked == Kind::Buy {
         master_buyer_pubkey = Some(my_key.public_key().to_bech32()?);
     } else {
         master_seller_pubkey = Some(my_key.public_key().to_bech32()?);
@@ -59,7 +67,7 @@ pub async fn execute_new_order(
     // Create new order for mostro
     let order_content = Content::Order(NewOrder::new(
         None,
-        *kind,
+        kind_checked,
         Status::Pending,
         *amount,
         fiat_code,
