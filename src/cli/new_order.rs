@@ -73,7 +73,7 @@ pub async fn execute_new_order(
         master_buyer_pubkey,
         master_seller_pubkey,
         invoice.as_ref().to_owned().cloned(),
-        None,
+        0,
     ));
 
     // Print order preview

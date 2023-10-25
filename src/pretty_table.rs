@@ -124,7 +124,7 @@ pub fn print_orders_table(orders_table: Vec<NewOrder>) -> Result<String> {
 
         //Iterate to create table of orders
         for single_order in orders_table.into_iter() {
-            let date = NaiveDateTime::from_timestamp_opt(single_order.created_at.unwrap_or(0), 0);
+            let date = NaiveDateTime::from_timestamp_opt(single_order.created_at, 0);
 
             let r = Row::from(vec![
                 // Cell::new(single_order.kind.to_string()),
