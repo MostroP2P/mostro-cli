@@ -156,16 +156,22 @@ pub enum Commands {
         order_id: Uuid,
     },
     /// Cancel an order (only admin)
-    AdminCancel {
+    AdmCancel {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
     },
     /// Settle a seller's hold invoice (only admin)
-    AdminSettle {
+    AdmSettle {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
+    },
+    /// Add a new dispute's solver (only admin)
+    AdmAddSolver {
+        /// npubkey
+        #[arg(short, long)]
+        npubkey: String,
     },
 }
 
@@ -216,10 +222,29 @@ pub async fn run() -> Result<()> {
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
-            | Commands::AdminCancel { order_id }
-            | Commands::AdminSettle { order_id }
+            | Commands::AdmCancel { order_id }
+            | Commands::AdmSettle { order_id }
             | Commands::Cancel { order_id } => {
-                execute_send_msg(cmd.clone(), order_id, &my_key, mostro_key, &client).await?
+                execute_send_msg(
+                    cmd.clone(),
+                    Some(*order_id),
+                    &my_key,
+                    mostro_key,
+                    &client,
+                    None,
+                )
+                .await?
+            }
+            Commands::AdmAddSolver { npubkey } => {
+                execute_send_msg(
+                    cmd.clone(),
+                    None,
+                    &my_key,
+                    mostro_key,
+                    &client,
+                    Some(npubkey),
+                )
+                .await?
             }
             Commands::Neworder {
                 kind,
