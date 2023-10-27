@@ -5,6 +5,7 @@ pub mod new_order;
 pub mod rate_user;
 pub mod send_msg;
 pub mod take_buy;
+pub mod take_dispute;
 pub mod take_sell;
 
 use crate::cli::add_invoice::execute_add_invoice;
@@ -14,6 +15,7 @@ use crate::cli::new_order::execute_new_order;
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
+use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_sell::execute_take_sell;
 use crate::util;
 
@@ -173,6 +175,12 @@ pub enum Commands {
         #[arg(short, long)]
         npubkey: String,
     },
+    /// Admin or solver take a Pending dispute (only admin)
+    AdmTakeDispute {
+        /// Dispute id
+        #[arg(short, long)]
+        dispute_id: Uuid,
+    },
 }
 
 /// Check range simple version for just a single value
@@ -271,6 +279,9 @@ pub async fn run() -> Result<()> {
             }
             Commands::Rate { order_id, rating } => {
                 execute_rate_user(order_id, rating, &my_key, mostro_key, &client).await?;
+            }
+            Commands::AdmTakeDispute { dispute_id } => {
+                execute_take_dispute(dispute_id, &my_key, mostro_key, &client).await?
             }
         };
     }
