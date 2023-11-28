@@ -254,17 +254,6 @@ pub async fn run() -> Result<()> {
                 )
                 .await?
             }
-            Commands::AdmAddSolver { npubkey } => {
-                execute_send_msg(
-                    cmd.clone(),
-                    None,
-                    &my_key,
-                    mostro_key,
-                    &client,
-                    Some(npubkey),
-                )
-                .await?
-            }
             Commands::Neworder {
                 kind,
                 fiat_code,
