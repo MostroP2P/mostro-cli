@@ -22,7 +22,7 @@ pub async fn execute_take_dispute(
     let keys = get_keys()?;
     // This should be the master pubkey
     let master_pubkey = keys.public_key().to_bech32()?;
-    let content = Some(Content::Dispute(dispute_id.to_string()));
+    let content = Some(Content::Dispute(*dispute_id));
 
     // Create takebuy message
     let take_dispute_message = MostroMessage::new(
