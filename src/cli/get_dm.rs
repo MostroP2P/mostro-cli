@@ -1,9 +1,5 @@
-use mostro_core::Content;
-
 use anyhow::Result;
-
-use mostro_core::Message as MostroMessage;
-
+use mostro_core::message::{Content, Message};
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
 
@@ -22,26 +18,30 @@ pub async fn execute_get_dm(
         println!();
     } else {
         for el in dm.iter() {
-            match MostroMessage::from_json(&el.0) {
+            match Message::from_json(&el.0) {
                 Ok(m) => {
-                    if m.order_id.is_some() {
+                    if m.get_inner_message_kind().id.is_some() {
                         println!(
                             "Mostro sent you this message for order id: {}",
-                            m.order_id.unwrap()
+                            m.get_inner_message_kind().id.unwrap()
                         );
                     }
-                    if let Some(Content::PaymentRequest(_, inv)) = m.content {
+                    if let Some(Content::PaymentRequest(_, inv)) =
+                        &m.get_inner_message_kind().content
+                    {
                         println!();
                         println!("Pay this invoice to continue --> {}", inv);
                         println!();
-                    } else if let Some(Content::TextMessage(text)) = m.content {
+                    } else if let Some(Content::TextMessage(text)) =
+                        &m.get_inner_message_kind().content
+                    {
                         println!();
                         println!("{text}");
                         println!();
                     } else {
                         println!();
-                        println!("Action: {}", m.action);
-                        println!("Content: {:#?}", m.content);
+                        println!("Action: {}", m.get_inner_message_kind().action);
+                        println!("Content: {:#?}", m.get_inner_message_kind().content);
                         println!();
                     }
                 }

@@ -1,8 +1,7 @@
 use crate::lightning::is_valid_invoice;
 use crate::util::{get_keys, send_order_id_cmd};
 use anyhow::Result;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{Action, Content};
+use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
@@ -30,8 +29,7 @@ pub async fn execute_add_invoice(
     // This should be the master pubkey
     let master_pubkey = keys.public_key().to_bech32()?;
     // Create AddInvoice message
-    let add_invoice_message = MostroMessage::new(
-        0,
+    let add_invoice_message = Message::new_order(
         Some(*order_id),
         Some(master_pubkey),
         Action::AddInvoice,

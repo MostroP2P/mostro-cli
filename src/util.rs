@@ -1,12 +1,14 @@
+use crate::nip33::order_from_tags;
+
 use anyhow::{Error, Result};
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
+use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
-use mostro_core::order::NewOrder;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{order::Status, Content, NOSTR_REPLACEABLE_EVENT_KIND};
+use mostro_core::order::{SmallOrder, Status};
+use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -68,6 +70,7 @@ pub async fn send_order_id_cmd(
     message: String,
     wait_for_dm_ans: bool,
 ) -> Result<()> {
+    info!("Sending message: {message:#?}");
     // Send dm to mostro pub id
     send_dm(client, my_key, &mostro_pubkey, message, Some(false)).await?;
 
@@ -78,13 +81,15 @@ pub async fn send_order_id_cmd(
             let dm = get_direct_messages(client, mostro_pubkey, my_key, 1).await;
 
             for el in dm.iter() {
-                match MostroMessage::from_json(&el.0) {
+                match Message::from_json(&el.0) {
                     Ok(m) => {
-                        if let Some(Content::PaymentRequest(ord, inv)) = m.content {
+                        if let Some(Content::PaymentRequest(ord, inv)) =
+                            &m.get_inner_message_kind().content
+                        {
                             println!("NEW MESSAGE:");
                             println!(
                                 "Mostro sent you this hold invoice for order id: {}",
-                                ord.unwrap().id.unwrap()
+                                ord.as_ref().unwrap().id.unwrap()
                             );
                             println!();
                             println!("Pay this invoice to continue -->  {}", inv);
@@ -270,29 +275,27 @@ pub async fn get_orders_list(
     currency: Option<String>,
     kind: Option<MostroKind>,
     client: &Client,
-) -> Result<Vec<NewOrder>> {
+) -> Result<Vec<SmallOrder>> {
     let filters = Filter::new()
         .author(pubkey.to_string())
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
         filters.authors, filters.kinds
     );
 
     // Extracted Orders List
-    let mut orderslist = Vec::<NewOrder>::new();
+    let mut orders_list = Vec::<SmallOrder>::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut idlist = Vec::<Uuid>::new();
+    let mut id_list = Vec::<Uuid>::new();
 
-    //Send all requests to relays
+    // Send all requests to relays
     let mostro_req = send_relays_requests(client, filters).await;
-
-    //Scan events to extract all orders
-    for ordersrow in mostro_req.iter() {
-        for ord in ordersrow {
-            let order = NewOrder::from_json(&ord.content);
+    // Scan events to extract all orders
+    for orders_row in mostro_req.iter() {
+        for ord in orders_row {
+            let order = order_from_tags(ord.tags.clone());
 
             if order.is_err() {
                 error!("{order:?}");
@@ -302,16 +305,31 @@ pub async fn get_orders_list(
 
             info!("Found Order id : {:?}", order.id.unwrap());
 
-            //Match order status
+            if order.id.is_none() {
+                info!("Order ID is none");
+                continue;
+            }
+
+            if order.kind.is_none() {
+                info!("Order kind is none");
+                continue;
+            }
+
+            if order.status.is_none() {
+                info!("Order status is none");
+                continue;
+            }
+
+            // Match order status
             if let Some(ref st) = status {
-                //If order is yet present go on...
-                if idlist.contains(&order.id.unwrap()) || *st != order.status {
+                // If order is yet present go on...
+                if id_list.contains(&order.id.unwrap()) || *st != order.status.unwrap() {
                     info!("Found same id order {}", order.id.unwrap());
                     continue;
                 }
             }
 
-            //Match currency
+            // Match currency
             if let Some(ref curr) = currency {
                 if *curr != order.fiat_code {
                     info!(
@@ -321,20 +339,18 @@ pub async fn get_orders_list(
                     continue;
                 }
             }
-
-            //Match order kind
-            if let Some(ref reqkind) = kind {
-                if *reqkind != order.kind {
-                    info!("Not requested kind - you requested {:?} offers", kind);
-                    continue;
-                }
+            // Match order kind
+            if kind != order.kind && kind.is_some() {
+                info!("Not requested kind - you requested {:?} offers", kind);
+                continue;
             }
 
-            idlist.push(order.id.unwrap());
-            orderslist.push(order);
+            id_list.push(order.id.unwrap());
+            orders_list.push(order);
         }
     }
-    Ok(orderslist)
+
+    Ok(orders_list)
 }
 
 /// Uppercase first letter of a string.

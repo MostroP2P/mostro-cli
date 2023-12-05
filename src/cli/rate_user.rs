@@ -1,6 +1,5 @@
 use anyhow::Result;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{Action, Content};
+use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
 use uuid::Uuid;
@@ -26,8 +25,7 @@ pub async fn execute_rate_user(
     }
 
     // Create rating message of counterpart
-    let rate_message = MostroMessage::new(
-        0,
+    let rate_message = Message::new_order(
         Some(*order_id),
         None,
         Action::RateUser,
