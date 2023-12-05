@@ -1,6 +1,5 @@
 use anyhow::Result;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{Action, Content};
+use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
@@ -25,15 +24,10 @@ pub async fn execute_take_dispute(
     let content = Some(Content::Dispute(*dispute_id));
 
     // Create takebuy message
-    let take_dispute_message = MostroMessage::new(
-        0,
-        None,
-        Some(master_pubkey),
-        Action::AdminTakeDispute,
-        content,
-    )
-    .as_json()
-    .unwrap();
+    let take_dispute_message =
+        Message::new_order(None, Some(master_pubkey), Action::AdminTakeDispute, content)
+            .as_json()
+            .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, take_dispute_message, true).await?;
 

@@ -1,6 +1,5 @@
 use anyhow::Result;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{Action, Content, Peer};
+use mostro_core::message::{Action, Content, Message, Peer};
 use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
@@ -26,8 +25,7 @@ pub async fn execute_take_buy(
     let content = Some(Content::Peer(peer));
 
     // Create takebuy message
-    let take_buy_message = MostroMessage::new(
-        0,
+    let take_buy_message = Message::new_order(
         Some(*order_id),
         Some(master_pubkey),
         Action::TakeBuy,

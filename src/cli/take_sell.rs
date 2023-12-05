@@ -1,6 +1,5 @@
 use anyhow::Result;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{Action, Content};
+use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
@@ -35,8 +34,7 @@ pub async fn execute_take_sell(
     let master_pubkey = keys.public_key().to_bech32()?;
 
     // Create takesell message
-    let take_sell_message = MostroMessage::new(
-        0,
+    let take_sell_message = Message::new_order(
         Some(*order_id),
         Some(master_pubkey),
         Action::TakeSell,

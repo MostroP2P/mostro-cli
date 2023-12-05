@@ -1,10 +1,7 @@
 use anyhow::Result;
-use mostro_core::order::NewOrder;
-use mostro_core::Message as MostroMessage;
-use mostro_core::{
-    order::{Kind, Status},
-    Action, Content,
-};
+use mostro_core::message::{Action, Content, Message};
+use mostro_core::order::SmallOrder;
+use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
@@ -61,10 +58,10 @@ pub async fn execute_new_order(
     }
 
     // Create new order for mostro
-    let order_content = Content::Order(NewOrder::new(
+    let order_content = Content::Order(SmallOrder::new(
         None,
-        kind_checked,
-        Status::Pending,
+        Some(kind_checked),
+        Some(Status::Pending),
         *amount,
         fiat_code,
         *fiat_amount,
@@ -73,7 +70,7 @@ pub async fn execute_new_order(
         master_buyer_pubkey,
         master_seller_pubkey,
         invoice.as_ref().to_owned().cloned(),
-        0,
+        Some(0),
     ));
 
     // Print order preview
@@ -102,11 +99,10 @@ pub async fn execute_new_order(
     // This should be the master pubkey
     let master_pubkey = keys.public_key().to_bech32()?;
     // Create fiat sent message
-    let message = MostroMessage::new(
-        0,
+    let message = Message::new_order(
         None,
         Some(master_pubkey),
-        Action::Order,
+        Action::NewOrder,
         Some(order_content),
     )
     .as_json()
