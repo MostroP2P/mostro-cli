@@ -29,6 +29,7 @@ pub async fn send_dm(
     content: String,
     _wait_for_connection: Option<bool>,
 ) -> Result<()> {
+    println!("Sending message: {}", content);
     let event =
         EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
             .to_event(sender_keys)?;
