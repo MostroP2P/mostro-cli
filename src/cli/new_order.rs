@@ -49,14 +49,6 @@ pub async fn execute_new_order(
     // New check against strings
     let kind_checked = Kind::from_str(&kind).unwrap();
 
-    let mut master_buyer_pubkey: Option<String> = None;
-    let mut master_seller_pubkey: Option<String> = None;
-    if kind_checked == Kind::Buy {
-        master_buyer_pubkey = Some(my_key.public_key().to_bech32()?);
-    } else {
-        master_seller_pubkey = Some(my_key.public_key().to_bech32()?);
-    }
-
     // Create new order for mostro
     let order_content = Content::Order(SmallOrder::new(
         None,
@@ -67,8 +59,8 @@ pub async fn execute_new_order(
         *fiat_amount,
         payment_method.to_owned(),
         *premium,
-        master_buyer_pubkey,
-        master_seller_pubkey,
+        None,
+        None,
         invoice.as_ref().to_owned().cloned(),
         Some(0),
     ));
