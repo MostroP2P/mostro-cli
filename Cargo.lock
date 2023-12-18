@@ -1156,9 +1156,9 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.4.1"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73d6c96fbe61d619588f288ed13c78170600feeccdd1dc6db51e9469ed31185a"
+checksum = "7bb979bdf83422ea2babb66c589ed35d882443168a7ad08b6fc95e471dc366e9"
 dependencies = [
  "anyhow",
  "serde",
@@ -2009,9 +2009,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-crud"
-version = "0.3.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "612f8f69c2d5655fc50b3d081169b8e8bcfe7cdd9c300d1e7605a2c00a0e3b73"
+checksum = "a00cbbfdea4be98477e9b5b7190b9e2b1e567e2c0b6c2649b6b6622cfffec50e"
 dependencies = [
  "futures",
  "sqlx",
@@ -2021,14 +2021,14 @@ dependencies = [
 
 [[package]]
 name = "sqlx-crud-macros"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b4d450c43e653e143b5abfd6e1d82c41993d04f905b0da98af03594cd13c35"
+checksum = "8f8aaa082d86752ecd74230711220872649c2b3ef43186d1beb06a14fdf566fe"
 dependencies = [
  "Inflector",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.38",
 ]
 
 [[package]]
