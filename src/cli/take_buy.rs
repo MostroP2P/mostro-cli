@@ -1,6 +1,5 @@
 use anyhow::Result;
 use mostro_core::message::{Action, Message};
-use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
 use uuid::Uuid;
@@ -20,7 +19,7 @@ pub async fn execute_take_buy(
     );
     let keys = get_keys()?;
     // This should be the master pubkey
-    let master_pubkey = keys.public_key().to_bech32()?;
+    let master_pubkey = keys.public_key().to_string();
 
     // Create takebuy message
     let take_buy_message =
