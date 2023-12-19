@@ -5,7 +5,6 @@ use crate::util::send_order_id_cmd;
 use anyhow::Result;
 use log::info;
 use mostro_core::message::{Action, Content, Message};
-use nostr_sdk::prelude::ToBech32;
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
 use std::process;
@@ -47,7 +46,7 @@ pub async fn execute_send_msg(
     }
 
     // This should be the master pubkey
-    let master_pubkey = keys.public_key().to_bech32()?;
+    let master_pubkey = keys.public_key().to_string();
     // Create message
     let message = Message::new_order(order_id, Some(master_pubkey), requested_action, content)
         .as_json()
