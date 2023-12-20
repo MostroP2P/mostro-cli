@@ -279,6 +279,7 @@ pub async fn get_orders_list(
 ) -> Result<Vec<SmallOrder>> {
     let filters = Filter::new()
         .author(pubkey.to_string())
+        .custom_tag(Alphabet::Z, vec!["order"])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
