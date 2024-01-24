@@ -1,9 +1,11 @@
 use crate::lightning::is_valid_invoice;
 use crate::util::{get_keys, send_order_id_cmd};
 use anyhow::Result;
+use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::secp256k1::XOnlyPublicKey;
 use nostr_sdk::{Client, Keys};
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub async fn execute_add_invoice(
@@ -19,11 +21,16 @@ pub async fn execute_add_invoice(
     );
     let mut content = None;
     // Check invoice string
-    let valid_invoice = is_valid_invoice(invoice);
-    match valid_invoice {
-        Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string())),
-        Err(e) => println!("{}", e),
+    let ln_addr = LightningAddress::from_str(invoice);
+    if ln_addr.is_ok() {
+        content = Some(Content::PaymentRequest(None, invoice.to_string()));
+    } else {
+        match is_valid_invoice(invoice) {
+            Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string())),
+            Err(e) => println!("{}", e),
+        }
     }
+
     let keys = get_keys()?;
     // This should be the master pubkey
     let master_pubkey = keys.public_key().to_string();
