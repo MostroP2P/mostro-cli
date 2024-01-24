@@ -9,7 +9,7 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
     for tag in tags {
         let t = tag.as_vec();
         let v = t.get(1).unwrap().as_str();
-        match t.get(0).unwrap().as_str() {
+        match t.first().unwrap().as_str() {
             "d" => {
                 let id = t.get(1).unwrap().as_str().parse::<Uuid>();
                 let id = match id {
