@@ -302,7 +302,7 @@ pub async fn get_orders_list(
                 error!("{order:?}");
                 continue;
             }
-            let order = order?;
+            let mut order = order?;
 
             info!("Found Order id : {:?}", order.id.unwrap());
 
@@ -345,6 +345,9 @@ pub async fn get_orders_list(
                 info!("Not requested kind - you requested {:?} offers", kind);
                 continue;
             }
+
+            // Get created at field from Nostr event
+            order.created_at = Some(ord.created_at.as_i64());
 
             id_list.push(order.id.unwrap());
             orders_list.push(order);
