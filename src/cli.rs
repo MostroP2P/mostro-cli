@@ -117,7 +117,7 @@ pub enum Commands {
         #[arg(short, long)]
         invoice: String,
     },
-    /// Get the list of Mostro direct messages since the last hour, used to check order state
+    /// Get the latest direct messages from Mostro
     GetDm {
         /// Since time of the messages in minutes
         #[arg(short, long)]
