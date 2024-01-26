@@ -258,14 +258,14 @@ pub async fn get_direct_messages(
                 id_list.push(dm.id.inner());
                 let date = NaiveDateTime::from_timestamp_opt(dm.created_at.as_i64(), 0);
 
-                let humandate = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
+                let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
                 let message = decrypt(
                     &my_key.secret_key().unwrap(),
                     &dm.pubkey,
                     dm.content.clone(),
                 );
-                direct_messages.push(((message.unwrap()), (humandate)));
+                direct_messages.push(((message.unwrap()), (human_date)));
             }
         }
     }
