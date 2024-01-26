@@ -22,8 +22,9 @@ pub async fn execute_get_dm(
                 Ok(m) => {
                     if m.get_inner_message_kind().id.is_some() {
                         println!(
-                            "Mostro sent you this message for order id: {}",
-                            m.get_inner_message_kind().id.unwrap()
+                            "Mostro sent you this message for order id: {} at {}",
+                            m.get_inner_message_kind().id.unwrap(),
+                            el.1
                         );
                     }
                     if let Some(Content::PaymentRequest(_, inv)) =
