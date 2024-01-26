@@ -266,6 +266,9 @@ pub async fn get_direct_messages(
             }
         }
     }
+    // Return element sorted by second tuple element ( Timestamp )
+    direct_messages.sort_by(|a, b| b.1.cmp(&a.1));
+
     direct_messages
 }
 
