@@ -108,7 +108,7 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
-    /// Take a buy order from a Mostro pubkey
+    /// Buyer add a new invoice to receive the payment
     AddInvoice {
         /// Order id
         #[arg(short, long)]
