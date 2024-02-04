@@ -277,18 +277,34 @@ pub async fn get_direct_messages(
 
 pub async fn get_orders_list(
     pubkey: XOnlyPublicKey,
-    status: Option<Status>,
+    status: Status,
     currency: Option<String>,
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<SmallOrder>> {
-    let filters = Filter::new()
+    let generic_filter = Filter::new()
         .author(pubkey.to_string())
         .custom_tag(Alphabet::Z, vec!["order"])
+        .custom_tag(Alphabet::S, vec![status.to_string()])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+
+    let mut exec_filter = generic_filter;
+
+    if let Some(c) = currency {
+        exec_filter = exec_filter
+            .clone()
+            .custom_tag(Alphabet::F, vec![c.to_string()]);
+    }
+
+    if let Some(k) = kind {
+        exec_filter = exec_filter
+            .clone()
+            .custom_tag(Alphabet::K, vec![k.to_string()]);
+    }
+
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors, filters.kinds
+        exec_filter.authors, exec_filter.kinds
     );
 
     // Extracted Orders List
@@ -298,7 +314,7 @@ pub async fn get_orders_list(
     let mut id_list = Vec::<Uuid>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filters).await;
+    let mostro_req = send_relays_requests(client, exec_filter).await;
     // Scan events to extract all orders
     for orders_row in mostro_req.iter() {
         for ord in orders_row {
@@ -324,31 +340,6 @@ pub async fn get_orders_list(
 
             if order.status.is_none() {
                 info!("Order status is none");
-                continue;
-            }
-
-            // Match order status
-            if let Some(ref st) = status {
-                // If order is yet present go on...
-                if id_list.contains(&order.id.unwrap()) || *st != order.status.unwrap() {
-                    info!("Found same id order {}", order.id.unwrap());
-                    continue;
-                }
-            }
-
-            // Match currency
-            if let Some(ref curr) = currency {
-                if *curr != order.fiat_code {
-                    info!(
-                        "Not requested currency offer - you requested this currency {:?}",
-                        currency
-                    );
-                    continue;
-                }
-            }
-            // Match order kind
-            if kind != order.kind && kind.is_some() {
-                info!("Not requested kind - you requested {:?} offers", kind);
                 continue;
             }
 

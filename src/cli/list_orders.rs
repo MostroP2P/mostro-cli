@@ -51,7 +51,7 @@ pub async fn execute_list_orders(
     // Get orders from relays
     let table_of_orders = get_orders_list(
         mostro_key,
-        status_checked,
+        status_checked.unwrap(),
         upper_currency.clone(),
         kind_checked,
         client,
