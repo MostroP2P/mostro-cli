@@ -1,10 +1,11 @@
-use crate::nip33::order_from_tags;
+use crate::nip33::{dispute_from_tags, order_from_tags};
 
 use anyhow::{Error, Result};
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
+use mostro_core::dispute::Dispute;
 use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
@@ -352,6 +353,46 @@ pub async fn get_orders_list(
     }
 
     Ok(orders_list)
+}
+
+pub async fn get_disputes_list(pubkey: XOnlyPublicKey, client: &Client) -> Result<Vec<Dispute>> {
+    let generic_filter = Filter::new()
+        .author(pubkey.to_string())
+        .custom_tag(Alphabet::Z, vec!["dispute"])
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+
+    let exec_filter = generic_filter;
+
+    // Extracted Orders List
+    let mut disputes_list = Vec::<Dispute>::new();
+
+    // Vector for single dispute id check - maybe multiple relay could send the same dispute id? Check unique one...
+    let mut id_list = Vec::<Uuid>::new();
+
+    // Send all requests to relays
+    let mostro_req = send_relays_requests(client, exec_filter).await;
+    // Scan events to extract all disputes
+    for disputes_row in mostro_req.iter() {
+        for d in disputes_row {
+            let dispute = dispute_from_tags(d.tags.clone());
+
+            if dispute.is_err() {
+                error!("{dispute:?}");
+                continue;
+            }
+            let mut dispute = dispute?;
+
+            info!("Found Dispute id : {:?}", dispute.id);
+
+            // Get created at field from Nostr event
+            dispute.created_at = d.created_at.as_i64();
+
+            id_list.push(dispute.id);
+            disputes_list.push(dispute);
+        }
+    }
+
+    Ok(disputes_list)
 }
 
 /// Uppercase first letter of a string.

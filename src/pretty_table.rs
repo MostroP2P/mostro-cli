@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::NaiveDateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
+use mostro_core::dispute::Dispute;
 use mostro_core::message::Content;
 use mostro_core::order::{Kind, SmallOrder};
 
@@ -156,6 +157,67 @@ pub fn print_orders_table(orders_table: Vec<SmallOrder>) -> Result<String> {
                     .set_alignment(CellAlignment::Center),
                 Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
+                Cell::new(date.unwrap()),
+            ]);
+            rows.push(r);
+        }
+    }
+
+    table.add_rows(rows);
+
+    Ok(table.to_string())
+}
+
+pub fn print_disputes_table(disputes_table: Vec<Dispute>) -> Result<String> {
+    let mut table = Table::new();
+
+    //Table rows
+    let mut rows: Vec<Row> = Vec::new();
+
+    if disputes_table.is_empty() {
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_width(160)
+            .set_header(vec![Cell::new("Sorry...")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center)]);
+
+        // Single row for error
+        let mut r = Row::new();
+
+        r.add_cell(
+            Cell::new("No offers found with requested parameters...")
+                .fg(Color::Red)
+                .set_alignment(CellAlignment::Center),
+        );
+
+        //Push single error row
+        rows.push(r);
+    } else {
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_width(160)
+            .set_header(vec![
+                Cell::new("Dispute Id")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Status")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+                Cell::new("Created")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
+            ]);
+
+        //Iterate to create table of orders
+        for single_dispute in disputes_table.into_iter() {
+            let date = NaiveDateTime::from_timestamp_opt(single_dispute.created_at, 0);
+
+            let r = Row::from(vec![
+                Cell::new(single_dispute.id).set_alignment(CellAlignment::Center),
+                Cell::new(single_dispute.status.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(date.unwrap()),
             ]);
             rows.push(r);

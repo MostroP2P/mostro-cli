@@ -1,4 +1,5 @@
 use anyhow::{Ok, Result};
+use mostro_core::dispute::{Dispute, Status as DisputeStatus};
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
@@ -44,4 +45,35 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
     }
 
     Ok(order)
+}
+
+pub fn dispute_from_tags(tags: Vec<Tag>) -> Result<Dispute> {
+    let mut dispute = Dispute::default();
+    for tag in tags {
+        let t = tag.as_vec();
+        let v = t.get(1).unwrap().as_str();
+        match t.first().unwrap().as_str() {
+            "d" => {
+                let id = t.get(1).unwrap().as_str().parse::<Uuid>();
+                let id = match id {
+                    core::result::Result::Ok(id) => id,
+                    Err(_) => return Err(anyhow::anyhow!("Invalid dispute id")),
+                };
+                dispute.id = id;
+            }
+
+            "s" => {
+                let status = match DisputeStatus::from_str(v) {
+                    core::result::Result::Ok(status) => status,
+                    Err(_) => return Err(anyhow::anyhow!("Invalid dispute status")),
+                };
+
+                dispute.status = status;
+            }
+
+            _ => {}
+        }
+    }
+
+    Ok(dispute)
 }
