@@ -1,5 +1,6 @@
 pub mod add_invoice;
 pub mod get_dm;
+pub mod list_disputes;
 pub mod list_orders;
 pub mod new_order;
 pub mod rate_user;
@@ -10,6 +11,7 @@ pub mod take_sell;
 
 use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::get_dm::execute_get_dm;
+use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
 use crate::cli::rate_user::execute_rate_user;
@@ -169,6 +171,8 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
     },
+    /// Requests open disputes from Mostro pubkey
+    AdmListDisputes {},
     /// Add a new dispute's solver (only admin)
     AdmAddSolver {
         /// npubkey
@@ -283,6 +287,7 @@ pub async fn run() -> Result<()> {
             Commands::AdmTakeDispute { dispute_id } => {
                 execute_take_dispute(dispute_id, &my_key, mostro_key, &client).await?
             }
+            Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
         };
     }
 
