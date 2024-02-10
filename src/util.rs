@@ -392,8 +392,11 @@ pub async fn get_disputes_list(pubkey: XOnlyPublicKey, client: &Client) -> Resul
             // Get created at field from Nostr event
             dispute.created_at = d.created_at.as_i64();
 
-            id_list.push(dispute.id);
-            disputes_list.push(dispute);
+            // Add only in case id of dispute is not present in the list (avoid duplicate)
+            if !id_list.contains(&dispute.id) {
+                id_list.push(dispute.id);
+                disputes_list.push(dispute);
+            }
         }
     }
 
