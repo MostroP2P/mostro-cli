@@ -168,6 +168,7 @@ pub async fn send_relays_requests(client: &Client, filters: Filter) -> Vec<Vec<E
     for req in requests {
         answers_requests.push(req.await.unwrap());
     }
+
     answers_requests
 }
 
@@ -346,11 +347,15 @@ pub async fn get_orders_list(
 
             // Get created at field from Nostr event
             order.created_at = Some(ord.created_at.as_i64());
-
-            id_list.push(order.id.unwrap());
-            orders_list.push(order);
+            // Add only in case id of order is not present in the list (avoid duplicate)
+            if !id_list.contains(&order.id.unwrap()) {
+                id_list.push(order.id.unwrap());
+                orders_list.push(order);
+            }
         }
     }
+    // Return element sorted by second tuple element ( Timestamp )
+    orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(orders_list)
 }
