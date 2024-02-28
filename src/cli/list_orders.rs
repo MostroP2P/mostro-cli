@@ -16,12 +16,12 @@ pub async fn execute_list_orders(
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
-    let mut status_checked: Option<Status> = Some(Status::from_str("Pending").unwrap());
+    let mut status_checked: Option<Status> = Some(Status::from_str("pending").unwrap());
     let mut kind_checked: Option<Kind> = None;
 
     // New check against strings
     if let Some(s) = status {
-        status_checked = Some(Status::from_str(s).unwrap());
+        status_checked = Some(Status::from_str(s).expect("Not valid status! Please check"));
     }
 
     println!(
@@ -30,7 +30,7 @@ pub async fn execute_list_orders(
     );
     // New check against strings
     if let Some(k) = kind {
-        kind_checked = Some(Kind::from_str(k).unwrap());
+        kind_checked = Some(Kind::from_str(k).expect("Not valid order kind! Please check"));
         println!("You are searching {:?} orders", kind_checked.clone());
     }
 

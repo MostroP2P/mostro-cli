@@ -201,7 +201,9 @@ pub async fn run() -> Result<()> {
     // Init logger
     if cli.verbose {
         set_var("RUST_LOG", "info");
+        pretty_env_logger::init();
     }
+
     // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
     let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
