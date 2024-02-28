@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "bitcoin_hashes 0.12.0",
@@ -1248,9 +1248,9 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85127ffb8736bd76e5377d878f70f1145351e6690ee5f3dc639eb8a4c8b6ea11"
+checksum = "73e480e4c4dc14a09d08fb52a951a75ae3cf9d22ef5a426649b7c633211ae698"
 dependencies = [
  "anyhow",
  "serde",
