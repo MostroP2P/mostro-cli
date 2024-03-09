@@ -364,6 +364,7 @@ pub async fn get_disputes_list(pubkey: XOnlyPublicKey, client: &Client) -> Resul
     let generic_filter = Filter::new()
         .author(pubkey.to_string())
         .custom_tag(Alphabet::Z, vec!["dispute"])
+        .custom_tag(Alphabet::S, vec![Status::Pending.to_string()])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     let exec_filter = generic_filter;
