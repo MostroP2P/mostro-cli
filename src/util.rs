@@ -5,7 +5,7 @@ use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
-use mostro_core::dispute::Dispute;
+use mostro_core::dispute::{Dispute, Status as DisputeStatus};
 use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
@@ -364,7 +364,7 @@ pub async fn get_disputes_list(pubkey: XOnlyPublicKey, client: &Client) -> Resul
     let generic_filter = Filter::new()
         .author(pubkey.to_string())
         .custom_tag(Alphabet::Z, vec!["dispute"])
-        .custom_tag(Alphabet::S, vec![Status::Pending.to_string()])
+        .custom_tag(Alphabet::S, vec![DisputeStatus::Initiated.to_string()])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     let exec_filter = generic_filter;
