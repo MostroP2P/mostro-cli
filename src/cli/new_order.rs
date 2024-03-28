@@ -2,8 +2,7 @@ use anyhow::Result;
 use mostro_core::message::{Action, Content, Message};
 use mostro_core::order::SmallOrder;
 use mostro_core::order::{Kind, Status};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
+use nostr_sdk::prelude::*;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
@@ -24,7 +23,7 @@ pub async fn execute_new_order(
     premium: &i64,
     invoice: &Option<String>,
     my_key: &Keys,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     // Uppercase currency

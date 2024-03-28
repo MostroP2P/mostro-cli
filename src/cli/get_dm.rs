@@ -1,14 +1,13 @@
 use anyhow::Result;
 use mostro_core::message::{Content, Message};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
+use nostr_sdk::prelude::*;
 
 use crate::util::get_direct_messages;
 
 pub async fn execute_get_dm(
     since: &i64,
     my_key: &Keys,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     let dm = get_direct_messages(client, mostro_key, my_key, *since).await;

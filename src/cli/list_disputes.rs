@@ -1,11 +1,10 @@
 use anyhow::Result;
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::Client;
+use nostr_sdk::prelude::*;
 
 use crate::pretty_table::print_disputes_table;
 use crate::util::get_disputes_list;
 
-pub async fn execute_list_disputes(mostro_key: XOnlyPublicKey, client: &Client) -> Result<()> {
+pub async fn execute_list_disputes(mostro_key: PublicKey, client: &Client) -> Result<()> {
     println!(
         "Requesting orders from mostro pubId - {}",
         mostro_key.clone()
