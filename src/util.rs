@@ -18,7 +18,7 @@ use uuid::Uuid;
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
     let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
-    let my_keys = Keys::from_sk_str(&nsec1privkey)?;
+    let my_keys = Keys::parse(nsec1privkey)?;
 
     Ok(my_keys)
 }
@@ -26,13 +26,12 @@ pub fn get_keys() -> Result<Keys> {
 pub async fn send_dm(
     client: &Client,
     sender_keys: &Keys,
-    receiver_pubkey: &XOnlyPublicKey,
+    receiver_pubkey: &PublicKey,
     content: String,
     _wait_for_connection: Option<bool>,
 ) -> Result<()> {
-    let event =
-        EventBuilder::new_encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
-            .to_event(sender_keys)?;
+    let event = EventBuilder::encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
+        .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
     // FIX: The client by default is created with wait_for_send = false, we probably don't need this
     // This will update relay send event to wait for tranmission.
@@ -40,7 +39,7 @@ pub async fn send_dm(
     //     let opts = Options::new().wait_for_send(false);
     //     Client::new_with_opts(sender_keys, opts);
     // }
-    let msg = ClientMessage::new_event(event);
+    let msg = ClientMessage::event(event);
     client.send_msg(msg).await?;
 
     Ok(())
@@ -52,11 +51,11 @@ pub async fn connect_nostr() -> Result<Client> {
     let relays = var("RELAYS").expect("RELAYS is not set");
     let relays = relays.split(',').collect::<Vec<&str>>();
     // Create new client
-    let opts = Options::new().wait_for_connection(false);
+    let opts = Options::new().wait_for_send(false);
     let client = Client::with_opts(&my_keys, opts);
     // Add relays
     for r in relays.into_iter() {
-        client.add_relay(r, None).await?;
+        client.add_relay(r).await?;
     }
     // Connect to relays and keep connection alive
     client.connect().await;
@@ -67,11 +66,10 @@ pub async fn connect_nostr() -> Result<Client> {
 pub async fn send_order_id_cmd(
     client: &Client,
     my_key: &Keys,
-    mostro_pubkey: XOnlyPublicKey,
+    mostro_pubkey: PublicKey,
     message: String,
     wait_for_dm_ans: bool,
 ) -> Result<()> {
-    info!("Sending message: {message:#?}");
     // Send dm to mostro pub id
     send_dm(client, my_key, &mostro_pubkey, message, Some(false)).await?;
 
@@ -106,14 +104,15 @@ pub async fn send_order_id_cmd(
                 }
             }
             break;
-        } else if let RelayPoolNotification::Message(
-            _,
-            RelayMessage::Ok {
-                event_id: _,
-                status: _,
-                message: _,
-            },
-        ) = notification
+        } else if let RelayPoolNotification::Message {
+            message:
+                RelayMessage::Ok {
+                    event_id: _,
+                    status: _,
+                    message: _,
+                },
+            ..
+        } = notification
         {
             println!(
                 "Message correctly sent to Mostro! Check messages with getdm or listorders command"
@@ -185,19 +184,19 @@ pub async fn get_events_of_mostro(
         relay.url().to_string()
     );
     let id = SubscriptionId::new(Uuid::new_v4().to_string());
-    let msg = ClientMessage::new_req(id.clone(), filters.clone());
+    let msg = ClientMessage::req(id.clone(), filters.clone());
 
     info!("Message sent : {:?}", msg);
 
     // Send msg to relay
-    relay.send_msg(msg.clone(), None).await?;
+    relay.send_msg(msg.clone(), RelaySendOptions::new()).await?;
 
     // Wait notification from relays
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotification::Message(_, msg) = notification {
-            match msg {
+        if let RelayPoolNotification::Message { message, .. } = notification {
+            match message {
                 RelayMessage::Event {
                     subscription_id,
                     event,
@@ -217,14 +216,16 @@ pub async fn get_events_of_mostro(
     }
 
     // Unsubscribe
-    relay.send_msg(ClientMessage::close(id), None).await?;
+    relay
+        .send_msg(ClientMessage::close(id), RelaySendOptions::new())
+        .await?;
 
     Ok(events)
 }
 
 pub async fn get_direct_messages(
     client: &Client,
-    mostro_pubkey: XOnlyPublicKey,
+    mostro_pubkey: PublicKey,
     my_key: &Keys,
     since: i64,
 ) -> Vec<(String, String)> {
@@ -235,7 +236,7 @@ pub async fn get_direct_messages(
 
     let timestamp = Timestamp::from(since_time);
     let filters = Filter::new()
-        .author(mostro_pubkey.to_string())
+        .author(mostro_pubkey)
         .kind(Kind::EncryptedDirectMessage)
         .pubkey(my_key.public_key())
         .since(timestamp);
@@ -278,16 +279,19 @@ pub async fn get_direct_messages(
 }
 
 pub async fn get_orders_list(
-    pubkey: XOnlyPublicKey,
+    pubkey: PublicKey,
     status: Status,
     currency: Option<String>,
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<SmallOrder>> {
     let generic_filter = Filter::new()
-        .author(pubkey.to_string())
-        .custom_tag(Alphabet::Z, vec!["order"])
-        .custom_tag(Alphabet::S, vec![status.to_string()])
+        .author(pubkey)
+        .custom_tag(SingleLetterTag::uppercase(Alphabet::Z), vec!["order"])
+        .custom_tag(
+            SingleLetterTag::uppercase(Alphabet::S),
+            vec![status.to_string()],
+        )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     let mut exec_filter = generic_filter;
@@ -295,13 +299,13 @@ pub async fn get_orders_list(
     if let Some(c) = currency {
         exec_filter = exec_filter
             .clone()
-            .custom_tag(Alphabet::F, vec![c.to_string()]);
+            .custom_tag(SingleLetterTag::uppercase(Alphabet::F), vec![c.to_string()]);
     }
 
     if let Some(k) = kind {
         exec_filter = exec_filter
             .clone()
-            .custom_tag(Alphabet::K, vec![k.to_string()]);
+            .custom_tag(SingleLetterTag::uppercase(Alphabet::K), vec![k.to_string()]);
     }
 
     info!(
@@ -360,11 +364,14 @@ pub async fn get_orders_list(
     Ok(orders_list)
 }
 
-pub async fn get_disputes_list(pubkey: XOnlyPublicKey, client: &Client) -> Result<Vec<Dispute>> {
+pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
     let generic_filter = Filter::new()
-        .author(pubkey.to_string())
-        .custom_tag(Alphabet::Z, vec!["dispute"])
-        .custom_tag(Alphabet::S, vec![DisputeStatus::Initiated.to_string()])
+        .author(pubkey)
+        .custom_tag(SingleLetterTag::uppercase(Alphabet::Z), vec!["dispute"])
+        .custom_tag(
+            SingleLetterTag::uppercase(Alphabet::S),
+            vec![DisputeStatus::Initiated.to_string()],
+        )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     let exec_filter = generic_filter;

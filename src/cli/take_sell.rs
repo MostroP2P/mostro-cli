@@ -1,8 +1,7 @@
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
+use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -13,7 +12,7 @@ pub async fn execute_take_sell(
     order_id: &Uuid,
     invoice: &Option<String>,
     my_key: &Keys,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     println!(
