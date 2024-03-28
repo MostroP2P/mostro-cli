@@ -1,7 +1,6 @@
 use anyhow::Result;
 use mostro_core::message::{Action, Message};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
+use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
 use crate::util::{get_keys, send_order_id_cmd};
@@ -9,7 +8,7 @@ use crate::util::{get_keys, send_order_id_cmd};
 pub async fn execute_take_buy(
     order_id: &Uuid,
     my_key: &Keys,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     println!(

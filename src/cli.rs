@@ -23,8 +23,7 @@ use crate::util;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use nostr_sdk::prelude::FromBech32;
-use nostr_sdk::secp256k1::XOnlyPublicKey;
+use nostr_sdk::prelude::*;
 use std::env::{set_var, var};
 use uuid::Uuid;
 
@@ -206,8 +205,7 @@ pub async fn run() -> Result<()> {
 
     // Mostro pubkey
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
-    let mostro_key = XOnlyPublicKey::from_bech32(pubkey)?;
-
+    let mostro_key = PublicKey::from_bech32(pubkey)?;
     // My key
     let my_key = util::get_keys()?;
 

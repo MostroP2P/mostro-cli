@@ -5,8 +5,7 @@ use crate::util::send_order_id_cmd;
 use anyhow::Result;
 use log::info;
 use mostro_core::message::{Action, Content, Message};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
+use nostr_sdk::prelude::*;
 use std::process;
 use uuid::Uuid;
 
@@ -14,7 +13,7 @@ pub async fn execute_send_msg(
     command: Commands,
     order_id: Option<Uuid>,
     my_key: &Keys,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
     text: Option<&str>,
 ) -> Result<()> {

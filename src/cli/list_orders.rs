@@ -1,7 +1,6 @@
 use anyhow::Result;
 use mostro_core::order::{Kind, Status};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::Client;
+use nostr_sdk::prelude::*;
 use std::str::FromStr;
 
 use crate::pretty_table::print_orders_table;
@@ -11,7 +10,7 @@ pub async fn execute_list_orders(
     kind: &Option<String>,
     currency: &Option<String>,
     status: &Option<String>,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers

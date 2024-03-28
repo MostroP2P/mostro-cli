@@ -1,7 +1,6 @@
 use anyhow::Result;
 use mostro_core::message::{Action, Content, Message};
-use nostr_sdk::secp256k1::XOnlyPublicKey;
-use nostr_sdk::{Client, Keys};
+use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
 use crate::util::send_order_id_cmd;
@@ -10,7 +9,7 @@ pub async fn execute_rate_user(
     order_id: &Uuid,
     rating: &u8,
     my_key: &Keys,
-    mostro_key: XOnlyPublicKey,
+    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     // User rating
