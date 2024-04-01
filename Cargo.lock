@@ -1335,7 +1335,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "anyhow",
  "bitcoin_hashes 0.12.0",
