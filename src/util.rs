@@ -263,7 +263,8 @@ pub async fn get_direct_messages(
 
                 let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
-                let message = decrypt(my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
+                let message =
+                    nip04::decrypt(my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
                 direct_messages.push(((message.unwrap()), (human_date)));
             }
         }
