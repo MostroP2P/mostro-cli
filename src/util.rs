@@ -263,11 +263,7 @@ pub async fn get_direct_messages(
 
                 let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
-                let message = decrypt(
-                    &my_key.secret_key().unwrap(),
-                    &dm.pubkey,
-                    dm.content.clone(),
-                );
+                let message = decrypt(my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
                 direct_messages.push(((message.unwrap()), (human_date)));
             }
         }
@@ -287,9 +283,9 @@ pub async fn get_orders_list(
 ) -> Result<Vec<SmallOrder>> {
     let generic_filter = Filter::new()
         .author(pubkey)
-        .custom_tag(SingleLetterTag::uppercase(Alphabet::Z), vec!["order"])
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
         .custom_tag(
-            SingleLetterTag::uppercase(Alphabet::S),
+            SingleLetterTag::lowercase(Alphabet::S),
             vec![status.to_string()],
         )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
@@ -299,13 +295,13 @@ pub async fn get_orders_list(
     if let Some(c) = currency {
         exec_filter = exec_filter
             .clone()
-            .custom_tag(SingleLetterTag::uppercase(Alphabet::F), vec![c.to_string()]);
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::F), vec![c.to_string()]);
     }
 
     if let Some(k) = kind {
         exec_filter = exec_filter
             .clone()
-            .custom_tag(SingleLetterTag::uppercase(Alphabet::K), vec![k.to_string()]);
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::K), vec![k.to_string()]);
     }
 
     info!(
@@ -367,9 +363,9 @@ pub async fn get_orders_list(
 pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
     let generic_filter = Filter::new()
         .author(pubkey)
-        .custom_tag(SingleLetterTag::uppercase(Alphabet::Z), vec!["dispute"])
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
         .custom_tag(
-            SingleLetterTag::uppercase(Alphabet::S),
+            SingleLetterTag::lowercase(Alphabet::S),
             vec![DisputeStatus::Initiated.to_string()],
         )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
