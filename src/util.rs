@@ -330,9 +330,9 @@ pub async fn get_orders_list(
             order.created_at = Some(ord.created_at.as_i64());
 
             orders_list.push(order);
-            // Order all element ( orders ) received to filter
-            orders_list.sort_by(|a, b| b.id.cmp(&a.id));
         }
+        // Order all element ( orders ) received to filter
+        orders_list.sort_by(|a, b| b.id.cmp(&a.id));
 
         for el in orders_list.iter().enumerate() {
             // We check if adjacent elements have same id, in this case we
@@ -400,10 +400,10 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
             // Get created at field from Nostr event
             dispute.created_at = d.created_at.as_i64();
             disputes_list.push(dispute);
-            // Order all element ( orders ) received to filter
-            disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
         }
     }
+    // Order all element ( orders ) received to filter
+    disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
 
     for el in disputes_list.iter().enumerate() {
         // We check if adjacent elements have same id, in this case we
