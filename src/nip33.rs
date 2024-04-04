@@ -26,7 +26,7 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
                 order.fiat_code = v.to_string();
             }
             "s" => {
-                order.status = Some(Status::from_str(v).unwrap());
+                order.status = Some(Status::from_str(v).unwrap_or(Status::Dispute));
             }
             "amt" => {
                 order.amount = v.parse::<i64>().unwrap();

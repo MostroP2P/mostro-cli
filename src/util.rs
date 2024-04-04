@@ -284,6 +284,7 @@ pub async fn get_orders_list(
 ) -> Result<Vec<SmallOrder>> {
     let filter = Filter::new()
         .author(pubkey)
+        .limit(50)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
@@ -331,39 +332,46 @@ pub async fn get_orders_list(
 
             orders_list.push(order);
         }
-        // Order all element ( orders ) received to filter
-        orders_list.sort_by(|a, b| b.id.cmp(&a.id));
+    }
 
-        for el in orders_list.iter().enumerate() {
-            // We check if adjacent elements have same id, in this case we
-            // prepare to remove oldest ones
-            if el.1.id == orders_list[el.0 + 1].id && el.0 < orders_list.len() - 1 {
-                if el.1.created_at < orders_list[el.0 + 1].created_at {
+    // Order all element ( orders ) received to filter
+    orders_list.sort_by(|a, b| b.id.cmp(&a.id));
+
+    for el in orders_list.iter().enumerate() {
+        // We check if adjacent elements have same id, in this case we
+        // prepare to remove oldest ones
+        if el.0 < orders_list.len() - 1 {
+            if el.1.id.unwrap() == orders_list[el.0 + 1].id.unwrap() && el.0 < orders_list.len() - 1
+            {
+                println!("item duplicated {:?}", el.0);
+                if el.1.created_at <= orders_list[el.0 + 1].created_at {
                     remove_list.push(el.0)
                 } else {
                     remove_list.push(el.0 + 1)
                 }
             }
+        }
 
-            if el.1.status.ne(&Some(status)) && !remove_list.contains(&el.0) {
-                remove_list.push(el.0)
-            }
+        if el.1.status.ne(&Some(status)) && !remove_list.contains(&el.0) {
+            remove_list.push(el.0)
+        }
 
-            if currency.is_some()
-                && el.1.fiat_code.ne(&currency.clone().unwrap())
-                && !remove_list.contains(&el.0)
-            {
-                remove_list.push(el.0)
-            }
+        if currency.is_some()
+            && el.1.fiat_code.ne(&currency.clone().unwrap())
+            && !remove_list.contains(&el.0)
+        {
+            remove_list.push(el.0)
+        }
 
-            if kind.is_some() && el.1.kind.ne(&kind) && !remove_list.contains(&el.0) {
-                remove_list.push(el.0)
-            }
+        if kind.is_some() && el.1.kind.ne(&kind) && !remove_list.contains(&el.0) {
+            remove_list.push(el.0)
         }
     }
+
     // Remove duplicate and not meaningful events.
-    for remove_el in remove_list {
-        orders_list.remove(remove_el);
+    let len = remove_list.len();
+    for n in (0..len).rev() {
+        orders_list.remove(remove_list[n]);
     }
 
     // Return element sorted by second tuple element ( Timestamp )
