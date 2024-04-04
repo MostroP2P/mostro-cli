@@ -337,7 +337,7 @@ pub async fn get_orders_list(
         for el in orders_list.iter().enumerate() {
             // We check if adjacent elements have same id, in this case we
             // prepare to remove oldest ones
-            if el.1.id == orders_list[el.0 + 1].id {
+            if el.1.id == orders_list[el.0 + 1].id && el.0 < orders_list.len() - 1 {
                 if el.1.created_at < orders_list[el.0 + 1].created_at {
                     remove_list.push(el.0)
                 } else {
