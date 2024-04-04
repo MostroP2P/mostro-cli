@@ -5,7 +5,7 @@ use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
-use mostro_core::dispute::{Dispute, Status as DisputeStatus};
+use mostro_core::dispute::Dispute;
 use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
@@ -282,42 +282,22 @@ pub async fn get_orders_list(
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<SmallOrder>> {
-    let generic_filter = Filter::new()
+    let filter = Filter::new()
         .author(pubkey)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
-        .custom_tag(
-            SingleLetterTag::lowercase(Alphabet::S),
-            vec![status.to_string()],
-        )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
-    let mut exec_filter = generic_filter;
-
-    if let Some(c) = currency {
-        exec_filter = exec_filter
-            .clone()
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::F), vec![c.to_string()]);
-    }
-
-    if let Some(k) = kind {
-        exec_filter = exec_filter
-            .clone()
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::K), vec![k.to_string()]);
-    }
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        exec_filter.authors, exec_filter.kinds
+        filter.authors, filter.kinds
     );
 
     // Extracted Orders List
     let mut orders_list = Vec::<SmallOrder>::new();
-
-    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut id_list = Vec::<Uuid>::new();
+    let mut remove_list = Vec::<usize>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, exec_filter).await;
+    let mostro_req = send_relays_requests(client, filter).await;
     // Scan events to extract all orders
     for orders_row in mostro_req.iter() {
         for ord in orders_row {
@@ -348,13 +328,44 @@ pub async fn get_orders_list(
 
             // Get created at field from Nostr event
             order.created_at = Some(ord.created_at.as_i64());
-            // Add only in case id of order is not present in the list (avoid duplicate)
-            if !id_list.contains(&order.id.unwrap()) {
-                id_list.push(order.id.unwrap());
-                orders_list.push(order);
+
+            orders_list.push(order);
+            // Order all element ( orders ) received to filter
+            orders_list.sort_by(|a, b| b.id.cmp(&a.id));
+        }
+
+        for el in orders_list.iter().enumerate() {
+            // We check if adjacent elements have same id, in this case we
+            // prepare to remove oldest ones
+            if el.1.id == orders_list[el.0 + 1].id {
+                if el.1.created_at < orders_list[el.0 + 1].created_at {
+                    remove_list.push(el.0)
+                } else {
+                    remove_list.push(el.0 + 1)
+                }
+            }
+
+            if el.1.status.ne(&Some(status)) && !remove_list.contains(&el.0) {
+                remove_list.push(el.0)
+            }
+
+            if currency.is_some()
+                && el.1.fiat_code.ne(&currency.clone().unwrap())
+                && !remove_list.contains(&el.0)
+            {
+                remove_list.push(el.0)
+            }
+
+            if kind.is_some() && el.1.kind.ne(&kind) && !remove_list.contains(&el.0) {
+                remove_list.push(el.0)
             }
         }
     }
+    // Remove duplicate and not meaningful events.
+    for remove_el in remove_list {
+        orders_list.remove(remove_el);
+    }
+
     // Return element sorted by second tuple element ( Timestamp )
     orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
@@ -362,25 +373,17 @@ pub async fn get_orders_list(
 }
 
 pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
-    let generic_filter = Filter::new()
+    let filter = Filter::new()
         .author(pubkey)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
-        .custom_tag(
-            SingleLetterTag::lowercase(Alphabet::S),
-            vec![DisputeStatus::Initiated.to_string()],
-        )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
-    let exec_filter = generic_filter;
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();
-
-    // Vector for single dispute id check - maybe multiple relay could send the same dispute id? Check unique one...
-    let mut id_list = Vec::<Uuid>::new();
+    let mut remove_list = Vec::<usize>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, exec_filter).await;
+    let mostro_req = send_relays_requests(client, filter).await;
     // Scan events to extract all disputes
     for disputes_row in mostro_req.iter() {
         for d in disputes_row {
@@ -396,13 +399,27 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
 
             // Get created at field from Nostr event
             dispute.created_at = d.created_at.as_i64();
+            disputes_list.push(dispute);
+            // Order all element ( orders ) received to filter
+            disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
+        }
+    }
 
-            // Add only in case id of dispute is not present in the list (avoid duplicate)
-            if !id_list.contains(&dispute.id) {
-                id_list.push(dispute.id);
-                disputes_list.push(dispute);
+    for el in disputes_list.iter().enumerate() {
+        // We check if adjacent elements have same id, in this case we
+        // prepare to remove oldest ones
+        if el.1.id == disputes_list[el.0 + 1].id {
+            if el.1.created_at < disputes_list[el.0 + 1].created_at {
+                remove_list.push(el.0)
+            } else {
+                remove_list.push(el.0 + 1)
             }
         }
+    }
+
+    // Remove duplicate and not meaningful events.
+    for remove_el in remove_list {
+        disputes_list.remove(remove_el);
     }
 
     Ok(disputes_list)
