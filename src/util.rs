@@ -367,7 +367,7 @@ pub async fn get_orders_list(
     requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
     requested_orders_list.dedup_by(|a, b| a.id == b.id);
 
-    // Return element sorted by second tuple element ( Timestamp )
+    // Finally sort list by creation time
     requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(requested_orders_list)
