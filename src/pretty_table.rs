@@ -187,7 +187,7 @@ pub fn print_disputes_table(disputes_table: Vec<Dispute>) -> Result<String> {
         let mut r = Row::new();
 
         r.add_cell(
-            Cell::new("No offers found with requested parameters...")
+            Cell::new("No disputes found with requested parameters...")
                 .fg(Color::Red)
                 .set_alignment(CellAlignment::Center),
         );

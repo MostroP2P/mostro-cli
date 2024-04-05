@@ -374,14 +374,22 @@ pub async fn get_orders_list(
 }
 
 pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .unwrap()
+        .timestamp() as u64;
+
+    let timestamp = Timestamp::from(since_time);
+
     let filter = Filter::new()
         .author(pubkey)
+        .limit(50)
+        .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();
-    let mut remove_list = Vec::<usize>::new();
 
     // Send all requests to relays
     let mostro_req = send_relays_requests(client, filter).await;
@@ -403,25 +411,22 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
             disputes_list.push(dispute);
         }
     }
-    // Order all element ( orders ) received to filter
+
+    let buffer_dispute_list = disputes_list.clone();
+    // Order all element ( orders ) received to filter - discard disaligned messages
+    // if an order has an older message with the state we received is discarded for the latest one
+    disputes_list.retain(|keep| {
+        !buffer_dispute_list
+            .iter()
+            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
+    });
+
+    // Sort by id to remove duplicates
     disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
+    disputes_list.dedup_by(|a, b| a.id == b.id);
 
-    for el in disputes_list.iter().enumerate() {
-        // We check if adjacent elements have same id, in this case we
-        // prepare to remove oldest ones
-        if el.1.id == disputes_list[el.0 + 1].id {
-            if el.1.created_at < disputes_list[el.0 + 1].created_at {
-                remove_list.push(el.0)
-            } else {
-                remove_list.push(el.0 + 1)
-            }
-        }
-    }
-
-    // Remove duplicate and not meaningful events.
-    for remove_el in remove_list {
-        disputes_list.remove(remove_el);
-    }
+    // Finally sort list by creation time
+    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(disputes_list)
 }

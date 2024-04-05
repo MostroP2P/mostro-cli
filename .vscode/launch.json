@@ -20,7 +20,7 @@
                     "kind": "lib"
                 }
             },
-            "args": ["listorders"],
+            "args": ["admlistdisputes"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -38,7 +38,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["listorders"],
+            "args": ["admlistdisputes"],
             "cwd": "${workspaceFolder}"
         },
         {
