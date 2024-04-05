@@ -282,9 +282,17 @@ pub async fn get_orders_list(
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<SmallOrder>> {
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .unwrap()
+        .timestamp() as u64;
+
+    let timestamp = Timestamp::from(since_time);
+
     let filter = Filter::new()
         .author(pubkey)
         .limit(50)
+        .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
@@ -294,8 +302,8 @@ pub async fn get_orders_list(
     );
 
     // Extracted Orders List
-    let mut orders_list = Vec::<SmallOrder>::new();
-    let mut remove_list = Vec::<usize>::new();
+    let mut complete_events_list = Vec::<SmallOrder>::new();
+    let mut requested_orders_list = Vec::<SmallOrder>::new();
 
     // Send all requests to relays
     let mostro_req = send_relays_requests(client, filter).await;
@@ -330,54 +338,39 @@ pub async fn get_orders_list(
             // Get created at field from Nostr event
             order.created_at = Some(ord.created_at.as_i64());
 
-            orders_list.push(order);
-        }
-    }
+            complete_events_list.push(order.clone());
 
-    // Order all element ( orders ) received to filter
-    orders_list.sort_by(|a, b| b.id.cmp(&a.id));
-
-    for el in orders_list.iter().enumerate() {
-        // We check if adjacent elements have same id, in this case we
-        // prepare to remove oldest ones
-        if el.0 < orders_list.len() - 1 {
-            if el.1.id.unwrap() == orders_list[el.0 + 1].id.unwrap() && el.0 < orders_list.len() - 1
-            {
-                println!("item duplicated {:?}", el.0);
-                if el.1.created_at <= orders_list[el.0 + 1].created_at {
-                    remove_list.push(el.0)
-                } else {
-                    remove_list.push(el.0 + 1)
-                }
+            if order.status.ne(&Some(status)) {
+                continue;
             }
-        }
 
-        if el.1.status.ne(&Some(status)) && !remove_list.contains(&el.0) {
-            remove_list.push(el.0)
-        }
+            if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
+                continue;
+            }
 
-        if currency.is_some()
-            && el.1.fiat_code.ne(&currency.clone().unwrap())
-            && !remove_list.contains(&el.0)
-        {
-            remove_list.push(el.0)
-        }
-
-        if kind.is_some() && el.1.kind.ne(&kind) && !remove_list.contains(&el.0) {
-            remove_list.push(el.0)
+            if kind.is_some() && order.kind.ne(&kind) {
+                continue;
+            }
+            // Add just requested orders requested by filtering
+            requested_orders_list.push(order);
         }
     }
 
-    // Remove duplicate and not meaningful events.
-    let len = remove_list.len();
-    for n in (0..len).rev() {
-        orders_list.remove(remove_list[n]);
-    }
+    // Order all element ( orders ) received to filter - discard disaligned messages
+    // if an order has an older message with the state we received is discarded for the latest one
+    requested_orders_list.retain(|keep| {
+        !complete_events_list
+            .iter()
+            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
+    });
+    // Sort by id to remove duplicates
+    requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
+    requested_orders_list.dedup_by(|a, b| a.id == b.id);
 
     // Return element sorted by second tuple element ( Timestamp )
-    orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-    Ok(orders_list)
+    Ok(requested_orders_list)
 }
 
 pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
