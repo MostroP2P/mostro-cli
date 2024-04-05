@@ -6,7 +6,7 @@ use crate::util::get_disputes_list;
 
 pub async fn execute_list_disputes(mostro_key: PublicKey, client: &Client) -> Result<()> {
     println!(
-        "Requesting orders from mostro pubId - {}",
+        "Requesting disputes from mostro pubId - {}",
         mostro_key.clone()
     );
 

@@ -30,15 +30,18 @@ pub async fn execute_list_orders(
     // New check against strings
     if let Some(k) = kind {
         kind_checked = Some(Kind::from_str(k).expect("Not valid order kind! Please check"));
-        println!("You are searching {:?} orders", kind_checked.clone());
+        println!(
+            "You are searching {} orders",
+            kind_checked.unwrap().to_string()
+        );
     }
 
     // Uppercase currency
     if let Some(curr) = currency {
         upper_currency = Some(curr.to_uppercase());
         println!(
-            "You are searching orders with currency {:?}",
-            upper_currency.clone()
+            "You are searching orders with currency {}",
+            upper_currency.clone().unwrap()
         );
     }
 
@@ -51,7 +54,7 @@ pub async fn execute_list_orders(
     let table_of_orders = get_orders_list(
         mostro_key,
         status_checked.unwrap(),
-        upper_currency.clone(),
+        upper_currency,
         kind_checked,
         client,
     )

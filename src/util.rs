@@ -5,7 +5,7 @@ use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::NaiveDateTime;
 use dotenvy::var;
 use log::{error, info};
-use mostro_core::dispute::{Dispute, Status as DisputeStatus};
+use mostro_core::dispute::Dispute;
 use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
@@ -282,42 +282,31 @@ pub async fn get_orders_list(
     kind: Option<MostroKind>,
     client: &Client,
 ) -> Result<Vec<SmallOrder>> {
-    let generic_filter = Filter::new()
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .unwrap()
+        .timestamp() as u64;
+
+    let timestamp = Timestamp::from(since_time);
+
+    let filter = Filter::new()
         .author(pubkey)
+        .limit(50)
+        .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
-        .custom_tag(
-            SingleLetterTag::lowercase(Alphabet::S),
-            vec![status.to_string()],
-        )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
-    let mut exec_filter = generic_filter;
-
-    if let Some(c) = currency {
-        exec_filter = exec_filter
-            .clone()
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::F), vec![c.to_string()]);
-    }
-
-    if let Some(k) = kind {
-        exec_filter = exec_filter
-            .clone()
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::K), vec![k.to_string()]);
-    }
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        exec_filter.authors, exec_filter.kinds
+        filter.authors, filter.kinds
     );
 
     // Extracted Orders List
-    let mut orders_list = Vec::<SmallOrder>::new();
-
-    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut id_list = Vec::<Uuid>::new();
+    let mut complete_events_list = Vec::<SmallOrder>::new();
+    let mut requested_orders_list = Vec::<SmallOrder>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, exec_filter).await;
+    let mostro_req = send_relays_requests(client, filter).await;
     // Scan events to extract all orders
     for orders_row in mostro_req.iter() {
         for ord in orders_row {
@@ -348,39 +337,62 @@ pub async fn get_orders_list(
 
             // Get created at field from Nostr event
             order.created_at = Some(ord.created_at.as_i64());
-            // Add only in case id of order is not present in the list (avoid duplicate)
-            if !id_list.contains(&order.id.unwrap()) {
-                id_list.push(order.id.unwrap());
-                orders_list.push(order);
+
+            complete_events_list.push(order.clone());
+
+            if order.status.ne(&Some(status)) {
+                continue;
             }
+
+            if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
+                continue;
+            }
+
+            if kind.is_some() && order.kind.ne(&kind) {
+                continue;
+            }
+            // Add just requested orders requested by filtering
+            requested_orders_list.push(order);
         }
     }
-    // Return element sorted by second tuple element ( Timestamp )
-    orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-    Ok(orders_list)
+    // Order all element ( orders ) received to filter - discard disaligned messages
+    // if an order has an older message with the state we received is discarded for the latest one
+    requested_orders_list.retain(|keep| {
+        !complete_events_list
+            .iter()
+            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
+    });
+    // Sort by id to remove duplicates
+    requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
+    requested_orders_list.dedup_by(|a, b| a.id == b.id);
+
+    // Finally sort list by creation time
+    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Ok(requested_orders_list)
 }
 
 pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
-    let generic_filter = Filter::new()
-        .author(pubkey)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
-        .custom_tag(
-            SingleLetterTag::lowercase(Alphabet::S),
-            vec![DisputeStatus::Initiated.to_string()],
-        )
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .unwrap()
+        .timestamp() as u64;
 
-    let exec_filter = generic_filter;
+    let timestamp = Timestamp::from(since_time);
+
+    let filter = Filter::new()
+        .author(pubkey)
+        .limit(50)
+        .since(timestamp)
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();
 
-    // Vector for single dispute id check - maybe multiple relay could send the same dispute id? Check unique one...
-    let mut id_list = Vec::<Uuid>::new();
-
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, exec_filter).await;
+    let mostro_req = send_relays_requests(client, filter).await;
     // Scan events to extract all disputes
     for disputes_row in mostro_req.iter() {
         for d in disputes_row {
@@ -396,14 +408,25 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
 
             // Get created at field from Nostr event
             dispute.created_at = d.created_at.as_i64();
-
-            // Add only in case id of dispute is not present in the list (avoid duplicate)
-            if !id_list.contains(&dispute.id) {
-                id_list.push(dispute.id);
-                disputes_list.push(dispute);
-            }
+            disputes_list.push(dispute);
         }
     }
+
+    let buffer_dispute_list = disputes_list.clone();
+    // Order all element ( orders ) received to filter - discard disaligned messages
+    // if an order has an older message with the state we received is discarded for the latest one
+    disputes_list.retain(|keep| {
+        !buffer_dispute_list
+            .iter()
+            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
+    });
+
+    // Sort by id to remove duplicates
+    disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
+    disputes_list.dedup_by(|a, b| a.id == b.id);
+
+    // Finally sort list by creation time
+    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(disputes_list)
 }
