@@ -68,7 +68,7 @@ pub enum Commands {
         kind: Option<String>,
     },
     /// Create a new buy/sell order on Mostro
-    Neworder {
+    NewOrder {
         /// Choose an order kind
         #[arg(short, long)]
         kind: String,
@@ -93,6 +93,10 @@ pub enum Commands {
         /// Invoice string
         #[arg(short, long)]
         invoice: Option<String>,
+        /// Expiration time of a pending Order, in days
+        #[arg(short, long)]
+        #[clap(default_value_t = 0)]
+        expiration_days: i64,
     },
     /// Take a sell order from a Mostro pubkey
     TakeSell {
@@ -258,7 +262,7 @@ pub async fn run() -> Result<()> {
                 )
                 .await?
             }
-            Commands::Neworder {
+            Commands::NewOrder {
                 kind,
                 fiat_code,
                 amount,
@@ -266,6 +270,7 @@ pub async fn run() -> Result<()> {
                 payment_method,
                 premium,
                 invoice,
+                expiration_days,
             } => {
                 execute_new_order(
                     kind,
@@ -278,6 +283,7 @@ pub async fn run() -> Result<()> {
                     &my_key,
                     mostro_key,
                     &client,
+                    expiration_days,
                 )
                 .await?
             }

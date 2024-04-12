@@ -68,7 +68,7 @@ pub fn dispute_from_tags(tags: Vec<Tag>) -> Result<Dispute> {
                     Err(_) => return Err(anyhow::anyhow!("Invalid dispute status")),
                 };
 
-                dispute.status = status;
+                dispute.status = status.to_string();
             }
 
             _ => {}

@@ -25,6 +25,7 @@ pub async fn execute_new_order(
     my_key: &Keys,
     mostro_key: PublicKey,
     client: &Client,
+    expiration_days: &i64,
 ) -> Result<()> {
     // Uppercase currency
     let fiat_code = fiat_code.to_uppercase();
@@ -46,6 +47,14 @@ pub async fn execute_new_order(
     let kind = uppercase_first(kind);
     // New check against strings
     let kind_checked = Kind::from_str(&kind).unwrap();
+    let expires_at = match *expiration_days {
+        0 => None,
+        _ => {
+            let now = chrono::Utc::now();
+            let expires_at = now + chrono::Duration::days(*expiration_days);
+            Some(expires_at.timestamp())
+        }
+    };
 
     // Create new order for mostro
     let order_content = Content::Order(SmallOrder::new(
@@ -61,6 +70,7 @@ pub async fn execute_new_order(
         None,
         invoice.as_ref().to_owned().cloned(),
         Some(0),
+        expires_at,
     ));
 
     // Print order preview
