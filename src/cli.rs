@@ -50,6 +50,12 @@ pub struct Cli {
     pub command: Option<Commands>,
     #[arg(short, long)]
     pub verbose: bool,
+    #[arg(short, long)]
+    pub nsec: Option<String>,
+    #[arg(short, long)]
+    pub mostropubkey: Option<String>,
+    #[arg(short, long)]
+    pub relays: Option<String>,
 }
 
 #[derive(Subcommand, Clone)]
@@ -207,8 +213,20 @@ pub async fn run() -> Result<()> {
         pretty_env_logger::init();
     }
 
-    // Mostro pubkey
+    if cli.mostropubkey.is_some() {
+        set_var("MOSTRO_PUBKEY", cli.mostropubkey.unwrap());
+    }
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+
+    if cli.nsec.is_some() {
+        set_var("NSEC_PRIVKEY", cli.nsec.unwrap());
+    }
+
+    if cli.relays.is_some() {
+        set_var("RELAYS", cli.relays.unwrap());
+    }
+
+    // Mostro pubkey
     let mostro_key = PublicKey::from_bech32(pubkey)?;
     // My key
     let my_key = util::get_keys()?;
