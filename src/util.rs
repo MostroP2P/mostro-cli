@@ -2,7 +2,7 @@ use crate::nip33::{dispute_from_tags, order_from_tags};
 
 use anyhow::{Error, Result};
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
-use chrono::NaiveDateTime;
+use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
 use mostro_core::dispute::Dispute;
@@ -259,7 +259,7 @@ pub async fn get_direct_messages(
         for dm in dms {
             if !id_list.contains(&dm.id.inner()) {
                 id_list.push(dm.id.inner());
-                let date = NaiveDateTime::from_timestamp_opt(dm.created_at.as_i64(), 0);
+                let date = DateTime::from_timestamp(dm.created_at.as_i64(), 0);
 
                 let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
