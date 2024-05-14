@@ -60,9 +60,9 @@ pub async fn execute_new_order(
     // if both tuple field are valid than it's a range order
     // otherwise use just fiat amount value as before
     let amt = if fiat_amount.1.is_some() {
-        (0, fiat_amount.0, fiat_amount.1.unwrap())
+        (0, Some(fiat_amount.0), Some(fiat_amount.1.unwrap()))
     } else {
-        (fiat_amount.0, 0, 0)
+        (fiat_amount.0, None, None)
     };
 
     // Create new order for mostro
