@@ -196,11 +196,45 @@ pub enum Commands {
     },
 }
 
-/// Check range simple version for just a single value
-pub fn check_fiat_range(s: &str) -> Result<i64, String> {
-    match s.parse::<i64>() {
-        Ok(val) => Ok(val),
-        Err(_e) => Err(String::from("Error on parsing sats value")),
+// Check range with two values value
+fn check_fiat_range(s: &str) -> Result<String, String> {
+    if s.contains('-') {
+        let min: i64;
+        let max: i64;
+
+        // Get values from CLI
+        let values: Vec<&str> = s.split('-').collect();
+
+        // Check if more than two values
+        if values.len() > 2 {
+            return Err(String::from("Error"));
+        };
+
+        // Get ranged command
+        if let Err(e) = values[0].parse::<i64>() {
+            return Err(e.to_string());
+        } else {
+            min = values[0].parse().unwrap();
+        }
+
+        if let Err(e) = values[1].parse::<i64>() {
+            return Err(e.to_string());
+        } else {
+            max = values[1].parse().unwrap();
+        }
+
+        // Check min below max
+        if min >= max {
+            return Err(String::from(
+                "Range of values must be 100-200 for example...",
+            ));
+        };
+        Ok(s.to_string())
+    } else {
+        match s.parse::<i64>() {
+            Ok(_) => Ok(s.to_string()),
+            Err(e) => Err(e.to_string()),
+        }
     }
 }
 
