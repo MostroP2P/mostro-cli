@@ -21,7 +21,7 @@ use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_sell::execute_take_sell;
 use crate::util;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use nostr_sdk::prelude::*;
 use std::env::{set_var, var};
@@ -88,7 +88,7 @@ pub enum Commands {
         /// Fiat amount
         #[arg(short, long)]
         #[clap(value_parser=check_fiat_range)]
-        fiat_amount: i64,
+        fiat_amount: (i64, Option<i64>),
         /// Payment method
         #[arg(short = 'm', long)]
         payment_method: String,
@@ -197,7 +197,7 @@ pub enum Commands {
 }
 
 // Check range with two values value
-fn check_fiat_range(s: &str) -> Result<String, String> {
+fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
     if s.contains('-') {
         let min: i64;
         let max: i64;
@@ -207,33 +207,31 @@ fn check_fiat_range(s: &str) -> Result<String, String> {
 
         // Check if more than two values
         if values.len() > 2 {
-            return Err(String::from("Error"));
+            return Err(Error::msg("Wrong amount syntax"));
         };
 
         // Get ranged command
         if let Err(e) = values[0].parse::<i64>() {
-            return Err(e.to_string());
+            return Err(e.into());
         } else {
             min = values[0].parse().unwrap();
         }
 
         if let Err(e) = values[1].parse::<i64>() {
-            return Err(e.to_string());
+            return Err(e.into());
         } else {
             max = values[1].parse().unwrap();
         }
 
         // Check min below max
         if min >= max {
-            return Err(String::from(
-                "Range of values must be 100-200 for example...",
-            ));
+            return Err(Error::msg("Range of values must be 100-200 for example..."));
         };
-        Ok(s.to_string())
+        Ok((min, Some(max)))
     } else {
         match s.parse::<i64>() {
-            Ok(_) => Ok(s.to_string()),
-            Err(e) => Err(e.to_string()),
+            Ok(s) => Ok((s, None)),
+            Err(e) => Err(e.into()),
         }
     }
 }

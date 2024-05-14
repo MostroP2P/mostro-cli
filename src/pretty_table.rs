@@ -59,7 +59,13 @@ pub fn print_order_preview(ord: Content) -> Result<String, String> {
             Cell::new(single_order.amount).set_alignment(CellAlignment::Center)
         },
         Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-        Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center),
+        // No range order print row
+        if single_order.min_amount == 0 && single_order.max_amount == 0 {
+            Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center)
+        } else {
+            let range_str = format!("{}-{}", single_order.min_amount, single_order.max_amount);
+            Cell::new(range_str).set_alignment(CellAlignment::Center)
+        },
         Cell::new(single_order.payment_method.to_string()).set_alignment(CellAlignment::Center),
         Cell::new(single_order.premium.to_string()).set_alignment(CellAlignment::Center),
     ]);

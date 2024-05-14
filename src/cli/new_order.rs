@@ -17,7 +17,7 @@ pub type FiatNames = HashMap<String, String>;
 pub async fn execute_new_order(
     kind: &str,
     fiat_code: &str,
-    fiat_amount: &i64,
+    fiat_amount: &(i64, Option<i64>),
     amount: &i64,
     payment_method: &String,
     premium: &i64,
@@ -56,6 +56,15 @@ pub async fn execute_new_order(
         }
     };
 
+    // Get the type of neworder
+    // if both tuple field are valid than it's a range order
+    // otherwise use just fiat amount value as before
+    let amt = if fiat_amount.1.is_some() {
+        (0, fiat_amount.0, fiat_amount.1.unwrap())
+    } else {
+        (fiat_amount.0, 0, 0)
+    };
+
     // Create new order for mostro
     let order_content = Content::Order(SmallOrder::new(
         None,
@@ -63,7 +72,9 @@ pub async fn execute_new_order(
         Some(Status::Pending),
         *amount,
         fiat_code,
-        *fiat_amount,
+        amt.1,
+        amt.2,
+        amt.0,
         payment_method.to_owned(),
         *premium,
         None,
