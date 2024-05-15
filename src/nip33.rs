@@ -32,7 +32,17 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
                 order.amount = v.parse::<i64>().unwrap();
             }
             "fa" => {
-                order.fiat_amount = v.parse::<i64>().unwrap();
+                if v.contains('.') {
+                    continue;
+                }
+                if v.contains('-') {
+                    // Get values from string
+                    let values: Vec<&str> = v.split('-').collect();
+                    order.min_amount = values[0].parse::<i64>().ok();
+                    order.max_amount = values[1].parse::<i64>().ok();
+                } else {
+                    order.fiat_amount = v.parse::<i64>().unwrap();
+                }
             }
             "pm" => {
                 order.payment_method = v.to_string();
