@@ -22,10 +22,10 @@ pub async fn execute_add_invoice(
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
     if ln_addr.is_ok() {
-        content = Some(Content::PaymentRequest(None, invoice.to_string()));
+        content = Some(Content::PaymentRequest(None, invoice.to_string(), None));
     } else {
         match is_valid_invoice(invoice) {
-            Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string())),
+            Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string(), None)),
             Err(e) => println!("{}", e),
         }
     }

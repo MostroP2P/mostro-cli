@@ -26,7 +26,7 @@ pub async fn execute_get_dm(
                             el.1
                         );
                     }
-                    if let Some(Content::PaymentRequest(_, inv)) =
+                    if let Some(Content::PaymentRequest(_, inv, _)) =
                         &m.get_inner_message_kind().content
                     {
                         println!();

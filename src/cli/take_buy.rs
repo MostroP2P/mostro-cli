@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::message::{Action, Message};
+use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
@@ -7,6 +7,7 @@ use crate::util::{get_keys, send_order_id_cmd};
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
+    amount: Option<u32>,
     my_key: &Keys,
     mostro_key: PublicKey,
     client: &Client,
@@ -21,10 +22,14 @@ pub async fn execute_take_buy(
     let master_pubkey = keys.public_key().to_string();
 
     // Create takebuy message
-    let take_buy_message =
-        Message::new_order(Some(*order_id), Some(master_pubkey), Action::TakeBuy, None)
-            .as_json()
-            .unwrap();
+    let take_buy_message = Message::new_order(
+        Some(*order_id),
+        Some(master_pubkey),
+        Action::TakeBuy,
+        Some(Content::PaymentRequest(None, String::new(), amount)),
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, take_buy_message, true).await?;
 
