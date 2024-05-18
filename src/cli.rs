@@ -112,12 +112,18 @@ pub enum Commands {
         /// Invoice string
         #[arg(short, long)]
         invoice: Option<String>,
+        /// Amount of fiat to buy
+        #[arg(short, long)]
+        amount: Option<u32>,
     },
     /// Take a buy order from a Mostro pubkey
     TakeBuy {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
+        /// Amount of fiat to sell
+        #[arg(short, long)]
+        amount: Option<u32>,
     },
     /// Buyer add a new invoice to receive the payment
     AddInvoice {
@@ -273,11 +279,15 @@ pub async fn run() -> Result<()> {
                 currency,
                 kind,
             } => execute_list_orders(kind, currency, status, mostro_key, &client).await?,
-            Commands::TakeSell { order_id, invoice } => {
-                execute_take_sell(order_id, invoice, &my_key, mostro_key, &client).await?
+            Commands::TakeSell {
+                order_id,
+                invoice,
+                amount,
+            } => {
+                execute_take_sell(order_id, invoice, *amount, &my_key, mostro_key, &client).await?
             }
-            Commands::TakeBuy { order_id } => {
-                execute_take_buy(order_id, &my_key, mostro_key, &client).await?
+            Commands::TakeBuy { order_id, amount } => {
+                execute_take_buy(order_id, *amount, &my_key, mostro_key, &client).await?
             }
             Commands::AddInvoice { order_id, invoice } => {
                 execute_add_invoice(order_id, invoice, &my_key, mostro_key, &client).await?

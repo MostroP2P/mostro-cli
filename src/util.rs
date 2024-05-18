@@ -82,7 +82,7 @@ pub async fn send_order_id_cmd(
             for el in dm.iter() {
                 match Message::from_json(&el.0) {
                     Ok(m) => {
-                        if let Some(Content::PaymentRequest(ord, inv)) =
+                        if let Some(Content::PaymentRequest(ord, inv, _)) =
                             &m.get_inner_message_kind().content
                         {
                             println!("NEW MESSAGE:");

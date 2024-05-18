@@ -11,6 +11,7 @@ use crate::util::{get_keys, send_order_id_cmd};
 pub async fn execute_take_sell(
     order_id: &Uuid,
     invoice: &Option<String>,
+    amount: Option<u32>,
     my_key: &Keys,
     mostro_key: PublicKey,
     client: &Client,
@@ -25,10 +26,10 @@ pub async fn execute_take_sell(
         // Check invoice string
         let ln_addr = LightningAddress::from_str(invoice);
         if ln_addr.is_ok() {
-            content = Some(Content::PaymentRequest(None, invoice.to_string()));
+            content = Some(Content::PaymentRequest(None, invoice.to_string(), amount));
         } else {
             match is_valid_invoice(invoice) {
-                Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string())),
+                Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string(), amount)),
                 Err(e) => println!("{}", e),
             }
         }
