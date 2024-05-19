@@ -26,7 +26,7 @@ pub async fn execute_take_buy(
         Some(*order_id),
         Some(master_pubkey),
         Action::TakeBuy,
-        Some(Content::PaymentRequest(None, String::new(), amount)),
+        amount.map(Content::Amount),
     )
     .as_json()
     .unwrap();

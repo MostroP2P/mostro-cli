@@ -39,7 +39,7 @@ pub async fn execute_take_sell(
     if amount.is_some() {
         content = match content {
             Some(Content::PaymentRequest(a, b, _)) => Some(Content::PaymentRequest(a, b, amount)),
-            None => Some(Content::PaymentRequest(None, String::new(), amount)),
+            None => Some(Content::Amount(amount.unwrap())),
             _ => None,
         };
     }
