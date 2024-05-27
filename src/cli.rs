@@ -205,7 +205,7 @@ pub enum Commands {
     },
     /// Create a shared key for direct messaging
     CreateSharedKey {
-        /// Pubkey of receiver
+        /// Pubkey of receiver of the message
         #[arg(short, long)]
         pubkey: String,
     },
