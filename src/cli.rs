@@ -24,7 +24,10 @@ use crate::util;
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use nostr_sdk::prelude::*;
-use std::env::{set_var, var};
+use std::{
+    env::{set_var, var},
+    str::FromStr,
+};
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -200,6 +203,12 @@ pub enum Commands {
         #[arg(short, long)]
         dispute_id: Uuid,
     },
+    /// Create a shared key for direct messaging
+    CreateSharedKey {
+        /// Pubkey of receiver
+        #[arg(short, long)]
+        pubkey: String,
+    },
 }
 
 // Check range with two values value
@@ -274,6 +283,18 @@ pub async fn run() -> Result<()> {
 
     if let Some(cmd) = cli.command {
         match &cmd {
+            Commands::CreateSharedKey { pubkey } => {
+                let key = nostr::util::generate_shared_key(
+                    my_key.secret_key()?,
+                    &PublicKey::from_str(&pubkey)?,
+                );
+                let mut shared_key_hex = vec![];
+                for i in key{
+                    shared_key_hex.push(format!("{:0x}",i))
+                }
+                println!("Shared key: {:?}", key);
+                println!("Shared key: {:?}", shared_key_hex);
+            }
             Commands::ListOrders {
                 status,
                 currency,
