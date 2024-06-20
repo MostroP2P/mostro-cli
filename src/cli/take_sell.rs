@@ -38,8 +38,10 @@ pub async fn execute_take_sell(
     // Add amount in case it's specified
     if amount.is_some() {
         content = match content {
-            Some(Content::PaymentRequest(a, b, _)) => Some(Content::PaymentRequest(a, b, amount)),
-            None => Some(Content::Amount(amount.unwrap())),
+            Some(Content::PaymentRequest(a, b, _)) => {
+                Some(Content::PaymentRequest(a, b, Some(amount.unwrap() as i64)))
+            }
+            None => Some(Content::Amount(amount.unwrap().into())),
             _ => None,
         };
     }
