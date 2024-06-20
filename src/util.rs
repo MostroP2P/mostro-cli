@@ -33,12 +33,7 @@ pub async fn send_dm(
     let event = EventBuilder::encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
         .to_event(sender_keys)?;
     info!("Sending event: {event:#?}");
-    // FIX: The client by default is created with wait_for_send = false, we probably don't need this
-    // This will update relay send event to wait for tranmission.
-    // if let Some(_wait_mes) = wait_for_connection {
-    //     let opts = Options::new().wait_for_send(false);
-    //     Client::new_with_opts(sender_keys, opts);
-    // }
+
     let msg = ClientMessage::event(event);
     client.send_msg(msg).await?;
 
@@ -294,7 +289,7 @@ pub async fn get_orders_list(
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND.into()));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
@@ -386,7 +381,7 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND.into()));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();

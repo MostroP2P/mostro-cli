@@ -35,13 +35,13 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
                 if v.contains('.') {
                     continue;
                 }
-                if v.contains('-') {
-                    // Get values from string
-                    let values: Vec<&str> = v.split('-').collect();
-                    order.min_amount = values[0].parse::<i64>().ok();
-                    order.max_amount = values[1].parse::<i64>().ok();
+                let max = t.get(2);
+                if max.is_some() {
+                    order.min_amount = v.parse::<i64>().ok();
+                    order.max_amount = max.unwrap().parse::<i64>().ok();
                 } else {
-                    order.fiat_amount = v.parse::<i64>().unwrap();
+                    let fa = v.parse::<i64>();
+                    order.fiat_amount = fa.unwrap_or(0);
                 }
             }
             "pm" => {

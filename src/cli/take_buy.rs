@@ -26,7 +26,7 @@ pub async fn execute_take_buy(
         Some(*order_id),
         Some(master_pubkey),
         Action::TakeBuy,
-        amount.map(Content::Amount),
+        amount.map(|amt: u32| Content::Amount(amt as i64)),
     )
     .as_json()
     .unwrap();

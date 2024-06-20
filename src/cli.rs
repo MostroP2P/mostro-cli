@@ -286,11 +286,11 @@ pub async fn run() -> Result<()> {
             Commands::CreateSharedKey { pubkey } => {
                 let key = nostr::util::generate_shared_key(
                     my_key.secret_key()?,
-                    &PublicKey::from_str(&pubkey)?,
+                    &PublicKey::from_str(pubkey)?,
                 );
                 let mut shared_key_hex = vec![];
-                for i in key{
-                    shared_key_hex.push(format!("{:0x}",i))
+                for i in key {
+                    shared_key_hex.push(format!("{:0x}", i))
                 }
                 println!("Shared key: {:?}", key);
                 println!("Shared key: {:?}", shared_key_hex);

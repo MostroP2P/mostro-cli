@@ -30,10 +30,7 @@ pub async fn execute_list_orders(
     // New check against strings
     if let Some(k) = kind {
         kind_checked = Some(Kind::from_str(k).expect("Not valid order kind! Please check"));
-        println!(
-            "You are searching {} orders",
-            kind_checked.unwrap().to_string()
-        );
+        println!("You are searching {} orders", kind_checked.unwrap());
     }
 
     // Uppercase currency
