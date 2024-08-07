@@ -30,9 +30,12 @@ pub async fn send_dm(
     content: String,
     _wait_for_connection: Option<bool>,
 ) -> Result<()> {
+    let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
+
     let event = EventBuilder::encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
-        .to_event(sender_keys)?;
-    info!("Sending event: {event:#?}");
+        .to_pow_event(sender_keys, pow)?;
+    println!("Sending event: {event:#?}");
+    // info!("Sending event: {event:#?}");
 
     let msg = ClientMessage::event(event);
     client.send_msg(msg).await?;
