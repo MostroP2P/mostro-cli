@@ -56,6 +56,7 @@ Options:
   -n, --nsec <NSEC>
   -m, --mostropubkey <MOSTROPUBKEY>
   -r, --relays <RELAYS>
+  -p, --pow <POW>
   -h, --help                         Print help
   -V, --version                      Print version
 ```
@@ -76,4 +77,7 @@ $ mostro-cli neworder -k buy -c ves -f 1000 -m "face to face"
 
 # Cancel a pending order
 $ mostro-cli cancel -o eb5740f6-e584-46c5-953a-29bc3eb818f0
+
+# Create a new sell range order with Proof or work difficulty of 10
+$ mostro-cli neworder -p 10 -k sell -c ars -f 1000-10000 -m "face to face"
 ```
