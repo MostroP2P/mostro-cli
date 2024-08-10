@@ -59,6 +59,8 @@ pub struct Cli {
     pub mostropubkey: Option<String>,
     #[arg(short, long)]
     pub relays: Option<String>,
+    #[arg(short, long)]
+    pub pow: Option<String>,
 }
 
 #[derive(Subcommand, Clone)]
@@ -271,6 +273,10 @@ pub async fn run() -> Result<()> {
 
     if cli.relays.is_some() {
         set_var("RELAYS", cli.relays.unwrap());
+    }
+
+    if cli.pow.is_some() {
+        set_var("POW", cli.pow.unwrap());
     }
 
     // Mostro pubkey
