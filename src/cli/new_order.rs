@@ -82,6 +82,8 @@ pub async fn execute_new_order(
         invoice.as_ref().to_owned().cloned(),
         Some(0),
         expires_at,
+        None,
+        None,
     ));
 
     // Print order preview
