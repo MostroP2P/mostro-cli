@@ -1,10 +1,7 @@
-use std::process;
-
 use anyhow::Result;
-
 use dotenvy::dotenv;
-
 use mostro_client::cli::run;
+use std::process;
 
 #[tokio::main]
 async fn main() -> Result<()> {

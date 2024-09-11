@@ -1,4 +1,5 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
+// use crate::nip59::gift_wrap;
 
 use anyhow::{Error, Result};
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
@@ -28,11 +29,12 @@ pub async fn send_dm(
     sender_keys: &Keys,
     receiver_pubkey: &PublicKey,
     content: String,
-    _wait_for_connection: Option<bool>,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
+    // let event = gift_wrap(&sender_keys, *receiver_pubkey, content, None, pow)?;
     let event = EventBuilder::encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
         .to_pow_event(sender_keys, pow)?;
+
     info!("Sending event: {event:#?}");
 
     let msg = ClientMessage::event(event);
@@ -67,7 +69,7 @@ pub async fn send_order_id_cmd(
     wait_for_dm_ans: bool,
 ) -> Result<()> {
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, message, Some(false)).await?;
+    send_dm(client, my_key, &mostro_pubkey, message).await?;
 
     let mut notifications = client.notifications();
 
