@@ -1,8 +1,7 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
-// use crate::nip59::gift_wrap;
+use crate::nip59::gift_wrap;
 
 use anyhow::{Error, Result};
-use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
@@ -31,9 +30,7 @@ pub async fn send_dm(
     content: String,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
-    // let event = gift_wrap(&sender_keys, *receiver_pubkey, content, None, pow)?;
-    let event = EventBuilder::encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
-        .to_pow_event(sender_keys, pow)?;
+    let event = gift_wrap(&sender_keys, *receiver_pubkey, content, None, pow)?;
 
     info!("Sending event: {event:#?}");
 
@@ -334,7 +331,7 @@ pub async fn get_orders_list(
             }
 
             // Get created at field from Nostr event
-            order.created_at = Some(ord.created_at.as_u64() as i64) ;
+            order.created_at = Some(ord.created_at.as_u64() as i64);
 
             complete_events_list.push(order.clone());
 
