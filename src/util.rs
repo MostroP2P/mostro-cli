@@ -249,13 +249,13 @@ pub async fn get_direct_messages(
     let mut direct_messages: Vec<(String, String)> = Vec::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut id_list = Vec::<Sha256Hash>::new();
+    let mut id_list = Vec::<EventId>::new();
 
     for dms in mostro_req.iter() {
         for dm in dms {
-            if !id_list.contains(&dm.id.inner()) {
-                id_list.push(dm.id.inner());
-                let date = DateTime::from_timestamp(dm.created_at.as_i64(), 0);
+            if !id_list.contains(&dm.id()) {
+                id_list.push(dm.id());
+                let date = DateTime::from_timestamp(dm.created_at.as_u64() as i64, 0);
 
                 let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
@@ -332,7 +332,7 @@ pub async fn get_orders_list(
             }
 
             // Get created at field from Nostr event
-            order.created_at = Some(ord.created_at.as_i64());
+            order.created_at = Some(ord.created_at.as_u64() as i64) ;
 
             complete_events_list.push(order.clone());
 
@@ -403,7 +403,7 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
             info!("Found Dispute id : {:?}", dispute.id);
 
             // Get created at field from Nostr event
-            dispute.created_at = d.created_at.as_i64();
+            dispute.created_at = d.created_at.as_u64() as i64;
             disputes_list.push(dispute);
         }
     }
