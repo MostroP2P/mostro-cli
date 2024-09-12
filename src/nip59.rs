@@ -22,10 +22,11 @@ pub fn gift_wrap(
     expiration: Option<Timestamp>,
     pow: u8,
 ) -> Result<Event, BuilderError> {
-    let rumor: UnsignedEvent = EventBuilder::text_note(content, []).to_unsigned_event(receiver);
+    let rumor: UnsignedEvent =
+        EventBuilder::text_note(content, []).to_unsigned_event(sender_keys.public_key());
     let seal: Event = seal(sender_keys, &receiver, rumor)?.to_event(sender_keys)?;
 
-    gift_wrap_from_seal(sender_keys, &receiver, &seal, expiration, pow)
+    gift_wrap_from_seal(&receiver, &seal, expiration, pow)
 }
 
 pub fn seal(
@@ -47,7 +48,6 @@ pub fn seal(
 }
 
 pub fn gift_wrap_from_seal(
-    sender_keys: &Keys,
     receiver: &PublicKey,
     seal: &Event,
     expiration: Option<Timestamp>,
@@ -55,7 +55,7 @@ pub fn gift_wrap_from_seal(
 ) -> Result<Event, BuilderError> {
     let ephemeral_keys: Keys = Keys::generate();
     // Derive conversation key
-    let ck = ConversationKey::derive(sender_keys.secret_key()?, receiver);
+    let ck = ConversationKey::derive(ephemeral_keys.secret_key()?, receiver);
     // Encrypt content
     let encrypted_content = encrypt_to_bytes(&ck, seal.as_json()).unwrap();
 

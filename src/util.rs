@@ -1,5 +1,5 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
-use crate::nip59::gift_wrap;
+use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 
 use anyhow::{Error, Result};
 use chrono::DateTime;
@@ -30,7 +30,7 @@ pub async fn send_dm(
     content: String,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
-    let event = gift_wrap(&sender_keys, *receiver_pubkey, content, None, pow)?;
+    let event = gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?;
 
     info!("Sending event: {event:#?}");
 
@@ -232,7 +232,7 @@ pub async fn get_direct_messages(
     let timestamp = Timestamp::from(since_time);
     let filters = Filter::new()
         .author(mostro_pubkey)
-        .kind(Kind::EncryptedDirectMessage)
+        .kind(Kind::GiftWrap)
         .pubkey(my_key.public_key())
         .since(timestamp);
 
@@ -254,13 +254,13 @@ pub async fn get_direct_messages(
         for dm in dms {
             if !id_list.contains(&dm.id()) {
                 id_list.push(dm.id());
-                let date = DateTime::from_timestamp(dm.created_at.as_u64() as i64, 0);
+                let unwrapped_gift = unwrap_gift_wrap(&my_key, &dm).unwrap();
+                let date =
+                    DateTime::from_timestamp(unwrapped_gift.rumor.created_at.as_u64() as i64, 0);
 
                 let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
-                let message =
-                    nip04::decrypt(my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
-                direct_messages.push(((message.unwrap()), (human_date)));
+                direct_messages.push((unwrapped_gift.rumor.content, human_date));
             }
         }
     }

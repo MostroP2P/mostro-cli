@@ -143,7 +143,7 @@ pub enum Commands {
     GetDm {
         /// Since time of the messages in minutes
         #[arg(short, long)]
-        #[clap(default_value_t = 30)]
+        #[clap(default_value_t = 2880)]
         since: i64,
     },
     /// Send fiat sent message to confirm payment to other user
