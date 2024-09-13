@@ -231,15 +231,11 @@ pub async fn get_direct_messages(
 
     let timestamp = Timestamp::from(since_time);
     let filters = Filter::new()
-        .author(mostro_pubkey)
         .kind(Kind::GiftWrap)
         .pubkey(my_key.public_key())
         .since(timestamp);
 
-    info!(
-        "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors, filters.kinds
-    );
+    info!("Request events with event kind : {:?} ", filters.kinds);
 
     // Send all requests to relays
     let mostro_req = send_relays_requests(client, filters).await;
@@ -254,7 +250,15 @@ pub async fn get_direct_messages(
         for dm in dms {
             if !id_list.contains(&dm.id()) {
                 id_list.push(dm.id());
-                let unwrapped_gift = unwrap_gift_wrap(&my_key, &dm).unwrap();
+                let unwrapped_gift = match unwrap_gift_wrap(my_key, dm) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        continue;
+                    }
+                };
+                if unwrapped_gift.sender != mostro_pubkey {
+                    continue;
+                }
                 let date =
                     DateTime::from_timestamp(unwrapped_gift.rumor.created_at.as_u64() as i64, 0);
 
