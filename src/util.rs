@@ -1,7 +1,7 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
+use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 
 use anyhow::{Error, Result};
-use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
@@ -28,11 +28,10 @@ pub async fn send_dm(
     sender_keys: &Keys,
     receiver_pubkey: &PublicKey,
     content: String,
-    _wait_for_connection: Option<bool>,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
-    let event = EventBuilder::encrypted_direct_msg(sender_keys, *receiver_pubkey, content, None)?
-        .to_pow_event(sender_keys, pow)?;
+    let event = gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?;
+
     info!("Sending event: {event:#?}");
 
     let msg = ClientMessage::event(event);
@@ -67,7 +66,7 @@ pub async fn send_order_id_cmd(
     wait_for_dm_ans: bool,
 ) -> Result<()> {
     // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, message, Some(false)).await?;
+    send_dm(client, my_key, &mostro_pubkey, message).await?;
 
     let mut notifications = client.notifications();
 
@@ -232,15 +231,11 @@ pub async fn get_direct_messages(
 
     let timestamp = Timestamp::from(since_time);
     let filters = Filter::new()
-        .author(mostro_pubkey)
-        .kind(Kind::EncryptedDirectMessage)
+        .kind(Kind::GiftWrap)
         .pubkey(my_key.public_key())
         .since(timestamp);
 
-    info!(
-        "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors, filters.kinds
-    );
+    info!("Request events with event kind : {:?} ", filters.kinds);
 
     // Send all requests to relays
     let mostro_req = send_relays_requests(client, filters).await;
@@ -255,13 +250,21 @@ pub async fn get_direct_messages(
         for dm in dms {
             if !id_list.contains(&dm.id()) {
                 id_list.push(dm.id());
-                let date = DateTime::from_timestamp(dm.created_at.as_u64() as i64, 0);
+                let unwrapped_gift = match unwrap_gift_wrap(my_key, dm) {
+                    Ok(u) => u,
+                    Err(_) => {
+                        continue;
+                    }
+                };
+                if unwrapped_gift.sender != mostro_pubkey {
+                    continue;
+                }
+                let date =
+                    DateTime::from_timestamp(unwrapped_gift.rumor.created_at.as_u64() as i64, 0);
 
                 let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
 
-                let message =
-                    nip04::decrypt(my_key.secret_key().unwrap(), &dm.pubkey, dm.content.clone());
-                direct_messages.push(((message.unwrap()), (human_date)));
+                direct_messages.push((unwrapped_gift.rumor.content, human_date));
             }
         }
     }
@@ -290,7 +293,7 @@ pub async fn get_orders_list(
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND.into()));
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
@@ -332,7 +335,7 @@ pub async fn get_orders_list(
             }
 
             // Get created at field from Nostr event
-            order.created_at = Some(ord.created_at.as_u64() as i64) ;
+            order.created_at = Some(ord.created_at.as_u64() as i64);
 
             complete_events_list.push(order.clone());
 
@@ -382,7 +385,7 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND.into()));
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();
