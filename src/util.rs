@@ -252,7 +252,7 @@ pub async fn get_direct_messages(
                 id_list.push(dm.id());
                 let unwrapped_gift = match unwrap_gift_wrap(my_key, dm) {
                     Ok(u) => u,
-                    Err(e) => {
+                    Err(_) => {
                         continue;
                     }
                 };
@@ -293,7 +293,7 @@ pub async fn get_orders_list(
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND.into()));
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
@@ -385,7 +385,7 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND.into()));
+        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();
