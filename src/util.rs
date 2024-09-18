@@ -223,17 +223,19 @@ pub async fn get_direct_messages(
     mostro_pubkey: PublicKey,
     my_key: &Keys,
     since: i64,
-) -> Vec<(String, String)> {
-    let since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::minutes(since))
+) -> Vec<(String, String, u64)> {
+    // We use a fake timestamp to thwart time-analysis attacks
+    let fake_since = 2880;
+    let fake_since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(fake_since))
         .unwrap()
         .timestamp() as u64;
 
-    let timestamp = Timestamp::from(since_time);
+    let fake_timestamp = Timestamp::from(fake_since_time);
     let filters = Filter::new()
         .kind(Kind::GiftWrap)
         .pubkey(my_key.public_key())
-        .since(timestamp);
+        .since(fake_timestamp);
 
     info!("Request events with event kind : {:?} ", filters.kinds);
 
@@ -241,7 +243,7 @@ pub async fn get_direct_messages(
     let mostro_req = send_relays_requests(client, filters).await;
 
     // Buffer vector for direct messages
-    let mut direct_messages: Vec<(String, String)> = Vec::new();
+    let mut direct_messages: Vec<(String, String, u64)> = Vec::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
     let mut id_list = Vec::<EventId>::new();
@@ -259,17 +261,29 @@ pub async fn get_direct_messages(
                 if unwrapped_gift.sender != mostro_pubkey {
                     continue;
                 }
+                // Here we discard messages older than the real since parameter
+                let since_time = chrono::Utc::now()
+                    .checked_sub_signed(chrono::Duration::minutes(since))
+                    .unwrap()
+                    .timestamp() as u64;
+                if unwrapped_gift.rumor.created_at.as_u64() < since_time {
+                    continue;
+                }
                 let date =
                     DateTime::from_timestamp(unwrapped_gift.rumor.created_at.as_u64() as i64, 0);
 
-                let human_date = date.unwrap().format("%H:%M date - %d/%m/%Y").to_string();
+                let human_date = date.unwrap().format("%H:%M:%S date - %d/%m/%Y").to_string();
 
-                direct_messages.push((unwrapped_gift.rumor.content, human_date));
+                direct_messages.push((
+                    unwrapped_gift.rumor.content,
+                    human_date,
+                    unwrapped_gift.rumor.created_at.as_u64(),
+                ));
             }
         }
     }
     // Return element sorted by second tuple element ( Timestamp )
-    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
+    direct_messages.sort_by(|a, b| a.2.cmp(&b.2));
 
     direct_messages
 }
