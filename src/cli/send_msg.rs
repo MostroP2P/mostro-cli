@@ -1,5 +1,4 @@
 use crate::cli::Commands;
-use crate::util::get_keys;
 use crate::util::send_order_id_cmd;
 
 use anyhow::Result;
@@ -38,16 +37,13 @@ pub async fn execute_send_msg(
         order_id,
         mostro_key.clone()
     );
-    let keys = get_keys()?;
     let mut content = None;
     if let Some(t) = text {
         content = Some(Content::TextMessage(t.to_string()));
     }
 
-    // This should be the master pubkey
-    let master_pubkey = keys.public_key().to_string();
     // Create message
-    let message = Message::new_order(order_id, Some(master_pubkey), requested_action, content)
+    let message = Message::new_order(order_id, requested_action, content)
         .as_json()
         .unwrap();
     info!("Sending message: {:#?}", message);

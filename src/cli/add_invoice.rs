@@ -1,5 +1,5 @@
 use crate::lightning::is_valid_invoice;
-use crate::util::{get_keys, send_order_id_cmd};
+use crate::util::send_order_id_cmd;
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
@@ -29,19 +29,10 @@ pub async fn execute_add_invoice(
             Err(e) => println!("{}", e),
         }
     }
-
-    let keys = get_keys()?;
-    // This should be the master pubkey
-    let master_pubkey = keys.public_key().to_string();
     // Create AddInvoice message
-    let add_invoice_message = Message::new_order(
-        Some(*order_id),
-        Some(master_pubkey),
-        Action::AddInvoice,
-        content,
-    )
-    .as_json()
-    .unwrap();
+    let add_invoice_message = Message::new_order(Some(*order_id), Action::AddInvoice, content)
+        .as_json()
+        .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, add_invoice_message, true).await?;
 

@@ -3,7 +3,7 @@ use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::{get_keys, send_order_id_cmd};
+use crate::util::send_order_id_cmd;
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
@@ -17,14 +17,9 @@ pub async fn execute_take_buy(
         order_id,
         mostro_key.clone()
     );
-    let keys = get_keys()?;
-    // This should be the master pubkey
-    let master_pubkey = keys.public_key().to_string();
-
     // Create takebuy message
     let take_buy_message = Message::new_order(
         Some(*order_id),
-        Some(master_pubkey),
         Action::TakeBuy,
         amount.map(|amt: u32| Content::Amount(amt as i64)),
     )

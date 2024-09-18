@@ -9,7 +9,7 @@ use std::process;
 use std::str::FromStr;
 
 use crate::pretty_table::print_order_preview;
-use crate::util::{get_keys, send_order_id_cmd, uppercase_first};
+use crate::util::{send_order_id_cmd, uppercase_first};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -108,18 +108,10 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     };
-    let keys = get_keys()?;
-    // This should be the master pubkey
-    let master_pubkey = keys.public_key().to_string();
     // Create fiat sent message
-    let message = Message::new_order(
-        None,
-        Some(master_pubkey),
-        Action::NewOrder,
-        Some(order_content),
-    )
-    .as_json()
-    .unwrap();
+    let message = Message::new_order(None, Action::NewOrder, Some(order_content))
+        .as_json()
+        .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, message, false).await?;
     Ok(())
