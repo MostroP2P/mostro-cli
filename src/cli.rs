@@ -23,6 +23,7 @@ use crate::util;
 
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
+use nip44::v2::ConversationKey;
 use nostr_sdk::prelude::*;
 use std::{
     env::{set_var, var},
@@ -205,9 +206,9 @@ pub enum Commands {
         #[arg(short, long)]
         dispute_id: Uuid,
     },
-    /// Create a shared key for direct messaging
-    CreateSharedKey {
-        /// Pubkey of receiver of the message
+    /// Get the conversation key for direct messaging with a user
+    ConversationKey {
+        /// Pubkey of the counterpart
         #[arg(short, long)]
         pubkey: String,
     },
@@ -289,17 +290,17 @@ pub async fn run() -> Result<()> {
 
     if let Some(cmd) = cli.command {
         match &cmd {
-            Commands::CreateSharedKey { pubkey } => {
-                let key = nostr::util::generate_shared_key(
-                    my_key.secret_key()?,
-                    &PublicKey::from_str(pubkey)?,
-                );
-                let mut shared_key_hex = vec![];
+            Commands::ConversationKey { pubkey } => {
+                // Derive conversation key
+                let ck =
+                    ConversationKey::derive(my_key.secret_key()?, &PublicKey::from_str(pubkey)?);
+                let key = ck.as_bytes();
+                let mut ck_hex = vec![];
                 for i in key {
-                    shared_key_hex.push(format!("{:0x}", i))
+                    ck_hex.push(format!("{:0x}", i));
                 }
-                println!("Shared key: {:?}", key);
-                println!("Shared key: {:?}", shared_key_hex);
+                let ck_hex = ck_hex.join("");
+                println!("Conversation key: {:?}", ck_hex);
             }
             Commands::ListOrders {
                 status,
