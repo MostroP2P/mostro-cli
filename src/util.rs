@@ -32,10 +32,11 @@ pub async fn send_dm(
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
     let event = gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?;
 
-    info!("Sending event: {event:#?}");
+    println!("Sending event: {event:#?}");
 
     let msg = ClientMessage::event(event);
-    client.send_msg(msg).await?;
+    let x = client.send_msg(msg).await;
+    println!("Message sent: {x:#?}");
 
     Ok(())
 }
@@ -72,7 +73,7 @@ pub async fn send_order_id_cmd(
 
     while let Ok(notification) = notifications.recv().await {
         if wait_for_dm_ans {
-            let dm = get_direct_messages(client, mostro_pubkey, my_key, 1).await;
+            let dm = get_direct_messages(client, my_key, 1).await;
 
             for el in dm.iter() {
                 match Message::from_json(&el.0) {
@@ -93,7 +94,7 @@ pub async fn send_order_id_cmd(
                     Err(_) => {
                         println!("NEW MESSAGE:");
                         println!();
-                        println!("Mostro sent you this message -->  {}", el.0);
+                        println!("You got this message -->  {}", el.0);
                         println!();
                     }
                 }
@@ -220,7 +221,6 @@ pub async fn get_events_of_mostro(
 
 pub async fn get_direct_messages(
     client: &Client,
-    mostro_pubkey: PublicKey,
     my_key: &Keys,
     since: i64,
 ) -> Vec<(String, String, u64)> {
@@ -258,9 +258,6 @@ pub async fn get_direct_messages(
                         continue;
                     }
                 };
-                if unwrapped_gift.sender != mostro_pubkey {
-                    continue;
-                }
                 // Here we discard messages older than the real since parameter
                 let since_time = chrono::Utc::now()
                     .checked_sub_signed(chrono::Duration::minutes(since))

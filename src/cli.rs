@@ -4,6 +4,7 @@ pub mod list_disputes;
 pub mod list_orders;
 pub mod new_order;
 pub mod rate_user;
+pub mod send_dm;
 pub mod send_msg;
 pub mod take_buy;
 pub mod take_dispute;
@@ -15,6 +16,7 @@ use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
 use crate::cli::rate_user::execute_rate_user;
+use crate::cli::send_dm::execute_send_dm;
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_dispute::execute_take_dispute;
@@ -140,12 +142,21 @@ pub enum Commands {
         #[arg(short, long)]
         invoice: String,
     },
-    /// Get the latest direct messages from Mostro
+    /// Get the latest direct messages
     GetDm {
         /// Since time of the messages in minutes
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
+    },
+    /// Send direct message to a user
+    SendDm {
+        /// Pubkey of the counterpart
+        #[arg(short, long)]
+        pubkey: String,
+        /// Message to send
+        #[arg(short, long)]
+        message: String,
     },
     /// Send fiat sent message to confirm payment to other user
     FiatSent {
@@ -281,7 +292,7 @@ pub async fn run() -> Result<()> {
     }
 
     // Mostro pubkey
-    let mostro_key = PublicKey::from_bech32(pubkey)?;
+    let mostro_key = PublicKey::from_str(&pubkey)?;
     // My key
     let my_key = util::get_keys()?;
 
@@ -320,9 +331,7 @@ pub async fn run() -> Result<()> {
             Commands::AddInvoice { order_id, invoice } => {
                 execute_add_invoice(order_id, invoice, &my_key, mostro_key, &client).await?
             }
-            Commands::GetDm { since } => {
-                execute_get_dm(since, &my_key, mostro_key, &client).await?
-            }
+            Commands::GetDm { since } => execute_get_dm(since, &my_key, &client).await?,
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
@@ -382,6 +391,12 @@ pub async fn run() -> Result<()> {
                 execute_take_dispute(dispute_id, &my_key, mostro_key, &client).await?
             }
             Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
+            Commands::SendDm { pubkey, message } => {
+                let pubkey = PublicKey::from_str(pubkey)?;
+                execute_send_dm(&my_key, pubkey, &client, message)
+                    .await
+                    .unwrap();
+            }
         };
     }
 

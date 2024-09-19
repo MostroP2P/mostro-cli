@@ -9,7 +9,7 @@ use nostr_sdk::prelude::*;
 ///
 /// * `sender_keys` - The keys of the sender
 /// * `receiver` - The public key of the receiver
-/// * `rumor` - A regular nostr event, but is not signed.
+/// * `content` - The message
 /// * `expiration` - Time of the expiration of the event
 ///
 /// # Returns
