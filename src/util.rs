@@ -35,8 +35,7 @@ pub async fn send_dm(
     println!("Sending event: {event:#?}");
 
     let msg = ClientMessage::event(event);
-    let x = client.send_msg(msg).await;
-    println!("Message sent: {x:#?}");
+    client.send_msg(msg).await;
 
     Ok(())
 }
