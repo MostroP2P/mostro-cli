@@ -204,6 +204,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-wsocket"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eee6fcc818b89848df37050215603de0e2e072734e4730c03060feb2d0abebb"
+dependencies = [
+ "async-utility",
+ "futures",
+ "futures-util",
+ "js-sys",
+ "thiserror",
+ "tokio",
+ "tokio-rustls 0.26.0",
+ "tokio-socks",
+ "tokio-tungstenite",
+ "url",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "async_io_stream"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1481,7 +1501,7 @@ dependencies = [
  "lnurl-rs",
  "log",
  "mostro-core",
- "nostr-sdk",
+ "nostr-sdk 0.34.0",
  "openssl",
  "pretty_env_logger",
  "reqwest",
@@ -1499,7 +1519,7 @@ checksum = "aeb872aba1146e74329e70a689f78a5b4722368d5e400c429cc4b380222eca96"
 dependencies = [
  "anyhow",
  "chrono",
- "nostr-sdk",
+ "nostr-sdk 0.32.0",
  "serde",
  "serde_json",
  "sqlx",
@@ -1572,6 +1592,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "nostr"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1c3c32439eef3ea4d9079b2a8f557992d27259c26527e43d4228dd321e43a77"
+dependencies = [
+ "aes",
+ "base64 0.21.7",
+ "bip39",
+ "bitcoin 0.31.2",
+ "cbc",
+ "chacha20",
+ "chacha20poly1305",
+ "getrandom",
+ "instant",
+ "js-sys",
+ "negentropy",
+ "once_cell",
+ "reqwest",
+ "scrypt",
+ "serde",
+ "serde_json",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "nostr-database"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1579,7 +1629,21 @@ checksum = "a88a72f92fbd5d2514db36e07a864646f1c1f44931c4a5ea195f6961029af4b3"
 dependencies = [
  "async-trait",
  "lru",
- "nostr",
+ "nostr 0.32.1",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-database"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1926ef55392f3eea1bbe4a1358b64bbf12dd6eb554f40f483941a102c6263fc6"
+dependencies = [
+ "async-trait",
+ "lru",
+ "nostr 0.34.1",
  "thiserror",
  "tokio",
  "tracing",
@@ -1592,12 +1656,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7b7bf72b02a24ccc7cf87033fa5ddfd57001c7d8c2e757321a7ca7a6df39876"
 dependencies = [
  "async-utility",
- "async-wsocket",
+ "async-wsocket 0.5.2",
  "atomic-destructor",
- "nostr",
- "nostr-database",
+ "nostr 0.32.1",
+ "nostr-database 0.32.0",
  "thiserror",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-relay-pool"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0e37c5ea991802a91728d4c09d5a7276938104ead8bf140a63a60acabc5c756"
+dependencies = [
+ "async-utility",
+ "async-wsocket 0.7.1",
+ "atomic-destructor",
+ "nostr 0.34.1",
+ "nostr-database 0.34.0",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
@@ -1610,12 +1691,32 @@ dependencies = [
  "async-utility",
  "atomic-destructor",
  "lnurl-pay",
- "nostr",
- "nostr-database",
- "nostr-relay-pool",
- "nostr-signer",
- "nostr-zapper",
- "nwc",
+ "nostr 0.32.1",
+ "nostr-database 0.32.0",
+ "nostr-relay-pool 0.32.0",
+ "nostr-signer 0.32.1",
+ "nostr-zapper 0.32.0",
+ "nwc 0.32.0",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-sdk"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca0c0c5f8ddbdfc064ea71883191ec53de6ed52b5dca10ab07f0810b99e91acc"
+dependencies = [
+ "async-utility",
+ "atomic-destructor",
+ "lnurl-pay",
+ "nostr 0.34.1",
+ "nostr-database 0.34.0",
+ "nostr-relay-pool 0.34.1",
+ "nostr-signer 0.34.0",
+ "nostr-zapper 0.34.0",
+ "nwc 0.34.1",
  "thiserror",
  "tokio",
  "tracing",
@@ -1628,8 +1729,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f99449c2077bef43c02c8f9a9386d01c87e7ad8ece70d7de87a2c59771b4c0fe"
 dependencies = [
  "async-utility",
- "nostr",
- "nostr-relay-pool",
+ "nostr 0.32.1",
+ "nostr-relay-pool 0.32.0",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-signer"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c30294a7be7d9d5ac777954812f5c7b4ae2a1e583a62e33537f87d98ab23729"
+dependencies = [
+ "async-utility",
+ "nostr 0.34.1",
+ "nostr-relay-pool 0.34.1",
  "thiserror",
  "tokio",
  "tracing",
@@ -1642,7 +1757,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "430c2527c0efd2e7f1a421b0c7df01a03b334a79c60c39cc7a1ca684f720f2bf"
 dependencies = [
  "async-trait",
- "nostr",
+ "nostr 0.32.1",
+ "thiserror",
+]
+
+[[package]]
+name = "nostr-zapper"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf3ba30e807145e9cb924faf8fb0719e460f613088e99c753b67c2a9929c5b7"
+dependencies = [
+ "async-trait",
+ "nostr 0.34.1",
  "thiserror",
 ]
 
@@ -1662,9 +1788,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6fb91e4be3f6b872fc23c7714bbb500a58a1d59f458eb6eb9dd249fbec42fc2"
 dependencies = [
  "async-utility",
- "nostr",
- "nostr-relay-pool",
- "nostr-zapper",
+ "nostr 0.32.1",
+ "nostr-relay-pool 0.32.0",
+ "nostr-zapper 0.32.0",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "nwc"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a16ac06bc273fcd4ead47c0c5a58b6cc7db2247fc7a64dd9bc11cf18e3efeb4"
+dependencies = [
+ "async-utility",
+ "nostr 0.34.1",
+ "nostr-relay-pool 0.34.1",
+ "nostr-zapper 0.34.0",
  "thiserror",
  "tracing",
 ]

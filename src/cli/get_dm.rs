@@ -4,16 +4,11 @@ use nostr_sdk::prelude::*;
 
 use crate::util::get_direct_messages;
 
-pub async fn execute_get_dm(
-    since: &i64,
-    my_key: &Keys,
-    mostro_key: PublicKey,
-    client: &Client,
-) -> Result<()> {
-    let dm = get_direct_messages(client, mostro_key, my_key, *since).await;
+pub async fn execute_get_dm(since: &i64, my_key: &Keys, client: &Client) -> Result<()> {
+    let dm = get_direct_messages(client, my_key, *since).await;
     if dm.is_empty() {
         println!();
-        println!("No new messages from Mostro");
+        println!("No new messages");
         println!();
     } else {
         for el in dm.iter() {
@@ -46,7 +41,7 @@ pub async fn execute_get_dm(
                     }
                 }
                 Err(_) => {
-                    println!("Mostro sent you this message:");
+                    println!("You got this message:");
                     println!();
                     println!("{}", el.0);
                     println!();
