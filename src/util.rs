@@ -32,10 +32,10 @@ pub async fn send_dm(
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
     let event = gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?;
 
-    println!("Sending event: {event:#?}");
+    info!("Sending event: {event:#?}");
 
     let msg = ClientMessage::event(event);
-    client.send_msg(msg).await;
+    client.send_msg(msg).await?;
 
     Ok(())
 }
