@@ -33,6 +33,7 @@ pub async fn send_dm(
     let event = gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?;
 
     info!("Sending event: {event:#?}");
+    println!("Sending event Id: {}", event.id());
 
     let msg = ClientMessage::event(event);
     client.send_msg(msg).await?;
@@ -251,7 +252,7 @@ pub async fn get_direct_messages(
         for dm in dms {
             if !id_list.contains(&dm.id()) {
                 id_list.push(dm.id());
-                let unwrapped_gift = match unwrap_gift_wrap(my_key, dm) {
+                let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
                     Ok(u) => u,
                     Err(_) => {
                         continue;

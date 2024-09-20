@@ -1,4 +1,5 @@
 pub mod add_invoice;
+pub mod conversation_key;
 pub mod get_dm;
 pub mod list_disputes;
 pub mod list_orders;
@@ -11,6 +12,7 @@ pub mod take_dispute;
 pub mod take_sell;
 
 use crate::cli::add_invoice::execute_add_invoice;
+use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::get_dm::execute_get_dm;
 use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
@@ -25,7 +27,6 @@ use crate::util;
 
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
-use nip44::v2::ConversationKey;
 use nostr_sdk::prelude::*;
 use std::{
     env::{set_var, var},
@@ -222,6 +223,9 @@ pub enum Commands {
         /// Pubkey of the counterpart
         #[arg(short, long)]
         pubkey: String,
+        /// Event id of the message to derive the key
+        #[arg(short, long)]
+        event_id: String,
     },
 }
 
@@ -301,17 +305,9 @@ pub async fn run() -> Result<()> {
 
     if let Some(cmd) = cli.command {
         match &cmd {
-            Commands::ConversationKey { pubkey } => {
-                // Derive conversation key
-                let ck =
-                    ConversationKey::derive(my_key.secret_key()?, &PublicKey::from_str(pubkey)?);
-                let key = ck.as_bytes();
-                let mut ck_hex = vec![];
-                for i in key {
-                    ck_hex.push(format!("{:0x}", i));
-                }
-                let ck_hex = ck_hex.join("");
-                println!("Conversation key: {:?}", ck_hex);
+            Commands::ConversationKey { event_id, pubkey } => {
+                execute_conversation_key(&my_key, PublicKey::from_str(pubkey)?, &client, event_id)
+                    .await?
             }
             Commands::ListOrders {
                 status,
@@ -393,9 +389,7 @@ pub async fn run() -> Result<()> {
             Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
             Commands::SendDm { pubkey, message } => {
                 let pubkey = PublicKey::from_str(pubkey)?;
-                execute_send_dm(&my_key, pubkey, &client, message)
-                    .await
-                    .unwrap();
+                execute_send_dm(&my_key, pubkey, &client, message).await?
             }
         };
     }

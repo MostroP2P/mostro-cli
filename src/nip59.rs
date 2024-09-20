@@ -72,8 +72,25 @@ pub fn gift_wrap_from_seal(
         .to_pow_event(&ephemeral_keys, pow)
 }
 
-pub fn unwrap_gift_wrap(keys: &Keys, gift_wrap: &Event) -> Result<UnwrappedGift, BuilderError> {
-    let ck = ConversationKey::derive(keys.secret_key()?, &gift_wrap.pubkey);
+pub fn unwrap_gift_wrap(
+    keys: Option<&Keys>,
+    gw_ck: Option<ConversationKey>,
+    seal_ck: Option<ConversationKey>,
+    gift_wrap: &Event,
+) -> Result<UnwrappedGift, BuilderError> {
+    let gw_ck = match keys {
+        Some(keys) => ConversationKey::derive(keys.secret_key()?, &gift_wrap.pubkey),
+        None => match gw_ck {
+            Some(ck) => ck,
+            None => {
+                return Err(BuilderError::NIP44(
+                    nostr_sdk::nips::nip44::Error::NotFound(
+                        "No keys or conversation key".to_string(),
+                    ),
+                ))
+            }
+        },
+    };
     let b64decoded_content = match general_purpose::STANDARD.decode(gift_wrap.content.as_bytes()) {
         Ok(b64decoded_content) => b64decoded_content,
         Err(e) => {
@@ -83,7 +100,7 @@ pub fn unwrap_gift_wrap(keys: &Keys, gift_wrap: &Event) -> Result<UnwrappedGift,
         }
     };
     // Decrypt and verify seal
-    let seal = decrypt_to_bytes(&ck, b64decoded_content)?;
+    let seal = decrypt_to_bytes(&gw_ck, b64decoded_content)?;
     let seal = String::from_utf8(seal).expect("Found invalid UTF-8");
     let seal = match Event::from_json(seal) {
         Ok(seal) => seal,
@@ -94,8 +111,19 @@ pub fn unwrap_gift_wrap(keys: &Keys, gift_wrap: &Event) -> Result<UnwrappedGift,
             ));
         }
     };
-
-    let ck = ConversationKey::derive(keys.secret_key()?, &seal.pubkey);
+    let seal_ck = match keys {
+        Some(keys) => ConversationKey::derive(keys.secret_key()?, &seal.pubkey),
+        None => match seal_ck {
+            Some(ck) => ck,
+            None => {
+                return Err(BuilderError::NIP44(
+                    nostr_sdk::nips::nip44::Error::NotFound(
+                        "No keys or conversation key".to_string(),
+                    ),
+                ))
+            }
+        },
+    };
     let b64decoded_content = match general_purpose::STANDARD.decode(seal.content.as_bytes()) {
         Ok(b64decoded_content) => b64decoded_content,
         Err(e) => {
@@ -105,7 +133,7 @@ pub fn unwrap_gift_wrap(keys: &Keys, gift_wrap: &Event) -> Result<UnwrappedGift,
         }
     };
     // Decrypt rumor
-    let rumor = decrypt_to_bytes(&ck, b64decoded_content)?;
+    let rumor = decrypt_to_bytes(&seal_ck, b64decoded_content)?;
     let rumor = String::from_utf8(rumor).expect("Found invalid UTF-8");
 
     Ok(UnwrappedGift {
