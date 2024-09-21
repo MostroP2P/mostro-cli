@@ -41,9 +41,6 @@ lightning-invoice = "0.23.0"
 reqwest = { version = "0.12.4", features = ["json"] }
 mostro-core = { version = "0.6.7", features = ["sqlx"] }
 bitcoin_hashes = "0.14.0"
-lnurl-rs = "0.6.0"
+lnurl-rs = "0.8.0"
 pretty_env_logger = "0.5.0"
 openssl = { version = "0.10", features = ["vendored"] }
-
-[patch.crates-io]
-lnurl-rs = { git = 'https://github.com/arkanoider/lnurl-rs.git' }
