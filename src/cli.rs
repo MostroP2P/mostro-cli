@@ -149,6 +149,9 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
+        /// If true, get messages from counterparty, otherwise from Mostro
+        #[arg(short)]
+        from_user: bool,
     },
     /// Send direct message to a user
     SendDm {
@@ -223,9 +226,6 @@ pub enum Commands {
         /// Pubkey of the counterpart
         #[arg(short, long)]
         pubkey: String,
-        /// Event id of the message to derive the key
-        #[arg(short, long)]
-        event_id: String,
     },
 }
 
@@ -305,9 +305,8 @@ pub async fn run() -> Result<()> {
 
     if let Some(cmd) = cli.command {
         match &cmd {
-            Commands::ConversationKey { event_id, pubkey } => {
-                execute_conversation_key(&my_key, PublicKey::from_str(pubkey)?, &client, event_id)
-                    .await?
+            Commands::ConversationKey { pubkey } => {
+                execute_conversation_key(&my_key, PublicKey::from_str(pubkey)?).await?
             }
             Commands::ListOrders {
                 status,
@@ -327,7 +326,9 @@ pub async fn run() -> Result<()> {
             Commands::AddInvoice { order_id, invoice } => {
                 execute_add_invoice(order_id, invoice, &my_key, mostro_key, &client).await?
             }
-            Commands::GetDm { since } => execute_get_dm(since, &my_key, &client).await?,
+            Commands::GetDm { since, from_user } => {
+                execute_get_dm(since, &my_key, &client, *from_user).await?
+            }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }

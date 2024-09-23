@@ -113,6 +113,6 @@ pub async fn execute_new_order(
         .as_json()
         .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, message, false).await?;
+    send_order_id_cmd(client, my_key, mostro_key, message, false, true).await?;
     Ok(())
 }

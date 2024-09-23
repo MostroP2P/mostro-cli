@@ -47,7 +47,7 @@ pub async fn execute_send_msg(
         .as_json()
         .unwrap();
     info!("Sending message: {:#?}", message);
-    send_order_id_cmd(client, my_key, mostro_key, message, false).await?;
+    send_order_id_cmd(client, my_key, mostro_key, message, false, true).await?;
 
     Ok(())
 }

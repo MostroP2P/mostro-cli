@@ -8,7 +8,7 @@ pub async fn execute_send_dm(
     client: &Client,
     message: &str,
 ) -> Result<()> {
-    send_order_id_cmd(client, my_key, receiver, message.to_string(), true).await?;
+    send_order_id_cmd(client, my_key, receiver, message.to_string(), true, true).await?;
 
     Ok(())
 }

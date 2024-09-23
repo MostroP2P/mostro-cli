@@ -22,7 +22,7 @@ pub async fn execute_take_dispute(
             .as_json()
             .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, take_dispute_message, true).await?;
+    send_order_id_cmd(client, my_key, mostro_key, take_dispute_message, true, true).await?;
 
     Ok(())
 }
