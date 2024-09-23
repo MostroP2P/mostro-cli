@@ -2,6 +2,8 @@ use crate::nip33::{dispute_from_tags, order_from_tags};
 use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 
 use anyhow::{Error, Result};
+use base64::engine::general_purpose;
+use base64::Engine;
 use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
@@ -14,6 +16,7 @@ use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::timeout;
 use uuid::Uuid;
+use v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
@@ -28,9 +31,26 @@ pub async fn send_dm(
     sender_keys: &Keys,
     receiver_pubkey: &PublicKey,
     content: String,
+    to_user: bool,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
-    let event = gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?;
+    let event = if to_user {
+        // Derive conversation key
+        let ck = ConversationKey::derive(sender_keys.secret_key()?, receiver_pubkey);
+        // Encrypt content
+        let encrypted_content = encrypt_to_bytes(&ck, content)?;
+        // Encode with base64
+        let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
+        // Compose builder
+        EventBuilder::new(
+            Kind::PrivateDirectMessage,
+            b64decoded_content,
+            [Tag::public_key(*receiver_pubkey)],
+        )
+        .to_pow_event(sender_keys, pow)?
+    } else {
+        gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?
+    };
 
     info!("Sending event: {event:#?}");
     println!("Sending event Id: {}", event.id());
@@ -62,18 +82,20 @@ pub async fn connect_nostr() -> Result<Client> {
 pub async fn send_order_id_cmd(
     client: &Client,
     my_key: &Keys,
-    mostro_pubkey: PublicKey,
+    receiver_pubkey: PublicKey,
     message: String,
     wait_for_dm_ans: bool,
+    to_user: bool,
 ) -> Result<()> {
-    // Send dm to mostro pub id
-    send_dm(client, my_key, &mostro_pubkey, message).await?;
+    println!("to_user: {to_user}");
+    // Send dm to receiver pubkey
+    send_dm(client, my_key, &receiver_pubkey, message, to_user).await?;
 
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
         if wait_for_dm_ans {
-            let dm = get_direct_messages(client, my_key, 1).await;
+            let dm = get_direct_messages(client, my_key, 1, to_user).await;
 
             for el in dm.iter() {
                 match Message::from_json(&el.0) {
@@ -223,6 +245,7 @@ pub async fn get_direct_messages(
     client: &Client,
     my_key: &Keys,
     since: i64,
+    from_user: bool,
 ) -> Vec<(String, String, u64)> {
     // We use a fake timestamp to thwart time-analysis attacks
     let fake_since = 2880;
@@ -232,10 +255,22 @@ pub async fn get_direct_messages(
         .timestamp() as u64;
 
     let fake_timestamp = Timestamp::from(fake_since_time);
-    let filters = Filter::new()
-        .kind(Kind::GiftWrap)
-        .pubkey(my_key.public_key())
-        .since(fake_timestamp);
+    let filters = if from_user {
+        let since_time = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::minutes(since))
+            .unwrap()
+            .timestamp() as u64;
+        let timestamp = Timestamp::from(since_time);
+        Filter::new()
+            .kind(Kind::PrivateDirectMessage)
+            .pubkey(my_key.public_key())
+            .since(timestamp)
+    } else {
+        Filter::new()
+            .kind(Kind::GiftWrap)
+            .pubkey(my_key.public_key())
+            .since(fake_timestamp)
+    };
 
     info!("Request events with event kind : {:?} ", filters.kinds);
 
@@ -252,30 +287,43 @@ pub async fn get_direct_messages(
         for dm in dms {
             if !id_list.contains(&dm.id()) {
                 id_list.push(dm.id());
-                let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
-                    Ok(u) => u,
-                    Err(_) => {
-                        continue;
-                    }
-                };
+                let created_at: Timestamp;
+                let content: String;
+                if from_user {
+                    let ck = ConversationKey::derive(my_key.secret_key().unwrap(), &dm.pubkey);
+                    let b64decoded_content =
+                        match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
+                            Ok(b64decoded_content) => b64decoded_content,
+                            Err(_) => {
+                                continue;
+                            }
+                        };
+                    // Decrypt
+                    let unencrypted_content = decrypt_to_bytes(&ck, b64decoded_content).unwrap();
+                    content = String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
+                    created_at = dm.created_at;
+                } else {
+                    let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
+                        Ok(u) => u,
+                        Err(_) => {
+                            continue;
+                        }
+                    };
+                    content = unwrapped_gift.rumor.content;
+                    created_at = unwrapped_gift.rumor.created_at;
+                }
                 // Here we discard messages older than the real since parameter
                 let since_time = chrono::Utc::now()
                     .checked_sub_signed(chrono::Duration::minutes(since))
                     .unwrap()
                     .timestamp() as u64;
-                if unwrapped_gift.rumor.created_at.as_u64() < since_time {
+                if created_at.as_u64() < since_time {
                     continue;
                 }
-                let date =
-                    DateTime::from_timestamp(unwrapped_gift.rumor.created_at.as_u64() as i64, 0);
+                let date = DateTime::from_timestamp(created_at.as_u64() as i64, 0);
 
                 let human_date = date.unwrap().format("%H:%M:%S date - %d/%m/%Y").to_string();
-
-                direct_messages.push((
-                    unwrapped_gift.rumor.content,
-                    human_date,
-                    unwrapped_gift.rumor.created_at.as_u64(),
-                ));
+                direct_messages.push((content, human_date, created_at.as_u64()));
             }
         }
     }

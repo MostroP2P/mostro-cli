@@ -4,8 +4,13 @@ use nostr_sdk::prelude::*;
 
 use crate::util::get_direct_messages;
 
-pub async fn execute_get_dm(since: &i64, my_key: &Keys, client: &Client) -> Result<()> {
-    let dm = get_direct_messages(client, my_key, *since).await;
+pub async fn execute_get_dm(
+    since: &i64,
+    my_key: &Keys,
+    client: &Client,
+    from_user: bool,
+) -> Result<()> {
+    let dm = get_direct_messages(client, my_key, *since, from_user).await;
     if dm.is_empty() {
         println!();
         println!("No new messages");
