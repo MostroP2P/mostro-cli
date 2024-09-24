@@ -1405,8 +1405,9 @@ dependencies = [
 
 [[package]]
 name = "lnurl-rs"
-version = "0.6.0"
-source = "git+https://github.com/arkanoider/lnurl-rs.git#9da5afbacb9ab492e161f0ee330c69000e1ccd21"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2951a7783efa798febff75dfd9df4716c3ddc5bea969f132b282972a36bc7d8f"
 dependencies = [
  "aes",
  "anyhow",
@@ -1488,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "anyhow",
  "bitcoin_hashes 0.14.0",
