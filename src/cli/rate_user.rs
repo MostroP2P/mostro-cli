@@ -28,7 +28,7 @@ pub async fn execute_rate_user(
         .as_json()
         .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, rate_message, true, true).await?;
+    send_order_id_cmd(client, my_key, mostro_key, rate_message, true, false).await?;
 
     std::process::exit(0);
 }

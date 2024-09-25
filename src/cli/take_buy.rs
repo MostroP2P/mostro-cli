@@ -26,7 +26,7 @@ pub async fn execute_take_buy(
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, take_buy_message, true, true).await?;
+    send_order_id_cmd(client, my_key, mostro_key, take_buy_message, true, false).await?;
 
     Ok(())
 }

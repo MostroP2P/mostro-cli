@@ -50,6 +50,6 @@ pub async fn execute_take_sell(
         .as_json()
         .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, take_sell_message, true, true).await?;
+    send_order_id_cmd(client, my_key, mostro_key, take_sell_message, true, false).await?;
     Ok(())
 }

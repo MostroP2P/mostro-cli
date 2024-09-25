@@ -34,7 +34,7 @@ pub async fn execute_add_invoice(
         .as_json()
         .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, add_invoice_message, true, true).await?;
+    send_order_id_cmd(client, my_key, mostro_key, add_invoice_message, true, false).await?;
 
     Ok(())
 }
