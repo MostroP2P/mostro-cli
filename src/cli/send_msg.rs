@@ -43,7 +43,7 @@ pub async fn execute_send_msg(
     }
 
     // Create message
-    let message = Message::new_order(order_id, requested_action, content)
+    let message = Message::new_order(None, order_id, requested_action, content)
         .as_json()
         .unwrap();
     info!("Sending message: {:#?}", message);

@@ -19,6 +19,7 @@ pub async fn execute_take_buy(
     );
     // Create takebuy message
     let take_buy_message = Message::new_order(
+        None,
         Some(*order_id),
         Action::TakeBuy,
         amount.map(|amt: u32| Content::Amount(amt as i64)),

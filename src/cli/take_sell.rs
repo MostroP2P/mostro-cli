@@ -46,7 +46,7 @@ pub async fn execute_take_sell(
         };
     }
     // Create takesell message
-    let take_sell_message = Message::new_order(Some(*order_id), Action::TakeSell, content)
+    let take_sell_message = Message::new_order(None, Some(*order_id), Action::TakeSell, content)
         .as_json()
         .unwrap();
 

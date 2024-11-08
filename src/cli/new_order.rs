@@ -109,7 +109,7 @@ pub async fn execute_new_order(
         }
     };
     // Create fiat sent message
-    let message = Message::new_order(None, Action::NewOrder, Some(order_content))
+    let message = Message::new_order(None, None, Action::NewOrder, Some(order_content))
         .as_json()
         .unwrap();
 

@@ -24,9 +24,14 @@ pub async fn execute_rate_user(
     }
 
     // Create rating message of counterpart
-    let rate_message = Message::new_order(Some(*order_id), Action::RateUser, Some(rating_content))
-        .as_json()
-        .unwrap();
+    let rate_message = Message::new_order(
+        None,
+        Some(*order_id),
+        Action::RateUser,
+        Some(rating_content),
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, rate_message, true, false).await?;
 

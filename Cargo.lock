@@ -187,24 +187,6 @@ dependencies = [
 
 [[package]]
 name = "async-wsocket"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3445f8f330db8e5f3be7912f170f32e43fec90d995c71ced1ec3b8394b4a873c"
-dependencies = [
- "async-utility",
- "futures-util",
- "thiserror",
- "tokio",
- "tokio-rustls 0.26.0",
- "tokio-socks",
- "tokio-tungstenite",
- "url",
- "wasm-ws",
- "webpki-roots 0.26.5",
-]
-
-[[package]]
-name = "async-wsocket"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1eee6fcc818b89848df37050215603de0e2e072734e4730c03060feb2d0abebb"
@@ -217,21 +199,30 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.0",
  "tokio-socks",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.23.1",
  "url",
  "wasm-bindgen",
  "web-sys",
 ]
 
 [[package]]
-name = "async_io_stream"
-version = "0.3.3"
+name = "async-wsocket"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6d7b9decdf35d8908a7e3ef02f64c5e9b1695e230154c0e8de3969142d9b94c"
+checksum = "a107e3bdbe61e8e1e1341c57241b4b2d50501127b44bd2eff13b4635ab42d35a"
 dependencies = [
+ "async-utility",
  "futures",
- "pharos",
- "rustc_version",
+ "futures-util",
+ "js-sys",
+ "thiserror",
+ "tokio",
+ "tokio-rustls 0.26.0",
+ "tokio-socks",
+ "tokio-tungstenite 0.24.0",
+ "url",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -1404,6 +1395,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnurl-pay"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "536e7c782167a2d48346ca0b2677fad19eaef20f19a4ab868e4d5b96ca879def"
+dependencies = [
+ "bech32 0.11.0",
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lnurl-rs"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1514,13 +1517,13 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.6.7"
+version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aeb872aba1146e74329e70a689f78a5b4722368d5e400c429cc4b380222eca96"
+checksum = "3416a4220576cecb437ff5f22df995d296e022ab85ed541c385ba7bfc97d14bc"
 dependencies = [
  "anyhow",
  "chrono",
- "nostr-sdk 0.32.0",
+ "nostr-sdk 0.36.0",
  "serde",
  "serde_json",
  "sqlx",
@@ -1553,6 +1556,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e664971378a3987224f7a0e10059782035e89899ae403718ee07de85bec42afe"
 
 [[package]]
+name = "negentropy"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43a88da9dd148bbcdce323dd6ac47d369b4769d4a3b78c6c52389b9269f77932"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1560,36 +1569,6 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
-]
-
-[[package]]
-name = "nostr"
-version = "0.32.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7948938314ee0392f378ab1a5d58b4707f2207550bc410b1629a80a4f28af7d"
-dependencies = [
- "aes",
- "base64 0.21.7",
- "bip39",
- "bitcoin 0.31.2",
- "cbc",
- "chacha20",
- "chacha20poly1305",
- "getrandom",
- "instant",
- "js-sys",
- "negentropy",
- "once_cell",
- "reqwest",
- "scrypt",
- "serde",
- "serde_json",
- "tracing",
- "unicode-normalization",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]
@@ -1608,7 +1587,7 @@ dependencies = [
  "getrandom",
  "instant",
  "js-sys",
- "negentropy",
+ "negentropy 0.3.1",
  "once_cell",
  "reqwest",
  "scrypt",
@@ -1623,17 +1602,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "nostr-database"
-version = "0.32.0"
+name = "nostr"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a88a72f92fbd5d2514db36e07a864646f1c1f44931c4a5ea195f6961029af4b3"
+checksum = "14ad56c1d9a59f4edc46b17bc64a217b38b99baefddc0080f85ad98a0855336d"
 dependencies = [
+ "aes",
  "async-trait",
- "lru",
- "nostr 0.32.1",
- "thiserror",
- "tokio",
- "tracing",
+ "base64 0.22.1",
+ "bech32 0.11.0",
+ "bip39",
+ "bitcoin 0.32.2",
+ "cbc",
+ "chacha20",
+ "chacha20poly1305",
+ "getrandom",
+ "instant",
+ "js-sys",
+ "negentropy 0.3.1",
+ "negentropy 0.4.3",
+ "once_cell",
+ "reqwest",
+ "scrypt",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -1651,16 +1648,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "nostr-relay-pool"
-version = "0.32.0"
+name = "nostr-database"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7b7bf72b02a24ccc7cf87033fa5ddfd57001c7d8c2e757321a7ca7a6df39876"
+checksum = "1859abebf78d7d9e945b20c8faaf710c9db905adeb148035b803ae45792dbebe"
 dependencies = [
- "async-utility",
- "async-wsocket 0.5.2",
- "atomic-destructor",
- "nostr 0.32.1",
- "nostr-database 0.32.0",
+ "async-trait",
+ "lru",
+ "nostr 0.36.0",
  "thiserror",
  "tokio",
  "tracing",
@@ -1684,22 +1679,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "nostr-sdk"
-version = "0.32.0"
+name = "nostr-relay-pool"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005915a59ee6401f23ba510c3a9ac4a07b457f80dfe1dc05cd2c8fdbde439246"
+checksum = "e39cfcb30cab86b30ca9acba89f5ccb25a4142a5dc5fcfbf3edf34b204ddd7c7"
 dependencies = [
  "async-utility",
+ "async-wsocket 0.10.0",
  "atomic-destructor",
- "lnurl-pay",
- "nostr 0.32.1",
- "nostr-database 0.32.0",
- "nostr-relay-pool 0.32.0",
- "nostr-signer 0.32.1",
- "nostr-zapper 0.32.0",
- "nwc 0.32.0",
+ "negentropy 0.3.1",
+ "negentropy 0.4.3",
+ "nostr 0.36.0",
+ "nostr-database 0.36.0",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
@@ -1711,11 +1705,11 @@ checksum = "ca0c0c5f8ddbdfc064ea71883191ec53de6ed52b5dca10ab07f0810b99e91acc"
 dependencies = [
  "async-utility",
  "atomic-destructor",
- "lnurl-pay",
+ "lnurl-pay 0.5.0",
  "nostr 0.34.1",
  "nostr-database 0.34.0",
  "nostr-relay-pool 0.34.1",
- "nostr-signer 0.34.0",
+ "nostr-signer",
  "nostr-zapper 0.34.0",
  "nwc 0.34.1",
  "thiserror",
@@ -1724,14 +1718,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "nostr-signer"
-version = "0.32.1"
+name = "nostr-sdk"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f99449c2077bef43c02c8f9a9386d01c87e7ad8ece70d7de87a2c59771b4c0fe"
+checksum = "e4739ed15ff81a0e474d79b38c3eb481ff5f968c1865f38ba46852daf6f6495e"
 dependencies = [
  "async-utility",
- "nostr 0.32.1",
- "nostr-relay-pool 0.32.0",
+ "atomic-destructor",
+ "lnurl-pay 0.6.0",
+ "nostr 0.36.0",
+ "nostr-database 0.36.0",
+ "nostr-relay-pool 0.36.0",
+ "nostr-zapper 0.36.0",
+ "nwc 0.36.0",
  "thiserror",
  "tokio",
  "tracing",
@@ -1753,17 +1752,6 @@ dependencies = [
 
 [[package]]
 name = "nostr-zapper"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "430c2527c0efd2e7f1a421b0c7df01a03b334a79c60c39cc7a1ca684f720f2bf"
-dependencies = [
- "async-trait",
- "nostr 0.32.1",
- "thiserror",
-]
-
-[[package]]
-name = "nostr-zapper"
 version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf3ba30e807145e9cb924faf8fb0719e460f613088e99c753b67c2a9929c5b7"
@@ -1774,26 +1762,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "nostr-zapper"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d9709ecf8050bbe4ecf0e5efda2f25b690bb1761fc504e05654621ba9e568a8"
+dependencies = [
+ "async-trait",
+ "nostr 0.36.0",
+ "thiserror",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "nwc"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6fb91e4be3f6b872fc23c7714bbb500a58a1d59f458eb6eb9dd249fbec42fc2"
-dependencies = [
- "async-utility",
- "nostr 0.32.1",
- "nostr-relay-pool 0.32.0",
- "nostr-zapper 0.32.0",
- "thiserror",
- "tracing",
 ]
 
 [[package]]
@@ -1811,6 +1796,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nwc"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b5f98bcaf232b3ec48e018792ca7bc2b90e7520d001a07b8218a9e76a03fda2"
+dependencies = [
+ "async-trait",
+ "async-utility",
+ "nostr 0.36.0",
+ "nostr-relay-pool 0.36.0",
+ "nostr-zapper 0.36.0",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "object"
 version = "0.36.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1821,9 +1821,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.19.0"
+version = "1.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
+checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
 
 [[package]]
 name = "opaque-debug"
@@ -1965,16 +1965,6 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
-
-[[package]]
-name = "pharos"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9567389417feee6ce15dd6527a8a1ecac205ef62c2932bcf3d9f6fc5b78b414"
-dependencies = [
- "futures",
- "rustc_version",
-]
 
 [[package]]
 name = "pin-project"
@@ -2279,15 +2269,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "583034fd73374156e66797ed8e5b0d5690409c9226b22d87cb7f19821c05d152"
 
 [[package]]
-name = "rustc_version"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
-dependencies = [
- "semver",
-]
-
-[[package]]
 name = "rustix"
 version = "0.38.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2525,18 +2506,6 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
-
-[[package]]
-name = "semver"
-version = "1.0.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
-
-[[package]]
-name = "send_wrapper"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
 
 [[package]]
 name = "serde"
@@ -3040,7 +3009,23 @@ dependencies = [
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.0",
- "tungstenite",
+ "tungstenite 0.23.0",
+ "webpki-roots 0.26.5",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edc5f74e248dc973e0dbb7b74c7e0d6fcc301c694ff50049504004ef4d0cdcd9"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls 0.23.13",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls 0.26.0",
+ "tungstenite 0.24.0",
  "webpki-roots 0.26.5",
 ]
 
@@ -3126,6 +3111,26 @@ name = "tungstenite"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e2e2ce1e47ed2994fd43b04c8f618008d4cabdd5ee34027cf14f9d918edd9c8"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand",
+ "rustls 0.23.13",
+ "rustls-pki-types",
+ "sha1",
+ "thiserror",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18e5b8366ee7a95b16d32197d0b2604b43a0be89dc5fac9f8e96ccafbaedda8a"
 dependencies = [
  "byteorder",
  "bytes",
@@ -3374,23 +3379,6 @@ name = "wasm-bindgen-shared"
 version = "0.2.93"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c62a0a307cb4a311d3a07867860911ca130c3494e8c2719593806c08bc5d0484"
-
-[[package]]
-name = "wasm-ws"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "688c5806d1b06b4f3d90d015e23364dc5d3af412ee64abba6dde8fdc01637e33"
-dependencies = [
- "async_io_stream",
- "futures",
- "js-sys",
- "pharos",
- "send_wrapper",
- "thiserror",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
 
 [[package]]
 name = "web-sys"

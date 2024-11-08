@@ -12,7 +12,7 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
         let v = t.get(1).unwrap().as_str();
         match t.first().unwrap().as_str() {
             "d" => {
-                let id = t.get(1).unwrap().as_str().parse::<Uuid>();
+                let id = v.parse::<Uuid>();
                 let id = match id {
                     core::result::Result::Ok(id) => Some(id),
                     Err(_) => None,
