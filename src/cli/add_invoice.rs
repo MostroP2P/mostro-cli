@@ -30,9 +30,10 @@ pub async fn execute_add_invoice(
         }
     }
     // Create AddInvoice message
-    let add_invoice_message = Message::new_order(Some(*order_id), Action::AddInvoice, content)
-        .as_json()
-        .unwrap();
+    let add_invoice_message =
+        Message::new_order(None, Some(*order_id), Action::AddInvoice, content)
+            .as_json()
+            .unwrap();
 
     send_order_id_cmd(client, my_key, mostro_key, add_invoice_message, true, false).await?;
 

@@ -18,7 +18,7 @@ pub async fn execute_take_dispute(
     );
     // Create takebuy message
     let take_dispute_message =
-        Message::new_dispute(Some(*dispute_id), Action::AdminTakeDispute, None)
+        Message::new_dispute(None, Some(*dispute_id), Action::AdminTakeDispute, None)
             .as_json()
             .unwrap();
 
