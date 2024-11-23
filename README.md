@@ -81,3 +81,22 @@ $ mostro-cli cancel -o eb5740f6-e584-46c5-953a-29bc3eb818f0
 # Create a new sell range order with Proof or work difficulty of 10
 $ mostro-cli neworder -p 10 -k sell -c ars -f 1000-10000 -m "face to face"
 ```
+
+## Progress Overview
+- [x] Displays order list
+- [x] Take orders (Buy & Sell)
+- [x] Posts Orders (Buy & Sell)
+- [x] Sell flow
+- [x] Buy flow
+- [x] Maker cancel pending order
+- [x] Cooperative cancellation
+- [x] Buyer: add new invoice if payment fails
+- [x] Rate users
+- [x] Dispute flow (users)
+- [x] Dispute management (for admins)
+- [x] Create buy orders with LN address
+- [x] Direct message with peers (use nip-17)
+- [x] Conversation key management
+- [x] Add a new dispute's solver (for admins)
+- [ ] Identity management (Nip-06 support)
+- [ ] List own orders
