@@ -11,7 +11,6 @@ pub mod take_buy;
 pub mod take_dispute;
 pub mod take_sell;
 
-use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::get_dm::execute_get_dm;
 use crate::cli::list_disputes::execute_list_disputes;
@@ -23,7 +22,9 @@ use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_sell::execute_take_sell;
+use crate::db::connect;
 use crate::util;
+use crate::{cli::add_invoice::execute_add_invoice, db::User};
 
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
@@ -294,6 +295,13 @@ pub async fn run() -> Result<()> {
     if cli.pow.is_some() {
         set_var("POW", cli.pow.unwrap());
     }
+
+    let mcli_path = util::get_mcli_path();
+    let pool = connect().await?;
+    // let user = User::get(pool).await.unwrap();
+    // println!("User: {:#?}", user);
+    // let mcli_path = PathBuf::from(mcli_path);
+    // println!("mcli path: {:?}", mcli_path);
 
     // Mostro pubkey
     let mostro_key = PublicKey::from_str(&pubkey)?;

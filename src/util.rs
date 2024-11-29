@@ -12,11 +12,21 @@ use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
+use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
 use std::time::Duration;
+use std::{
+    env,
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+};
 use tokio::time::timeout;
 use uuid::Uuid;
-use v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 
 pub fn get_keys() -> Result<Keys> {
     // nostr private key
@@ -495,5 +505,46 @@ pub fn uppercase_first(s: &str) -> String {
     match c.next() {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+pub fn get_mcli_path() -> String {
+    let home_dir = env::var("HOME").expect("Couldn't get HOME directory");
+    let mcli_path = format!("{}/.mcli", home_dir);
+    if !Path::new(&mcli_path).exists() {
+        fs::create_dir(&mcli_path).expect("Couldn't create mostro-cli directory in HOME");
+        println!("Directory {} created.", mcli_path);
+    }
+
+    mcli_path
+}
+
+#[cfg(windows)]
+fn has_trailing_slash(p: &Path) -> bool {
+    let last = p.as_os_str().encode_wide().last();
+    last == Some(b'\\' as u16) || last == Some(b'/' as u16)
+}
+#[cfg(unix)]
+fn has_trailing_slash(p: &Path) -> bool {
+    p.as_os_str().as_bytes().last() == Some(&b'/')
+}
+
+fn add_trailing_slash(p: &mut PathBuf) {
+    let fname = p.file_name();
+    let dirname = if let Some(fname) = fname {
+        let mut s = OsString::with_capacity(fname.len() + 1);
+        s.push(fname);
+        if cfg!(windows) {
+            s.push("\\");
+        } else {
+            s.push("/");
+        }
+        s
+    } else {
+        OsString::new()
+    };
+
+    if p.pop() {
+        p.push(dirname);
     }
 }
