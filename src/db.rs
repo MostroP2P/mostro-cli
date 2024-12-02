@@ -16,7 +16,8 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
     let pool: Pool<Sqlite>;
     if !Path::exists(Path::new(&mcli_db_path)) {
         if let Err(res) = File::create(&mcli_db_path) {
-            println!("Error in creating db file: {}", res)
+            println!("Error in creating db file: {}", res);
+            return Err(sqlx::Error::Io(res));
         }
         pool = SqlitePool::connect(&db_url).await?;
         println!("Creating database file with orders table...");
@@ -52,7 +53,13 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
         .execute(&pool)
         .await?;
 
-        let mnemonic = Mnemonic::generate(12).unwrap().to_string();
+        let mnemonic = match Mnemonic::generate(12) {
+            Ok(m) => m.to_string(),
+            Err(e) => {
+                println!("Error generating mnemonic: {}", e);
+                return Err(sqlx::Error::Decode(Box::new(e)));
+            }
+        };
         let user = User::new(mnemonic, &pool).await.unwrap();
         println!("User created with pubkey: {}", user.i0_pubkey);
     } else {
@@ -79,7 +86,7 @@ impl User {
         let mut user = User::default();
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
         let i0_keys =
-            Keys::from_mnemonic_advanced(&mnemonic, None, Some(account), Some(0), Some(0)).unwrap();
+            Keys::from_mnemonic_advanced(&mnemonic, None, Some(account), Some(0), Some(0))?;
         user.i0_pubkey = i0_keys.public_key().to_string();
         user.created_at = chrono::Utc::now().timestamp();
         user.mnemonic = mnemonic;
@@ -258,7 +265,7 @@ impl Order {
 
             println!("Order with id {} updated in the database.", id);
         } else {
-            println!("Order must have an ID to be updated.");
+            return Err("Order must have an ID to be updated.".into());
         }
 
         Ok(())

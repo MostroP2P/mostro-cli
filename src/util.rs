@@ -3,7 +3,7 @@ use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
-use base64::Engine;
+use base64::{display, Engine};
 use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
@@ -509,8 +509,8 @@ pub fn uppercase_first(s: &str) -> String {
 }
 
 pub fn get_mcli_path() -> String {
-    let home_dir = env::var("HOME").expect("Couldn't get HOME directory");
-    let mcli_path = format!("{}/.mcli", home_dir);
+    let home_dir = dirs::home_dir().expect("Couldn't get home directory");
+    let mcli_path = format!("{}/.mcli", home_dir.display());
     if !Path::new(&mcli_path).exists() {
         fs::create_dir(&mcli_path).expect("Couldn't create mostro-cli directory in HOME");
         println!("Directory {} created.", mcli_path);
@@ -519,14 +519,9 @@ pub fn get_mcli_path() -> String {
     mcli_path
 }
 
-#[cfg(windows)]
 fn has_trailing_slash(p: &Path) -> bool {
-    let last = p.as_os_str().encode_wide().last();
-    last == Some(b'\\' as u16) || last == Some(b'/' as u16)
-}
-#[cfg(unix)]
-fn has_trailing_slash(p: &Path) -> bool {
-    p.as_os_str().as_bytes().last() == Some(&b'/')
+    p.to_str()
+        .map_or(false, |s| s.ends_with(std::path::MAIN_SEPARATOR_STR))
 }
 
 fn add_trailing_slash(p: &mut PathBuf) {
@@ -534,11 +529,8 @@ fn add_trailing_slash(p: &mut PathBuf) {
     let dirname = if let Some(fname) = fname {
         let mut s = OsString::with_capacity(fname.len() + 1);
         s.push(fname);
-        if cfg!(windows) {
-            s.push("\\");
-        } else {
-            s.push("/");
-        }
+        s.push(std::path::MAIN_SEPARATOR_STR);
+
         s
     } else {
         OsString::new()
