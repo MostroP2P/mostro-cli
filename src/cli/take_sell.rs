@@ -1,11 +1,7 @@
 use anyhow::Result;
-use bitcoin::hashes::sha256::Hash as Sha256Hash;
-use bitcoin::secp256k1::Message as BitcoinMessage;
-use hashes::Hash;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::*;
-use serde_json::{json, Value};
 use std::str::FromStr;
 use uuid::Uuid;
 

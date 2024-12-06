@@ -45,8 +45,10 @@ pub async fn send_dm(
             .tag(Tag::public_key(*receiver_pubkey))
             .sign_with_keys(trade_keys)?
     } else {
+        let identity_keys = identity_keys
+            .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
         gift_wrap(
-            identity_keys.unwrap(),
+            identity_keys,
             trade_keys,
             *receiver_pubkey,
             content,
