@@ -1,16 +1,12 @@
 use anyhow::Result;
-use bitcoin::hashes::sha256::Hash as Sha256Hash;
-use bitcoin::secp256k1::Message as BitcoinMessage;
-use hashes::Hash;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::*;
-use serde_json::{json, Value};
 use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::lightning::is_valid_invoice;
-use crate::util::send_order_id_cmd;
+use crate::util::{send_order_id_cmd, sign_content};
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_take_sell(
@@ -52,14 +48,8 @@ pub async fn execute_take_sell(
             _ => None,
         };
     }
-    // content should be sha256 hashed
-    let json: Value = json!(content.clone().unwrap());
-    let content_str: String = json.to_string();
-    let hash: Sha256Hash = Sha256Hash::hash(content_str.as_bytes());
-    let hash = hash.to_byte_array();
-    let message: BitcoinMessage = BitcoinMessage::from_digest(hash);
     // content should be signed with the trade keys
-    let sig = identity_keys.sign_schnorr(&message);
+    let sig = sign_content(content.clone().unwrap(), trade_keys)?;
     // Create takesell message
     let take_sell_message = Message::new_order(
         None,
@@ -74,7 +64,7 @@ pub async fn execute_take_sell(
 
     send_order_id_cmd(
         client,
-        identity_keys,
+        Some(identity_keys),
         trade_keys,
         mostro_key,
         take_sell_message,

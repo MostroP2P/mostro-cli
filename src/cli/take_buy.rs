@@ -35,7 +35,7 @@ pub async fn execute_take_buy(
 
     send_order_id_cmd(
         client,
-        identity_keys,
+        Some(identity_keys),
         trade_keys,
         mostro_key,
         take_buy_message,
