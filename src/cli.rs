@@ -297,8 +297,12 @@ pub async fn run() -> Result<()> {
     }
 
     let pool = connect().await?;
-    let identity_keys = User::get_identity_keys(&pool).await.unwrap();
-    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool).await.unwrap();
+    let identity_keys = User::get_identity_keys(&pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
+    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
     // Mostro pubkey
     let mostro_key = PublicKey::from_str(&pubkey)?;
@@ -368,6 +372,7 @@ pub async fn run() -> Result<()> {
                 execute_send_msg(
                     cmd.clone(),
                     Some(*order_id),
+                    Some(&identity_keys),
                     &trade_keys,
                     mostro_key,
                     &client,
@@ -379,6 +384,7 @@ pub async fn run() -> Result<()> {
                 execute_send_msg(
                     cmd.clone(),
                     None,
+                    Some(&identity_keys),
                     &trade_keys,
                     mostro_key,
                     &client,

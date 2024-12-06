@@ -38,7 +38,7 @@ pub async fn execute_rate_user(
 
     send_order_id_cmd(
         client,
-        identity_keys,
+        Some(identity_keys),
         trade_keys,
         mostro_key,
         rate_message,

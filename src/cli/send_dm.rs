@@ -10,7 +10,7 @@ pub async fn execute_send_dm(
 ) -> Result<()> {
     send_order_id_cmd(
         client,
-        trade_keys,
+        None,
         trade_keys,
         receiver,
         message.to_string(),

@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 pub async fn send_dm(
     client: &Client,
-    identity_keys: &Keys,
+    identity_keys: Option<&Keys>,
     trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     content: String,
@@ -46,7 +46,7 @@ pub async fn send_dm(
             .sign_with_keys(trade_keys)?
     } else {
         gift_wrap(
-            identity_keys,
+            identity_keys.unwrap(),
             trade_keys,
             *receiver_pubkey,
             content,
@@ -80,14 +80,13 @@ pub async fn connect_nostr() -> Result<Client> {
 
 pub async fn send_order_id_cmd(
     client: &Client,
-    identity_keys: &Keys,
+    identity_keys: Option<&Keys>,
     trade_keys: &Keys,
     receiver_pubkey: PublicKey,
     message: String,
     wait_for_dm_ans: bool,
     to_user: bool,
 ) -> Result<()> {
-    println!("to_user: {to_user}");
     // Send dm to receiver pubkey
     send_dm(
         client,

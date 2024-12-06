@@ -45,7 +45,7 @@ pub async fn execute_add_invoice(
 
     send_order_id_cmd(
         client,
-        identity_keys,
+        Some(identity_keys),
         trade_keys,
         mostro_key,
         add_invoice_message,

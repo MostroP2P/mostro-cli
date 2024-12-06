@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub async fn execute_send_msg(
     command: Commands,
     order_id: Option<Uuid>,
+    identity_keys: Option<&Keys>,
     trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
@@ -48,7 +49,13 @@ pub async fn execute_send_msg(
         .unwrap();
     info!("Sending message: {:#?}", message);
     send_order_id_cmd(
-        client, trade_keys, trade_keys, mostro_key, message, false, false,
+        client,
+        identity_keys,
+        trade_keys,
+        mostro_key,
+        message,
+        false,
+        false,
     )
     .await?;
 
