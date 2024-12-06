@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub async fn execute_send_msg(
     command: Commands,
     order_id: Option<Uuid>,
-    my_key: &Keys,
+    trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
     text: Option<&str>,
@@ -43,11 +43,14 @@ pub async fn execute_send_msg(
     }
 
     // Create message
-    let message = Message::new_order(None, order_id, requested_action, content)
+    let message = Message::new_order(order_id, None, None, requested_action, content, None)
         .as_json()
         .unwrap();
     info!("Sending message: {:#?}", message);
-    send_order_id_cmd(client, my_key, mostro_key, message, false, false).await?;
+    send_order_id_cmd(
+        client, trade_keys, trade_keys, mostro_key, message, false, false,
+    )
+    .await?;
 
     Ok(())
 }

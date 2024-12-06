@@ -11,7 +11,6 @@ use std::path::Path;
 pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
     let mcli_dir = get_mcli_path();
     let mcli_db_path = format!("{}/mcli.db", mcli_dir);
-    println!("mcli_db_path: {}", mcli_db_path);
     let db_url = format!("sqlite://{}", mcli_db_path);
     let pool: Pool<Sqlite>;
     if !Path::exists(Path::new(&mcli_db_path)) {
@@ -142,12 +141,47 @@ impl User {
             r#"
             SELECT i0_pubkey, mnemonic, last_trade_index, created_at
             FROM users
+            LIMIT 1
             "#,
         )
         .fetch_one(&pool)
         .await?;
 
         Ok(user)
+    }
+
+    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<u32, Box<dyn std::error::Error>> {
+        let user = User::get(pool).await?;
+        match user.last_trade_index {
+            Some(index) => Ok((index + 1) as u32),
+            None => Ok(1),
+        }
+    }
+
+    pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys, Box<dyn std::error::Error>> {
+        let user = User::get(pool.clone()).await?;
+        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
+        let keys =
+            Keys::from_mnemonic_advanced(&user.mnemonic, None, Some(account), Some(0), Some(0))?;
+
+        Ok(keys)
+    }
+
+    pub async fn get_next_trade_keys(
+        pool: &SqlitePool,
+    ) -> Result<(Keys, u32), Box<dyn std::error::Error>> {
+        let trade_index = User::get_next_trade_index(pool.clone()).await?;
+        let user = User::get(pool.clone()).await?;
+        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
+        let keys = Keys::from_mnemonic_advanced(
+            &user.mnemonic,
+            None,
+            Some(account),
+            Some(0),
+            Some(trade_index),
+        )?;
+
+        Ok((keys, trade_index))
     }
 }
 

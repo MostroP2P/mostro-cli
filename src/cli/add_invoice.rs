@@ -1,5 +1,5 @@
 use crate::lightning::is_valid_invoice;
-use crate::util::send_order_id_cmd;
+use crate::util::{send_order_id_cmd, sign_content};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
@@ -10,7 +10,8 @@ use uuid::Uuid;
 pub async fn execute_add_invoice(
     order_id: &Uuid,
     invoice: &str,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -29,13 +30,29 @@ pub async fn execute_add_invoice(
             Err(e) => println!("{}", e),
         }
     }
+    let sig = sign_content(content.clone().unwrap(), trade_keys)?;
     // Create AddInvoice message
-    let add_invoice_message =
-        Message::new_order(None, Some(*order_id), Action::AddInvoice, content)
-            .as_json()
-            .unwrap();
+    let add_invoice_message = Message::new_order(
+        Some(*order_id),
+        None,
+        None,
+        Action::AddInvoice,
+        content,
+        Some(sig),
+    )
+    .as_json()
+    .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, add_invoice_message, true, false).await?;
+    send_order_id_cmd(
+        client,
+        identity_keys,
+        trade_keys,
+        mostro_key,
+        add_invoice_message,
+        true,
+        false,
+    )
+    .await?;
 
     Ok(())
 }

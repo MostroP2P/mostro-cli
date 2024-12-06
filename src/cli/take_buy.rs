@@ -3,12 +3,14 @@ use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::send_order_id_cmd;
+use crate::util::{send_order_id_cmd, sign_content};
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
     amount: Option<u32>,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
+    trade_index: u32,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -17,17 +19,30 @@ pub async fn execute_take_buy(
         order_id,
         mostro_key.clone()
     );
+    let content = amount.map(|amt: u32| Content::Amount(amt as i64));
+    let sig = sign_content(content.clone().unwrap(), trade_keys)?;
     // Create takebuy message
     let take_buy_message = Message::new_order(
-        None,
         Some(*order_id),
+        None,
+        Some(trade_index),
         Action::TakeBuy,
-        amount.map(|amt: u32| Content::Amount(amt as i64)),
+        content,
+        Some(sig),
     )
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, take_buy_message, true, false).await?;
+    send_order_id_cmd(
+        client,
+        identity_keys,
+        trade_keys,
+        mostro_key,
+        take_buy_message,
+        true,
+        false,
+    )
+    .await?;
 
     Ok(())
 }

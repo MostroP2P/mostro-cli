@@ -1,7 +1,11 @@
 use anyhow::Result;
+use bitcoin::hashes::sha256::Hash as Sha256Hash;
+use bitcoin::secp256k1::Message as BitcoinMessage;
+use hashes::Hash;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Content, Message};
 use nostr_sdk::prelude::*;
+use serde_json::{json, Value};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -12,7 +16,9 @@ pub async fn execute_take_sell(
     order_id: &Uuid,
     invoice: &Option<String>,
     amount: Option<u32>,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
+    trade_index: u32,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -45,11 +51,35 @@ pub async fn execute_take_sell(
             _ => None,
         };
     }
+    // content should be sha256 hashed
+    let json: Value = json!(content.clone().unwrap());
+    let content_str: String = json.to_string();
+    let hash: Sha256Hash = Sha256Hash::hash(content_str.as_bytes());
+    let hash = hash.to_byte_array();
+    let message: BitcoinMessage = BitcoinMessage::from_digest(hash);
+    // content should be signed with the trade keys
+    let sig = identity_keys.sign_schnorr(&message);
     // Create takesell message
-    let take_sell_message = Message::new_order(None, Some(*order_id), Action::TakeSell, content)
-        .as_json()
-        .unwrap();
+    let take_sell_message = Message::new_order(
+        None,
+        None,
+        Some(trade_index),
+        Action::TakeSell,
+        content,
+        Some(sig),
+    )
+    .as_json()
+    .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, take_sell_message, true, false).await?;
+    send_order_id_cmd(
+        client,
+        identity_keys,
+        trade_keys,
+        mostro_key,
+        take_sell_message,
+        true,
+        false,
+    )
+    .await?;
     Ok(())
 }

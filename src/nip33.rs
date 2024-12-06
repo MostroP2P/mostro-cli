@@ -5,10 +5,10 @@ use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
 
-pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
+pub fn order_from_tags(tags: Tags) -> Result<SmallOrder> {
     let mut order = SmallOrder::default();
     for tag in tags {
-        let t = tag.as_vec();
+        let t = tag.to_vec();
         let v = t.get(1).unwrap().as_str();
         match t.first().unwrap().as_str() {
             "d" => {
@@ -57,10 +57,10 @@ pub fn order_from_tags(tags: Vec<Tag>) -> Result<SmallOrder> {
     Ok(order)
 }
 
-pub fn dispute_from_tags(tags: Vec<Tag>) -> Result<Dispute> {
+pub fn dispute_from_tags(tags: Tags) -> Result<Dispute> {
     let mut dispute = Dispute::default();
     for tag in tags {
-        let t = tag.as_vec();
+        let t = tag.to_vec();
         let v = t.get(1).unwrap().as_str();
         match t.first().unwrap().as_str() {
             "d" => {
