@@ -9,7 +9,7 @@ use std::process;
 use std::str::FromStr;
 
 use crate::pretty_table::print_order_preview;
-use crate::util::{send_order_id_cmd, uppercase_first};
+use crate::util::{send_order_id_cmd, sign_content, uppercase_first};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -22,7 +22,9 @@ pub async fn execute_new_order(
     payment_method: &String,
     premium: &i64,
     invoice: &Option<String>,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
+    trade_index: u32,
     mostro_key: PublicKey,
     client: &Client,
     expiration_days: &i64,
@@ -108,11 +110,28 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     };
+    let sig = sign_content(order_content.clone(), trade_keys)?;
     // Create fiat sent message
-    let message = Message::new_order(None, None, Action::NewOrder, Some(order_content))
-        .as_json()
-        .unwrap();
+    let message = Message::new_order(
+        None,
+        None,
+        Some(trade_index),
+        Action::NewOrder,
+        Some(order_content),
+        Some(sig),
+    )
+    .as_json()
+    .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, message, false, false).await?;
+    send_order_id_cmd(
+        client,
+        identity_keys,
+        trade_keys,
+        mostro_key,
+        message,
+        false,
+        false,
+    )
+    .await?;
     Ok(())
 }

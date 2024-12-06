@@ -2,9 +2,9 @@ use anyhow::Result;
 use nip44::v2::ConversationKey;
 use nostr_sdk::prelude::*;
 
-pub async fn execute_conversation_key(my_key: &Keys, receiver: PublicKey) -> Result<()> {
+pub async fn execute_conversation_key(trade_keys: &Keys, receiver: PublicKey) -> Result<()> {
     // Derive conversation key
-    let ck = ConversationKey::derive(my_key.secret_key()?, &receiver);
+    let ck = ConversationKey::derive(trade_keys.secret_key(), &receiver);
     let key = ck.as_bytes();
     let mut ck_hex = vec![];
     for i in key {

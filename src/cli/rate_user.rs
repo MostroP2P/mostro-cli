@@ -8,7 +8,8 @@ use crate::util::send_order_id_cmd;
 pub async fn execute_rate_user(
     order_id: &Uuid,
     rating: &u8,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -25,15 +26,26 @@ pub async fn execute_rate_user(
 
     // Create rating message of counterpart
     let rate_message = Message::new_order(
-        None,
         Some(*order_id),
+        None,
+        None,
         Action::RateUser,
         Some(rating_content),
+        None,
     )
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(client, my_key, mostro_key, rate_message, true, false).await?;
+    send_order_id_cmd(
+        client,
+        identity_keys,
+        trade_keys,
+        mostro_key,
+        rate_message,
+        true,
+        false,
+    )
+    .await?;
 
     std::process::exit(0);
 }

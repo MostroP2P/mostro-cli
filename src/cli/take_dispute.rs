@@ -7,7 +7,8 @@ use crate::util::send_order_id_cmd;
 
 pub async fn execute_take_dispute(
     dispute_id: &Uuid,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -17,14 +18,21 @@ pub async fn execute_take_dispute(
         mostro_key.clone()
     );
     // Create takebuy message
-    let take_dispute_message =
-        Message::new_dispute(None, Some(*dispute_id), Action::AdminTakeDispute, None)
-            .as_json()
-            .unwrap();
+    let take_dispute_message = Message::new_dispute(
+        Some(*dispute_id),
+        None,
+        None,
+        Action::AdminTakeDispute,
+        None,
+        None,
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(
         client,
-        my_key,
+        identity_keys,
+        trade_keys,
         mostro_key,
         take_dispute_message,
         true,

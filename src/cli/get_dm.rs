@@ -6,11 +6,11 @@ use crate::util::get_direct_messages;
 
 pub async fn execute_get_dm(
     since: &i64,
-    my_key: &Keys,
+    trade_keys: &Keys,
     client: &Client,
     from_user: bool,
 ) -> Result<()> {
-    let dm = get_direct_messages(client, my_key, *since, from_user).await;
+    let dm = get_direct_messages(client, trade_keys, *since, from_user).await;
     if dm.is_empty() {
         println!();
         println!("No new messages");
@@ -27,13 +27,13 @@ pub async fn execute_get_dm(
                         );
                     }
                     if let Some(Content::PaymentRequest(_, inv, _)) =
-                        &m.get_inner_message_kind().content
+                        &m.get_inner_message_kind().content.0
                     {
                         println!();
                         println!("Pay this invoice to continue --> {}", inv);
                         println!();
                     } else if let Some(Content::TextMessage(text)) =
-                        &m.get_inner_message_kind().content
+                        &m.get_inner_message_kind().content.0
                     {
                         println!();
                         println!("{text}");

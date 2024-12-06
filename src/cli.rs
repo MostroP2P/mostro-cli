@@ -23,6 +23,7 @@ use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_sell::execute_take_sell;
+use crate::db::{connect, User};
 use crate::util;
 
 use anyhow::{Error, Result};
@@ -295,10 +296,12 @@ pub async fn run() -> Result<()> {
         set_var("POW", cli.pow.unwrap());
     }
 
+    let pool = connect().await?;
+    let identity_keys = User::get_identity_keys(&pool).await.unwrap();
+    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool).await.unwrap();
+
     // Mostro pubkey
     let mostro_key = PublicKey::from_str(&pubkey)?;
-    // My key
-    let my_key = util::get_keys()?;
 
     // Call function to connect to relays
     let client = util::connect_nostr().await?;
@@ -306,7 +309,7 @@ pub async fn run() -> Result<()> {
     if let Some(cmd) = cli.command {
         match &cmd {
             Commands::ConversationKey { pubkey } => {
-                execute_conversation_key(&my_key, PublicKey::from_str(pubkey)?).await?
+                execute_conversation_key(&trade_keys, PublicKey::from_str(pubkey)?).await?
             }
             Commands::ListOrders {
                 status,
@@ -318,16 +321,43 @@ pub async fn run() -> Result<()> {
                 invoice,
                 amount,
             } => {
-                execute_take_sell(order_id, invoice, *amount, &my_key, mostro_key, &client).await?
+                execute_take_sell(
+                    order_id,
+                    invoice,
+                    *amount,
+                    &identity_keys,
+                    &trade_keys,
+                    trade_index,
+                    mostro_key,
+                    &client,
+                )
+                .await?
             }
             Commands::TakeBuy { order_id, amount } => {
-                execute_take_buy(order_id, *amount, &my_key, mostro_key, &client).await?
+                execute_take_buy(
+                    order_id,
+                    *amount,
+                    &identity_keys,
+                    &trade_keys,
+                    trade_index,
+                    mostro_key,
+                    &client,
+                )
+                .await?
             }
             Commands::AddInvoice { order_id, invoice } => {
-                execute_add_invoice(order_id, invoice, &my_key, mostro_key, &client).await?
+                execute_add_invoice(
+                    order_id,
+                    invoice,
+                    &identity_keys,
+                    &trade_keys,
+                    mostro_key,
+                    &client,
+                )
+                .await?
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, &my_key, &client, *from_user).await?
+                execute_get_dm(since, &trade_keys, &client, *from_user).await?
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
@@ -338,7 +368,7 @@ pub async fn run() -> Result<()> {
                 execute_send_msg(
                     cmd.clone(),
                     Some(*order_id),
-                    &my_key,
+                    &trade_keys,
                     mostro_key,
                     &client,
                     None,
@@ -349,7 +379,7 @@ pub async fn run() -> Result<()> {
                 execute_send_msg(
                     cmd.clone(),
                     None,
-                    &my_key,
+                    &trade_keys,
                     mostro_key,
                     &client,
                     Some(npubkey),
@@ -374,7 +404,9 @@ pub async fn run() -> Result<()> {
                     payment_method,
                     premium,
                     invoice,
-                    &my_key,
+                    &identity_keys,
+                    &trade_keys,
+                    trade_index,
                     mostro_key,
                     &client,
                     expiration_days,
@@ -382,15 +414,24 @@ pub async fn run() -> Result<()> {
                 .await?
             }
             Commands::Rate { order_id, rating } => {
-                execute_rate_user(order_id, rating, &my_key, mostro_key, &client).await?;
+                execute_rate_user(
+                    order_id,
+                    rating,
+                    &identity_keys,
+                    &trade_keys,
+                    mostro_key,
+                    &client,
+                )
+                .await?;
             }
             Commands::AdmTakeDispute { dispute_id } => {
-                execute_take_dispute(dispute_id, &my_key, mostro_key, &client).await?
+                execute_take_dispute(dispute_id, &identity_keys, &trade_keys, mostro_key, &client)
+                    .await?
             }
             Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
             Commands::SendDm { pubkey, message } => {
                 let pubkey = PublicKey::from_str(pubkey)?;
-                execute_send_dm(&my_key, pubkey, &client, message).await?
+                execute_send_dm(&trade_keys, pubkey, &client, message).await?
             }
         };
     }

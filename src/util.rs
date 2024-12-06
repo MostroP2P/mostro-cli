@@ -4,6 +4,9 @@ use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
+use bitcoin::hashes::sha256::Hash as Sha256Hash;
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::Message as BitcoinMessage;
 use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
@@ -12,23 +15,18 @@ use mostro_core::message::{Content, Message};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
+use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
+use serde_json::{json, Value};
 use std::time::Duration;
+use std::{fs, path::Path};
 use tokio::time::timeout;
 use uuid::Uuid;
-use v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
-
-pub fn get_keys() -> Result<Keys> {
-    // nostr private key
-    let nsec1privkey = var("NSEC_PRIVKEY").expect("$NSEC_PRIVKEY env var needs to be set");
-    let my_keys = Keys::parse(nsec1privkey)?;
-
-    Ok(my_keys)
-}
 
 pub async fn send_dm(
     client: &Client,
-    sender_keys: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     content: String,
     to_user: bool,
@@ -36,39 +34,40 @@ pub async fn send_dm(
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
     let event = if to_user {
         // Derive conversation key
-        let ck = ConversationKey::derive(sender_keys.secret_key()?, receiver_pubkey);
+        let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey);
         // Encrypt content
         let encrypted_content = encrypt_to_bytes(&ck, content)?;
         // Encode with base64
         let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
         // Compose builder
-        EventBuilder::new(
-            Kind::PrivateDirectMessage,
-            b64decoded_content,
-            [Tag::public_key(*receiver_pubkey)],
-        )
-        .to_pow_event(sender_keys, pow)?
+        EventBuilder::new(Kind::PrivateDirectMessage, b64decoded_content)
+            .pow(pow)
+            .tag(Tag::public_key(*receiver_pubkey))
+            .sign_with_keys(trade_keys)?
     } else {
-        gift_wrap(sender_keys, *receiver_pubkey, content, None, pow)?
+        gift_wrap(
+            identity_keys,
+            trade_keys,
+            *receiver_pubkey,
+            content,
+            None,
+            pow,
+        )?
     };
 
     info!("Sending event: {event:#?}");
-    println!("Sending event Id: {}", event.id());
-
-    let msg = ClientMessage::event(event);
-    client.send_msg(msg).await?;
+    client.send_event(event).await?;
 
     Ok(())
 }
 
 pub async fn connect_nostr() -> Result<Client> {
-    let my_keys = crate::util::get_keys()?;
+    let my_keys = Keys::generate();
 
     let relays = var("RELAYS").expect("RELAYS is not set");
     let relays = relays.split(',').collect::<Vec<&str>>();
     // Create new client
-    let opts = Options::new().wait_for_send(false);
-    let client = Client::with_opts(&my_keys, opts);
+    let client = Client::new(my_keys);
     // Add relays
     for r in relays.into_iter() {
         client.add_relay(r).await?;
@@ -81,7 +80,8 @@ pub async fn connect_nostr() -> Result<Client> {
 
 pub async fn send_order_id_cmd(
     client: &Client,
-    my_key: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     receiver_pubkey: PublicKey,
     message: String,
     wait_for_dm_ans: bool,
@@ -89,19 +89,27 @@ pub async fn send_order_id_cmd(
 ) -> Result<()> {
     println!("to_user: {to_user}");
     // Send dm to receiver pubkey
-    send_dm(client, my_key, &receiver_pubkey, message, to_user).await?;
+    send_dm(
+        client,
+        identity_keys,
+        trade_keys,
+        &receiver_pubkey,
+        message,
+        to_user,
+    )
+    .await?;
 
     let mut notifications = client.notifications();
 
     while let Ok(notification) = notifications.recv().await {
         if wait_for_dm_ans {
-            let dm = get_direct_messages(client, my_key, 1, to_user).await;
+            let dm = get_direct_messages(client, trade_keys, 1, to_user).await;
 
             for el in dm.iter() {
                 match Message::from_json(&el.0) {
                     Ok(m) => {
                         if let Some(Content::PaymentRequest(ord, inv, _)) =
-                            &m.get_inner_message_kind().content
+                            &m.get_inner_message_kind().content.0
                         {
                             println!("NEW MESSAGE:");
                             println!(
@@ -141,7 +149,11 @@ pub async fn send_order_id_cmd(
     Ok(())
 }
 
-pub async fn requests_relay(client: Client, relay: (Url, Relay), filters: Filter) -> Vec<Event> {
+pub async fn requests_relay(
+    client: Client,
+    relay: (RelayUrl, Relay),
+    filters: Filter,
+) -> Vec<Event> {
     let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], client);
 
     // Buffer vector
@@ -207,7 +219,7 @@ pub async fn get_events_of_mostro(
     info!("Message sent : {:?}", msg);
 
     // Send msg to relay
-    relay.send_msg(msg.clone(), RelaySendOptions::new()).await?;
+    relay.send_msg(msg.clone())?;
 
     // Wait notification from relays
     let mut notifications = client.notifications();
@@ -234,9 +246,7 @@ pub async fn get_events_of_mostro(
     }
 
     // Unsubscribe
-    relay
-        .send_msg(ClientMessage::close(id), RelaySendOptions::new())
-        .await?;
+    relay.send_msg(ClientMessage::close(id))?;
 
     Ok(events)
 }
@@ -285,12 +295,12 @@ pub async fn get_direct_messages(
 
     for dms in mostro_req.iter() {
         for dm in dms {
-            if !id_list.contains(&dm.id()) {
-                id_list.push(dm.id());
+            if !id_list.contains(&dm.id) {
+                id_list.push(dm.id);
                 let created_at: Timestamp;
                 let content: String;
                 if from_user {
-                    let ck = ConversationKey::derive(my_key.secret_key().unwrap(), &dm.pubkey);
+                    let ck = ConversationKey::derive(my_key.secret_key(), &dm.pubkey);
                     let b64decoded_content =
                         match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
                             Ok(b64decoded_content) => b64decoded_content,
@@ -496,4 +506,27 @@ pub fn uppercase_first(s: &str) -> String {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
+}
+
+pub fn get_mcli_path() -> String {
+    let home_dir = dirs::home_dir().expect("Couldn't get home directory");
+    let mcli_path = format!("{}/.mcli", home_dir.display());
+    if !Path::new(&mcli_path).exists() {
+        fs::create_dir(&mcli_path).expect("Couldn't create mostro-cli directory in HOME");
+        println!("Directory {} created.", mcli_path);
+    }
+
+    mcli_path
+}
+
+pub fn sign_content(content: Content, keys: &Keys) -> Result<Signature> {
+    // content should be sha256 hashed
+    let json: Value = json!(content);
+    let content_str: String = json.to_string();
+    let hash: Sha256Hash = Sha256Hash::hash(content_str.as_bytes());
+    let hash = hash.to_byte_array();
+    let message: BitcoinMessage = BitcoinMessage::from_digest(hash);
+    let sig = keys.sign_schnorr(&message);
+
+    Ok(sig)
 }
