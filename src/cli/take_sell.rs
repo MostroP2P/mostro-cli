@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::lightning::is_valid_invoice;
 use crate::util::send_order_id_cmd;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_take_sell(
     order_id: &Uuid,
     invoice: &Option<String>,
