@@ -30,11 +30,10 @@ pub fn gift_wrap(
     // We sign the message
     let sig = message.get_inner_message_kind().sign(trade_keys);
     // We compose the content
-    let content = (payload, sig.to_string());
+    let content = (message, sig);
     let content = serde_json::to_string(&content).unwrap();
     // We create the rumor
     let rumor: UnsignedEvent = EventBuilder::text_note(content).build(trade_keys.public_key());
-    println!("rumor: {:#?}", rumor);
     // We seal the rumor
     let seal: Event = seal(identity_keys, &receiver, rumor)?;
 
