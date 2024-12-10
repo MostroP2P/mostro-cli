@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::message::{Action, Content, Message};
+use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
@@ -18,7 +18,7 @@ pub async fn execute_rate_user(
 
     // Check boundaries
     if let 1..=5 = *rating {
-        rating_content = Content::RatingUser(*rating);
+        rating_content = Payload::RatingUser(*rating);
     } else {
         println!("Rating must be in the range 1 - 5");
         std::process::exit(0);
@@ -31,7 +31,6 @@ pub async fn execute_rate_user(
         None,
         Action::RateUser,
         Some(rating_content),
-        None,
     )
     .as_json()
     .unwrap();

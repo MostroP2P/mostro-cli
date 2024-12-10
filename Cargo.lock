@@ -1214,7 +1214,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 0.26.5",
 ]
 
 [[package]]
@@ -1428,18 +1427,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
 
 [[package]]
-name = "lnurl-pay"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "536e7c782167a2d48346ca0b2677fad19eaef20f19a4ab868e4d5b96ca879def"
-dependencies = [
- "bech32 0.11.0",
- "reqwest",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "lnurl-rs"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1535,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "bip39",
@@ -1550,7 +1537,7 @@ dependencies = [
  "lnurl-rs",
  "log",
  "mostro-core",
- "nostr-sdk 0.37.0",
+ "nostr-sdk",
  "openssl",
  "pretty_env_logger",
  "reqwest",
@@ -1563,15 +1550,15 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.6.12"
+version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a7b93370ea527dbbb30fc754becccc21ce0ecd9a4332269d40f076f8de34946"
+checksum = "0c5609bc9985505f2190e8c6e657872f71a83942133aa75a067420d96cf86854"
 dependencies = [
  "anyhow",
  "bitcoin 0.32.5",
  "bitcoin_hashes 0.15.0",
  "chrono",
- "nostr-sdk 0.36.0",
+ "nostr-sdk",
  "serde",
  "serde_json",
  "uuid",
@@ -1619,38 +1606,6 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14ad56c1d9a59f4edc46b17bc64a217b38b99baefddc0080f85ad98a0855336d"
-dependencies = [
- "aes",
- "async-trait",
- "base64 0.22.1",
- "bech32 0.11.0",
- "bip39",
- "bitcoin 0.32.5",
- "cbc",
- "chacha20",
- "chacha20poly1305",
- "getrandom",
- "instant",
- "js-sys",
- "negentropy 0.3.1",
- "negentropy 0.4.3",
- "once_cell",
- "reqwest",
- "scrypt",
- "serde",
- "serde_json",
- "unicode-normalization",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "nostr"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8aad4b767bbed24ac5eb4465bfb83bc1210522eb99d67cf4e547ec2ec7e47786"
@@ -1677,48 +1632,15 @@ dependencies = [
 
 [[package]]
 name = "nostr-database"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1859abebf78d7d9e945b20c8faaf710c9db905adeb148035b803ae45792dbebe"
-dependencies = [
- "async-trait",
- "lru",
- "nostr 0.36.0",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nostr-database"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23696338d51e45cd44e061823847f4b0d1d362eca80d5033facf9c184149f72f"
 dependencies = [
  "async-trait",
  "lru",
- "nostr 0.37.0",
+ "nostr",
  "thiserror",
  "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nostr-relay-pool"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e39cfcb30cab86b30ca9acba89f5ccb25a4142a5dc5fcfbf3edf34b204ddd7c7"
-dependencies = [
- "async-utility",
- "async-wsocket",
- "atomic-destructor",
- "negentropy 0.3.1",
- "negentropy 0.4.3",
- "nostr 0.36.0",
- "nostr-database 0.36.0",
- "thiserror",
- "tokio",
- "tokio-stream",
  "tracing",
 ]
 
@@ -1733,30 +1655,11 @@ dependencies = [
  "atomic-destructor",
  "negentropy 0.3.1",
  "negentropy 0.4.3",
- "nostr 0.37.0",
- "nostr-database 0.37.0",
+ "nostr",
+ "nostr-database",
  "thiserror",
  "tokio",
  "tokio-stream",
- "tracing",
-]
-
-[[package]]
-name = "nostr-sdk"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4739ed15ff81a0e474d79b38c3eb481ff5f968c1865f38ba46852daf6f6495e"
-dependencies = [
- "async-utility",
- "atomic-destructor",
- "lnurl-pay",
- "nostr 0.36.0",
- "nostr-database 0.36.0",
- "nostr-relay-pool 0.36.0",
- "nostr-zapper",
- "nwc",
- "thiserror",
- "tokio",
  "tracing",
 ]
 
@@ -1768,23 +1671,12 @@ checksum = "491221fc89b1aa189a0de640127127d68b4e7c5c1d44371b04d9a6d10694b5af"
 dependencies = [
  "async-utility",
  "atomic-destructor",
- "nostr 0.37.0",
- "nostr-database 0.37.0",
- "nostr-relay-pool 0.37.0",
+ "nostr",
+ "nostr-database",
+ "nostr-relay-pool",
  "thiserror",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "nostr-zapper"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d9709ecf8050bbe4ecf0e5efda2f25b690bb1761fc504e05654621ba9e568a8"
-dependencies = [
- "async-trait",
- "nostr 0.36.0",
- "thiserror",
 ]
 
 [[package]]
@@ -1832,21 +1724,6 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
  "libm",
-]
-
-[[package]]
-name = "nwc"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b5f98bcaf232b3ec48e018792ca7bc2b90e7520d001a07b8218a9e76a03fda2"
-dependencies = [
- "async-trait",
- "async-utility",
- "nostr 0.36.0",
- "nostr-relay-pool 0.36.0",
- "nostr-zapper",
- "thiserror",
- "tracing",
 ]
 
 [[package]]
@@ -2100,54 +1977,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quinn"
-version = "0.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c7c5fdde3cdae7203427dc4f0a68fe0ed09833edc525a03456b153b79828684"
-dependencies = [
- "bytes",
- "pin-project-lite",
- "quinn-proto",
- "quinn-udp",
- "rustc-hash",
- "rustls 0.23.13",
- "socket2",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "quinn-proto"
-version = "0.11.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fadfaed2cd7f389d0161bb73eeb07b7b78f8691047a6f3e73caaeae55310a4a6"
-dependencies = [
- "bytes",
- "rand",
- "ring",
- "rustc-hash",
- "rustls 0.23.13",
- "slab",
- "thiserror",
- "tinyvec",
- "tracing",
-]
-
-[[package]]
-name = "quinn-udp"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fe68c2e9e1a1234e218683dbdf9f9dfcb094113c5ac2b938dfcb9bab4c4140b"
-dependencies = [
- "libc",
- "once_cell",
- "socket2",
- "tracing",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2262,10 +2091,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
- "quinn",
- "rustls 0.23.13",
  "rustls-pemfile",
- "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -2273,14 +2099,12 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
- "tokio-rustls",
  "tokio-socks",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots 0.26.5",
  "windows-registry",
 ]
 
@@ -2324,12 +2148,6 @@ name = "rustc-demangle"
 version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "719b953e2095829ee67db738b3bfa9fa368c94900df327b3f07fe6e794d2fe1f"
-
-[[package]]
-name = "rustc-hash"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "583034fd73374156e66797ed8e5b0d5690409c9226b22d87cb7f19821c05d152"
 
 [[package]]
 name = "rustix"

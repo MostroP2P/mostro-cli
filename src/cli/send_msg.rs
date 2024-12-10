@@ -3,7 +3,7 @@ use crate::util::send_order_id_cmd;
 
 use anyhow::Result;
 use log::info;
-use mostro_core::message::{Action, Content, Message};
+use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use std::process;
 use uuid::Uuid;
@@ -38,13 +38,13 @@ pub async fn execute_send_msg(
         order_id,
         mostro_key.clone()
     );
-    let mut content = None;
+    let mut payload = None;
     if let Some(t) = text {
-        content = Some(Content::TextMessage(t.to_string()));
+        payload = Some(Payload::TextMessage(t.to_string()));
     }
 
     // Create message
-    let message = Message::new_order(order_id, None, None, requested_action, content, None)
+    let message = Message::new_order(order_id, None, None, requested_action, payload)
         .as_json()
         .unwrap();
     info!("Sending message: {:#?}", message);

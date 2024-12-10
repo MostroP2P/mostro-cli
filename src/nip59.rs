@@ -1,4 +1,5 @@
 use base64::engine::{general_purpose, Engine};
+use mostro_core::message::Message;
 use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::event::builder::Error as BuilderError;
 use nostr_sdk::prelude::*;
@@ -10,7 +11,7 @@ use nostr_sdk::prelude::*;
 /// * `identity_keys` - Keys of the sender used to identify the sender by Mostrod
 /// * `trade_keys` - The keys of the sender used to trade
 /// * `receiver` - The public key of the receiver
-/// * `content` - The message
+/// * `payload` - The message
 /// * `expiration` - Time of the expiration of the event
 ///
 /// # Returns
@@ -20,11 +21,21 @@ pub fn gift_wrap(
     identity_keys: &Keys,
     trade_keys: &Keys,
     receiver: PublicKey,
-    content: String,
+    payload: String,
     expiration: Option<Timestamp>,
     pow: u8,
 ) -> Result<Event, BuilderError> {
+    // We convert back the string to a message
+    let message = Message::from_json(&payload).unwrap();
+    // We sign the message
+    let sig = message.get_inner_message_kind().sign(trade_keys);
+    // We compose the content
+    let content = (payload, sig.to_string());
+    let content = serde_json::to_string(&content).unwrap();
+    // We create the rumor
     let rumor: UnsignedEvent = EventBuilder::text_note(content).build(trade_keys.public_key());
+    println!("rumor: {:#?}", rumor);
+    // We seal the rumor
     let seal: Event = seal(identity_keys, &receiver, rumor)?;
 
     gift_wrap_from_seal(&receiver, &seal, expiration, pow)
@@ -39,7 +50,7 @@ pub fn seal(
 
     // Derive conversation key
     let ck = ConversationKey::derive(sender_private_key, receiver_pubkey);
-    // Encrypt content
+    // Encrypt payload
     let encrypted_content = encrypt_to_bytes(&ck, rumor.as_json())?;
     // Encode with base64
     let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
@@ -61,7 +72,7 @@ pub fn gift_wrap_from_seal(
     let ephemeral_keys: Keys = Keys::generate();
     // Derive conversation key
     let ck = ConversationKey::derive(ephemeral_keys.secret_key(), receiver);
-    // Encrypt content
+    // Encrypt payload
     let encrypted_content = encrypt_to_bytes(&ck, seal.as_json())?;
 
     let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));

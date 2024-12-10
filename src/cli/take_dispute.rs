@@ -24,7 +24,6 @@ pub async fn execute_take_dispute(
         None,
         Action::AdminTakeDispute,
         None,
-        None,
     )
     .as_json()
     .unwrap();
