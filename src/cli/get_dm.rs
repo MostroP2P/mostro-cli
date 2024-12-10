@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::message::{Content, Message};
+use mostro_core::message::{Message, Payload};
 use nostr_sdk::prelude::*;
 
 use crate::util::get_direct_messages;
@@ -26,14 +26,14 @@ pub async fn execute_get_dm(
                             el.1
                         );
                     }
-                    if let Some(Content::PaymentRequest(_, inv, _)) =
-                        &m.get_inner_message_kind().content.0
+                    if let Some(Payload::PaymentRequest(_, inv, _)) =
+                        &m.get_inner_message_kind().payload
                     {
                         println!();
                         println!("Pay this invoice to continue --> {}", inv);
                         println!();
-                    } else if let Some(Content::TextMessage(text)) =
-                        &m.get_inner_message_kind().content.0
+                    } else if let Some(Payload::TextMessage(text)) =
+                        &m.get_inner_message_kind().payload
                     {
                         println!();
                         println!("{text}");
@@ -41,7 +41,7 @@ pub async fn execute_get_dm(
                     } else {
                         println!();
                         println!("Action: {}", m.get_inner_message_kind().action);
-                        println!("Content: {:#?}", m.get_inner_message_kind().content);
+                        println!("Payload: {:#?}", m.get_inner_message_kind().payload);
                         println!();
                     }
                 }

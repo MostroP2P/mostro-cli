@@ -4,20 +4,16 @@ use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
-use bitcoin::hashes::sha256::Hash as Sha256Hash;
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::Message as BitcoinMessage;
 use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
 use mostro_core::dispute::Dispute;
-use mostro_core::message::{Content, Message};
+use mostro_core::message::{Message, Payload};
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
 use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
-use serde_json::{json, Value};
 use std::time::Duration;
 use std::{fs, path::Path};
 use tokio::time::timeout;
@@ -28,15 +24,15 @@ pub async fn send_dm(
     identity_keys: Option<&Keys>,
     trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
-    content: String,
+    payload: String,
     to_user: bool,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
     let event = if to_user {
         // Derive conversation key
         let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey);
-        // Encrypt content
-        let encrypted_content = encrypt_to_bytes(&ck, content)?;
+        // Encrypt payload
+        let encrypted_content = encrypt_to_bytes(&ck, payload)?;
         // Encode with base64
         let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
         // Compose builder
@@ -51,7 +47,7 @@ pub async fn send_dm(
             identity_keys,
             trade_keys,
             *receiver_pubkey,
-            content,
+            payload,
             None,
             pow,
         )?
@@ -109,8 +105,8 @@ pub async fn send_order_id_cmd(
             for el in dm.iter() {
                 match Message::from_json(&el.0) {
                     Ok(m) => {
-                        if let Some(Content::PaymentRequest(ord, inv, _)) =
-                            &m.get_inner_message_kind().content.0
+                        if let Some(Payload::PaymentRequest(ord, inv, _)) =
+                            &m.get_inner_message_kind().payload
                         {
                             println!("NEW MESSAGE:");
                             println!(
@@ -518,16 +514,4 @@ pub fn get_mcli_path() -> String {
     }
 
     mcli_path
-}
-
-pub fn sign_content(content: Content, keys: &Keys) -> Result<Signature> {
-    // content should be sha256 hashed
-    let json: Value = json!(content);
-    let content_str: String = json.to_string();
-    let hash: Sha256Hash = Sha256Hash::hash(content_str.as_bytes());
-    let hash = hash.to_byte_array();
-    let message: BitcoinMessage = BitcoinMessage::from_digest(hash);
-    let sig = keys.sign_schnorr(&message);
-
-    Ok(sig)
 }

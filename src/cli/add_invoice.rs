@@ -1,8 +1,8 @@
 use crate::lightning::is_valid_invoice;
-use crate::util::{send_order_id_cmd, sign_content};
+use crate::util::send_order_id_cmd;
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
-use mostro_core::message::{Action, Content, Message};
+use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -19,29 +19,22 @@ pub async fn execute_add_invoice(
         "Sending a lightning invoice {} to mostro pubId {}",
         order_id, mostro_key
     );
-    let mut content = None;
+    let mut payload = None;
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
     if ln_addr.is_ok() {
-        content = Some(Content::PaymentRequest(None, invoice.to_string(), None));
+        payload = Some(Payload::PaymentRequest(None, invoice.to_string(), None));
     } else {
         match is_valid_invoice(invoice) {
-            Ok(i) => content = Some(Content::PaymentRequest(None, i.to_string(), None)),
+            Ok(i) => payload = Some(Payload::PaymentRequest(None, i.to_string(), None)),
             Err(e) => println!("{}", e),
         }
     }
-    let sig = sign_content(content.clone().unwrap(), trade_keys)?;
     // Create AddInvoice message
-    let add_invoice_message = Message::new_order(
-        Some(*order_id),
-        None,
-        None,
-        Action::AddInvoice,
-        content,
-        Some(sig),
-    )
-    .as_json()
-    .unwrap();
+    let add_invoice_message =
+        Message::new_order(Some(*order_id), None, None, Action::AddInvoice, payload)
+            .as_json()
+            .unwrap();
 
     send_order_id_cmd(
         client,

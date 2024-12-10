@@ -1,9 +1,9 @@
 use anyhow::Result;
-use mostro_core::message::{Action, Content, Message};
+use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::{send_order_id_cmd, sign_content};
+use crate::util::send_order_id_cmd;
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
@@ -19,16 +19,14 @@ pub async fn execute_take_buy(
         order_id,
         mostro_key.clone()
     );
-    let content = amount.map(|amt: u32| Content::Amount(amt as i64));
-    let sig = sign_content(content.clone().unwrap(), trade_keys)?;
+    let payload = amount.map(|amt: u32| Payload::Amount(amt as i64));
     // Create takebuy message
     let take_buy_message = Message::new_order(
         Some(*order_id),
         None,
-        Some(trade_index),
+        Some(trade_index.into()),
         Action::TakeBuy,
-        content,
-        Some(sig),
+        payload,
     )
     .as_json()
     .unwrap();

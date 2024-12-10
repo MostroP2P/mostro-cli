@@ -42,7 +42,7 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
               seller_token INTEGER
           );
           CREATE TABLE IF NOT EXISTS users (
-              i0_pubkey TEXT PRIMARY KEY,
+              i0_pubkey char(64) PRIMARY KEY,
               mnemonic TEXT,
               last_trade_index INTEGER,
               created_at INTEGER

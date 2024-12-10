@@ -3,12 +3,12 @@ use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use mostro_core::dispute::Dispute;
-use mostro_core::message::Content;
+use mostro_core::message::Payload;
 use mostro_core::order::{Kind, SmallOrder};
 
-pub fn print_order_preview(ord: Content) -> Result<String, String> {
+pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let single_order = match ord {
-        Content::Order(o) => o,
+        Payload::Order(o) => o,
         _ => return Err("Error".to_string()),
     };
 

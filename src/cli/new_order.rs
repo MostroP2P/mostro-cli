@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::message::{Action, Content, Message};
+use mostro_core::message::{Action, Message, Payload};
 use mostro_core::order::SmallOrder;
 use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::*;
@@ -9,7 +9,7 @@ use std::process;
 use std::str::FromStr;
 
 use crate::pretty_table::print_order_preview;
-use crate::util::{send_order_id_cmd, sign_content, uppercase_first};
+use crate::util::{send_order_id_cmd, uppercase_first};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -68,7 +68,7 @@ pub async fn execute_new_order(
     };
 
     // Create new order for mostro
-    let order_content = Content::Order(SmallOrder::new(
+    let order_content = Payload::Order(SmallOrder::new(
         None,
         Some(kind_checked),
         Some(Status::Pending),
@@ -110,15 +110,13 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     };
-    let sig = sign_content(order_content.clone(), trade_keys)?;
     // Create fiat sent message
     let message = Message::new_order(
         None,
         None,
-        Some(trade_index),
+        Some(trade_index.into()),
         Action::NewOrder,
         Some(order_content),
-        Some(sig),
     )
     .as_json()
     .unwrap();
