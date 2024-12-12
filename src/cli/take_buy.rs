@@ -3,7 +3,10 @@ use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::send_order_id_cmd;
+use crate::{
+    db::{connect, User},
+    util::send_order_id_cmd,
+};
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
@@ -41,6 +44,12 @@ pub async fn execute_take_buy(
         false,
     )
     .await?;
+
+    let pool = connect().await?;
+    // Update last trade index
+    let mut user = User::get(&pool).await.unwrap();
+    user.set_last_trade_index(trade_index as i64);
+    user.save(&pool).await.unwrap();
 
     Ok(())
 }

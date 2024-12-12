@@ -1,5 +1,6 @@
-use crate::lightning::is_valid_invoice;
+use crate::db::connect;
 use crate::util::send_order_id_cmd;
+use crate::{db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Message, Payload};
@@ -11,10 +12,16 @@ pub async fn execute_add_invoice(
     order_id: &Uuid,
     invoice: &str,
     identity_keys: &Keys,
-    trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
+    let pool = connect().await?;
+    let order = Order::get_by_id(&pool, &order_id.to_string())
+        .await
+        .unwrap();
+    let trade_keys = order.trade_keys.unwrap();
+    let trade_keys = Keys::parse(trade_keys).unwrap();
+
     println!(
         "Sending a lightning invoice {} to mostro pubId {}",
         order_id, mostro_key
@@ -39,7 +46,7 @@ pub async fn execute_add_invoice(
     send_order_id_cmd(
         client,
         Some(identity_keys),
-        trade_keys,
+        &trade_keys,
         mostro_key,
         add_invoice_message,
         true,

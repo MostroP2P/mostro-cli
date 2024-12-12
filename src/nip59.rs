@@ -58,7 +58,6 @@ pub fn seal(
         .custom_created_at(Timestamp::tweaked(nip59::RANGE_RANDOM_TIMESTAMP_TWEAK))
         .build(sender_keys.public_key())
         .sign_with_keys(sender_keys)?;
-
     Ok(event)
 }
 

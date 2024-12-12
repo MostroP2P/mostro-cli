@@ -2,15 +2,21 @@ use anyhow::Result;
 use mostro_core::message::{Message, Payload};
 use nostr_sdk::prelude::*;
 
-use crate::util::get_direct_messages;
+use crate::{
+    db::{connect, Order},
+    util::get_direct_messages,
+};
 
-pub async fn execute_get_dm(
-    since: &i64,
-    trade_keys: &Keys,
-    client: &Client,
-    from_user: bool,
-) -> Result<()> {
-    let dm = get_direct_messages(client, trade_keys, *since, from_user).await;
+pub async fn execute_get_dm(since: &i64, client: &Client, from_user: bool) -> Result<()> {
+    let mut dm: Vec<(String, String, u64)> = Vec::new();
+    let pool = connect().await?;
+    let orders = Order::get_all(&pool).await.unwrap();
+    for order in orders {
+        let trade_keys = order.trade_keys.unwrap();
+        let trade_keys = Keys::parse(trade_keys).unwrap();
+        let dm_temp = get_direct_messages(client, &trade_keys, *since, from_user).await;
+        dm.extend(dm_temp);
+    }
     if dm.is_empty() {
         println!();
         println!("No new messages");
