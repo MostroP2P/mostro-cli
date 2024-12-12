@@ -300,10 +300,10 @@ pub async fn run() -> Result<()> {
     let identity_keys = User::get_identity_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
+
     let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
-
     // Mostro pubkey
     let mostro_key = PublicKey::from_str(&pubkey)?;
 
@@ -350,18 +350,10 @@ pub async fn run() -> Result<()> {
                 .await?
             }
             Commands::AddInvoice { order_id, invoice } => {
-                execute_add_invoice(
-                    order_id,
-                    invoice,
-                    &identity_keys,
-                    &trade_keys,
-                    mostro_key,
-                    &client,
-                )
-                .await?
+                execute_add_invoice(order_id, invoice, &identity_keys, mostro_key, &client).await?
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, &trade_keys, &client, *from_user).await?
+                execute_get_dm(since, &client, *from_user).await?
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
@@ -373,7 +365,6 @@ pub async fn run() -> Result<()> {
                     cmd.clone(),
                     Some(*order_id),
                     Some(&identity_keys),
-                    &trade_keys,
                     mostro_key,
                     &client,
                     None,
@@ -385,7 +376,6 @@ pub async fn run() -> Result<()> {
                     cmd.clone(),
                     None,
                     Some(&identity_keys),
-                    &trade_keys,
                     mostro_key,
                     &client,
                     Some(npubkey),

@@ -33,13 +33,14 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
               fiat_amount INTEGER NOT NULL,
               payment_method TEXT NOT NULL,
               premium INTEGER NOT NULL,
-              master_buyer_pubkey TEXT,
-              master_seller_pubkey TEXT,
+              trade_keys TEXT,
+              counterparty_pubkey TEXT,
+              is_mine BOOLEAN,
               buyer_invoice TEXT,
-              created_at INTEGER,
-              expires_at INTEGER,
               buyer_token INTEGER,
-              seller_token INTEGER
+              seller_token INTEGER,
+              created_at INTEGER,
+              expires_at INTEGER
           );
           CREATE TABLE IF NOT EXISTS users (
               i0_pubkey char(64) PRIMARY KEY,
@@ -136,7 +137,7 @@ impl User {
         Ok(())
     }
 
-    pub async fn get(pool: SqlitePool) -> Result<User, Box<dyn std::error::Error>> {
+    pub async fn get(pool: &SqlitePool) -> Result<User, Box<dyn std::error::Error>> {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT i0_pubkey, mnemonic, last_trade_index, created_at
@@ -144,14 +145,14 @@ impl User {
             LIMIT 1
             "#,
         )
-        .fetch_one(&pool)
+        .fetch_one(pool)
         .await?;
 
         Ok(user)
     }
 
     pub async fn get_next_trade_index(pool: SqlitePool) -> Result<u32, Box<dyn std::error::Error>> {
-        let user = User::get(pool).await?;
+        let user = User::get(&pool).await?;
         match user.last_trade_index {
             Some(index) => Ok((index + 1) as u32),
             None => Ok(1),
@@ -159,7 +160,7 @@ impl User {
     }
 
     pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys, Box<dyn std::error::Error>> {
-        let user = User::get(pool.clone()).await?;
+        let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
         let keys =
             Keys::from_mnemonic_advanced(&user.mnemonic, None, Some(account), Some(0), Some(0))?;
@@ -171,7 +172,7 @@ impl User {
         pool: &SqlitePool,
     ) -> Result<(Keys, u32), Box<dyn std::error::Error>> {
         let trade_index = User::get_next_trade_index(pool.clone()).await?;
-        let user = User::get(pool.clone()).await?;
+        let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
         let keys = Keys::from_mnemonic_advanced(
             &user.mnemonic,
@@ -185,7 +186,7 @@ impl User {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, sqlx::FromRow)]
 pub struct Order {
     pub id: Option<String>,
     pub kind: Option<String>,
@@ -197,16 +198,21 @@ pub struct Order {
     pub fiat_amount: i64,
     pub payment_method: String,
     pub premium: i64,
-    pub buyer_trade_pubkey: Option<String>,
-    pub seller_trade_pubkey: Option<String>,
+    pub trade_keys: Option<String>,
+    pub counterparty_pubkey: Option<String>,
+    pub is_mine: Option<bool>,
     pub buyer_invoice: Option<String>,
-    pub created_at: Option<i64>,
-    pub expires_at: Option<i64>,
     pub buyer_token: Option<u16>,
     pub seller_token: Option<u16>,
+    pub created_at: Option<i64>,
+    pub expires_at: Option<i64>,
 }
 
 impl Order {
+    pub fn new() -> Self {
+        Order::default()
+    }
+
     // Setters encadenables
     pub fn set_kind(&mut self, kind: String) -> &mut Self {
         self.kind = Some(kind);
@@ -253,13 +259,18 @@ impl Order {
         self
     }
 
-    pub fn set_buyer_trade_key(&mut self, buyer_trade_pubkey: String) -> &mut Self {
-        self.buyer_trade_pubkey = Some(buyer_trade_pubkey);
+    pub fn set_counterparty_pubkey(&mut self, counterparty_pubkey: String) -> &mut Self {
+        self.counterparty_pubkey = Some(counterparty_pubkey);
         self
     }
 
-    pub fn set_seller_trade_key(&mut self, seller_trade_pubkey: String) -> &mut Self {
-        self.seller_trade_pubkey = Some(seller_trade_pubkey);
+    pub fn set_trade_keys(&mut self, trade_keys: String) -> &mut Self {
+        self.trade_keys = Some(trade_keys);
+        self
+    }
+
+    pub fn set_is_mine(&mut self, is_mine: bool) -> &mut Self {
+        self.is_mine = Some(is_mine);
         self
     }
 
@@ -271,9 +282,9 @@ impl Order {
                 r#"
               UPDATE orders 
               SET kind = ?, status = ?, amount = ?, fiat_code = ?, min_amount = ?, max_amount = ?, 
-                  fiat_amount = ?, payment_method = ?, premium = ?, buyer_trade_pubkey = ?, 
-                  seller_trade_pubkey = ?, buyer_invoice = ?, created_at = ?, expires_at = ?, 
-                  buyer_token = ?, seller_token = ?
+                  fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?, counterparty_pubkey = ?,
+                  is_mine = ?, buyer_invoice = ?, created_at = ?, expires_at = ?, buyer_token = ?,
+                seller_token = ?
               WHERE id = ?
               "#,
             )
@@ -286,8 +297,9 @@ impl Order {
             .bind(self.fiat_amount)
             .bind(&self.payment_method)
             .bind(self.premium)
-            .bind(&self.buyer_trade_pubkey)
-            .bind(&self.seller_trade_pubkey)
+            .bind(&self.trade_keys)
+            .bind(&self.counterparty_pubkey)
+            .bind(self.is_mine)
             .bind(&self.buyer_invoice)
             .bind(self.created_at)
             .bind(self.expires_at)
@@ -303,5 +315,29 @@ impl Order {
         }
 
         Ok(())
+    }
+
+    pub async fn get_by_id(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> Result<Order, Box<dyn std::error::Error>> {
+        let order = sqlx::query_as::<_, Order>(
+            r#"
+            SELECT * FROM orders WHERE id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(order)
+    }
+
+    pub async fn get_all(pool: &SqlitePool) -> Result<Vec<Order>, Box<dyn std::error::Error>> {
+        let orders = sqlx::query_as::<_, Order>(r#"SELECT * FROM orders"#)
+            .fetch_all(pool)
+            .await?;
+        Ok(orders)
     }
 }

@@ -1,5 +1,6 @@
-use crate::cli::Commands;
+use crate::db::Order;
 use crate::util::send_order_id_cmd;
+use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
 use log::info;
@@ -12,7 +13,6 @@ pub async fn execute_send_msg(
     command: Commands,
     order_id: Option<Uuid>,
     identity_keys: Option<&Keys>,
-    trade_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
     text: Option<&str>,
@@ -48,10 +48,18 @@ pub async fn execute_send_msg(
         .as_json()
         .unwrap();
     info!("Sending message: {:#?}", message);
+
+    let pool = connect().await?;
+    let order = Order::get_by_id(&pool, &order_id.unwrap().to_string())
+        .await
+        .unwrap();
+    let trade_keys = order.trade_keys.unwrap();
+    let trade_keys = Keys::parse(trade_keys).unwrap();
+
     send_order_id_cmd(
         client,
         identity_keys,
-        trade_keys,
+        &trade_keys,
         mostro_key,
         message,
         false,
