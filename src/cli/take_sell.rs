@@ -50,10 +50,15 @@ pub async fn execute_take_sell(
         };
     }
     // Create takesell message
-    let take_sell_message =
-        Message::new_order(None, None, Some(trade_index), Action::TakeSell, payload)
-            .as_json()
-            .unwrap();
+    let take_sell_message = Message::new_order(
+        Some(*order_id),
+        None,
+        Some(trade_index),
+        Action::TakeSell,
+        payload,
+    )
+    .as_json()
+    .unwrap();
 
     send_order_id_cmd(
         client,
