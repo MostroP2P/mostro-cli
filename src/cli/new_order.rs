@@ -3,11 +3,11 @@ use mostro_core::message::{Action, Message, Payload};
 use mostro_core::order::SmallOrder;
 use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::*;
-use rand::Rng;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
 use std::str::FromStr;
+use uuid::Uuid;
 
 use crate::db::{connect, Order, User};
 use crate::pretty_table::print_order_preview;
@@ -113,12 +113,11 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     };
-    let mut rng = rand::thread_rng();
-    let request_id: i64 = rng.gen_range(100000..1000000);
+    let request_id = Uuid::new_v4().as_u128() as u64;
     // Create NewOrder message
     let message = Message::new_order(
         None,
-        Some(request_id as u64),
+        Some(request_id),
         Some(trade_index),
         Action::NewOrder,
         Some(order_content),
@@ -127,7 +126,7 @@ pub async fn execute_new_order(
     .unwrap();
     // Create order in db
     let pool = connect().await?;
-    Order::new(&pool, small_order, trade_keys, Some(request_id))
+    Order::new(&pool, small_order, trade_keys, Some(request_id as i64))
         .await
         .unwrap();
     // Update last trade index
