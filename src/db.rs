@@ -1,4 +1,5 @@
 use crate::util::get_mcli_path;
+use mostro_core::order::SmallOrder;
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
 use nip06::FromMnemonic;
 use nostr_sdk::prelude::*;
@@ -24,12 +25,12 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
             r#"
           CREATE TABLE IF NOT EXISTS orders (
               id TEXT PRIMARY KEY,
-              kind TEXT,
-              status TEXT,
+              kind TEXT NOT NULL,
+              status TEXT NOT NULL,
               amount INTEGER NOT NULL,
-              fiat_code TEXT NOT NULL,
               min_amount INTEGER,
               max_amount INTEGER,
+              fiat_code TEXT NOT NULL,
               fiat_amount INTEGER NOT NULL,
               payment_method TEXT NOT NULL,
               premium INTEGER NOT NULL,
@@ -120,11 +121,12 @@ impl User {
         sqlx::query(
             r#"
               UPDATE users 
-              SET mnemonic = ?
+              SET mnemonic = ?, last_trade_index = ?
               WHERE i0_pubkey = ?
               "#,
         )
         .bind(&self.mnemonic)
+        .bind(self.last_trade_index)
         .bind(&self.i0_pubkey)
         .execute(pool)
         .await?;
@@ -151,10 +153,10 @@ impl User {
         Ok(user)
     }
 
-    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<u32, Box<dyn std::error::Error>> {
+    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<i64, Box<dyn std::error::Error>> {
         let user = User::get(&pool).await?;
         match user.last_trade_index {
-            Some(index) => Ok((index + 1) as u32),
+            Some(index) => Ok(index + 1),
             None => Ok(1),
         }
     }
@@ -170,19 +172,26 @@ impl User {
 
     pub async fn get_next_trade_keys(
         pool: &SqlitePool,
-    ) -> Result<(Keys, u32), Box<dyn std::error::Error>> {
+    ) -> Result<(Keys, i64), Box<dyn std::error::Error>> {
         let trade_index = User::get_next_trade_index(pool.clone()).await?;
         let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
-        let keys = Keys::from_mnemonic_advanced(
-            &user.mnemonic,
-            None,
-            Some(account),
-            Some(0),
-            Some(trade_index),
-        )?;
-
-        Ok((keys, trade_index))
+        match trade_index.try_into() {
+            Ok(index) => {
+                let keys = Keys::from_mnemonic_advanced(
+                    &user.mnemonic,
+                    None,
+                    Some(account),
+                    Some(0),
+                    Some(index),
+                )?;
+                Ok((keys, trade_index))
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+                Err(e.into())
+            }
+        }
     }
 }
 
@@ -209,8 +218,61 @@ pub struct Order {
 }
 
 impl Order {
-    pub fn new() -> Self {
-        Order::default()
+    pub async fn new(
+        pool: &SqlitePool,
+        order: SmallOrder,
+        trade_keys: &Keys,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let trade_keys_hex = trade_keys.secret_key().to_secret_hex();
+        let order = Order {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            kind: order.kind.as_ref().map(|k| k.to_string()),
+            status: order.status.as_ref().map(|s| s.to_string()),
+            amount: order.amount,
+            fiat_code: order.fiat_code,
+            min_amount: order.min_amount,
+            max_amount: order.max_amount,
+            fiat_amount: order.fiat_amount,
+            payment_method: order.payment_method,
+            premium: order.premium,
+            trade_keys: Some(trade_keys_hex),
+            counterparty_pubkey: None,
+            is_mine: Some(true),
+            buyer_invoice: None,
+            buyer_token: None,
+            seller_token: None,
+            created_at: Some(chrono::Utc::now().timestamp()),
+            expires_at: None,
+        };
+
+        sqlx::query(
+            r#"
+                  INSERT INTO orders (id, kind, status, amount, min_amount, max_amount, fiat_code, fiat_amount, payment_method, premium, trade_keys, counterparty_pubkey, is_mine, buyer_invoice, buyer_token, seller_token, created_at, expires_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+        )
+        .bind(&order.id)
+        .bind(&order.kind)
+        .bind(&order.status)
+        .bind(order.amount)
+        .bind(order.min_amount)
+        .bind(order.max_amount)
+        .bind(&order.fiat_code)
+        .bind(order.fiat_amount)
+        .bind(&order.payment_method)
+        .bind(order.premium)
+        .bind(&order.trade_keys)
+        .bind(&order.counterparty_pubkey)
+        .bind(order.is_mine)
+        .bind(&order.buyer_invoice)
+        .bind(order.buyer_token)
+        .bind(order.seller_token)
+        .bind(order.created_at)
+        .bind(order.expires_at)
+        .execute(pool)
+        .await?;
+
+        Ok(order)
     }
 
     // Setters encadenables

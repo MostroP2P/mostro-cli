@@ -13,7 +13,7 @@ pub async fn execute_take_buy(
     amount: Option<u32>,
     identity_keys: &Keys,
     trade_keys: &Keys,
-    trade_index: u32,
+    trade_index: i64,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -27,7 +27,7 @@ pub async fn execute_take_buy(
     let take_buy_message = Message::new_order(
         Some(*order_id),
         None,
-        Some(trade_index.into()),
+        Some(trade_index),
         Action::TakeBuy,
         payload,
     )
@@ -48,7 +48,7 @@ pub async fn execute_take_buy(
     let pool = connect().await?;
     // Update last trade index
     let mut user = User::get(&pool).await.unwrap();
-    user.set_last_trade_index(trade_index as i64);
+    user.set_last_trade_index(trade_index);
     user.save(&pool).await.unwrap();
 
     Ok(())

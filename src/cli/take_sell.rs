@@ -16,7 +16,7 @@ pub async fn execute_take_sell(
     amount: Option<u32>,
     identity_keys: &Keys,
     trade_keys: &Keys,
-    trade_index: u32,
+    trade_index: i64,
     mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
@@ -50,15 +50,10 @@ pub async fn execute_take_sell(
         };
     }
     // Create takesell message
-    let take_sell_message = Message::new_order(
-        None,
-        None,
-        Some(trade_index.into()),
-        Action::TakeSell,
-        payload,
-    )
-    .as_json()
-    .unwrap();
+    let take_sell_message =
+        Message::new_order(None, None, Some(trade_index), Action::TakeSell, payload)
+            .as_json()
+            .unwrap();
 
     send_order_id_cmd(
         client,
@@ -74,7 +69,7 @@ pub async fn execute_take_sell(
     let pool = connect().await?;
     // Update last trade index
     let mut user = User::get(&pool).await.unwrap();
-    user.set_last_trade_index(trade_index as i64);
+    user.set_last_trade_index(trade_index);
     user.save(&pool).await.unwrap();
 
     Ok(())

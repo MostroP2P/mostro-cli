@@ -8,7 +8,7 @@ use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
 use std::str::FromStr;
 
-use crate::db::{connect, Order};
+use crate::db::{connect, Order, User};
 use crate::pretty_table::print_order_preview;
 use crate::util::{send_order_id_cmd, uppercase_first};
 
@@ -25,7 +25,7 @@ pub async fn execute_new_order(
     invoice: &Option<String>,
     identity_keys: &Keys,
     trade_keys: &Keys,
-    trade_index: u32,
+    trade_index: i64,
     mostro_key: PublicKey,
     client: &Client,
     expiration_days: &i64,
@@ -67,9 +67,7 @@ pub async fn execute_new_order(
     } else {
         (fiat_amount.0, None, None)
     };
-
-    // Create new order for mostro
-    let order_content = Payload::Order(SmallOrder::new(
+    let small_order = SmallOrder::new(
         None,
         Some(kind_checked),
         Some(Status::Pending),
@@ -87,7 +85,10 @@ pub async fn execute_new_order(
         expires_at,
         None,
         None,
-    ));
+    );
+
+    // Create new order for mostro
+    let order_content = Payload::Order(small_order.clone());
 
     // Print order preview
     let ord_preview = print_order_preview(order_content.clone()).unwrap();
@@ -115,7 +116,7 @@ pub async fn execute_new_order(
     let message = Message::new_order(
         None,
         None,
-        Some(trade_index.into()),
+        Some(trade_index),
         Action::NewOrder,
         Some(order_content),
     )
@@ -123,22 +124,11 @@ pub async fn execute_new_order(
     .unwrap();
     // Create order in db
     let pool = connect().await?;
-    let mut order = Order::new();
-    let order = order
-        .set_kind(kind_checked.to_string())
-        .set_status(Status::Pending.to_string())
-        .set_amount(*amount)
-        .set_fiat_code(fiat_code)
-        .set_fiat_amount(amt.0)
-        .set_min_amount(amt.1.unwrap())
-        .set_max_amount(amt.2.unwrap())
-        .set_is_mine(true)
-        .set_trade_keys(trade_keys.secret_key().to_secret_hex())
-        .set_payment_method(payment_method.to_owned())
-        .set_premium(*premium);
-
-    order.save(&pool).await.unwrap();
-
+    Order::new(&pool, small_order, trade_keys).await.unwrap();
+    // Update last trade index
+    let mut user = User::get(&pool).await.unwrap();
+    user.set_last_trade_index(trade_index);
+    user.save(&pool).await.unwrap();
     send_order_id_cmd(
         client,
         Some(identity_keys),
