@@ -53,18 +53,21 @@ pub async fn execute_send_msg(
     let order = Order::get_by_id(&pool, &order_id.unwrap().to_string()).await;
     match order {
         Ok(order) => {
-            let trade_keys = order.trade_keys.unwrap();
-            let trade_keys = Keys::parse(trade_keys).unwrap();
-            send_order_id_cmd(
-                client,
-                identity_keys,
-                &trade_keys,
-                mostro_key,
-                message,
-                false,
-                false,
-            )
-            .await?;
+            if let Some(trade_keys_str) = order.trade_keys {
+                let trade_keys = Keys::parse(trade_keys_str)?;
+                send_order_id_cmd(
+                    client,
+                    identity_keys,
+                    &trade_keys,
+                    mostro_key,
+                    message,
+                    false,
+                    false,
+                )
+                .await?;
+            } else {
+                println!("Error: Missing trade keys for order {}", order_id.unwrap());
+            }
         }
         Err(e) => {
             println!("Error: {}", e);

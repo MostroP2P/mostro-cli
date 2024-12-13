@@ -30,7 +30,8 @@ pub async fn execute_get_dm(
     unique_trade_keys.insert(trade_keys_hex);
     let final_trade_keys = unique_trade_keys.iter().cloned().collect::<Vec<String>>();
     for keys in final_trade_keys.iter() {
-        let trade_keys = Keys::parse(keys).unwrap();
+        let trade_keys =
+            Keys::parse(keys).map_err(|e| anyhow::anyhow!("Failed to parse trade keys: {}", e))?;
         let dm_temp = get_direct_messages(client, &trade_keys, *since, from_user).await;
         dm.extend(dm_temp);
     }

@@ -176,15 +176,22 @@ impl User {
         let trade_index = User::get_next_trade_index(pool.clone()).await?;
         let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
-        let keys = Keys::from_mnemonic_advanced(
-            &user.mnemonic,
-            None,
-            Some(account),
-            Some(0),
-            Some(trade_index as u32),
-        )?;
-
-        Ok((keys, trade_index))
+        match trade_index.try_into() {
+            Ok(index) => {
+                let keys = Keys::from_mnemonic_advanced(
+                    &user.mnemonic,
+                    None,
+                    Some(account),
+                    Some(0),
+                    Some(index),
+                )?;
+                Ok((keys, trade_index))
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+                Err(e.into())
+            }
+        }
     }
 }
 
@@ -219,8 +226,8 @@ impl Order {
         let trade_keys_hex = trade_keys.secret_key().to_secret_hex();
         let order = Order {
             id: Some(uuid::Uuid::new_v4().to_string()),
-            kind: Some(order.kind.unwrap().to_string()),
-            status: Some(order.status.unwrap().to_string()),
+            kind: order.kind.as_ref().map(|k| k.to_string()),
+            status: order.status.as_ref().map(|s| s.to_string()),
             amount: order.amount,
             fiat_code: order.fiat_code,
             min_amount: order.min_amount,
