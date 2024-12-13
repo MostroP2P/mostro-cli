@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
+use chrono::DateTime;
 use mostro_core::message::{Message, Payload};
 use nostr_sdk::prelude::*;
 
@@ -15,7 +16,7 @@ pub async fn execute_get_dm(
     client: &Client,
     from_user: bool,
 ) -> Result<()> {
-    let mut dm: Vec<(String, String, u64)> = Vec::new();
+    let mut dm: Vec<(Message, u64)> = Vec::new();
     let pool = connect().await?;
     let orders = Order::get_all(&pool).await.unwrap();
     let trade_keys_hex = trade_keys.secret_key().to_secret_hex();
@@ -41,41 +42,29 @@ pub async fn execute_get_dm(
         println!("No new messages");
         println!();
     } else {
-        for el in dm.iter() {
-            match Message::from_json(&el.0) {
-                Ok(m) => {
-                    if m.get_inner_message_kind().id.is_some() {
-                        println!(
-                            "Mostro sent you this message for order id: {} at {}",
-                            m.get_inner_message_kind().id.unwrap(),
-                            el.1
-                        );
-                    }
-                    if let Some(Payload::PaymentRequest(_, inv, _)) =
-                        &m.get_inner_message_kind().payload
-                    {
-                        println!();
-                        println!("Pay this invoice to continue --> {}", inv);
-                        println!();
-                    } else if let Some(Payload::TextMessage(text)) =
-                        &m.get_inner_message_kind().payload
-                    {
-                        println!();
-                        println!("{text}");
-                        println!();
-                    } else {
-                        println!();
-                        println!("Action: {}", m.get_inner_message_kind().action);
-                        println!("Payload: {:#?}", m.get_inner_message_kind().payload);
-                        println!();
-                    }
-                }
-                Err(_) => {
-                    println!("You got this message:");
-                    println!();
-                    println!("{}", el.0);
-                    println!();
-                }
+        for m in dm.iter() {
+            let date = DateTime::from_timestamp(m.1 as i64, 0).unwrap();
+            if m.0.get_inner_message_kind().id.is_some() {
+                println!(
+                    "Mostro sent you this message for order id: {} at {}",
+                    m.0.get_inner_message_kind().id.unwrap(),
+                    date
+                );
+            }
+            if let Some(Payload::PaymentRequest(_, inv, _)) = &m.0.get_inner_message_kind().payload
+            {
+                println!();
+                println!("Pay this invoice to continue --> {}", inv);
+                println!();
+            } else if let Some(Payload::TextMessage(text)) = &m.0.get_inner_message_kind().payload {
+                println!();
+                println!("{text}");
+                println!();
+            } else {
+                println!();
+                println!("Action: {}", m.0.get_inner_message_kind().action);
+                println!("Payload: {:#?}", m.0.get_inner_message_kind().payload);
+                println!();
             }
         }
     }

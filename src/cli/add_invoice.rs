@@ -1,5 +1,5 @@
 use crate::db::connect;
-use crate::util::send_order_id_cmd;
+use crate::util::send_message_sync;
 use crate::{db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -43,7 +43,7 @@ pub async fn execute_add_invoice(
             .as_json()
             .unwrap();
 
-    send_order_id_cmd(
+    send_message_sync(
         client,
         Some(identity_keys),
         &trade_keys,

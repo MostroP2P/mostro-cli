@@ -3,7 +3,7 @@ use mostro_core::message::{Action, Message};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::send_order_id_cmd;
+use crate::util::send_message_sync;
 
 pub async fn execute_take_dispute(
     dispute_id: &Uuid,
@@ -28,7 +28,7 @@ pub async fn execute_take_dispute(
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(
+    send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,

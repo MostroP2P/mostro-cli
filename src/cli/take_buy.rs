@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     db::{connect, User},
-    util::send_order_id_cmd,
+    util::send_message_sync,
 };
 
 pub async fn execute_take_buy(
@@ -34,7 +34,7 @@ pub async fn execute_take_buy(
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(
+    send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,

@@ -1,5 +1,5 @@
 use crate::db::Order;
-use crate::util::send_order_id_cmd;
+use crate::util::send_message_sync;
 use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
@@ -55,7 +55,7 @@ pub async fn execute_send_msg(
         Ok(order) => {
             if let Some(trade_keys_str) = order.trade_keys {
                 let trade_keys = Keys::parse(trade_keys_str)?;
-                send_order_id_cmd(
+                send_message_sync(
                     client,
                     identity_keys,
                     &trade_keys,

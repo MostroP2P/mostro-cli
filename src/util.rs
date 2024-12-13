@@ -4,7 +4,6 @@ use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
-use chrono::DateTime;
 use dotenvy::var;
 use log::{error, info};
 use mostro_core::dispute::Dispute;
@@ -76,7 +75,7 @@ pub async fn connect_nostr() -> Result<Client> {
     Ok(client)
 }
 
-pub async fn send_order_id_cmd(
+pub async fn send_message_sync(
     client: &Client,
     identity_keys: Option<&Keys>,
     trade_keys: &Keys,
@@ -97,33 +96,22 @@ pub async fn send_order_id_cmd(
     .await?;
 
     let mut notifications = client.notifications();
-
     while let Ok(notification) = notifications.recv().await {
         if wait_for_dm_ans {
             let dm = get_direct_messages(client, trade_keys, 1, to_user).await;
-
+            println!("DM: {:#?}", dm);
             for el in dm.iter() {
-                match Message::from_json(&el.0) {
-                    Ok(m) => {
-                        if let Some(Payload::PaymentRequest(ord, inv, _)) =
-                            &m.get_inner_message_kind().payload
-                        {
-                            println!("NEW MESSAGE:");
-                            println!(
-                                "Mostro sent you this hold invoice for order id: {}",
-                                ord.as_ref().unwrap().id.unwrap()
-                            );
-                            println!();
-                            println!("Pay this invoice to continue -->  {}", inv);
-                            println!();
-                        }
-                    }
-                    Err(_) => {
-                        println!("NEW MESSAGE:");
-                        println!();
-                        println!("You got this message -->  {}", el.0);
-                        println!();
-                    }
+                if let Some(Payload::PaymentRequest(ord, inv, _)) =
+                    &el.0.get_inner_message_kind().payload
+                {
+                    println!("NEW MESSAGE:");
+                    println!(
+                        "Mostro sent you this hold invoice for order id: {}",
+                        ord.as_ref().unwrap().id.unwrap()
+                    );
+                    println!();
+                    println!("Pay this invoice to continue -->  {}", inv);
+                    println!();
                 }
             }
             break;
@@ -253,7 +241,7 @@ pub async fn get_direct_messages(
     my_key: &Keys,
     since: i64,
     from_user: bool,
-) -> Vec<(String, String, u64)> {
+) -> Vec<(Message, u64)> {
     // We use a fake timestamp to thwart time-analysis attacks
     let fake_since = 2880;
     let fake_since_time = chrono::Utc::now()
@@ -285,7 +273,7 @@ pub async fn get_direct_messages(
     let mostro_req = send_relays_requests(client, filters).await;
 
     // Buffer vector for direct messages
-    let mut direct_messages: Vec<(String, String, u64)> = Vec::new();
+    let mut direct_messages: Vec<(Message, u64)> = Vec::new();
 
     // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
     let mut id_list = Vec::<EventId>::new();
@@ -295,7 +283,7 @@ pub async fn get_direct_messages(
             if !id_list.contains(&dm.id) {
                 id_list.push(dm.id);
                 let created_at: Timestamp;
-                let content: String;
+                let message: Message;
                 if from_user {
                     let ck = ConversationKey::derive(my_key.secret_key(), &dm.pubkey);
                     let b64decoded_content =
@@ -307,7 +295,9 @@ pub async fn get_direct_messages(
                         };
                     // Decrypt
                     let unencrypted_content = decrypt_to_bytes(&ck, b64decoded_content).unwrap();
-                    content = String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
+                    let message_str =
+                        String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
+                    message = Message::from_json(&message_str).unwrap();
                     created_at = dm.created_at;
                 } else {
                     let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
@@ -316,7 +306,15 @@ pub async fn get_direct_messages(
                             continue;
                         }
                     };
-                    content = unwrapped_gift.rumor.content;
+                    let (mmessage, sig): (Message, nostr_sdk::secp256k1::schnorr::Signature) =
+                        serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
+                    if !mmessage
+                        .get_inner_message_kind()
+                        .verify_signature(unwrapped_gift.rumor.pubkey, sig)
+                    {
+                        continue;
+                    }
+                    message = mmessage;
                     created_at = unwrapped_gift.rumor.created_at;
                 }
                 // Here we discard messages older than the real since parameter
@@ -327,15 +325,13 @@ pub async fn get_direct_messages(
                 if created_at.as_u64() < since_time {
                     continue;
                 }
-                let date = DateTime::from_timestamp(created_at.as_u64() as i64, 0);
 
-                let human_date = date.unwrap().format("%H:%M:%S date - %d/%m/%Y").to_string();
-                direct_messages.push((content, human_date, created_at.as_u64()));
+                direct_messages.push((message, created_at.as_u64()));
             }
         }
     }
     // Return element sorted by second tuple element ( Timestamp )
-    direct_messages.sort_by(|a, b| a.2.cmp(&b.2));
+    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
 
     direct_messages
 }
