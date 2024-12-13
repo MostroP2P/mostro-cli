@@ -50,22 +50,26 @@ pub async fn execute_send_msg(
     info!("Sending message: {:#?}", message);
 
     let pool = connect().await?;
-    let order = Order::get_by_id(&pool, &order_id.unwrap().to_string())
-        .await
-        .unwrap();
-    let trade_keys = order.trade_keys.unwrap();
-    let trade_keys = Keys::parse(trade_keys).unwrap();
-
-    send_order_id_cmd(
-        client,
-        identity_keys,
-        &trade_keys,
-        mostro_key,
-        message,
-        false,
-        false,
-    )
-    .await?;
+    let order = Order::get_by_id(&pool, &order_id.unwrap().to_string()).await;
+    match order {
+        Ok(order) => {
+            let trade_keys = order.trade_keys.unwrap();
+            let trade_keys = Keys::parse(trade_keys).unwrap();
+            send_order_id_cmd(
+                client,
+                identity_keys,
+                &trade_keys,
+                mostro_key,
+                message,
+                false,
+                false,
+            )
+            .await?;
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+        }
+    }
 
     Ok(())
 }

@@ -36,7 +36,6 @@ pub fn gift_wrap(
     let rumor: UnsignedEvent = EventBuilder::text_note(content).build(trade_keys.public_key());
     // We seal the rumor
     let seal: Event = seal(identity_keys, &receiver, rumor)?;
-
     gift_wrap_from_seal(&receiver, &seal, expiration, pow)
 }
 
@@ -46,7 +45,6 @@ pub fn seal(
     rumor: UnsignedEvent,
 ) -> Result<Event, BuilderError> {
     let sender_private_key = sender_keys.secret_key();
-
     // Derive conversation key
     let ck = ConversationKey::derive(sender_private_key, receiver_pubkey);
     // Encrypt payload
@@ -72,7 +70,6 @@ pub fn gift_wrap_from_seal(
     let ck = ConversationKey::derive(ephemeral_keys.secret_key(), receiver);
     // Encrypt payload
     let encrypted_content = encrypt_to_bytes(&ck, seal.as_json())?;
-
     let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
     tags.push(Tag::public_key(*receiver));
 
