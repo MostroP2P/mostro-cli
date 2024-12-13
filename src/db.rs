@@ -40,6 +40,7 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
               buyer_invoice TEXT,
               buyer_token INTEGER,
               seller_token INTEGER,
+              request_id INTEGER,
               created_at INTEGER,
               expires_at INTEGER
           );
@@ -213,6 +214,7 @@ pub struct Order {
     pub buyer_invoice: Option<String>,
     pub buyer_token: Option<u16>,
     pub seller_token: Option<u16>,
+    pub request_id: Option<i64>,
     pub created_at: Option<i64>,
     pub expires_at: Option<i64>,
 }
@@ -222,6 +224,7 @@ impl Order {
         pool: &SqlitePool,
         order: SmallOrder,
         trade_keys: &Keys,
+        request_id: Option<i64>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let trade_keys_hex = trade_keys.secret_key().to_secret_hex();
         let order = Order {
@@ -241,14 +244,18 @@ impl Order {
             buyer_invoice: None,
             buyer_token: None,
             seller_token: None,
+            request_id,
             created_at: Some(chrono::Utc::now().timestamp()),
             expires_at: None,
         };
 
         sqlx::query(
             r#"
-                  INSERT INTO orders (id, kind, status, amount, min_amount, max_amount, fiat_code, fiat_amount, payment_method, premium, trade_keys, counterparty_pubkey, is_mine, buyer_invoice, buyer_token, seller_token, created_at, expires_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
+                  fiat_code, fiat_amount, payment_method, premium, trade_keys,
+                  counterparty_pubkey, is_mine, buyer_invoice, buyer_token, seller_token,
+                  request_id, created_at, expires_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
         )
         .bind(&order.id)
@@ -267,6 +274,7 @@ impl Order {
         .bind(&order.buyer_invoice)
         .bind(order.buyer_token)
         .bind(order.seller_token)
+        .bind(order.request_id)
         .bind(order.created_at)
         .bind(order.expires_at)
         .execute(pool)

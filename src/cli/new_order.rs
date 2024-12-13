@@ -3,6 +3,7 @@ use mostro_core::message::{Action, Message, Payload};
 use mostro_core::order::SmallOrder;
 use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::*;
+use rand::Rng;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
@@ -10,7 +11,7 @@ use std::str::FromStr;
 
 use crate::db::{connect, Order, User};
 use crate::pretty_table::print_order_preview;
-use crate::util::{send_order_id_cmd, uppercase_first};
+use crate::util::{send_message_sync, uppercase_first};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -112,10 +113,12 @@ pub async fn execute_new_order(
             process::exit(0);
         }
     };
+    let mut rng = rand::thread_rng();
+    let request_id: i64 = rng.gen_range(100000..1000000);
     // Create NewOrder message
     let message = Message::new_order(
         None,
-        None,
+        Some(request_id as u64),
         Some(trade_index),
         Action::NewOrder,
         Some(order_content),
@@ -124,18 +127,20 @@ pub async fn execute_new_order(
     .unwrap();
     // Create order in db
     let pool = connect().await?;
-    Order::new(&pool, small_order, trade_keys).await.unwrap();
+    Order::new(&pool, small_order, trade_keys, Some(request_id))
+        .await
+        .unwrap();
     // Update last trade index
     let mut user = User::get(&pool).await.unwrap();
     user.set_last_trade_index(trade_index);
     user.save(&pool).await.unwrap();
-    send_order_id_cmd(
+    send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,
         mostro_key,
         message,
-        false,
+        true,
         false,
     )
     .await?;

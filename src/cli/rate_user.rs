@@ -3,7 +3,7 @@ use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::send_order_id_cmd;
+use crate::util::send_message_sync;
 
 pub async fn execute_rate_user(
     order_id: &Uuid,
@@ -35,7 +35,7 @@ pub async fn execute_rate_user(
     .as_json()
     .unwrap();
 
-    send_order_id_cmd(
+    send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,

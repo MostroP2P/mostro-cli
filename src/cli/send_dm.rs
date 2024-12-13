@@ -1,4 +1,4 @@
-use crate::util::send_order_id_cmd;
+use crate::util::send_message_sync;
 use anyhow::Result;
 use nostr_sdk::prelude::*;
 
@@ -8,7 +8,7 @@ pub async fn execute_send_dm(
     client: &Client,
     message: &str,
 ) -> Result<()> {
-    send_order_id_cmd(
+    send_message_sync(
         client,
         None,
         trade_keys,

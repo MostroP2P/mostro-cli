@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::db::{connect, User};
 use crate::lightning::is_valid_invoice;
-use crate::util::send_order_id_cmd;
+use crate::util::send_message_sync;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_take_sell(
@@ -55,7 +55,7 @@ pub async fn execute_take_sell(
             .as_json()
             .unwrap();
 
-    send_order_id_cmd(
+    send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,
