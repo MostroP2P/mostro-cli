@@ -13,6 +13,7 @@ use mostro_core::order::{SmallOrder, Status};
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
 use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
+use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, path::Path};
 use tokio::time::timeout;
@@ -80,58 +81,46 @@ pub async fn send_message_sync(
     identity_keys: Option<&Keys>,
     trade_keys: &Keys,
     receiver_pubkey: PublicKey,
-    message: String,
+    message: Message,
     wait_for_dm_ans: bool,
     to_user: bool,
-) -> Result<()> {
+) -> Result<Vec<(Message, u64)>> {
+    let mut dm: Vec<(Message, u64)> = Vec::new();
+    let message_json = message.as_json()?;
     // Send dm to receiver pubkey
+    println!(
+        "SENDING DM with trade keys: {:?}",
+        trade_keys.public_key().to_hex()
+    );
     send_dm(
         client,
         identity_keys,
         trade_keys,
         &receiver_pubkey,
-        message,
+        message_json,
         to_user,
     )
     .await?;
+    sleep(Duration::from_secs(1));
 
-    let mut notifications = client.notifications();
-    while let Ok(notification) = notifications.recv().await {
-        if wait_for_dm_ans {
-            let dm = get_direct_messages(client, trade_keys, 1, to_user).await;
-            println!("DM: {:#?}", dm);
-            for el in dm.iter() {
-                if let Some(Payload::PaymentRequest(ord, inv, _)) =
-                    &el.0.get_inner_message_kind().payload
-                {
-                    println!("NEW MESSAGE:");
-                    println!(
-                        "Mostro sent you this hold invoice for order id: {}",
-                        ord.as_ref().unwrap().id.unwrap()
-                    );
-                    println!();
-                    println!("Pay this invoice to continue -->  {}", inv);
-                    println!();
-                }
+    if wait_for_dm_ans {
+        dm = get_direct_messages(client, trade_keys, 1, to_user).await;
+        for el in dm.iter() {
+            if let Some(Payload::PaymentRequest(ord, inv, _)) =
+                &el.0.get_inner_message_kind().payload
+            {
+                println!("NEW MESSAGE:");
+                println!(
+                    "Mostro sent you this hold invoice for order id: {}",
+                    ord.as_ref().unwrap().id.unwrap()
+                );
+                println!();
+                println!("Pay this invoice to continue -->  {}", inv);
+                println!();
             }
-            break;
-        } else if let RelayPoolNotification::Message {
-            message:
-                RelayMessage::Ok {
-                    event_id: _,
-                    status: _,
-                    message: _,
-                },
-            ..
-        } = notification
-        {
-            println!(
-                "Message correctly sent to Mostro! Check messages with getdm or listorders command"
-            );
-            break;
         }
     }
-    Ok(())
+    Ok(dm)
 }
 
 pub async fn requests_relay(

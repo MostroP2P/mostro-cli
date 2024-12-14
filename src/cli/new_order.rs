@@ -121,19 +121,17 @@ pub async fn execute_new_order(
         Some(trade_index),
         Action::NewOrder,
         Some(order_content),
-    )
-    .as_json()
-    .unwrap();
+    );
     // Create order in db
     let pool = connect().await?;
-    Order::new(&pool, small_order, trade_keys, Some(request_id as i64))
+    let db_order = Order::new(&pool, small_order, trade_keys, Some(request_id as i64))
         .await
         .unwrap();
     // Update last trade index
     let mut user = User::get(&pool).await.unwrap();
     user.set_last_trade_index(trade_index);
     user.save(&pool).await.unwrap();
-    send_message_sync(
+    let dm = send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,
@@ -143,5 +141,17 @@ pub async fn execute_new_order(
         false,
     )
     .await?;
+    for el in dm.iter() {
+        let message = el.0.get_inner_message_kind();
+        if request_id == message.request_id.unwrap() {
+            if let Some(Payload::Order(order)) = &message.payload {
+                let order_id = order.id.unwrap();
+                println!("Order id {} created", order_id);
+                Order::save_new_id(&pool, db_order.id.clone().unwrap(), order_id.to_string())
+                    .await
+                    .unwrap();
+            }
+        }
+    }
     Ok(())
 }

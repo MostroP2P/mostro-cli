@@ -387,6 +387,27 @@ impl Order {
         Ok(())
     }
 
+    pub async fn save_new_id(
+        pool: &SqlitePool,
+        id: String,
+        new_id: String,
+    ) -> anyhow::Result<bool> {
+        let rows_affected = sqlx::query(
+            r#"
+          UPDATE orders
+          SET id = ?
+          WHERE id = ?
+        "#,
+        )
+        .bind(&new_id)
+        .bind(&id)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+        Ok(rows_affected > 0)
+    }
+
     pub async fn get_by_id(
         pool: &SqlitePool,
         id: &str,

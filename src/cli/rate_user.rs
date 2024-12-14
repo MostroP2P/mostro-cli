@@ -31,9 +31,7 @@ pub async fn execute_rate_user(
         None,
         Action::RateUser,
         Some(rating_content),
-    )
-    .as_json()
-    .unwrap();
+    );
 
     send_message_sync(
         client,

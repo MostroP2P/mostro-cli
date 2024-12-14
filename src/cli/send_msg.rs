@@ -44,9 +44,7 @@ pub async fn execute_send_msg(
     }
 
     // Create message
-    let message = Message::new_order(order_id, None, None, requested_action, payload)
-        .as_json()
-        .unwrap();
+    let message = Message::new_order(order_id, None, None, requested_action, payload);
     info!("Sending message: {:#?}", message);
 
     let pool = connect().await?;
