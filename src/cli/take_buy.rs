@@ -30,9 +30,7 @@ pub async fn execute_take_buy(
         Some(trade_index),
         Action::TakeBuy,
         payload,
-    )
-    .as_json()
-    .unwrap();
+    );
 
     send_message_sync(
         client,

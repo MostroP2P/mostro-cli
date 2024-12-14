@@ -1,5 +1,6 @@
 use crate::util::send_message_sync;
 use anyhow::Result;
+use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 
 pub async fn execute_send_dm(
@@ -8,16 +9,13 @@ pub async fn execute_send_dm(
     client: &Client,
     message: &str,
 ) -> Result<()> {
-    send_message_sync(
-        client,
+    let message = Message::new_dm(
         None,
-        trade_keys,
-        receiver,
-        message.to_string(),
-        true,
-        true,
-    )
-    .await?;
+        None,
+        Action::SendDm,
+        Some(Payload::TextMessage(message.to_string())),
+    );
+    send_message_sync(client, None, trade_keys, receiver, message, true, true).await?;
 
     Ok(())
 }

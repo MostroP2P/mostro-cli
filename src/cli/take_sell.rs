@@ -56,9 +56,7 @@ pub async fn execute_take_sell(
         Some(trade_index),
         Action::TakeSell,
         payload,
-    )
-    .as_json()
-    .unwrap();
+    );
 
     send_message_sync(
         client,

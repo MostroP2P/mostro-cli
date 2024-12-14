@@ -39,9 +39,7 @@ pub async fn execute_add_invoice(
     }
     // Create AddInvoice message
     let add_invoice_message =
-        Message::new_order(Some(*order_id), None, None, Action::AddInvoice, payload)
-            .as_json()
-            .unwrap();
+        Message::new_order(Some(*order_id), None, None, Action::AddInvoice, payload);
 
     send_message_sync(
         client,
