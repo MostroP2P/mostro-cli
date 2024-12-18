@@ -4,6 +4,7 @@ use crate::{db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::message::{Action, Message, Payload};
+use mostro_core::order::Status;
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -16,32 +17,38 @@ pub async fn execute_add_invoice(
     client: &Client,
 ) -> Result<()> {
     let pool = connect().await?;
-    let order = Order::get_by_id(&pool, &order_id.to_string())
+    let mut order = Order::get_by_id(&pool, &order_id.to_string())
         .await
         .unwrap();
-    let trade_keys = order.trade_keys.unwrap();
+    let trade_keys = order.trade_keys.clone().unwrap();
     let trade_keys = Keys::parse(trade_keys).unwrap();
 
     println!(
         "Sending a lightning invoice {} to mostro pubId {}",
         order_id, mostro_key
     );
-    let mut payload = None;
+    // let mut payload = None;
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
-    if ln_addr.is_ok() {
-        payload = Some(Payload::PaymentRequest(None, invoice.to_string(), None));
+    let payload = if ln_addr.is_ok() {
+        Some(Payload::PaymentRequest(None, invoice.to_string(), None))
     } else {
         match is_valid_invoice(invoice) {
-            Ok(i) => payload = Some(Payload::PaymentRequest(None, i.to_string(), None)),
-            Err(e) => println!("{}", e),
+            Ok(i) => Some(Payload::PaymentRequest(None, i.to_string(), None)),
+            Err(_) => None,
         }
-    }
+    };
+    let request_id = Uuid::new_v4().as_u128() as u64;
     // Create AddInvoice message
-    let add_invoice_message =
-        Message::new_order(Some(*order_id), None, None, Action::AddInvoice, payload);
+    let add_invoice_message = Message::new_order(
+        Some(*order_id),
+        Some(request_id),
+        None,
+        Action::AddInvoice,
+        payload,
+    );
 
-    send_message_sync(
+    let dm = send_message_sync(
         client,
         Some(identity_keys),
         &trade_keys,
@@ -51,6 +58,18 @@ pub async fn execute_add_invoice(
         false,
     )
     .await?;
+
+    dm.iter().for_each(|el| {
+        let message = el.0.get_inner_message_kind();
+        if message.request_id == Some(request_id) && message.action == Action::WaitingSellerToPay {
+            println!("Now we should wait for the seller to pay the invoice");
+        }
+    });
+    order
+        .set_status(Status::WaitingPayment.to_string())
+        .save(&pool)
+        .await
+        .unwrap();
 
     Ok(())
 }

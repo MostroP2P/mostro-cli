@@ -73,8 +73,12 @@ pub async fn execute_take_sell(
 
     let order = dm.iter().find_map(|el| {
         let message = el.0.get_inner_message_kind();
-        if message.request_id == Some(request_id) {
+        if message.request_id == Some(request_id) && message.action == Action::AddInvoice {
             if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                println!(
+                    "Please add a lightning invoice with amount of {}",
+                    order.amount
+                );
                 return Some(order.clone());
             }
         }
