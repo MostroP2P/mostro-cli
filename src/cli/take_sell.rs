@@ -5,7 +5,7 @@ use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::db::{connect, User};
+use crate::db::{connect, Order, User};
 use crate::lightning::is_valid_invoice;
 use crate::util::send_message_sync;
 
@@ -49,16 +49,17 @@ pub async fn execute_take_sell(
             _ => None,
         };
     }
+    let request_id = Uuid::new_v4().as_u128() as u64;
     // Create takesell message
     let take_sell_message = Message::new_order(
         Some(*order_id),
-        None,
+        Some(request_id),
         Some(trade_index),
         Action::TakeSell,
         payload,
     );
 
-    send_message_sync(
+    let dm = send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,
@@ -68,8 +69,25 @@ pub async fn execute_take_sell(
         false,
     )
     .await?;
-
     let pool = connect().await?;
+
+    let order = dm.iter().find_map(|el| {
+        let message = el.0.get_inner_message_kind();
+        if message.request_id == Some(request_id) {
+            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                return Some(order.clone());
+            }
+        }
+        None
+    });
+    if let Some(order) = order {
+        match Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
+            Ok(order) => {
+                println!("Order {} created", order.id.unwrap());
+            }
+            Err(e) => println!("{}", e),
+        }
+    }
     // Update last trade index
     let mut user = User::get(&pool).await.unwrap();
     user.set_last_trade_index(trade_index);
