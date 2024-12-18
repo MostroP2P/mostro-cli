@@ -69,7 +69,10 @@ pub async fn execute_add_invoice(
         .set_status(Status::WaitingPayment.to_string())
         .save(&pool)
         .await
-        .unwrap();
+        .map_err(|e| {
+            println!("Failed to update order status: {}", e);
+            e
+        })?;
 
     Ok(())
 }
