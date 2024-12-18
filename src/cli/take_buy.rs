@@ -4,7 +4,7 @@ use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
 use crate::{
-    db::{connect, User},
+    db::{connect, Order, User},
     util::send_message_sync,
 };
 
@@ -22,17 +22,18 @@ pub async fn execute_take_buy(
         order_id,
         mostro_key.clone()
     );
+    let request_id = Uuid::new_v4().as_u128() as u64;
     let payload = amount.map(|amt: u32| Payload::Amount(amt as i64));
     // Create takebuy message
     let take_buy_message = Message::new_order(
         Some(*order_id),
-        None,
+        Some(request_id),
         Some(trade_index),
         Action::TakeBuy,
         payload,
     );
 
-    send_message_sync(
+    let dm = send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,
@@ -44,6 +45,32 @@ pub async fn execute_take_buy(
     .await?;
 
     let pool = connect().await?;
+
+    let order = dm.iter().find_map(|el| {
+        let message = el.0.get_inner_message_kind();
+        if message.request_id == Some(request_id) {
+            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
+                println!(
+                    "Mostro sent you this hold invoice for order id: {}",
+                    order.as_ref().unwrap().id.unwrap()
+                );
+                println!();
+                println!("Pay this invoice to continue -->  {}", invoice);
+                println!();
+                return order.clone();
+            }
+        }
+        None
+    });
+    if let Some(o) = order {
+        match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
+            Ok(order) => {
+                println!("Order {} created", order.id.unwrap());
+            }
+            Err(e) => println!("{}", e),
+        }
+    }
+
     // Update last trade index
     let mut user = User::get(&pool).await.unwrap();
     user.set_last_trade_index(trade_index);

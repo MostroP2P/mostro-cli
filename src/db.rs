@@ -227,8 +227,12 @@ impl Order {
         request_id: Option<i64>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let trade_keys_hex = trade_keys.secret_key().to_secret_hex();
+        let id = match order.id {
+            Some(id) => id.to_string(),
+            None => uuid::Uuid::new_v4().to_string(),
+        };
         let order = Order {
-            id: Some(uuid::Uuid::new_v4().to_string()),
+            id: Some(id),
             kind: order.kind.as_ref().map(|k| k.to_string()),
             status: order.status.as_ref().map(|s| s.to_string()),
             amount: order.amount,

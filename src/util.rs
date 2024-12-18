@@ -7,7 +7,7 @@ use base64::Engine;
 use dotenvy::var;
 use log::{error, info};
 use mostro_core::dispute::Dispute;
-use mostro_core::message::{Message, Payload};
+use mostro_core::message::Message;
 use mostro_core::order::Kind as MostroKind;
 use mostro_core::order::{SmallOrder, Status};
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
@@ -82,10 +82,9 @@ pub async fn send_message_sync(
     trade_keys: &Keys,
     receiver_pubkey: PublicKey,
     message: Message,
-    wait_for_dm_ans: bool,
+    wait_for_dm: bool,
     to_user: bool,
 ) -> Result<Vec<(Message, u64)>> {
-    let mut dm: Vec<(Message, u64)> = Vec::new();
     let message_json = message.as_json()?;
     // Send dm to receiver pubkey
     println!(
@@ -101,25 +100,15 @@ pub async fn send_message_sync(
         to_user,
     )
     .await?;
-    sleep(Duration::from_secs(1));
+    // FIXME: This is a hack to wait for the DM to be sent
+    sleep(Duration::from_secs(2));
 
-    if wait_for_dm_ans {
-        dm = get_direct_messages(client, trade_keys, 1, to_user).await;
-        for el in dm.iter() {
-            if let Some(Payload::PaymentRequest(ord, inv, _)) =
-                &el.0.get_inner_message_kind().payload
-            {
-                println!("NEW MESSAGE:");
-                println!(
-                    "Mostro sent you this hold invoice for order id: {}",
-                    ord.as_ref().unwrap().id.unwrap()
-                );
-                println!();
-                println!("Pay this invoice to continue -->  {}", inv);
-                println!();
-            }
-        }
-    }
+    let dm: Vec<(Message, u64)> = if wait_for_dm {
+        get_direct_messages(client, trade_keys, 15, to_user).await
+    } else {
+        Vec::new()
+    };
+
     Ok(dm)
 }
 
