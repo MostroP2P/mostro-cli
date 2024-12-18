@@ -35,7 +35,10 @@ pub async fn execute_add_invoice(
     } else {
         match is_valid_invoice(invoice) {
             Ok(i) => Some(Payload::PaymentRequest(None, i.to_string(), None)),
-            Err(_) => None,
+            Err(e) => {
+                println!("Invalid invoice: {}", e);
+                None
+            }
         }
     };
     let request_id = Uuid::new_v4().as_u128() as u64;
