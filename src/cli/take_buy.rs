@@ -48,7 +48,7 @@ pub async fn execute_take_buy(
 
     let order = dm.iter().find_map(|el| {
         let message = el.0.get_inner_message_kind();
-        if message.request_id == Some(request_id) {
+        if message.request_id == Some(request_id) && message.action == Action::PayInvoice {
             if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
                 println!(
                     "Mostro sent you this hold invoice for order id: {}",
