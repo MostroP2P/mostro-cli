@@ -68,14 +68,14 @@ pub async fn execute_add_invoice(
             println!("Now we should wait for the seller to pay the invoice");
         }
     });
-    order
+    match order
         .set_status(Status::WaitingPayment.to_string())
         .save(&pool)
         .await
-        .map_err(|e| {
-            println!("Failed to update order status: {}", e);
-            e
-        })?;
+    {
+        Ok(_) => println!("Order status updated"),
+        Err(e) => println!("Failed to update order status: {}", e),
+    }
 
     Ok(())
 }
