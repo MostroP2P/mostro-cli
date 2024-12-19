@@ -129,6 +129,7 @@ pub async fn requests_relay(
                 if m.is_empty() {
                     info!("No requested events found on relay {}", relay.0.to_string());
                 }
+                println!("Received events: {:?}", res);
                 res = m
             }
             Err(_e) => println!("Error"),
@@ -183,6 +184,7 @@ pub async fn get_events_of_mostro(
 
     // Send msg to relay
     relay.send_msg(msg.clone())?;
+    println!("Message sent to relay {:?}", relay.url());
 
     // Wait notification from relays
     let mut notifications = client.notifications();
@@ -196,10 +198,12 @@ pub async fn get_events_of_mostro(
                 } => {
                     if subscription_id == id {
                         events.push(event.as_ref().clone());
+                        println!("Received event: {:?}", event);
                     }
                 }
                 RelayMessage::EndOfStoredEvents(subscription_id) => {
                     if subscription_id == id {
+                        println!("End of stored events relay {:?}", relay.url());
                         break;
                     }
                 }
@@ -247,17 +251,24 @@ pub async fn get_direct_messages(
 
     info!("Request events with event kind : {:?} ", filters.kinds);
 
-    // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filters).await;
-
-    // Buffer vector for direct messages
     let mut direct_messages: Vec<(Message, u64)> = Vec::new();
 
-    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut id_list = Vec::<EventId>::new();
+    // Send all requests to relays
+    //let mostro_req = send_relays_requests(client, filters).await;
+    let relays = client.pool().relays().await;
+    for r in relays.into_iter() {
+        let _ = client.add_relay(r.0).await;
+    }
 
-    for dms in mostro_req.iter() {
-        for dm in dms {
+    if let Ok(mostro_req) = client
+        .fetch_events(vec![filters], Some(Duration::from_secs(15)))
+        .await
+    {
+        // Buffer vector for direct messages
+        // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+        let mut id_list = Vec::<EventId>::new();
+
+        for dm in mostro_req.iter() {
             if !id_list.contains(&dm.id) {
                 id_list.push(dm.id);
                 let created_at: Timestamp;
@@ -281,6 +292,7 @@ pub async fn get_direct_messages(
                     let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
                         Ok(u) => u,
                         Err(_) => {
+                            println!("Error unwrapping gift");
                             continue;
                         }
                     };
@@ -290,6 +302,7 @@ pub async fn get_direct_messages(
                         .get_inner_message_kind()
                         .verify_signature(unwrapped_gift.rumor.pubkey, sig)
                     {
+                        println!("Signature verification failed");
                         continue;
                     }
                     message = mmessage;
@@ -297,19 +310,19 @@ pub async fn get_direct_messages(
                 }
                 // Here we discard messages older than the real since parameter
                 let since_time = chrono::Utc::now()
-                    .checked_sub_signed(chrono::Duration::minutes(since))
+                    .checked_sub_signed(chrono::Duration::minutes(30))
                     .unwrap()
                     .timestamp() as u64;
                 if created_at.as_u64() < since_time {
+                    println!("Discarding message older than since parameter");
                     continue;
                 }
-
                 direct_messages.push((message, created_at.as_u64()));
             }
         }
+        // Return element sorted by second tuple element ( Timestamp )
+        direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
     }
-    // Return element sorted by second tuple element ( Timestamp )
-    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
 
     direct_messages
 }
