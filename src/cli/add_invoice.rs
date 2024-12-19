@@ -27,7 +27,6 @@ pub async fn execute_add_invoice(
         "Sending a lightning invoice {} to mostro pubId {}",
         order_id, mostro_key
     );
-    // let mut payload = None;
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
     let payload = if ln_addr.is_ok() {
