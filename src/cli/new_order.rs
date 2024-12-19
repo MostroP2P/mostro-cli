@@ -141,8 +141,7 @@ pub async fn execute_new_order(
         false,
     )
     .await?;
-    let order_id = dm
-        .iter()
+
     let order_id = dm
         .iter()
         .find_map(|el| {
@@ -150,7 +149,7 @@ pub async fn execute_new_order(
             message
                 .request_id
                 .filter(|&id| id == request_id)
-                .and_then(|_| message.payload.as_ref())
+                .and(message.payload.as_ref())
                 .and_then(|payload| {
                     if let Payload::Order(order) = payload {
                         order.id
