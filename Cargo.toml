@@ -48,6 +48,3 @@ openssl = { version = "0.10.68", features = ["vendored"] }
 sqlx = { version = "0.8.2", features = ["sqlite", "runtime-tokio-native-tls"] }
 bip39 = { version = "2.1.0", features = ["rand"] }
 dirs = "5.0.1"
-
-[patch.crates-io]
-mostro-core = { path = "../mostro-core" }
