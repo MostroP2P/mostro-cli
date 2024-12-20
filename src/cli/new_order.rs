@@ -155,15 +155,11 @@ pub async fn execute_new_order(
         .ok_or_else(|| anyhow::anyhow!("No matching order found in response"))?;
 
     println!("Order id {} created", order_id);
-    Order::save_new_id(
-        &pool,
-        db_order
-            .id
-            .clone()
-            .ok_or(anyhow::anyhow!("Missing order id"))?,
-        order_id.to_string(),
-    )
-    .await?;
+    let db_order_id = db_order
+        .id
+        .clone()
+        .ok_or(anyhow::anyhow!("Missing order id"))?;
+    Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
 
     Ok(())
 }
