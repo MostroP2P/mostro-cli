@@ -97,5 +97,15 @@ pub async fn execute_take_sell(
     user.set_last_trade_index(trade_index);
     user.save(&pool).await.unwrap();
 
+    for el in dm.iter() {
+        let payload = el.0.get_inner_message_kind().payload.clone();
+        if let Some(Payload::Order(order)) = &payload {
+            println!("Order id {} created", order.id.unwrap());
+            let _db_order = Order::new(&pool, order.clone(), trade_keys, None)
+                .await
+                .unwrap();
+        }
+    }
+
     Ok(())
 }
