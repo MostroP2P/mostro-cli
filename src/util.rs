@@ -24,7 +24,6 @@ pub async fn send_dm(
     receiver_pubkey: &PublicKey,
     payload: String,
     expiration: Option<Timestamp>,
-    pow: u8,
     to_user: bool,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
@@ -51,7 +50,7 @@ pub async fn send_dm(
         let content = (message, sig);
         let content = serde_json::to_string(&content).unwrap();
         // We create the rumor
-        let rumor = EventBuilder::text_note(content).pow(difficulty);
+        let rumor = EventBuilder::text_note(content).pow(pow);
         let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
         tags.push(Tag::public_key(*receiver_pubkey));
     
@@ -60,8 +59,7 @@ pub async fn send_dm(
         }
         let tags = Tags::new(tags);
         
-        EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?;
-        
+        EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
     };
 
     info!("Sending event: {event:#?}");
@@ -109,7 +107,6 @@ pub async fn send_message_sync(
         &receiver_pubkey,
         message_json,
         None,
-        pow,
         to_user
     )
     .await?;
