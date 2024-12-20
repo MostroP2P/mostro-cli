@@ -16,8 +16,6 @@ use nostr_sdk::prelude::*;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, path::Path};
-use tokio::time::timeout;
-use uuid::Uuid;
 
 pub async fn send_dm(
     client: &Client,
@@ -112,112 +110,6 @@ pub async fn send_message_sync(
     Ok(dm)
 }
 
-pub async fn requests_relay(
-    client: Client,
-    relay: (RelayUrl, Relay),
-    filters: Filter,
-) -> Vec<Event> {
-    let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], client);
-
-    // Buffer vector
-    let mut res: Vec<Event> = Vec::new();
-
-    // Using a timeout of 3 seconds to avoid unresponsive relays to block the loop forever.
-    if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
-        match rx {
-            Ok(m) => {
-                if m.is_empty() {
-                    info!("No requested events found on relay {}", relay.0.to_string());
-                }
-                println!("Received events: {:?}", res);
-                res = m
-            }
-            Err(_e) => println!("Error"),
-        }
-    }
-
-    res
-}
-
-pub async fn send_relays_requests(client: &Client, filters: Filter) -> Vec<Vec<Event>> {
-    let relays = client.relays().await;
-
-    let relays_requests = relays.len();
-    let mut requests: Vec<tokio::task::JoinHandle<Vec<Event>>> =
-        Vec::with_capacity(relays_requests);
-    let mut answers_requests = Vec::with_capacity(relays_requests);
-
-    for relay in relays.into_iter() {
-        info!("Requesting to relay : {}", relay.0.as_str());
-        // Spawn futures and join them at the end
-        requests.push(tokio::spawn(requests_relay(
-            client.clone(),
-            relay.clone(),
-            filters.clone(),
-        )));
-    }
-
-    // Get answers from relay
-    for req in requests {
-        answers_requests.push(req.await.unwrap());
-    }
-
-    answers_requests
-}
-
-pub async fn get_events_of_mostro(
-    relay: &Relay,
-    filters: Vec<Filter>,
-    client: Client,
-) -> Result<Vec<Event>, Error> {
-    let mut events: Vec<Event> = Vec::new();
-
-    // Subscribe
-    info!(
-        "Subscribing for all mostro orders to relay : {}",
-        relay.url().to_string()
-    );
-    let id = SubscriptionId::new(Uuid::new_v4().to_string());
-    let msg = ClientMessage::req(id.clone(), filters.clone());
-
-    info!("Message sent : {:?}", msg);
-
-    // Send msg to relay
-    relay.send_msg(msg.clone())?;
-    println!("Message sent to relay {:?}", relay.url());
-
-    // Wait notification from relays
-    let mut notifications = client.notifications();
-
-    while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotification::Message { message, .. } = notification {
-            match message {
-                RelayMessage::Event {
-                    subscription_id,
-                    event,
-                } => {
-                    if subscription_id == id {
-                        events.push(event.as_ref().clone());
-                        println!("Received event: {:?}", event);
-                    }
-                }
-                RelayMessage::EndOfStoredEvents(subscription_id) => {
-                    if subscription_id == id {
-                        println!("End of stored events relay {:?}", relay.url());
-                        break;
-                    }
-                }
-                _ => (),
-            };
-        }
-    }
-
-    // Unsubscribe
-    relay.send_msg(ClientMessage::close(id))?;
-
-    Ok(events)
-}
-
 pub async fn get_direct_messages(
     client: &Client,
     my_key: &Keys,
@@ -252,13 +144,6 @@ pub async fn get_direct_messages(
     info!("Request events with event kind : {:?} ", filters.kinds);
 
     let mut direct_messages: Vec<(Message, u64)> = Vec::new();
-
-    // Send all requests to relays
-    //let mostro_req = send_relays_requests(client, filters).await;
-    let relays = client.pool().relays().await;
-    for r in relays.into_iter() {
-        let _ = client.add_relay(r.0).await;
-    }
 
     if let Ok(mostro_req) = client
         .fetch_events(vec![filters], Some(Duration::from_secs(15)))
@@ -341,7 +226,7 @@ pub async fn get_orders_list(
 
     let timestamp = Timestamp::from(since_time);
 
-    let filter = Filter::new()
+    let filters = Filter::new()
         .author(pubkey)
         .limit(50)
         .since(timestamp)
@@ -350,7 +235,7 @@ pub async fn get_orders_list(
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        filter.authors, filter.kinds
+        filters.authors, filters.kinds
     );
 
     // Extracted Orders List
@@ -358,11 +243,13 @@ pub async fn get_orders_list(
     let mut requested_orders_list = Vec::<SmallOrder>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filter).await;
-    // Scan events to extract all orders
-    for orders_row in mostro_req.iter() {
-        for ord in orders_row {
-            let order = order_from_tags(ord.tags.clone());
+    if let Ok(mostro_req) = client
+        .fetch_events(vec![filters], Some(Duration::from_secs(15)))
+        .await
+    {
+        // Scan events to extract all orders
+        for el in mostro_req.iter() {
+            let order = order_from_tags(el.tags.clone());
 
             if order.is_err() {
                 error!("{order:?}");
@@ -388,7 +275,7 @@ pub async fn get_orders_list(
             }
 
             // Get created at field from Nostr event
-            order.created_at = Some(ord.created_at.as_u64() as i64);
+            order.created_at = Some(el.created_at.as_u64() as i64);
 
             complete_events_list.push(order.clone());
 
@@ -444,10 +331,12 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
     let mut disputes_list = Vec::<Dispute>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filter).await;
-    // Scan events to extract all disputes
-    for disputes_row in mostro_req.iter() {
-        for d in disputes_row {
+    if let Ok(mostro_req) = client
+        .fetch_events(vec![filter], Some(Duration::from_secs(15)))
+        .await
+    {
+        // Scan events to extract all disputes
+        for d in mostro_req.iter() {
             let dispute = dispute_from_tags(d.tags.clone());
 
             if dispute.is_err() {
