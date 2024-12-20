@@ -52,7 +52,7 @@ pub async fn execute_send_msg(
     match order {
         Ok(order) => {
             if let Some(trade_keys_str) = order.trade_keys {
-                let trade_keys = Keys::parse(trade_keys_str)?;
+                let trade_keys = Keys::parse(&trade_keys_str)?;
                 send_message_sync(
                     client,
                     identity_keys,
