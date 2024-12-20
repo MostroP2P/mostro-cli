@@ -167,7 +167,7 @@ pub async fn execute_new_order(
         let pool = connect().await?;
         let db_order = Order::new(&pool, small_order, trade_keys, Some(request_id as i64))
             .await
-            .unwrap();
+            .map_err(|e| anyhow::anyhow!("Failed to create DB order: {:?}", e))?;
         // Update last trade index
         match User::get(&pool).await {
             Ok(mut user) => {

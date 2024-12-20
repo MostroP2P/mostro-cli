@@ -99,7 +99,11 @@ pub async fn execute_take_sell(
     if let Some(o) = order {
         match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
             Ok(order) => {
-                println!("Order {} created", order.id.unwrap());
+                if let Some(order_id) = order.id {
+                    println!("Order {} created", order_id);
+                } else {
+                    println!("Warning: The newly created order has no ID.");
+                }
                 // Update last trade index to be used in next trade
                 match User::get(&pool).await {
                     Ok(mut user) => {
