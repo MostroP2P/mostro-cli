@@ -85,7 +85,7 @@ pub async fn execute_take_sell(
                     }
                 }
                 Action::OutOfRangeFiatAmount => {
-                    println!("Please add an amount between min and max");
+                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
                     return None;
                 }
                 _ => {
@@ -96,14 +96,20 @@ pub async fn execute_take_sell(
         }
         None
     });
-    if let Some(order) = order {
-        match Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
+    if let Some(o) = order {
+        match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
             Ok(order) => {
                 println!("Order {} created", order.id.unwrap());
-                // Update last trade index
-                let mut user = User::get(&pool).await.unwrap();
-                user.set_last_trade_index(trade_index);
-                user.save(&pool).await.unwrap();
+                // Update last trade index to be used in next trade
+                match User::get(&pool).await {
+                    Ok(mut user) => {
+                        user.set_last_trade_index(trade_index);
+                        if let Err(e) = user.save(&pool).await {
+                            println!("Failed to update user: {}", e);
+                        }
+                    }
+                    Err(e) => println!("Failed to get user: {}", e),
+                }
             }
             Err(e) => println!("{}", e),
         }
