@@ -65,7 +65,7 @@ pub async fn execute_take_buy(
                         return order.clone();
                     }
                 }
-                Action::OutOfRangeFiatAmount => {
+                Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount=> {
                     println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
                     return None;
                 }
