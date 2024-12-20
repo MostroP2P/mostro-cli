@@ -141,34 +141,25 @@ pub async fn execute_new_order(
         false,
     )
     .await?;
-
     let order_id = dm
         .iter()
         .find_map(|el| {
             let message = el.0.get_inner_message_kind();
-            message
-                .request_id
-                .filter(|&id| id == request_id)
-                .and(message.payload.as_ref())
-                .and_then(|payload| {
-                    if let Payload::Order(order) = payload {
-                        order.id
-                    } else {
-                        None
-                    }
-                })
+            if message.request_id == Some(request_id) {
+                if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                    return order.id;
+                }
+            }
+            None
         })
         .ok_or_else(|| anyhow::anyhow!("No matching order found in response"))?;
 
     println!("Order id {} created", order_id);
-    Order::save_new_id(
-        &pool,
-        db_order
-            .id
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Missing order id"))?,
-        order_id.to_string(),
-    )
-    .await?;
+    let db_order_id = db_order
+        .id
+        .clone()
+        .ok_or(anyhow::anyhow!("Missing order id"))?;
+    Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
+
     Ok(())
 }

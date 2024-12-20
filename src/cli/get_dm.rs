@@ -33,7 +33,6 @@ pub async fn execute_get_dm(
     for keys in final_trade_keys.iter() {
         let trade_keys =
             Keys::parse(keys).map_err(|e| anyhow::anyhow!("Failed to parse trade keys: {}", e))?;
-        println!("Getting messages for trade keys: {}", keys);
         let dm_temp = get_direct_messages(client, &trade_keys, *since, from_user).await;
         dm.extend(dm_temp);
     }

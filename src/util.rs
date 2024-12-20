@@ -1,6 +1,5 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
 
-
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -50,15 +49,17 @@ pub async fn send_dm(
         let content = (message, sig);
         let content = serde_json::to_string(&content).unwrap();
         // We create the rumor
-        let rumor = EventBuilder::text_note(content).pow(pow).build(trade_keys.public_key());
+        let rumor = EventBuilder::text_note(content)
+            .pow(pow)
+            .build(trade_keys.public_key());
         let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
         tags.push(Tag::public_key(*receiver_pubkey));
-    
+
         if let Some(timestamp) = expiration {
             tags.push(Tag::expiration(timestamp));
         }
         let tags = Tags::new(tags);
-        
+
         EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
     };
 
@@ -107,7 +108,7 @@ pub async fn send_message_sync(
         &receiver_pubkey,
         message_json,
         None,
-        to_user
+        to_user,
     )
     .await?;
     // FIXME: This is a hack to wait for the DM to be sent
