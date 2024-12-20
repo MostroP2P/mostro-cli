@@ -48,16 +48,31 @@ pub async fn execute_take_buy(
 
     let order = dm.iter().find_map(|el| {
         let message = el.0.get_inner_message_kind();
-        if message.request_id == Some(request_id) && message.action == Action::PayInvoice {
-            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
-                println!(
-                    "Mostro sent you this hold invoice for order id: {}",
-                    order.as_ref().unwrap().id.unwrap()
-                );
-                println!();
-                println!("Pay this invoice to continue -->  {}", invoice);
-                println!();
-                return order.clone();
+        if message.request_id == Some(request_id) {
+            match message.action {
+                Action::PayInvoice => {
+                    if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
+                        println!(
+                            "Mostro sent you this hold invoice for order id: {}",
+                            order
+                                .as_ref()
+                                .and_then(|o| o.id)
+                                .map_or("unknown".to_string(), |id| id.to_string())
+                        );
+                        println!();
+                        println!("Pay this invoice to continue -->  {}", invoice);
+                        println!();
+                        return order.clone();
+                    }
+                }
+                Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount=> {
+                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                    return None;
+                }
+                _ => {
+                    println!("Unknown action: {:?}", message.action);
+                    return None;
+                }
             }
         }
         None
@@ -66,15 +81,20 @@ pub async fn execute_take_buy(
         match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
             Ok(order) => {
                 println!("Order {} created", order.id.unwrap());
+                // Update last trade index to be used in next trade
+                match User::get(&pool).await {
+                    Ok(mut user) => {
+                        user.set_last_trade_index(trade_index);
+                        if let Err(e) = user.save(&pool).await {
+                            println!("Failed to update user: {}", e);
+                        }
+                    }
+                    Err(e) => println!("Failed to get user: {}", e),
+                }
             }
             Err(e) => println!("{}", e),
         }
     }
-
-    // Update last trade index
-    let mut user = User::get(&pool).await.unwrap();
-    user.set_last_trade_index(trade_index);
-    user.save(&pool).await.unwrap();
 
     Ok(())
 }

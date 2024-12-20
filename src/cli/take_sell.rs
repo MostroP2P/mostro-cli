@@ -73,29 +73,51 @@ pub async fn execute_take_sell(
 
     let order = dm.iter().find_map(|el| {
         let message = el.0.get_inner_message_kind();
-        if message.request_id == Some(request_id) && message.action == Action::AddInvoice {
-            if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                println!(
-                    "Please add a lightning invoice with amount of {}",
-                    order.amount
-                );
-                return Some(order.clone());
+        if message.request_id == Some(request_id) {
+            match message.action {
+                Action::AddInvoice => {
+                    if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                        println!(
+                            "Please add a lightning invoice with amount of {}",
+                            order.amount
+                        );
+                        return Some(order.clone());
+                    }
+                }
+                Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount => {
+                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                    return None;
+                }
+                _ => {
+                    println!("Unknown action: {:?}", message.action);
+                    return None;
+                }
             }
         }
         None
     });
-    if let Some(order) = order {
-        match Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
+    if let Some(o) = order {
+        match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
             Ok(order) => {
-                println!("Order {} created", order.id.unwrap());
+                if let Some(order_id) = order.id {
+                    println!("Order {} created", order_id);
+                } else {
+                    println!("Warning: The newly created order has no ID.");
+                }
+                // Update last trade index to be used in next trade
+                match User::get(&pool).await {
+                    Ok(mut user) => {
+                        user.set_last_trade_index(trade_index);
+                        if let Err(e) = user.save(&pool).await {
+                            println!("Failed to update user: {}", e);
+                        }
+                    }
+                    Err(e) => println!("Failed to get user: {}", e),
+                }
             }
             Err(e) => println!("{}", e),
         }
     }
-    // Update last trade index
-    let mut user = User::get(&pool).await.unwrap();
-    user.set_last_trade_index(trade_index);
-    user.save(&pool).await.unwrap();
 
     Ok(())
 }

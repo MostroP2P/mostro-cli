@@ -122,15 +122,7 @@ pub async fn execute_new_order(
         Action::NewOrder,
         Some(order_content),
     );
-    // Create order in db
-    let pool = connect().await?;
-    let db_order = Order::new(&pool, small_order, trade_keys, Some(request_id as i64))
-        .await
-        .unwrap();
-    // Update last trade index
-    let mut user = User::get(&pool).await.unwrap();
-    user.set_last_trade_index(trade_index);
-    user.save(&pool).await.unwrap();
+
     let dm = send_message_sync(
         client,
         Some(identity_keys),
@@ -146,20 +138,51 @@ pub async fn execute_new_order(
         .find_map(|el| {
             let message = el.0.get_inner_message_kind();
             if message.request_id == Some(request_id) {
-                if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                    return order.id;
+                match message.action {
+                    Action::NewOrder => {
+                        if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                            return order.id;
+                        }
+                    }
+                    Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount => {
+                        println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                        return None;
+                    }
+                    _ => {
+                        println!("Unknown action: {:?}", message.action);
+                        return None;
+                    }
                 }
             }
             None
         })
-        .ok_or_else(|| anyhow::anyhow!("No matching order found in response"))?;
+        .or_else(|| {
+            println!("Error: No matching order found in response");
+            None
+        });
 
-    println!("Order id {} created", order_id);
-    let db_order_id = db_order
-        .id
-        .clone()
-        .ok_or(anyhow::anyhow!("Missing order id"))?;
-    Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
-
+    if let Some(order_id) = order_id {
+        println!("Order id {} created", order_id);
+        // Create order in db
+        let pool = connect().await?;
+        let db_order = Order::new(&pool, small_order, trade_keys, Some(request_id as i64))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create DB order: {:?}", e))?;
+        // Update last trade index
+        match User::get(&pool).await {
+            Ok(mut user) => {
+                user.set_last_trade_index(trade_index);
+                if let Err(e) = user.save(&pool).await {
+                    println!("Failed to update user: {}", e);
+                }
+            }
+            Err(e) => println!("Failed to get user: {}", e),
+        }
+        let db_order_id = db_order
+            .id
+            .clone()
+            .ok_or(anyhow::anyhow!("Missing order id"))?;
+        Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
+    }
     Ok(())
 }
