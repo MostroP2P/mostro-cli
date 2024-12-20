@@ -1,5 +1,5 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
-use crate::nip59::{gift_wrap, unwrap_gift_wrap};
+
 
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
@@ -23,6 +23,8 @@ pub async fn send_dm(
     trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     payload: String,
+    expiration: Option<Timestamp>,
+    pow: u8,
     to_user: bool,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
@@ -41,14 +43,25 @@ pub async fn send_dm(
     } else {
         let identity_keys = identity_keys
             .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
-        gift_wrap(
-            identity_keys,
-            trade_keys,
-            *receiver_pubkey,
-            payload,
-            None,
-            pow,
-        )?
+
+        let message = Message::from_json(&payload).unwrap();
+        // We sign the message
+        let sig = message.get_inner_message_kind().sign(trade_keys);
+        // We compose the content
+        let content = (message, sig);
+        let content = serde_json::to_string(&content).unwrap();
+        // We create the rumor
+        let rumor = EventBuilder::text_note(content).pow(difficulty);
+        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
+        tags.push(Tag::public_key(*receiver_pubkey));
+    
+        if let Some(timestamp) = expiration {
+            tags.push(Tag::expiration(timestamp));
+        }
+        let tags = Tags::new(tags);
+        
+        EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?;
+        
     };
 
     info!("Sending event: {event:#?}");
@@ -95,7 +108,9 @@ pub async fn send_message_sync(
         trade_keys,
         &receiver_pubkey,
         message_json,
-        to_user,
+        None,
+        pow,
+        to_user
     )
     .await?;
     // FIXME: This is a hack to wait for the DM to be sent
@@ -174,7 +189,7 @@ pub async fn get_direct_messages(
                     message = Message::from_json(&message_str).unwrap();
                     created_at = dm.created_at;
                 } else {
-                    let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
+                    let unwrapped_gift = match nip59::extract_rumor(my_key, dm).await {
                         Ok(u) => u,
                         Err(_) => {
                             println!("Error unwrapping gift");
