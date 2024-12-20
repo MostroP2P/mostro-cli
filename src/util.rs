@@ -31,7 +31,7 @@ pub async fn send_dm(
         // Derive conversation key
         let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey);
         // Encrypt payload
-        let encrypted_content = encrypt_to_bytes(&ck, payload)?;
+        let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
         // Encode with base64
         let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
         // Compose builder
@@ -50,7 +50,7 @@ pub async fn send_dm(
         let content = (message, sig);
         let content = serde_json::to_string(&content).unwrap();
         // We create the rumor
-        let rumor = EventBuilder::text_note(content).pow(pow);
+        let rumor = EventBuilder::text_note(content).pow(pow).build(trade_keys.public_key());
         let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
         tags.push(Tag::public_key(*receiver_pubkey));
     
@@ -158,7 +158,7 @@ pub async fn get_direct_messages(
     let mut direct_messages: Vec<(Message, u64)> = Vec::new();
 
     if let Ok(mostro_req) = client
-        .fetch_events(vec![filters], Some(Duration::from_secs(15)))
+        .fetch_events(vec![filters], Duration::from_secs(15))
         .await
     {
         // Buffer vector for direct messages
@@ -180,7 +180,7 @@ pub async fn get_direct_messages(
                             }
                         };
                     // Decrypt
-                    let unencrypted_content = decrypt_to_bytes(&ck, b64decoded_content).unwrap();
+                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content).unwrap();
                     let message_str =
                         String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
                     message = Message::from_json(&message_str).unwrap();
@@ -256,7 +256,7 @@ pub async fn get_orders_list(
 
     // Send all requests to relays
     if let Ok(mostro_req) = client
-        .fetch_events(vec![filters], Some(Duration::from_secs(15)))
+        .fetch_events(vec![filters], Duration::from_secs(15))
         .await
     {
         // Scan events to extract all orders
@@ -344,7 +344,7 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
 
     // Send all requests to relays
     if let Ok(mostro_req) = client
-        .fetch_events(vec![filter], Some(Duration::from_secs(15)))
+        .fetch_events(vec![filter], Duration::from_secs(15))
         .await
     {
         // Scan events to extract all disputes

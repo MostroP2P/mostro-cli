@@ -1,38 +1,8 @@
 use base64::engine::{general_purpose, Engine};
-use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
+use nip44::v2::{decrypt_to_bytes, ConversationKey};
 use nostr_sdk::event::builder::Error as BuilderError;
 use nostr_sdk::prelude::*;
 
-
-pub fn gift_wrap_from_seal(
-    receiver: &PublicKey,
-    seal: &Event,
-    expiration: Option<Timestamp>,
-    pow: u8,
-) -> Result<Event, BuilderError> {
-    let ephemeral_keys: Keys = Keys::generate();
-    // Derive conversation key
-    let ck = ConversationKey::derive(ephemeral_keys.secret_key(), receiver);
-    // Encrypt payload
-    let encrypted_content = encrypt_to_bytes(&ck, seal.as_json())?;
-    let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
-    tags.push(Tag::public_key(*receiver));
-
-    if let Some(timestamp) = expiration {
-        tags.push(Tag::expiration(timestamp));
-    }
-    let tags = Tags::new(tags);
-    // Encode with base64
-    let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
-    let event = EventBuilder::new(Kind::GiftWrap, b64decoded_content)
-        .tags(tags)
-        .custom_created_at(Timestamp::tweaked(nip59::RANGE_RANDOM_TIMESTAMP_TWEAK))
-        .pow(pow)
-        .build(ephemeral_keys.public_key())
-        .sign_with_keys(&ephemeral_keys)?;
-
-    Ok(event)
-}
 
 pub fn unwrap_gift_wrap(
     keys: Option<&Keys>,
@@ -62,7 +32,7 @@ pub fn unwrap_gift_wrap(
         }
     };
     // Decrypt and verify seal
-    let seal = decrypt_to_bytes(&gw_ck, b64decoded_content)?;
+    let seal = decrypt_to_bytes(&gw_ck, &b64decoded_content)?;
     let seal = String::from_utf8(seal).expect("Found invalid UTF-8");
     let seal = match Event::from_json(seal) {
         Ok(seal) => seal,
@@ -95,7 +65,7 @@ pub fn unwrap_gift_wrap(
         }
     };
     // Decrypt rumor
-    let rumor = decrypt_to_bytes(&seal_ck, b64decoded_content)?;
+    let rumor = decrypt_to_bytes(&seal_ck, &b64decoded_content)?;
     let rumor = String::from_utf8(rumor).expect("Found invalid UTF-8");
 
     Ok(UnwrappedGift {
