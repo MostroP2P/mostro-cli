@@ -410,15 +410,7 @@ pub async fn run() -> Result<()> {
                 .await?
             }
             Commands::Rate { order_id, rating } => {
-                execute_rate_user(
-                    order_id,
-                    rating,
-                    &identity_keys,
-                    &trade_keys,
-                    mostro_key,
-                    &client,
-                )
-                .await?;
+                execute_rate_user(order_id, rating, &identity_keys, mostro_key, &client).await?;
             }
             Commands::AdmTakeDispute { dispute_id } => {
                 execute_take_dispute(dispute_id, &identity_keys, &trade_keys, mostro_key, &client)
