@@ -21,7 +21,7 @@ pub async fn execute_add_invoice(
         .await
         .unwrap();
     let trade_keys = order.trade_keys.clone().unwrap();
-    let trade_keys = Keys::parse(trade_keys).unwrap();
+    let trade_keys = Keys::parse(&trade_keys).unwrap();
 
     println!(
         "Sending a lightning invoice {} to mostro pubId {}",

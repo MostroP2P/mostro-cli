@@ -28,9 +28,14 @@ pub async fn execute_rate_user(
 
     let pool = connect().await?;
 
-    // Get trade key for order
     let order_to_vote = Order::get_by_id(&pool, &order_id.to_string()).await?;
-    let trade_keys = Keys::parse(&order_to_vote.trade_keys.unwrap()).unwrap();
+    let trade_keys = match order_to_vote.trade_keys.as_ref() {
+        Some(trade_keys) => Keys::parse(trade_keys)?,
+        None => {
+            println!("key parse error");
+            std::process::exit(0);
+        }
+    };
 
     // Create rating message of counterpart
     let rate_message = Message::new_order(
