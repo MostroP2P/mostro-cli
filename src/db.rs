@@ -171,7 +171,7 @@ impl User {
 
     pub async fn get_next_trade_keys(pool: &SqlitePool) -> Result<(Keys, i64)> {
         let mut trade_index = User::get_next_trade_index(pool.clone()).await?;
-        trade_index = trade_index - 1;
+        trade_index -= 1;
 
         let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
