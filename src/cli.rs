@@ -159,6 +159,9 @@ pub enum Commands {
         /// Pubkey of the counterpart
         #[arg(short, long)]
         pubkey: String,
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
         /// Message to send
         #[arg(short, long)]
         message: String,
@@ -417,9 +420,9 @@ pub async fn run() -> Result<()> {
                     .await?
             }
             Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
-            Commands::SendDm { pubkey, message } => {
+            Commands::SendDm { pubkey, order_id, message } => {
                 let pubkey = PublicKey::from_str(pubkey)?;
-                execute_send_dm(&trade_keys, pubkey, &client, message).await?
+                execute_send_dm(pubkey, &client, order_id, message).await?
             }
         };
     }
