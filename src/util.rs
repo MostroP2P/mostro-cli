@@ -1,5 +1,4 @@
 use crate::nip33::{dispute_from_tags, order_from_tags};
-use crate::nip59::{gift_wrap, unwrap_gift_wrap};
 
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
@@ -16,8 +15,6 @@ use nostr_sdk::prelude::*;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, path::Path};
-use tokio::time::timeout;
-use uuid::Uuid;
 
 pub async fn send_dm(
     client: &Client,
@@ -25,6 +22,7 @@ pub async fn send_dm(
     trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     payload: String,
+    expiration: Option<Timestamp>,
     to_user: bool,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
@@ -32,7 +30,7 @@ pub async fn send_dm(
         // Derive conversation key
         let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey);
         // Encrypt payload
-        let encrypted_content = encrypt_to_bytes(&ck, payload)?;
+        let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
         // Encode with base64
         let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
         // Compose builder
@@ -43,14 +41,26 @@ pub async fn send_dm(
     } else {
         let identity_keys = identity_keys
             .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
-        gift_wrap(
-            identity_keys,
-            trade_keys,
-            *receiver_pubkey,
-            payload,
-            None,
-            pow,
-        )?
+
+        let message = Message::from_json(&payload).unwrap();
+        // We sign the message
+        let sig = message.get_inner_message_kind().sign(trade_keys);
+        // We compose the content
+        let content = (message, sig);
+        let content = serde_json::to_string(&content).unwrap();
+        // We create the rumor
+        let rumor = EventBuilder::text_note(content)
+            .pow(pow)
+            .build(trade_keys.public_key());
+        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
+        tags.push(Tag::public_key(*receiver_pubkey));
+
+        if let Some(timestamp) = expiration {
+            tags.push(Tag::expiration(timestamp));
+        }
+        let tags = Tags::new(tags);
+
+        EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
     };
 
     info!("Sending event: {event:#?}");
@@ -97,6 +107,7 @@ pub async fn send_message_sync(
         trade_keys,
         &receiver_pubkey,
         message_json,
+        None,
         to_user,
     )
     .await?;
@@ -110,108 +121,6 @@ pub async fn send_message_sync(
     };
 
     Ok(dm)
-}
-
-pub async fn requests_relay(
-    client: Client,
-    relay: (RelayUrl, Relay),
-    filters: Filter,
-) -> Vec<Event> {
-    let relrequest = get_events_of_mostro(&relay.1, vec![filters.clone()], client);
-
-    // Buffer vector
-    let mut res: Vec<Event> = Vec::new();
-
-    // Using a timeout of 3 seconds to avoid unresponsive relays to block the loop forever.
-    if let Ok(rx) = timeout(Duration::from_secs(3), relrequest).await {
-        match rx {
-            Ok(m) => {
-                if m.is_empty() {
-                    info!("No requested events found on relay {}", relay.0.to_string());
-                }
-                res = m
-            }
-            Err(_e) => println!("Error"),
-        }
-    }
-
-    res
-}
-
-pub async fn send_relays_requests(client: &Client, filters: Filter) -> Vec<Vec<Event>> {
-    let relays = client.relays().await;
-
-    let relays_requests = relays.len();
-    let mut requests: Vec<tokio::task::JoinHandle<Vec<Event>>> =
-        Vec::with_capacity(relays_requests);
-    let mut answers_requests = Vec::with_capacity(relays_requests);
-
-    for relay in relays.into_iter() {
-        info!("Requesting to relay : {}", relay.0.as_str());
-        // Spawn futures and join them at the end
-        requests.push(tokio::spawn(requests_relay(
-            client.clone(),
-            relay.clone(),
-            filters.clone(),
-        )));
-    }
-
-    // Get answers from relay
-    for req in requests {
-        answers_requests.push(req.await.unwrap());
-    }
-
-    answers_requests
-}
-
-pub async fn get_events_of_mostro(
-    relay: &Relay,
-    filters: Vec<Filter>,
-    client: Client,
-) -> Result<Vec<Event>, Error> {
-    let mut events: Vec<Event> = Vec::new();
-
-    // Subscribe
-    info!(
-        "Subscribing for all mostro orders to relay : {}",
-        relay.url().to_string()
-    );
-    let id = SubscriptionId::new(Uuid::new_v4().to_string());
-    let msg = ClientMessage::req(id.clone(), filters.clone());
-
-    info!("Message sent : {:?}", msg);
-
-    // Send msg to relay
-    relay.send_msg(msg.clone())?;
-
-    // Wait notification from relays
-    let mut notifications = client.notifications();
-
-    while let Ok(notification) = notifications.recv().await {
-        if let RelayPoolNotification::Message { message, .. } = notification {
-            match message {
-                RelayMessage::Event {
-                    subscription_id,
-                    event,
-                } => {
-                    if subscription_id == id {
-                        events.push(event.as_ref().clone());
-                    }
-                }
-                RelayMessage::EndOfStoredEvents(subscription_id) => {
-                    if subscription_id == id {
-                        break;
-                    }
-                }
-                _ => (),
-            };
-        }
-    }
-
-    // Unsubscribe
-    relay.send_msg(ClientMessage::close(id))?;
-
-    Ok(events)
 }
 
 pub async fn get_direct_messages(
@@ -247,17 +156,17 @@ pub async fn get_direct_messages(
 
     info!("Request events with event kind : {:?} ", filters.kinds);
 
-    // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filters).await;
-
-    // Buffer vector for direct messages
     let mut direct_messages: Vec<(Message, u64)> = Vec::new();
 
-    // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-    let mut id_list = Vec::<EventId>::new();
+    if let Ok(mostro_req) = client
+        .fetch_events(vec![filters], Duration::from_secs(15))
+        .await
+    {
+        // Buffer vector for direct messages
+        // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+        let mut id_list = Vec::<EventId>::new();
 
-    for dms in mostro_req.iter() {
-        for dm in dms {
+        for dm in mostro_req.iter() {
             if !id_list.contains(&dm.id) {
                 id_list.push(dm.id);
                 let created_at: Timestamp;
@@ -272,44 +181,46 @@ pub async fn get_direct_messages(
                             }
                         };
                     // Decrypt
-                    let unencrypted_content = decrypt_to_bytes(&ck, b64decoded_content).unwrap();
+                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content).unwrap();
                     let message_str =
                         String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
                     message = Message::from_json(&message_str).unwrap();
                     created_at = dm.created_at;
                 } else {
-                    let unwrapped_gift = match unwrap_gift_wrap(Some(my_key), None, None, dm) {
+                    let unwrapped_gift = match nip59::extract_rumor(my_key, dm).await {
                         Ok(u) => u,
                         Err(_) => {
+                            println!("Error unwrapping gift");
                             continue;
                         }
                     };
-                    let (mmessage, sig): (Message, nostr_sdk::secp256k1::schnorr::Signature) =
+                    let (rumor_message, sig): (Message, nostr_sdk::secp256k1::schnorr::Signature) =
                         serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
-                    if !mmessage
+                    if !rumor_message
                         .get_inner_message_kind()
                         .verify_signature(unwrapped_gift.rumor.pubkey, sig)
                     {
+                        println!("Signature verification failed");
                         continue;
                     }
-                    message = mmessage;
+                    message = rumor_message;
                     created_at = unwrapped_gift.rumor.created_at;
                 }
                 // Here we discard messages older than the real since parameter
                 let since_time = chrono::Utc::now()
-                    .checked_sub_signed(chrono::Duration::minutes(since))
+                    .checked_sub_signed(chrono::Duration::minutes(30))
                     .unwrap()
                     .timestamp() as u64;
                 if created_at.as_u64() < since_time {
+                    println!("Discarding message older than since parameter");
                     continue;
                 }
-
                 direct_messages.push((message, created_at.as_u64()));
             }
         }
+        // Return element sorted by second tuple element ( Timestamp )
+        direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
     }
-    // Return element sorted by second tuple element ( Timestamp )
-    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
 
     direct_messages
 }
@@ -328,7 +239,7 @@ pub async fn get_orders_list(
 
     let timestamp = Timestamp::from(since_time);
 
-    let filter = Filter::new()
+    let filters = Filter::new()
         .author(pubkey)
         .limit(50)
         .since(timestamp)
@@ -337,7 +248,7 @@ pub async fn get_orders_list(
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
-        filter.authors, filter.kinds
+        filters.authors, filters.kinds
     );
 
     // Extracted Orders List
@@ -345,11 +256,13 @@ pub async fn get_orders_list(
     let mut requested_orders_list = Vec::<SmallOrder>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filter).await;
-    // Scan events to extract all orders
-    for orders_row in mostro_req.iter() {
-        for ord in orders_row {
-            let order = order_from_tags(ord.tags.clone());
+    if let Ok(mostro_req) = client
+        .fetch_events(vec![filters], Duration::from_secs(15))
+        .await
+    {
+        // Scan events to extract all orders
+        for el in mostro_req.iter() {
+            let order = order_from_tags(el.tags.clone());
 
             if order.is_err() {
                 error!("{order:?}");
@@ -375,7 +288,7 @@ pub async fn get_orders_list(
             }
 
             // Get created at field from Nostr event
-            order.created_at = Some(ord.created_at.as_u64() as i64);
+            order.created_at = Some(el.created_at.as_u64() as i64);
 
             complete_events_list.push(order.clone());
 
@@ -431,10 +344,12 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
     let mut disputes_list = Vec::<Dispute>::new();
 
     // Send all requests to relays
-    let mostro_req = send_relays_requests(client, filter).await;
-    // Scan events to extract all disputes
-    for disputes_row in mostro_req.iter() {
-        for d in disputes_row {
+    if let Ok(mostro_req) = client
+        .fetch_events(vec![filter], Duration::from_secs(15))
+        .await
+    {
+        // Scan events to extract all disputes
+        for d in mostro_req.iter() {
             let dispute = dispute_from_tags(d.tags.clone());
 
             if dispute.is_err() {

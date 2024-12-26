@@ -1,4 +1,5 @@
 use crate::util::get_mcli_path;
+use anyhow::Result;
 use mostro_core::order::SmallOrder;
 use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
 use nip06::FromMnemonic;
@@ -9,7 +10,7 @@ use sqlx::SqlitePool;
 use std::fs::File;
 use std::path::Path;
 
-pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
+pub async fn connect() -> Result<Pool<Sqlite>> {
     let mcli_dir = get_mcli_path();
     let mcli_db_path = format!("{}/mcli.db", mcli_dir);
     let db_url = format!("sqlite://{}", mcli_db_path);
@@ -17,7 +18,7 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
     if !Path::exists(Path::new(&mcli_db_path)) {
         if let Err(res) = File::create(&mcli_db_path) {
             println!("Error in creating db file: {}", res);
-            return Err(sqlx::Error::Io(res));
+            return Err(res.into());
         }
         pool = SqlitePool::connect(&db_url).await?;
         println!("Creating database file with orders table...");
@@ -59,10 +60,10 @@ pub async fn connect() -> Result<Pool<Sqlite>, sqlx::Error> {
             Ok(m) => m.to_string(),
             Err(e) => {
                 println!("Error generating mnemonic: {}", e);
-                return Err(sqlx::Error::Decode(Box::new(e)));
+                return Err(e.into());
             }
         };
-        let user = User::new(mnemonic, &pool).await.unwrap();
+        let user = User::new(mnemonic, &pool).await?;
         println!("User created with pubkey: {}", user.i0_pubkey);
     } else {
         pool = SqlitePool::connect(&db_url).await?;
@@ -81,10 +82,7 @@ pub struct User {
 }
 
 impl User {
-    pub async fn new(
-        mnemonic: String,
-        pool: &SqlitePool,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(mnemonic: String, pool: &SqlitePool) -> Result<Self> {
         let mut user = User::default();
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
         let i0_keys =
@@ -118,7 +116,7 @@ impl User {
     }
 
     // Applying changes to the database
-    pub async fn save(&self, pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn save(&self, pool: &SqlitePool) -> Result<()> {
         sqlx::query(
             r#"
               UPDATE users 
@@ -140,7 +138,7 @@ impl User {
         Ok(())
     }
 
-    pub async fn get(pool: &SqlitePool) -> Result<User, Box<dyn std::error::Error>> {
+    pub async fn get(pool: &SqlitePool) -> Result<User> {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT i0_pubkey, mnemonic, last_trade_index, created_at
@@ -154,7 +152,7 @@ impl User {
         Ok(user)
     }
 
-    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<i64, Box<dyn std::error::Error>> {
+    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<i64> {
         let user = User::get(&pool).await?;
         match user.last_trade_index {
             Some(index) => Ok(index + 1),
@@ -162,7 +160,7 @@ impl User {
         }
     }
 
-    pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys, Box<dyn std::error::Error>> {
+    pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys> {
         let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
         let keys =
@@ -171,10 +169,10 @@ impl User {
         Ok(keys)
     }
 
-    pub async fn get_next_trade_keys(
-        pool: &SqlitePool,
-    ) -> Result<(Keys, i64), Box<dyn std::error::Error>> {
-        let trade_index = User::get_next_trade_index(pool.clone()).await?;
+    pub async fn get_next_trade_keys(pool: &SqlitePool) -> Result<(Keys, i64)> {
+        let mut trade_index = User::get_next_trade_index(pool.clone()).await?;
+        trade_index = trade_index - 1;
+
         let user = User::get(pool).await?;
         let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
         match trade_index.try_into() {
@@ -225,7 +223,7 @@ impl Order {
         order: SmallOrder,
         trade_keys: &Keys,
         request_id: Option<i64>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self> {
         let trade_keys_hex = trade_keys.secret_key().to_secret_hex();
         let id = match order.id {
             Some(id) => id.to_string(),
@@ -349,7 +347,7 @@ impl Order {
     }
 
     // Applying changes to the database
-    pub async fn save(&self, pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn save(&self, pool: &SqlitePool) -> Result<()> {
         // Validation if an identity document is present
         if let Some(ref id) = self.id {
             sqlx::query(
@@ -385,7 +383,7 @@ impl Order {
 
             println!("Order with id {} updated in the database.", id);
         } else {
-            return Err("Order must have an ID to be updated.".into());
+            return Err(anyhow::anyhow!("Order must have an ID to be updated."));
         }
 
         Ok(())
@@ -412,10 +410,7 @@ impl Order {
         Ok(rows_affected > 0)
     }
 
-    pub async fn get_by_id(
-        pool: &SqlitePool,
-        id: &str,
-    ) -> Result<Order, Box<dyn std::error::Error>> {
+    pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Order> {
         let order = sqlx::query_as::<_, Order>(
             r#"
             SELECT * FROM orders WHERE id = ?
@@ -429,7 +424,7 @@ impl Order {
         Ok(order)
     }
 
-    pub async fn get_all(pool: &SqlitePool) -> Result<Vec<Order>, Box<dyn std::error::Error>> {
+    pub async fn get_all(pool: &SqlitePool) -> Result<Vec<Order>> {
         let orders = sqlx::query_as::<_, Order>(r#"SELECT * FROM orders"#)
             .fetch_all(pool)
             .await?;
