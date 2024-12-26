@@ -17,11 +17,12 @@ pub async fn execute_add_invoice(
     client: &Client,
 ) -> Result<()> {
     let pool = connect().await?;
-    let mut order = Order::get_by_id(&pool, &order_id.to_string())
-        .await
-        .unwrap();
-    let trade_keys = order.trade_keys.clone().unwrap();
-    let trade_keys = Keys::parse(&trade_keys).unwrap();
+    let mut order = Order::get_by_id(&pool, &order_id.to_string()).await?;
+    let trade_keys = order
+        .trade_keys
+        .clone()
+        .ok_or(anyhow::anyhow!("Missing trade keys"))?;
+    let trade_keys = Keys::parse(&trade_keys)?;
 
     println!(
         "Sending a lightning invoice {} to mostro pubId {}",
