@@ -64,33 +64,54 @@ pub async fn execute_send_msg(
                     false,
                 )
                 .await?;
-                let order_id = dm
-            .iter()
-            .find_map(|el| {
-                let message = el.0.get_inner_message_kind();
-                if message.request_id == Some(request_id) {
-                    match message.action {
-                        Action::NewOrder => {
-                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                                return order.id;
+                let (new_order, trade_index) = dm
+                    .iter()
+                    .find_map(|el| {
+                        let message = el.0.get_inner_message_kind();
+                        if message.request_id == Some(request_id) {
+                            match message.action {
+                                Action::NewOrder => {
+                                    if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                                        return (Some(order), message.trade_index);
+                                    }
+                                }
+                                _ => {
+                                    return (None, None);
+                                }
                             }
                         }
-                        Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount => {
-                            println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                            return None;
+                        (None, None)
+                    })
+                    .or_else(|| {
+                        println!("Error: No matching order found in response");
+                        (None, None)
+                    });
+
+                if let Some(order) = new_order {
+                    println!("Order id {} created", new_order.id.unwrap());
+                    // Create order in db
+                    let pool = connect().await?;
+                    let trade_keys = User::get_trade_keys(&pool, order.trade_index).await?;
+                    let db_order =
+                        Order::new(&pool, new_order, trade_keys, Some(request_id as i64))
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Failed to create DB order: {:?}", e))?;
+                    // Update last trade index
+                    match User::get(&pool).await {
+                        Ok(mut user) => {
+                            user.set_last_trade_index(trade_index + 1);
+                            if let Err(e) = user.save(&pool).await {
+                                println!("Failed to update user: {}", e);
+                            }
                         }
-                        _ => {
-                            println!("Unknown action: {:?}", message.action);
-                            return None;
-                        }
+                        Err(e) => println!("Failed to get user: {}", e),
                     }
+                    let db_order_id = db_order
+                        .id
+                        .clone()
+                        .ok_or(anyhow::anyhow!("Missing order id"))?;
+                    Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
                 }
-                None
-            })
-            .or_else(|| {
-                println!("Error: No matching order found in response");
-                None
-            });
             } else {
                 println!("Error: Missing trade keys for order {}", order_id.unwrap());
             }
