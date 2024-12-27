@@ -1681,8 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.6.18"
-source = "git+https://github.com/MostroP2P/mostro-core?branch=test-new-sdk#6edf75a4599a7f621f7d47b70bf0a42869a56139"
+version = "0.6.21"
 dependencies = [
  "anyhow",
  "bitcoin 0.32.5",

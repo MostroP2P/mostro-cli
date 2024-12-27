@@ -42,9 +42,10 @@ pub async fn execute_send_msg(
     if let Some(t) = text {
         payload = Some(Payload::TextMessage(t.to_string()));
     }
+    let request_id = Uuid::new_v4().as_u128() as u64;
 
     // Create message
-    let message = Message::new_order(order_id, None, None, requested_action, payload);
+    let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
     info!("Sending message: {:#?}", message);
 
     let pool = connect().await?;
@@ -53,7 +54,7 @@ pub async fn execute_send_msg(
         Ok(order) => {
             if let Some(trade_keys_str) = order.trade_keys {
                 let trade_keys = Keys::parse(&trade_keys_str)?;
-                send_message_sync(
+                let dm = send_message_sync(
                     client,
                     identity_keys,
                     &trade_keys,
@@ -63,6 +64,33 @@ pub async fn execute_send_msg(
                     false,
                 )
                 .await?;
+                let order_id = dm
+            .iter()
+            .find_map(|el| {
+                let message = el.0.get_inner_message_kind();
+                if message.request_id == Some(request_id) {
+                    match message.action {
+                        Action::NewOrder => {
+                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                                return order.id;
+                            }
+                        }
+                        Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount => {
+                            println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                            return None;
+                        }
+                        _ => {
+                            println!("Unknown action: {:?}", message.action);
+                            return None;
+                        }
+                    }
+                }
+                None
+            })
+            .or_else(|| {
+                println!("Error: No matching order found in response");
+                None
+            });
             } else {
                 println!("Error: Missing trade keys for order {}", order_id.unwrap());
             }
