@@ -60,7 +60,7 @@ pub async fn execute_send_msg(
                     &trade_keys,
                     mostro_key,
                     message,
-                    false,
+                    true,
                     false,
                 )
                 .await?;
@@ -109,6 +109,25 @@ pub async fn execute_send_msg(
                         }
                         Err(e) => println!("Failed to get user: {}", e),
                     }
+                    // Now we send a message to Mostro letting it know the trade key and
+                    // trade index for this new order
+                    let message = Message::new_order(
+                        Some(order.id.unwrap()),
+                        None,
+                        Some(trade_index),
+                        Action::TradePubkey,
+                        None,
+                    );
+                    let _ = send_message_sync(
+                        client,
+                        identity_keys,
+                        &trade_keys,
+                        mostro_key,
+                        message,
+                        false,
+                        false,
+                    )
+                    .await?;
                 }
             } else {
                 println!("Error: Missing trade keys for order {}", order_id.unwrap());

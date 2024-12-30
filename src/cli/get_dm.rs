@@ -4,16 +4,19 @@ use anyhow::Result;
 use chrono::DateTime;
 use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
+use uuid::Uuid;
 
 use crate::{
     db::{connect, Order, User},
-    util::get_direct_messages,
+    util::{get_direct_messages, send_message_sync},
 };
 
 pub async fn execute_get_dm(
     since: &i64,
+    identity_keys: Keys,
     trade_keys: Keys,
     trade_index: i64,
+    mostro_key: PublicKey,
     client: &Client,
     from_user: bool,
 ) -> Result<()> {
@@ -89,6 +92,26 @@ pub async fn execute_get_dm(
                                 }
                                 Err(e) => println!("Failed to get user: {}", e),
                             }
+                            let request_id = Uuid::new_v4().as_u128() as u64;
+                            // Now we send a message to Mostro letting it know the trade key and
+                            // trade index for this new order
+                            let message = Message::new_order(
+                                Some(new_order.id.unwrap()),
+                                Some(request_id),
+                                Some(trade_index),
+                                Action::TradePubkey,
+                                None,
+                            );
+                            let _ = send_message_sync(
+                                client,
+                                Some(&identity_keys),
+                                &trade_keys,
+                                mostro_key,
+                                message,
+                                false,
+                                false,
+                            )
+                            .await?;
                         }
                         println!();
                         println!("Order: {:#?}", new_order);
@@ -101,6 +124,11 @@ pub async fn execute_get_dm(
                         println!();
                     }
                 }
+            } else {
+                println!();
+                println!("Action: {}", message.action);
+                println!("Payload: {:#?}", message.payload);
+                println!();
             }
         }
     }

@@ -356,7 +356,16 @@ pub async fn run() -> Result<()> {
                 execute_add_invoice(order_id, invoice, &identity_keys, mostro_key, &client).await?
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, trade_keys, trade_index, &client, *from_user).await?
+                execute_get_dm(
+                    since,
+                    identity_keys,
+                    trade_keys,
+                    trade_index,
+                    mostro_key,
+                    &client,
+                    *from_user,
+                )
+                .await?
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
