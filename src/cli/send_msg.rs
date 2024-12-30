@@ -1,4 +1,4 @@
-use crate::db::Order;
+use crate::db::{Order, User};
 use crate::util::send_message_sync;
 use crate::{cli::Commands, db::connect};
 
@@ -42,9 +42,10 @@ pub async fn execute_send_msg(
     if let Some(t) = text {
         payload = Some(Payload::TextMessage(t.to_string()));
     }
+    let request_id = Uuid::new_v4().as_u128() as u64;
 
     // Create message
-    let message = Message::new_order(order_id, None, None, requested_action, payload);
+    let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
     info!("Sending message: {:#?}", message);
 
     let pool = connect().await?;
@@ -53,16 +54,81 @@ pub async fn execute_send_msg(
         Ok(order) => {
             if let Some(trade_keys_str) = order.trade_keys {
                 let trade_keys = Keys::parse(&trade_keys_str)?;
-                send_message_sync(
+                let dm = send_message_sync(
                     client,
                     identity_keys,
                     &trade_keys,
                     mostro_key,
                     message,
-                    false,
+                    true,
                     false,
                 )
                 .await?;
+                let new_order = dm
+                    .iter()
+                    .find_map(|el| {
+                        let message = el.0.get_inner_message_kind();
+                        if message.request_id == Some(request_id) {
+                            match message.action {
+                                Action::NewOrder => {
+                                    if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                                        return Some(order);
+                                    }
+                                }
+                                _ => {
+                                    return None;
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .or_else(|| {
+                        println!("Error: No matching order found in response");
+                        None
+                    });
+
+                if let Some(order) = new_order {
+                    println!("Order id {} created", order.id.unwrap());
+                    // Create order in db
+                    let pool = connect().await?;
+                    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool).await?;
+                    let db_order =
+                        Order::new(&pool, order.clone(), &trade_keys, Some(request_id as i64))
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Failed to create DB order: {:?}", e))?;
+                    let _ = db_order.id.clone().ok_or(anyhow::anyhow!(
+                        "Failed getting new order from Mostro. Missing order id"
+                    ))?;
+                    // Update last trade index
+                    match User::get(&pool).await {
+                        Ok(mut user) => {
+                            user.set_last_trade_index(trade_index + 1);
+                            if let Err(e) = user.save(&pool).await {
+                                println!("Failed to update user: {}", e);
+                            }
+                        }
+                        Err(e) => println!("Failed to get user: {}", e),
+                    }
+                    // Now we send a message to Mostro letting it know the trade key and
+                    // trade index for this new order
+                    let message = Message::new_order(
+                        Some(order.id.unwrap()),
+                        None,
+                        Some(trade_index),
+                        Action::TradePubkey,
+                        None,
+                    );
+                    let _ = send_message_sync(
+                        client,
+                        identity_keys,
+                        &trade_keys,
+                        mostro_key,
+                        message,
+                        false,
+                        false,
+                    )
+                    .await?;
+                }
             } else {
                 println!("Error: Missing trade keys for order {}", order_id.unwrap());
             }

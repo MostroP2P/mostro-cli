@@ -2,17 +2,21 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use chrono::DateTime;
-use mostro_core::message::{Message, Payload};
+use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
+use uuid::Uuid;
 
 use crate::{
-    db::{connect, Order},
-    util::get_direct_messages,
+    db::{connect, Order, User},
+    util::{get_direct_messages, send_message_sync},
 };
 
 pub async fn execute_get_dm(
     since: &i64,
+    identity_keys: Keys,
     trade_keys: Keys,
+    trade_index: i64,
+    mostro_key: PublicKey,
     client: &Client,
     from_user: bool,
 ) -> Result<()> {
@@ -43,27 +47,87 @@ pub async fn execute_get_dm(
         println!();
     } else {
         for m in dm.iter() {
+            let message = m.0.get_inner_message_kind();
             let date = DateTime::from_timestamp(m.1 as i64, 0).unwrap();
-            if m.0.get_inner_message_kind().id.is_some() {
+            if message.id.is_some() {
                 println!(
                     "Mostro sent you this message for order id: {} at {}",
                     m.0.get_inner_message_kind().id.unwrap(),
                     date
                 );
             }
-            if let Some(Payload::PaymentRequest(_, inv, _)) = &m.0.get_inner_message_kind().payload
-            {
-                println!();
-                println!("Pay this invoice to continue --> {}", inv);
-                println!();
-            } else if let Some(Payload::TextMessage(text)) = &m.0.get_inner_message_kind().payload {
-                println!();
-                println!("{text}");
-                println!();
+            if let Some(payload) = &message.payload {
+                match payload {
+                    Payload::PaymentRequest(_, inv, _) => {
+                        println!();
+                        println!("Pay this invoice to continue --> {}", inv);
+                        println!();
+                    }
+                    Payload::TextMessage(text) => {
+                        println!();
+                        println!("{text}");
+                        println!();
+                    }
+                    Payload::CantDo(Some(cant_do_reason)) => {
+                        println!();
+                        println!("Error: {:?}", cant_do_reason);
+                        println!();
+                    }
+                    Payload::Order(new_order) if message.action == Action::NewOrder => {
+                        let db_order =
+                            Order::get_by_id(&pool, &new_order.id.unwrap().to_string()).await;
+                        if db_order.is_err() {
+                            let _ = Order::new(&pool, new_order.clone(), &trade_keys, None)
+                                .await
+                                .map_err(|e| {
+                                    anyhow::anyhow!("Failed to create DB order: {:?}", e)
+                                })?;
+                            // Update last trade index
+                            match User::get(&pool).await {
+                                Ok(mut user) => {
+                                    user.set_last_trade_index(trade_index + 1);
+                                    if let Err(e) = user.save(&pool).await {
+                                        println!("Failed to update user: {}", e);
+                                    }
+                                }
+                                Err(e) => println!("Failed to get user: {}", e),
+                            }
+                            let request_id = Uuid::new_v4().as_u128() as u64;
+                            // Now we send a message to Mostro letting it know the trade key and
+                            // trade index for this new order
+                            let message = Message::new_order(
+                                Some(new_order.id.unwrap()),
+                                Some(request_id),
+                                Some(trade_index),
+                                Action::TradePubkey,
+                                None,
+                            );
+                            let _ = send_message_sync(
+                                client,
+                                Some(&identity_keys),
+                                &trade_keys,
+                                mostro_key,
+                                message,
+                                false,
+                                false,
+                            )
+                            .await?;
+                        }
+                        println!();
+                        println!("Order: {:#?}", new_order);
+                        println!();
+                    }
+                    _ => {
+                        println!();
+                        println!("Action: {}", message.action);
+                        println!("Payload: {:#?}", message.payload);
+                        println!();
+                    }
+                }
             } else {
                 println!();
-                println!("Action: {}", m.0.get_inner_message_kind().action);
-                println!("Payload: {:#?}", m.0.get_inner_message_kind().payload);
+                println!("Action: {}", message.action);
+                println!("Payload: {:#?}", message.payload);
                 println!();
             }
         }

@@ -212,7 +212,6 @@ pub async fn get_direct_messages(
                     .unwrap()
                     .timestamp() as u64;
                 if created_at.as_u64() < since_time {
-                    println!("Discarding message older than since parameter");
                     continue;
                 }
                 direct_messages.push((message, created_at.as_u64()));

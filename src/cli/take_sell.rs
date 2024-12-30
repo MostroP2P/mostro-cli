@@ -1,6 +1,6 @@
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
-use mostro_core::message::{Action, Message, Payload};
+use mostro_core::message::{Action, CantDoReason, Message, Payload};
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -84,9 +84,20 @@ pub async fn execute_take_sell(
                         return Some(order.clone());
                     }
                 }
-                Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount => {
-                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                    return None;
+                Action::CantDo => {
+                    if let Some(Payload::CantDo(Some(cant_do_reason))) = &message.payload {
+                        match cant_do_reason {
+                            CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount => {
+                                println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                            }
+                            _ => {
+                                println!("Unknown reason: {:?}", message.payload);
+                            }
+                        }
+                    } else {
+                        println!("Unknown reason: {:?}", message.payload);
+                        return None;
+                    }
                 }
                 _ => {
                     println!("Unknown action: {:?}", message.action);
@@ -97,25 +108,22 @@ pub async fn execute_take_sell(
         None
     });
     if let Some(o) = order {
-        match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
-            Ok(order) => {
-                if let Some(order_id) = order.id {
-                    println!("Order {} created", order_id);
-                } else {
-                    println!("Warning: The newly created order has no ID.");
-                }
-                // Update last trade index to be used in next trade
-                match User::get(&pool).await {
-                    Ok(mut user) => {
-                        user.set_last_trade_index(trade_index + 1);
-                        if let Err(e) = user.save(&pool).await {
-                            println!("Failed to update user: {}", e);
-                        }
-                    }
-                    Err(e) => println!("Failed to get user: {}", e),
-                }
+        if let Ok(order) = Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
+            if let Some(order_id) = order.id {
+                println!("Order {} created", order_id);
+            } else {
+                println!("Warning: The newly created order has no ID.");
             }
-            Err(e) => println!("{}", e),
+            // Update last trade index to be used in next trade
+            match User::get(&pool).await {
+                Ok(mut user) => {
+                    user.set_last_trade_index(trade_index + 1);
+                    if let Err(e) = user.save(&pool).await {
+                        println!("Failed to update user: {}", e);
+                    }
+                }
+                Err(e) => println!("Failed to get user: {}", e),
+            }
         }
     }
 

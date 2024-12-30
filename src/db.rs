@@ -192,6 +192,22 @@ impl User {
             }
         }
     }
+
+    pub async fn get_trade_keys(pool: &SqlitePool, index: i64) -> Result<Keys> {
+        if index < 0 {
+            return Err(anyhow::anyhow!("Trade index cannot be negative"));
+        }
+        let user = User::get(pool).await?;
+        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
+        let keys = Keys::from_mnemonic_advanced(
+            &user.mnemonic,
+            None,
+            Some(account),
+            Some(0),
+            Some(index as u32),
+        )?;
+        Ok(keys)
+    }
 }
 
 #[derive(Debug, Default, Clone, sqlx::FromRow)]
@@ -420,6 +436,10 @@ impl Order {
         .bind(id)
         .fetch_one(pool)
         .await?;
+
+        if order.id.is_none() {
+            return Err(anyhow::anyhow!("Order not found"));
+        }
 
         Ok(order)
     }
