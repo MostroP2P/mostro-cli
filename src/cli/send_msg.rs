@@ -1,4 +1,4 @@
-use crate::db::Order;
+use crate::db::{Order, User};
 use crate::util::send_message_sync;
 use crate::{cli::Commands, db::connect};
 
@@ -64,7 +64,7 @@ pub async fn execute_send_msg(
                     false,
                 )
                 .await?;
-                let (new_order, trade_index) = dm
+                let new_order = dm
                     .iter()
                     .find_map(|el| {
                         let message = el.0.get_inner_message_kind();
@@ -72,30 +72,33 @@ pub async fn execute_send_msg(
                             match message.action {
                                 Action::NewOrder => {
                                     if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                                        return (Some(order), message.trade_index);
+                                        return Some(order);
                                     }
                                 }
                                 _ => {
-                                    return (None, None);
+                                    return None;
                                 }
                             }
                         }
-                        (None, None)
+                        None
                     })
                     .or_else(|| {
                         println!("Error: No matching order found in response");
-                        (None, None)
+                        None
                     });
 
                 if let Some(order) = new_order {
-                    println!("Order id {} created", new_order.id.unwrap());
+                    println!("Order id {} created", order.id.unwrap());
                     // Create order in db
                     let pool = connect().await?;
-                    let trade_keys = User::get_trade_keys(&pool, order.trade_index).await?;
+                    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool).await?;
                     let db_order =
-                        Order::new(&pool, new_order, trade_keys, Some(request_id as i64))
+                        Order::new(&pool, order.clone(), &trade_keys, Some(request_id as i64))
                             .await
                             .map_err(|e| anyhow::anyhow!("Failed to create DB order: {:?}", e))?;
+                    let _ = db_order.id.clone().ok_or(anyhow::anyhow!(
+                        "Failed getting new order from Mostro. Missing order id"
+                    ))?;
                     // Update last trade index
                     match User::get(&pool).await {
                         Ok(mut user) => {
@@ -106,11 +109,6 @@ pub async fn execute_send_msg(
                         }
                         Err(e) => println!("Failed to get user: {}", e),
                     }
-                    let db_order_id = db_order
-                        .id
-                        .clone()
-                        .ok_or(anyhow::anyhow!("Missing order id"))?;
-                    Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
                 }
             } else {
                 println!("Error: Missing trade keys for order {}", order_id.unwrap());
