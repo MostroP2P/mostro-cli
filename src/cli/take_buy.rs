@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::message::{Action, Message, Payload};
+use mostro_core::message::{Action, CantDoReason, Message, Payload};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
@@ -65,9 +65,20 @@ pub async fn execute_take_buy(
                         return order.clone();
                     }
                 }
-                Action::OutOfRangeFiatAmount | Action::OutOfRangeSatsAmount=> {
-                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                    return None;
+                Action::CantDo => {
+                    if let Some(Payload::CantDo(Some(cant_do_reason))) = &message.payload {
+                        match cant_do_reason {
+                            CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount => {
+                                println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                            }
+                            _ => {
+                                println!("Unknown reason: {:?}", message.payload);
+                            }
+                        }
+                    } else {
+                        println!("Unknown reason: {:?}", message.payload);
+                        return None;
+                    }
                 }
                 _ => {
                     println!("Unknown action: {:?}", message.action);

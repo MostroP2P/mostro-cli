@@ -437,6 +437,10 @@ impl Order {
         .fetch_one(pool)
         .await?;
 
+        if order.id.is_none() {
+            return Err(anyhow::anyhow!("Order not found"));
+        }
+
         Ok(order)
     }
 
