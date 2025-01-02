@@ -53,7 +53,6 @@ pub async fn send_dm(
             .pow(pow)
             .build(trade_keys.public_key());
         let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
-        tags.push(Tag::public_key(*receiver_pubkey));
 
         if let Some(timestamp) = expiration {
             tags.push(Tag::expiration(timestamp));
