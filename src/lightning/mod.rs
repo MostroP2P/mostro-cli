@@ -1,5 +1,5 @@
 use crate::error::MostroError;
-use lightning_invoice::Invoice;
+use lightning_invoice::Bolt11Invoice as Invoice;
 use std::str::FromStr;
 
 /// Verify if an invoice is valid
