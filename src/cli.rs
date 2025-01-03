@@ -307,6 +307,7 @@ pub async fn run() -> Result<()> {
     let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
+
     // Mostro pubkey
     let mostro_key = PublicKey::from_str(&pubkey)?;
 

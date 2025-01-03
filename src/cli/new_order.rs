@@ -182,7 +182,7 @@ pub async fn execute_new_order(
         // Update last trade index
         match User::get(&pool).await {
             Ok(mut user) => {
-                user.set_last_trade_index(trade_index + 1);
+                user.set_last_trade_index(trade_index);
                 if let Err(e) = user.save(&pool).await {
                     println!("Failed to update user: {}", e);
                 }
