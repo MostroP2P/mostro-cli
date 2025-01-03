@@ -95,7 +95,7 @@ pub async fn execute_take_buy(
                 // Update last trade index to be used in next trade
                 match User::get(&pool).await {
                     Ok(mut user) => {
-                        user.set_last_trade_index(trade_index + 1);
+                        user.set_last_trade_index(trade_index);
                         if let Err(e) = user.save(&pool).await {
                             println!("Failed to update user: {}", e);
                         }
