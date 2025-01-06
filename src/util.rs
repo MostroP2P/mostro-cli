@@ -26,6 +26,10 @@ pub async fn send_dm(
     to_user: bool,
 ) -> Result<()> {
     let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
+    let private = var("SECRET")
+        .unwrap_or("false".to_string())
+        .parse::<bool>()
+        .unwrap();
     let event = if to_user {
         // Derive conversation key
         let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey);
@@ -38,6 +42,23 @@ pub async fn send_dm(
             .pow(pow)
             .tag(Tag::public_key(*receiver_pubkey))
             .sign_with_keys(trade_keys)?
+    } else if private {
+        let message = Message::from_json(&payload).unwrap();
+        // We compose the content, when private we don't sign the payload
+        let content: (Message, Option<Signature>) = (message, None);
+        let content = serde_json::to_string(&content).unwrap();
+        // We create the rumor
+        let rumor = EventBuilder::text_note(content)
+            .pow(pow)
+            .build(trade_keys.public_key());
+        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
+
+        if let Some(timestamp) = expiration {
+            tags.push(Tag::expiration(timestamp));
+        }
+        let tags = Tags::new(tags);
+
+        EventBuilder::gift_wrap(trade_keys, receiver_pubkey, rumor, tags).await?
     } else {
         let identity_keys = identity_keys
             .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
