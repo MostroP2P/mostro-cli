@@ -66,6 +66,8 @@ pub struct Cli {
     pub relays: Option<String>,
     #[arg(short, long)]
     pub pow: Option<String>,
+    #[arg(short, long)]
+    pub secret: bool,
 }
 
 #[derive(Subcommand, Clone)]
@@ -297,6 +299,10 @@ pub async fn run() -> Result<()> {
 
     if cli.pow.is_some() {
         set_var("POW", cli.pow.unwrap());
+    }
+
+    if cli.secret {
+        set_var("SECRET", "true");
     }
 
     let pool = connect().await?;
