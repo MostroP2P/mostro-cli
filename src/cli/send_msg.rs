@@ -3,7 +3,6 @@ use crate::util::send_message_sync;
 use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
-use log::info;
 use mostro_core::message::{Action, Message, Payload};
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
@@ -45,12 +44,25 @@ pub async fn execute_send_msg(
         Action::FiatSent | Action::Release => create_next_trade_payload(&pool, &order_id).await?,
         _ => text.map(|t| Payload::TextMessage(t.to_string())),
     };
+    // Update last trade index if next trade payload
+    if let Some(Payload::NextTrade(_, trade_index)) = &payload {
+        // Update last trade index
+        match User::get(&pool).await {
+            Ok(mut user) => {
+                user.set_last_trade_index(*trade_index as i64);
+                if let Err(e) = user.save(&pool).await {
+                    println!("Failed to update user: {}", e);
+                }
+            }
+            Err(e) => println!("Failed to get user: {}", e),
+        }
+    }
 
     let request_id = Uuid::new_v4().as_u128() as u64;
 
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
-    info!("Sending message: {:#?}", message);
+    // println!("Sending message: {:#?}", message);
 
     if let Some(order_id) = order_id {
         handle_order_response(

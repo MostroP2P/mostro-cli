@@ -152,12 +152,17 @@ impl User {
         Ok(user)
     }
 
-    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<i64> {
+    pub async fn get_last_trade_index(pool: SqlitePool) -> Result<i64> {
         let user = User::get(&pool).await?;
         match user.last_trade_index {
-            Some(index) => Ok(index + 1),
-            None => Ok(1),
+            Some(index) => Ok(index),
+            None => Ok(0),
         }
+    }
+
+    pub async fn get_next_trade_index(pool: SqlitePool) -> Result<i64> {
+        let last_trade_index = User::get_last_trade_index(pool).await?;
+        Ok(last_trade_index + 1)
     }
 
     pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys> {
@@ -171,25 +176,9 @@ impl User {
 
     pub async fn get_next_trade_keys(pool: &SqlitePool) -> Result<(Keys, i64)> {
         let trade_index = User::get_next_trade_index(pool.clone()).await?;
+        let trade_keys = User::get_trade_keys(pool, trade_index).await?;
 
-        let user = User::get(pool).await?;
-        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
-        match trade_index.try_into() {
-            Ok(index) => {
-                let keys = Keys::from_mnemonic_advanced(
-                    &user.mnemonic,
-                    None,
-                    Some(account),
-                    Some(0),
-                    Some(index),
-                )?;
-                Ok((keys, trade_index))
-            }
-            Err(e) => {
-                println!("Error: {}", e);
-                Err(e.into())
-            }
-        }
+        Ok((trade_keys, trade_index))
     }
 
     pub async fn get_trade_keys(pool: &SqlitePool, index: i64) -> Result<Keys> {
@@ -205,6 +194,7 @@ impl User {
             Some(0),
             Some(index as u32),
         )?;
+
         Ok(keys)
     }
 }
