@@ -439,4 +439,19 @@ impl Order {
             .await?;
         Ok(orders)
     }
+
+    pub async fn delete_by_id(pool: &SqlitePool, id: &str) -> Result<bool> {
+        let rows_affected = sqlx::query(
+            r#"
+          DELETE FROM orders
+          WHERE id = ?
+        "#,
+        )
+        .bind(id)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+        Ok(rows_affected > 0)
+    }
 }
