@@ -158,21 +158,23 @@ async fn process_order_response(
             match kind.action {
                 Action::NewOrder => {
                     if let Some(Payload::Order(order)) = kind.payload.as_ref() {
-                        if let Err(e) =
-                            Order::new(pool, order.clone(), trade_keys, Some(request_id as i64))
-                                .await
-                        {
-                            println!("Failed to create new order: {}", e);
-                        }
+                        Order::new(pool, order.clone(), trade_keys, Some(request_id as i64))
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Failed to create new order: {}", e))?;
                         return Ok(());
                     }
                 }
                 Action::Canceled => {
                     if let Some(id) = kind.id {
-                        if let Err(e) = Order::delete_by_id(pool, &id.to_string()).await {
-                            println!("Failed to delete order: {}", e);
+                        // Verify order exists before deletion
+                        if Order::get_by_id(pool, &id.to_string()).await.is_ok() {
+                            Order::delete_by_id(pool, &id.to_string())
+                                .await
+                                .map_err(|e| anyhow::anyhow!("Failed to delete order: {}", e))?;
+                            return Ok(());
+                        } else {
+                            return Err(anyhow::anyhow!("Order not found: {}", id));
                         }
-                        return Ok(());
                     }
                 }
                 _ => (),
