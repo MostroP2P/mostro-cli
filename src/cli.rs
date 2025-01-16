@@ -107,6 +107,7 @@ pub enum Commands {
         /// Premium on price
         #[arg(short, long)]
         #[clap(default_value_t = 0)]
+        #[clap(allow_hyphen_values = true)]
         premium: i64,
         /// Invoice string
         #[arg(short, long)]
