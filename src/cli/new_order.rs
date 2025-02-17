@@ -1,5 +1,6 @@
 use anyhow::Result;
-use mostro_core::message::{Action, CantDoReason, Message, Payload};
+use mostro_core::error::CantDoReason;
+use mostro_core::message::{Action, Message, Payload};
 use mostro_core::order::SmallOrder;
 use mostro_core::order::{Kind, Status};
 use nostr_sdk::prelude::*;
