@@ -189,10 +189,9 @@ pub async fn get_direct_messages(
         for dm in mostro_req.iter() {
             if !id_list.contains(&dm.id) {
                 id_list.push(dm.id);
-                let created_at: Timestamp;
-                let message: Message;
-                if from_user {
+                let (created_at, message) = if from_user {
                     let ck = ConversationKey::derive(my_key.secret_key(), &dm.pubkey);
+
                     let b64decoded_content =
                         match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
                             Ok(b64decoded_content) => b64decoded_content,
@@ -200,12 +199,15 @@ pub async fn get_direct_messages(
                                 continue;
                             }
                         };
-                    // Decrypt
-                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content).unwrap();
-                    let message_str =
-                        String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
-                    message = Message::from_json(&message_str).unwrap();
-                    created_at = dm.created_at;
+
+                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content)
+                        .expect("Failed to decrypt message");
+
+                    let message = String::from_utf8(unencrypted_content)
+                        .expect("Found invalid UTF-8");
+                    let message = Message::from_json(&message).expect("Failed on deserializing");
+
+                    (dm.created_at, message)
                 } else {
                     let unwrapped_gift = match nip59::extract_rumor(my_key, dm).await {
                         Ok(u) => u,
@@ -214,18 +216,13 @@ pub async fn get_direct_messages(
                             continue;
                         }
                     };
-                    let (rumor_message, sig): (Message, nostr_sdk::secp256k1::schnorr::Signature) =
+
+                    let (message, _): (Message, Option<String>) =
                         serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
-                    if !rumor_message
-                        .get_inner_message_kind()
-                        .verify_signature(unwrapped_gift.rumor.pubkey, sig)
-                    {
-                        println!("Signature verification failed");
-                        continue;
-                    }
-                    message = rumor_message;
-                    created_at = unwrapped_gift.rumor.created_at;
-                }
+
+                    (unwrapped_gift.rumor.created_at, message)
+                };
+
                 // Here we discard messages older than the real since parameter
                 let since_time = chrono::Utc::now()
                     .checked_sub_signed(chrono::Duration::minutes(30))
