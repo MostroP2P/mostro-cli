@@ -62,13 +62,11 @@ pub async fn send_dm(
     } else {
         let identity_keys = identity_keys
             .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
-
-        let message = Message::from_json(&payload).unwrap();
         // We sign the message
-        let sig = message.get_inner_message_kind().sign(trade_keys);
+        let message = Message::from_json(&payload).unwrap();
+        let sig = Message::sign(payload.clone(), trade_keys);
         // We compose the content
-        let content = (message, sig);
-        let content = serde_json::to_string(&content).unwrap();
+        let content = serde_json::to_string(&(message, sig)).unwrap();
         // We create the rumor
         let rumor = EventBuilder::text_note(content)
             .pow(pow)
@@ -191,7 +189,6 @@ pub async fn get_direct_messages(
                 id_list.push(dm.id);
                 let (created_at, message) = if from_user {
                     let ck = ConversationKey::derive(my_key.secret_key(), &dm.pubkey);
-
                     let b64decoded_content =
                         match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
                             Ok(b64decoded_content) => b64decoded_content,
@@ -216,7 +213,6 @@ pub async fn get_direct_messages(
                             continue;
                         }
                     };
-
                     let (message, _): (Message, Option<String>) =
                         serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
 

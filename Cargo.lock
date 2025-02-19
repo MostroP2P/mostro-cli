@@ -1640,7 +1640,6 @@ version = "0.11.0"
 dependencies = [
  "anyhow",
  "bip39",
- "bitcoin_hashes 0.16.0",
  "chrono",
  "clap",
  "comfy-table",
@@ -1664,15 +1663,16 @@ dependencies = [
 
 [[package]]
 name = "mostro-core"
-version = "0.6.25"
+version = "0.6.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6a7c10b8900e96717edc31b621e1d07204a18b001c22d128fd3573a9f882585"
+checksum = "c5ea5b3c97b92d6dbb4ca3e8d4b15e73411daa7cb0d9802d89060520ffcfd6ba"
 dependencies = [
  "anyhow",
  "bitcoin",
  "bitcoin_hashes 0.16.0",
  "chrono",
  "nostr-sdk",
+ "rand",
  "serde",
  "serde_json",
  "uuid",
