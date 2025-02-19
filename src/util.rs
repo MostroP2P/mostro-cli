@@ -189,12 +189,20 @@ pub async fn get_direct_messages(
                 id_list.push(dm.id);
                 let (created_at, message) = if from_user {
                     let ck = ConversationKey::derive(my_key.secret_key(), &dm.pubkey);
-                    let b64decoded_content = general_purpose::STANDARD
-                        .decode(dm.content.as_bytes())
-                        .unwrap();
-                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content).unwrap();
-                    let message_str = String::from_utf8(unencrypted_content).unwrap();
-                    let message = Message::from_json(&message_str).unwrap();
+                    let b64decoded_content =
+                        match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
+                            Ok(b64decoded_content) => b64decoded_content,
+                            Err(_) => {
+                                continue;
+                            }
+                        };
+
+                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content)
+                        .expect("Failed to decrypt message");
+
+                    let message = String::from_utf8(unencrypted_content)
+                        .expect("Found invalid UTF-8");
+                    let message = Message::from_json(&message).expect("Failed on deserializing");
 
                     (dm.created_at, message)
                 } else {
@@ -205,10 +213,10 @@ pub async fn get_direct_messages(
                             continue;
                         }
                     };
-                    let (rumor_message, _): (Message, Option<Signature>) =
+                    let (message, _): (Message, Option<String>) =
                         serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
 
-                    (unwrapped_gift.rumor.created_at, rumor_message)
+                    (unwrapped_gift.rumor.created_at, message)
                 };
 
                 // Here we discard messages older than the real since parameter
