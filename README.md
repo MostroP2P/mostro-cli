@@ -53,7 +53,6 @@ Commands:
 
 Options:
   -v, --verbose
-  -n, --nsec <NSEC>
   -m, --mostropubkey <MOSTROPUBKEY>
   -r, --relays <RELAYS>
   -p, --pow <POW>
@@ -64,11 +63,10 @@ Options:
 # Examples
 
 ```
-$ mostro-cli -m npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0 -n nsec1...5ssky7pw -r 'wss://nos.lol,wss://relay.damus.io,wss://nostr-pub.wellorder.net,wss://nostr.mutinywallet.com,wss://relay.nostr.band,wss://nostr.cizmar.net,wss://140.f7z.io,wss://nostrrelay.com,wss://relay.nostrr.de' listorders
+$ mostro-cli -m npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0 -r 'wss://nos.lol,wss://relay.damus.io,wss://nostr-pub.wellorder.net,wss://nostr.mutinywallet.com,wss://relay.nostr.band,wss://nostr.cizmar.net,wss://140.f7z.io,wss://nostrrelay.com,wss://relay.nostrr.de' listorders
 
 # You can set the env vars to avoid the -m, -n and -r flags
 $ export MOSTROPUBKEY=npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0
-$ export NSEC=nsec1...5ssky7pw
 $ export RELAYS='wss://nos.lol,wss://relay.damus.io,wss://nostr-pub.wellorder.net,wss://nostr.mutinywallet.com,wss://relay.nostr.band,wss://nostr.cizmar.net,wss://140.f7z.io,wss://nostrrelay.com,wss://relay.nostrr.de'
 $ mostro-cli listorders
 
@@ -83,6 +81,7 @@ $ mostro-cli neworder -p 10 -k sell -c ars -f 1000-10000 -m "face to face"
 ```
 
 ## Progress Overview
+
 - [x] Displays order list
 - [x] Take orders (Buy & Sell)
 - [x] Posts Orders (Buy & Sell)

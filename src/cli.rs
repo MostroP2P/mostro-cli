@@ -59,8 +59,6 @@ pub struct Cli {
     #[arg(short, long)]
     pub verbose: bool,
     #[arg(short, long)]
-    pub nsec: Option<String>,
-    #[arg(short, long)]
     pub mostropubkey: Option<String>,
     #[arg(short, long)]
     pub relays: Option<String>,
@@ -289,10 +287,6 @@ pub async fn run() -> Result<()> {
         set_var("MOSTRO_PUBKEY", cli.mostropubkey.unwrap());
     }
     let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
-
-    if cli.nsec.is_some() {
-        set_var("NSEC_PRIVKEY", cli.nsec.unwrap());
-    }
 
     if cli.relays.is_some() {
         set_var("RELAYS", cli.relays.unwrap());
