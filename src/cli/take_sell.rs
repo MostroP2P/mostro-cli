@@ -26,30 +26,29 @@ pub async fn execute_take_sell(
         order_id,
         mostro_key.clone()
     );
-    let mut payload = None;
-    if let Some(invoice) = invoice {
-        // Check invoice string
-        let ln_addr = LightningAddress::from_str(invoice);
-        if ln_addr.is_ok() {
-            payload = Some(Payload::PaymentRequest(None, invoice.to_string(), None));
-        } else {
-            match is_valid_invoice(invoice) {
-                Ok(i) => payload = Some(Payload::PaymentRequest(None, i.to_string(), None)),
-                Err(e) => println!("{}", e),
-            }
-        }
-    }
 
-    // Add amount in case it's specified
-    if amount.is_some() {
-        payload = match payload {
-            Some(Payload::PaymentRequest(a, b, _)) => {
-                Some(Payload::PaymentRequest(a, b, Some(amount.unwrap() as i64)))
-            }
-            None => Some(Payload::Amount(amount.unwrap().into())),
-            _ => None,
-        };
-    }
+    let payload = invoice
+        .as_ref()
+        .map(|inv| {
+            LightningAddress::from_str(inv)
+                .map(|_| Payload::PaymentRequest(None, inv.to_string(), None))
+                .unwrap_or_else(|_| {
+                    is_valid_invoice(inv)
+                        .map(|i| Payload::PaymentRequest(None, i.to_string(), None))
+                        .unwrap_or_else(|e| {
+                            println!("{}", e);
+                            Payload::PaymentRequest(None, inv.to_string(), None)
+                        })
+                })
+        })
+        .map(|pl| {
+            amount.map_or(pl.clone(), |amt| match pl {
+                Payload::PaymentRequest(a, b, _) => Payload::PaymentRequest(a, b, Some(amt as i64)),
+                _ => pl,
+            })
+        })
+        .or_else(|| amount.map(|amt| Payload::Amount(amt.into())));
+
     let request_id = Uuid::new_v4().as_u128() as u64;
     // Create takesell message
     let take_sell_message = Message::new_order(
