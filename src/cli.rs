@@ -33,6 +33,7 @@ use std::{
     env::{set_var, var},
     str::FromStr,
 };
+use take_dispute::*;
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -369,8 +370,6 @@ pub async fn run() -> Result<()> {
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
-            | Commands::AdmCancel { order_id }
-            | Commands::AdmSettle { order_id }
             | Commands::Cancel { order_id } => {
                 execute_send_msg(
                     cmd.clone(),
@@ -423,9 +422,38 @@ pub async fn run() -> Result<()> {
             Commands::Rate { order_id, rating } => {
                 execute_rate_user(order_id, rating, &identity_keys, mostro_key, &client).await?;
             }
+            Commands::AdmSettle { order_id } => {
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                execute_admin_settle_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
+                    .await?;
+            }
+            Commands::AdmCancel { order_id } => {
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                execute_admin_cancel_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
+                    .await?;
+            }
             Commands::AdmTakeDispute { dispute_id } => {
-                execute_take_dispute(dispute_id, &identity_keys, &trade_keys, mostro_key, &client)
-                    .await?
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+
+                execute_take_dispute(dispute_id, &id_key, &trade_keys, mostro_key, &client).await?
             }
             Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
             Commands::SendDm {
