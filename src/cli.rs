@@ -156,6 +156,16 @@ pub enum Commands {
         #[arg(short)]
         from_user: bool,
     },
+    /// Get the latest direct messages for admin
+    GetAdminDm {
+        /// Since time of the messages in minutes
+        #[arg(short, long)]
+        #[clap(default_value_t = 30)]
+        since: i64,
+        /// If true, get messages from counterparty, otherwise from Mostro
+        #[arg(short)]
+        from_user: bool,
+    },
     /// Send direct message to a user
     SendDm {
         /// Pubkey of the counterpart
@@ -359,7 +369,10 @@ pub async fn run() -> Result<()> {
                 execute_add_invoice(order_id, invoice, &identity_keys, mostro_key, &client).await?
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, trade_index, &client, *from_user).await?
+                execute_get_dm(since, trade_index, &client, *from_user, false).await?
+            }
+            Commands::GetAdminDm { since, from_user } => {
+                execute_get_dm(since, trade_index, &client, *from_user, true).await?
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
