@@ -80,9 +80,10 @@ pub async fn execute_get_dm(
                         println!();
                     }
                     Payload::Order(new_order) if message.action == Action::NewOrder => {
-                        let db_order =
-                            Order::get_by_id(&pool, &new_order.id.unwrap().to_string()).await;
-                        if db_order.is_err() {
+                        if new_order.id.is_some() {
+                            let db_order =
+                                Order::get_by_id(&pool, &new_order.id.unwrap().to_string()).await;
+                            if db_order.is_err() {
                             let trade_index = message.trade_index.unwrap();
                             let trade_keys = User::get_trade_keys(&pool, trade_index).await?;
                             let _ = Order::new(&pool, new_order.clone(), &trade_keys, None)
@@ -90,6 +91,7 @@ pub async fn execute_get_dm(
                                 .map_err(|e| {
                                     anyhow::anyhow!("Failed to create DB order: {:?}", e)
                                 })?;
+                            }
                         }
                         println!();
                         println!("Order: {:#?}", new_order);
