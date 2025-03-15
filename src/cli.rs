@@ -389,15 +389,14 @@ pub async fn run() -> Result<()> {
                 .await?
             }
             Commands::AdmAddSolver { npubkey } => {
-                execute_send_msg(
-                    cmd.clone(),
-                    None,
-                    Some(&identity_keys),
-                    mostro_key,
-                    &client,
-                    Some(npubkey),
-                )
-                .await?
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                execute_admin_add_solver(npubkey, &id_key, &trade_keys, mostro_key, &client).await?
             }
             Commands::NewOrder {
                 kind,
