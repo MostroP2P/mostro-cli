@@ -29,9 +29,9 @@ pub async fn execute_take_sell(
 
     let payload = match invoice {
         Some(inv) => {
-            let initial_payload = match LightningAddress::from_str(&inv) {
+            let initial_payload = match LightningAddress::from_str(inv) {
                 Ok(_) => Payload::PaymentRequest(None, inv.to_string(), None),
-                Err(_) => match is_valid_invoice(&inv) {
+                Err(_) => match is_valid_invoice(inv) {
                     Ok(i) => Payload::PaymentRequest(None, i.to_string(), None),
                     Err(e) => {
                         println!("{}", e);

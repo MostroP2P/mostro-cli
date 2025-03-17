@@ -33,6 +33,7 @@ use std::{
     env::{set_var, var},
     str::FromStr,
 };
+use take_dispute::*;
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -147,6 +148,16 @@ pub enum Commands {
     },
     /// Get the latest direct messages
     GetDm {
+        /// Since time of the messages in minutes
+        #[arg(short, long)]
+        #[clap(default_value_t = 30)]
+        since: i64,
+        /// If true, get messages from counterparty, otherwise from Mostro
+        #[arg(short)]
+        from_user: bool,
+    },
+    /// Get the latest direct messages for admin
+    GetAdminDm {
         /// Since time of the messages in minutes
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
@@ -358,13 +369,14 @@ pub async fn run() -> Result<()> {
                 execute_add_invoice(order_id, invoice, &identity_keys, mostro_key, &client).await?
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, trade_index, &client, *from_user).await?
+                execute_get_dm(since, trade_index, &client, *from_user, false).await?
+            }
+            Commands::GetAdminDm { since, from_user } => {
+                execute_get_dm(since, trade_index, &client, *from_user, true).await?
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
-            | Commands::AdmCancel { order_id }
-            | Commands::AdmSettle { order_id }
             | Commands::Cancel { order_id } => {
                 execute_send_msg(
                     cmd.clone(),
@@ -377,15 +389,14 @@ pub async fn run() -> Result<()> {
                 .await?
             }
             Commands::AdmAddSolver { npubkey } => {
-                execute_send_msg(
-                    cmd.clone(),
-                    None,
-                    Some(&identity_keys),
-                    mostro_key,
-                    &client,
-                    Some(npubkey),
-                )
-                .await?
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                execute_admin_add_solver(npubkey, &id_key, &trade_keys, mostro_key, &client).await?
             }
             Commands::NewOrder {
                 kind,
@@ -417,9 +428,38 @@ pub async fn run() -> Result<()> {
             Commands::Rate { order_id, rating } => {
                 execute_rate_user(order_id, rating, &identity_keys, mostro_key, &client).await?;
             }
+            Commands::AdmSettle { order_id } => {
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                execute_admin_settle_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
+                    .await?;
+            }
+            Commands::AdmCancel { order_id } => {
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                execute_admin_cancel_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
+                    .await?;
+            }
             Commands::AdmTakeDispute { dispute_id } => {
-                execute_take_dispute(dispute_id, &identity_keys, &trade_keys, mostro_key, &client)
-                    .await?
+                let id_key = match std::env::var("NSEC_PRIVKEY") {
+                    Ok(id_key) => Keys::parse(&id_key)?,
+                    Err(e) => {
+                        println!("Failed to get mostro admin private key: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+
+                execute_take_dispute(dispute_id, &id_key, &trade_keys, mostro_key, &client).await?
             }
             Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
             Commands::SendDm {

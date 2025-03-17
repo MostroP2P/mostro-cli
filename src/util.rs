@@ -200,8 +200,8 @@ pub async fn get_direct_messages(
                     let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content)
                         .expect("Failed to decrypt message");
 
-                    let message = String::from_utf8(unencrypted_content)
-                        .expect("Found invalid UTF-8");
+                    let message =
+                        String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
                     let message = Message::from_json(&message).expect("Failed on deserializing");
 
                     (dm.created_at, message)

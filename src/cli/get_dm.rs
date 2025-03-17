@@ -13,12 +13,25 @@ pub async fn execute_get_dm(
     trade_index: i64,
     client: &Client,
     from_user: bool,
+    admin: bool,
 ) -> Result<()> {
     let mut dm: Vec<(Message, u64)> = Vec::new();
     let pool = connect().await?;
-    for index in 1..=trade_index {
-        let keys = User::get_trade_keys(&pool, index).await?;
-        let dm_temp = get_direct_messages(client, &keys, *since, from_user).await;
+    if !admin {
+        for index in 1..=trade_index {
+            let keys = User::get_trade_keys(&pool, index).await?;
+            let dm_temp = get_direct_messages(client, &keys, *since, from_user).await;
+            dm.extend(dm_temp);
+        }
+    } else {
+        let id_key = match std::env::var("NSEC_PRIVKEY") {
+            Ok(id_key) => Keys::parse(&id_key)?,
+            Err(e) => {
+                println!("Failed to get mostro admin private key: {}", e);
+                std::process::exit(1);
+            }
+        };
+        let dm_temp = get_direct_messages(client, &id_key, *since, from_user).await;
         dm.extend(dm_temp);
     }
 
@@ -49,22 +62,36 @@ pub async fn execute_get_dm(
                         println!("{text}");
                         println!();
                     }
+                    Payload::Dispute(id, token, info) => {
+                        println!("Action: {}", message.action);
+                        println!("Dispute id: {}", id);
+                        if token.is_some() {
+                            println!("Dispute token: {}", token.unwrap());
+                        }
+                        if info.is_some() {
+                            println!();
+                            println!("Dispute info: {:#?}", info);
+                            println!();
+                        }
+                    }
                     Payload::CantDo(Some(cant_do_reason)) => {
                         println!();
                         println!("Error: {:?}", cant_do_reason);
                         println!();
                     }
                     Payload::Order(new_order) if message.action == Action::NewOrder => {
-                        let db_order =
-                            Order::get_by_id(&pool, &new_order.id.unwrap().to_string()).await;
-                        if db_order.is_err() {
-                            let trade_index = message.trade_index.unwrap();
-                            let trade_keys = User::get_trade_keys(&pool, trade_index).await?;
-                            let _ = Order::new(&pool, new_order.clone(), &trade_keys, None)
-                                .await
-                                .map_err(|e| {
-                                    anyhow::anyhow!("Failed to create DB order: {:?}", e)
-                                })?;
+                        if new_order.id.is_some() {
+                            let db_order =
+                                Order::get_by_id(&pool, &new_order.id.unwrap().to_string()).await;
+                            if db_order.is_err() {
+                                let trade_index = message.trade_index.unwrap();
+                                let trade_keys = User::get_trade_keys(&pool, trade_index).await?;
+                                let _ = Order::new(&pool, new_order.clone(), &trade_keys, None)
+                                    .await
+                                    .map_err(|e| {
+                                        anyhow::anyhow!("Failed to create DB order: {:?}", e)
+                                    })?;
+                            }
                         }
                         println!();
                         println!("Order: {:#?}", new_order);
