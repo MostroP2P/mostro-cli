@@ -32,7 +32,7 @@ pub async fn send_dm(
         .unwrap();
     let event = if to_user {
         // Derive conversation key
-        let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey);
+        let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey)?;
         // Encrypt payload
         let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
         // Encode with base64
@@ -56,7 +56,7 @@ pub async fn send_dm(
         if let Some(timestamp) = expiration {
             tags.push(Tag::expiration(timestamp));
         }
-        let tags = Tags::new(tags);
+        let tags = Tags::from_list(tags);
 
         EventBuilder::gift_wrap(trade_keys, receiver_pubkey, rumor, tags).await?
     } else {
@@ -76,13 +76,13 @@ pub async fn send_dm(
         if let Some(timestamp) = expiration {
             tags.push(Tag::expiration(timestamp));
         }
-        let tags = Tags::new(tags);
+        let tags = Tags::from_list(tags);
 
         EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
     };
 
     info!("Sending event: {event:#?}");
-    client.send_event(event).await?;
+    client.send_event(&event).await?;
 
     Ok(())
 }
@@ -176,10 +176,7 @@ pub async fn get_direct_messages(
 
     let mut direct_messages: Vec<(Message, u64)> = Vec::new();
 
-    if let Ok(mostro_req) = client
-        .fetch_events(vec![filters], Duration::from_secs(15))
-        .await
-    {
+    if let Ok(mostro_req) = client.fetch_events(filters, Duration::from_secs(15)).await {
         // Buffer vector for direct messages
         // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
         let mut id_list = Vec::<EventId>::new();
@@ -188,7 +185,12 @@ pub async fn get_direct_messages(
             if !id_list.contains(&dm.id) {
                 id_list.push(dm.id);
                 let (created_at, message) = if from_user {
-                    let ck = ConversationKey::derive(my_key.secret_key(), &dm.pubkey);
+                    let ck =
+                        if let Ok(ck) = ConversationKey::derive(my_key.secret_key(), &dm.pubkey) {
+                            ck
+                        } else {
+                            continue;
+                        };
                     let b64decoded_content =
                         match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
                             Ok(b64decoded_content) => b64decoded_content,
@@ -255,7 +257,7 @@ pub async fn get_orders_list(
         .author(pubkey)
         .limit(50)
         .since(timestamp)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"])
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order".to_string())
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     info!(
@@ -268,10 +270,7 @@ pub async fn get_orders_list(
     let mut requested_orders_list = Vec::<SmallOrder>::new();
 
     // Send all requests to relays
-    if let Ok(mostro_req) = client
-        .fetch_events(vec![filters], Duration::from_secs(15))
-        .await
-    {
+    if let Ok(mostro_req) = client.fetch_events(filters, Duration::from_secs(15)).await {
         // Scan events to extract all orders
         for el in mostro_req.iter() {
             let order = order_from_tags(el.tags.clone());
@@ -349,17 +348,17 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
         .author(pubkey)
         .limit(50)
         .since(timestamp)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dispute"])
+        .custom_tag(
+            SingleLetterTag::lowercase(Alphabet::Z),
+            "dispute".to_string(),
+        )
         .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();
 
     // Send all requests to relays
-    if let Ok(mostro_req) = client
-        .fetch_events(vec![filter], Duration::from_secs(15))
-        .await
-    {
+    if let Ok(mostro_req) = client.fetch_events(filter, Duration::from_secs(15)).await {
         // Scan events to extract all disputes
         for d in mostro_req.iter() {
             let dispute = dispute_from_tags(d.tags.clone());
