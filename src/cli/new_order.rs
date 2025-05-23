@@ -1,8 +1,5 @@
 use anyhow::Result;
-use mostro_core::error::CantDoReason;
-use mostro_core::message::{Action, Message, Payload};
-use mostro_core::order::SmallOrder;
-use mostro_core::order::{Kind, Status};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
@@ -51,7 +48,7 @@ pub async fn execute_new_order(
     }
     let kind = uppercase_first(kind);
     // New check against strings
-    let kind_checked = Kind::from_str(&kind).unwrap();
+    let kind_checked = mostro_core::order::Kind::from_str(&kind).unwrap();
     let expires_at = match *expiration_days {
         0 => None,
         _ => {

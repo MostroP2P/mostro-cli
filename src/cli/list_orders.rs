@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::order::{Kind, Status};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
 
@@ -16,7 +16,7 @@ pub async fn execute_list_orders(
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
     let mut status_checked: Option<Status> = Some(Status::from_str("pending").unwrap());
-    let mut kind_checked: Option<Kind> = None;
+    let mut kind_checked: Option<mostro_core::order::Kind> = None;
 
     // New check against strings
     if let Some(s) = status {
@@ -29,7 +29,7 @@ pub async fn execute_list_orders(
     );
     // New check against strings
     if let Some(k) = kind {
-        kind_checked = Some(Kind::from_str(k).expect("Not valid order kind! Please check"));
+        kind_checked = Some(mostro_core::order::Kind::from_str(k).expect("Not valid order kind! Please check"));
         println!("You are searching {} orders", kind_checked.unwrap());
     }
 

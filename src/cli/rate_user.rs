@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mostro_core::message::{Action, Message, Payload};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 

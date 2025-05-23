@@ -5,11 +5,7 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use dotenvy::var;
 use log::{error, info};
-use mostro_core::dispute::Dispute;
-use mostro_core::message::Message;
-use mostro_core::order::Kind as MostroKind;
-use mostro_core::order::{SmallOrder, Status};
-use mostro_core::NOSTR_REPLACEABLE_EVENT_KIND;
+use mostro_core::prelude::*;
 use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 use std::thread::sleep;
@@ -38,7 +34,7 @@ pub async fn send_dm(
         // Encode with base64
         let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
         // Compose builder
-        EventBuilder::new(Kind::PrivateDirectMessage, b64decoded_content)
+        EventBuilder::new(nostr_sdk::Kind::PrivateDirectMessage, b64decoded_content)
             .pow(pow)
             .tag(Tag::public_key(*receiver_pubkey))
             .sign_with_keys(trade_keys)?
@@ -113,7 +109,7 @@ pub async fn send_message_sync(
     wait_for_dm: bool,
     to_user: bool,
 ) -> Result<Vec<(Message, u64)>> {
-    let message_json = message.as_json()?;
+    let message_json = message.as_json().map_err(|_| Error::msg("Failed to serialize message"))?;
     // Send dm to receiver pubkey
     println!(
         "SENDING DM with trade keys: {:?}",
@@ -162,12 +158,12 @@ pub async fn get_direct_messages(
             .timestamp() as u64;
         let timestamp = Timestamp::from(since_time);
         Filter::new()
-            .kind(Kind::PrivateDirectMessage)
+            .kind(nostr_sdk::Kind::PrivateDirectMessage)
             .pubkey(my_key.public_key())
             .since(timestamp)
     } else {
         Filter::new()
-            .kind(Kind::GiftWrap)
+            .kind(nostr_sdk::Kind::GiftWrap)
             .pubkey(my_key.public_key())
             .since(fake_timestamp)
     };
@@ -243,7 +239,7 @@ pub async fn get_orders_list(
     pubkey: PublicKey,
     status: Status,
     currency: Option<String>,
-    kind: Option<MostroKind>,
+    kind: Option<mostro_core::order::Kind>,
     client: &Client,
 ) -> Result<Vec<SmallOrder>> {
     let since_time = chrono::Utc::now()
@@ -258,7 +254,7 @@ pub async fn get_orders_list(
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order".to_string())
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     info!(
         "Request to mostro id : {:?} with event kind : {:?} ",
@@ -352,7 +348,7 @@ pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec
             SingleLetterTag::lowercase(Alphabet::Z),
             "dispute".to_string(),
         )
-        .kind(Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
+        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
 
     // Extracted Orders List
     let mut disputes_list = Vec::<Dispute>::new();

@@ -1,6 +1,5 @@
 use anyhow::{Ok, Result};
-use mostro_core::dispute::{Dispute, Status as DisputeStatus};
-use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -20,7 +19,7 @@ pub fn order_from_tags(tags: Tags) -> Result<SmallOrder> {
                 order.id = id;
             }
             "k" => {
-                order.kind = Some(OrderKind::from_str(v).unwrap());
+                order.kind = Some(mostro_core::order::Kind::from_str(v).unwrap());
             }
             "f" => {
                 order.fiat_code = v.to_string();

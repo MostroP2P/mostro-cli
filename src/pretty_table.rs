@@ -2,9 +2,8 @@ use anyhow::Result;
 use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
-use mostro_core::dispute::Dispute;
-use mostro_core::message::Payload;
-use mostro_core::order::{Kind, SmallOrder};
+use mostro_core::prelude::*;
+
 
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let single_order = match ord {

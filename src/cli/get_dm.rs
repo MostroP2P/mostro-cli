@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::DateTime;
-use mostro_core::message::{Action, Message, Payload};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 
 use crate::{

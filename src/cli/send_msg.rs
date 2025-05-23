@@ -3,7 +3,7 @@ use crate::util::send_message_sync;
 use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
-use mostro_core::message::{Action, Message, Payload};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
 use std::process;
@@ -92,7 +92,7 @@ async fn create_next_trade_payload(
         if let (Some(_), Some(min_amount), Some(max_amount)) =
             (order.is_mine, order.min_amount, order.max_amount)
         {
-            if max_amount - order.amount >= min_amount {
+            if max_amount - order.fiat_amount >= min_amount {
                 let (trade_keys, trade_index) = User::get_next_trade_keys(pool).await?;
                 return Ok(Some(Payload::NextTrade(
                     trade_keys.public_key().to_string(),
