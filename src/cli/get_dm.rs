@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::DateTime;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use crate::cli::MOSTRO_KEYS;
 
 use crate::{
     db::{connect, Order, User},
@@ -26,15 +27,7 @@ pub async fn execute_get_dm(
             dm.extend(dm_temp);
         }
     } else {
-        let id_key = match std::env::var("NSEC_PRIVKEY") {
-            Ok(id_key) => Keys::parse(&id_key)?,
-            Err(e) => {
-                println!("Failed to get mostro admin private key: {}", e);
-                std::process::exit(1);
-            }
-        };
-        let dm_temp =
-            get_direct_messages(client, &id_key, *since, from_user, Some(mostro_pubkey)).await;
+        let dm_temp = get_direct_messages(client,   MOSTRO_KEYS.get().unwrap(), *since, from_user).await;
         dm.extend(dm_temp);
     }
 

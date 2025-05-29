@@ -1,5 +1,5 @@
 use crate::db::{Order, User};
-use crate::util::send_message_sync;
+use crate::util::wait_for_dm;
 use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
@@ -34,7 +34,9 @@ pub async fn execute_send_msg(
 
     println!(
         "Sending {} command for order {:?} to mostro pubId {}",
-        requested_action, order_id, mostro_key
+        requested_action,
+        order_id.as_ref(),
+        mostro_key
     );
 
     let pool = connect().await?;
@@ -62,21 +64,55 @@ pub async fn execute_send_msg(
 
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
-    // println!("Sending message: {:#?}", message);
+    let client_clone = client.clone();
+    let idkey = identity_keys
+        .ok_or_else(|| anyhow::anyhow!("Identity keys are required"))?
+        .to_owned();
 
     if let Some(order_id) = order_id {
-        handle_order_response(
-            &pool,
-            client,
-            identity_keys,
-            mostro_key,
-            message,
-            order_id,
-            request_id,
-        )
-        .await?;
-    } else {
-        println!("Error: Missing order ID");
+        let order = Order::get_by_id(&pool, &order_id.to_string()).await?;
+
+        if let Some(trade_keys_str) = order.trade_keys.clone() {
+            let trade_keys = Keys::parse(&trade_keys_str)?;
+            // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
+            let subscription = Filter::new()
+                .pubkey(trade_keys.public_key())
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .limit(0);
+
+            let opts =
+                SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
+
+            client.subscribe(subscription, Some(opts)).await?;
+            // Clone the keys and client for the async call
+            let trade_keys_clone = trade_keys.clone();
+
+            // Spawn a new task to send the DM
+            // This is so we can wait for the gift wrap event in the main thread
+            tokio::spawn(async move {
+                match message.as_json() {
+                    Ok(message_json) => {
+                        if let Err(e) = crate::util::send_dm(
+                            &client_clone,
+                            Some(&idkey),
+                            &trade_keys_clone,
+                            &mostro_key,
+                            message_json,
+                            None,
+                            false,
+                        )
+                        .await
+                        {
+                            eprintln!("Failed to send DM: {}", e);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to serialize message: {}", e),
+                }
+            });
+
+            // Wait for the DM to be sent from mostro
+            wait_for_dm(client, &trade_keys, request_id, 0, Some(order)).await?;
+        }
     }
 
     Ok(())
@@ -102,85 +138,4 @@ async fn create_next_trade_payload(
         }
     }
     Ok(None)
-}
-
-async fn handle_order_response(
-    pool: &SqlitePool,
-    client: &Client,
-    identity_keys: Option<&Keys>,
-    mostro_key: PublicKey,
-    message: Message,
-    order_id: Uuid,
-    request_id: u64,
-) -> Result<()> {
-    let order = Order::get_by_id(pool, &order_id.to_string()).await;
-
-    match order {
-        Ok(order) => {
-            if let Some(trade_keys_str) = order.trade_keys {
-                let trade_keys = Keys::parse(&trade_keys_str)?;
-                let dm = send_message_sync(
-                    client,
-                    identity_keys,
-                    &trade_keys,
-                    mostro_key,
-                    message,
-                    true,
-                    false,
-                )
-                .await?;
-                process_order_response(dm, pool, &trade_keys, request_id).await?;
-            } else {
-                println!("Error: Missing trade keys for order {}", order_id);
-            }
-        }
-        Err(e) => {
-            println!("Error: {}", e);
-        }
-    }
-
-    Ok(())
-}
-
-async fn process_order_response(
-    dm: Vec<(Message, u64)>,
-    pool: &SqlitePool,
-    trade_keys: &Keys,
-    request_id: u64,
-) -> Result<()> {
-    for (message, _) in dm {
-        let kind = message.get_inner_message_kind();
-        if let Some(req_id) = kind.request_id {
-            if req_id != request_id {
-                continue;
-            }
-
-            match kind.action {
-                Action::NewOrder => {
-                    if let Some(Payload::Order(order)) = kind.payload.as_ref() {
-                        Order::new(pool, order.clone(), trade_keys, Some(request_id as i64))
-                            .await
-                            .map_err(|e| anyhow::anyhow!("Failed to create new order: {}", e))?;
-                        return Ok(());
-                    }
-                }
-                Action::Canceled => {
-                    if let Some(id) = kind.id {
-                        // Verify order exists before deletion
-                        if Order::get_by_id(pool, &id.to_string()).await.is_ok() {
-                            Order::delete_by_id(pool, &id.to_string())
-                                .await
-                                .map_err(|e| anyhow::anyhow!("Failed to delete order: {}", e))?;
-                            return Ok(());
-                        } else {
-                            return Err(anyhow::anyhow!("Order not found: {}", id));
-                        }
-                    }
-                }
-                _ => (),
-            }
-        }
-    }
-
-    Ok(())
 }

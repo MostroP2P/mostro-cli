@@ -1,5 +1,5 @@
+use crate::db::{connect, Order, User};
 use crate::nip33::{dispute_from_tags, order_from_tags};
-
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -8,9 +8,24 @@ use log::{error, info};
 use mostro_core::prelude::*;
 use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
-use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, path::Path};
+use crate::cli::{MOSTRO_KEYS, POOL, TRADE_KEY};
+
+#[derive(Clone, Debug)]
+pub enum Event {
+    SmallOrder(SmallOrder),
+    Dispute(Dispute), // Assuming you have a Dispute struct
+    MessageTuple((Message, u64)),
+}
+
+#[derive(Clone, Debug)]
+pub enum ListKind {
+    Orders,
+    Disputes,
+    DirectMessagesUser,
+    DirectMessagesAdmin,
+}
 
 async fn send_gift_wrap_dm_internal(
     client: &Client,
@@ -66,6 +81,160 @@ pub async fn send_gift_wrap_dm(
     message: &str,
 ) -> Result<()> {
     send_gift_wrap_dm_internal(client, trade_keys, receiver_pubkey, message, false).await
+}
+
+pub async fn save_order(
+    order: SmallOrder,
+    trade_keys: &Keys,
+    request_id: u64,
+    trade_index: i64,
+) -> Result<()> {
+    let pool = connect().await?;
+    if let Ok(order) = Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
+        if let Some(order_id) = order.id {
+            println!("Order {} created", order_id);
+        } else {
+            println!("Warning: The newly created order has no ID.");
+        }
+        // Update last trade index to be used in next trade
+        match User::get(&pool).await {
+            Ok(mut user) => {
+                user.set_last_trade_index(trade_index);
+                if let Err(e) = user.save(&pool).await {
+                    println!("Failed to update user: {}", e);
+                }
+            }
+            Err(e) => println!("Failed to get user: {}", e),
+        }
+    }
+    Ok(())
+}
+
+/// Wait for incoming gift wraps or events coming in
+pub async fn wait_for_dm(
+    client: &Client,
+    trade_keys: &Keys,
+    request_id: u64,
+    trade_index: i64,
+    mut order: Option<Order>,
+) -> anyhow::Result<()> {
+    let mut notifications = client.notifications();
+
+    match tokio::time::timeout(Duration::from_secs(10), async move {
+        while let Ok(notification) = notifications.recv().await {
+            if let RelayPoolNotification::Event { event, .. } = notification {
+                if event.kind == nostr_sdk::Kind::GiftWrap {
+                let gift = nip59::extract_rumor(trade_keys, &event).await.unwrap();
+                let (message, _): (Message, Option<String>) = serde_json::from_str(&gift.rumor.content).unwrap();
+                let message = message.get_inner_message_kind();
+                if message.request_id == Some(request_id) {
+                    match message.action {
+                        Action::NewOrder => {
+                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                                save_order(order.clone(), trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                return Ok(());
+                            }
+                        }
+                        // this is the case where the buyer adds an invoice to a takesell order
+                        Action::WaitingSellerToPay => {
+                            println!("Now we should wait for the seller to pay the invoice");
+                            if let Some(mut order) = order.take() {
+                                let pool = connect().await.map_err(|_| ())?;
+                                match order
+                                .set_status(Status::WaitingPayment.to_string())
+                                .save(&pool)
+                                .await
+                                {
+                                    Ok(_) => println!("Order status updated"),
+                                    Err(e) => println!("Failed to update order status: {}", e),
+                                }
+                            }
+                        }
+                        // this is the case where the buyer adds an invoice to a takesell order
+                        Action::AddInvoice => {
+                            if let Some(Payload::Order(order)) = &message.payload {
+                                println!(
+                                    "Please add a lightning invoice with amount of {}",
+                                    order.amount
+                                );
+                                return Ok(());
+                            }
+                        }
+                        // this is the case where the buyer pays the invoice coming from a takebuy
+                        Action::PayInvoice => {
+                            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
+                                println!(
+                                    "Mostro sent you this hold invoice for order id: {}",
+                                    order
+                                        .as_ref()
+                                        .and_then(|o| o.id)
+                                        .map_or("unknown".to_string(), |id| id.to_string())
+                                );
+                                println!();
+                                println!("Pay this invoice to continue -->  {}", invoice);
+                                println!();
+                                if let Some(order) = order {
+                                    let store_order = order.clone();
+                                    save_order(store_order, trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        Action::CantDo => {
+                            match message.payload {
+                                Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) => {
+                                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                                    return Err(());
+                                }
+                                Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
+                                        println!("Error: A pending order already exists. Please wait for it to be filled or canceled.");
+                                        return Err(());
+                                    }
+                                Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
+                                    println!("Error: Invalid trade index. Please synchronize the trade index with mostro");
+                                    return Err(());
+                                }
+                                _ => {
+                                    println!("Unknown reason: {:?}", message.payload);
+                                    return Err(());
+                                }
+                            }
+                        }
+                        // this is the case where the user cancels the order
+                        Action::Canceled => {
+                            if let Some(order_id) = &message.id {
+                            // Acquire database connection
+                            let pool = connect().await.map_err(|_| ())?;
+                            // Verify order exists before deletion
+                            if Order::get_by_id(&pool, &order_id.to_string()).await.is_ok() {
+                                Order::delete_by_id(&pool, &order_id.to_string())
+                                    .await
+                                    .map_err(|_| ())?;
+                                // Release database connection
+                                drop(pool);
+                                println!("Order {} canceled!", order_id);
+                                return Ok(());
+                            } else {
+                                println!("Order not found: {}", order_id);
+                                return Err(());
+                                }
+                            }
+                        }
+                        _ => {
+                            println!("Unknown action: {:?}", message.action);
+                            return Err(());
+                        }
+                    }
+                    }
+                }
+        }
+        }
+        Ok(())
+    })
+    .await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(anyhow::anyhow!("Timeout waiting for DM or gift wrap event"))
+    }
 }
 
 pub async fn send_dm(
@@ -133,7 +302,6 @@ pub async fn send_dm(
         EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
     };
 
-    info!("Sending event: {event:#?}");
     client.send_event(&event).await?;
 
     Ok(())
@@ -150,6 +318,7 @@ pub async fn connect_nostr() -> Result<Client> {
     for r in relays.into_iter() {
         client.add_relay(r).await?;
     }
+
     // Connect to relays and keep connection alive
     client.connect().await;
 
@@ -162,9 +331,9 @@ pub async fn send_message_sync(
     trade_keys: &Keys,
     receiver_pubkey: PublicKey,
     message: Message,
-    wait_for_dm: bool,
+    _wait_for_dm: bool,
     to_user: bool,
-) -> Result<Vec<(Message, u64)>> {
+) -> Result<()> {
     let message_json = message
         .as_json()
         .map_err(|_| Error::msg("Failed to serialize message"))?;
@@ -183,16 +352,8 @@ pub async fn send_message_sync(
         to_user,
     )
     .await?;
-    // FIXME: This is a hack to wait for the DM to be sent
-    sleep(Duration::from_secs(2));
 
-    let dm: Vec<(Message, u64)> = if wait_for_dm {
-        get_direct_messages(client, trade_keys, 15, to_user, None).await
-    } else {
-        Vec::new()
-    };
-
-    Ok(dm)
+    Ok(())
 }
 
 pub async fn get_direct_messages_from_trade_keys(
@@ -217,65 +378,13 @@ pub async fn get_direct_messages_from_trade_keys(
         .unwrap()
         .timestamp() as u64;
 
-    let mut all_direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let mut id_set = std::collections::HashSet::<EventId>::new();
+    let dm: Vec<(Message, u64)> = if wait_for_dm {
+        get_direct_messages(client, trade_keys, 15, to_user).await
+    } else {
+        Vec::new()
+    };
 
-    for trade_key_hex in trade_keys_hex {
-        if let Ok(trade_keys) = Keys::parse(&trade_key_hex) {
-            let filters = Filter::new()
-                .kind(nostr_sdk::Kind::GiftWrap)
-                .pubkey(trade_keys.public_key())
-                .since(fake_timestamp);
-
-            info!("Request events with event kind : {:?} for trade key: {}", 
-                  filters.kinds, trade_keys.public_key());
-
-            if let Ok(events) = client.fetch_events(filters, Duration::from_secs(15)).await {
-                for dm in events.iter() {
-                    if !id_set.insert(dm.id) {
-                        continue; // Already processed
-                    }
-                        
-                    let unwrapped_gift = match nip59::extract_rumor(&trade_keys, dm).await {
-                        Ok(u) => u,
-                        Err(_) => {
-                            error!("Error unwrapping gift for trade key: {}", trade_keys.public_key());
-                            continue;
-                        }
-                    };
-                    
-                    // Filter: only process messages NOT from Mostro (user-to-user messages)
-                    if unwrapped_gift.rumor.pubkey == *mostro_pubkey {
-                        continue; // Skip Mostro messages
-                    }
-
-                    if unwrapped_gift.rumor.created_at.as_u64() < since_time {
-                        continue;
-                    }
-
-                    // Parse JSON content (all messages should be JSON now)
-                    let (message, _): (Message, Option<String>) = match serde_json::from_str(&unwrapped_gift.rumor.content) {
-                        Ok(parsed) => parsed,
-                        Err(_) => {
-                            error!("Error parsing JSON content from: {}", unwrapped_gift.rumor.pubkey);
-                            continue;
-                        }
-                    };
-                    
-                    all_direct_messages.push((
-                        message, 
-                        unwrapped_gift.rumor.created_at.as_u64(),
-                        unwrapped_gift.rumor.pubkey
-                    ));
-                }
-            }
-        } else {
-            error!("Failed to parse trade key: {}", trade_key_hex);
-        }
-    }
-
-    all_direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
-    all_direct_messages
+    Ok(())
 }
 
 pub async fn get_direct_messages(
@@ -385,47 +494,100 @@ pub async fn get_direct_messages(
     direct_messages
 }
 
-pub async fn get_orders_list(
-    pubkey: PublicKey,
-    status: Status,
+fn parse_dispute_events(events: Events) -> Vec<Dispute> {
+    // Extracted Disputes List
+    let mut disputes_list = Vec::<Dispute>::new();
+
+    // Scan events to extract all disputes
+    for event in events.into_iter() {
+        if let Ok(mut dispute) = dispute_from_tags(event.tags) {
+            info!("Found Dispute id : {:?}", dispute.id);
+            // Get created at field from Nostr event
+            dispute.created_at = event.created_at.as_u64() as i64;
+            disputes_list.push(dispute.clone());
+        }
+    }
+
+    let buffer_dispute_list = disputes_list.clone();
+    // Order all element ( orders ) received to filter - discard disaligned messages
+    // if an order has an older message with the state we received is discarded for the latest one
+    disputes_list.retain(|keep| {
+        !buffer_dispute_list
+            .iter()
+            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
+    });
+
+    // Sort by id to remove duplicates
+    disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
+    disputes_list.dedup_by(|a, b| a.id == b.id);
+
+    // Finally sort list by creation time
+    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    disputes_list
+}
+
+
+async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message,u64)>{
+           // Buffer vector for direct messages
+        // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+        let mut id_list = Vec::<EventId>::new();
+        // Vector for direct messages
+        let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+
+        for dm in events.iter() {
+            if !id_list.contains(&dm.id) {
+                id_list.push(dm.id);
+
+                let unwrapped_gift = match nip59::extract_rumor(pubkey, dm).await {
+                    Ok(u) => u,
+                    Err(_) => {
+                        println!("Error unwrapping gift");
+                        continue;
+                    }
+                };
+                let (message, _): (Message, Option<String>) =
+                    serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
+
+                // Create a tuple with the created_at and the message
+                let (created_at, message) = (unwrapped_gift.rumor.created_at, message);
+                
+
+                // Here we discard messages older than the real since parameter
+                let since_time = chrono::Utc::now()
+                    .checked_sub_signed(chrono::Duration::minutes(30))
+                    .unwrap()
+                    .timestamp() as u64;
+                if created_at.as_u64() < since_time {
+                    continue;
+                }
+                direct_messages.push((message, created_at.as_u64()));
+            }
+        }
+        // Return element sorted by second tuple element ( Timestamp )
+    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
+
+    direct_messages
+}
+
+fn parse_orders_events(
+    events: Events,
     currency: Option<String>,
+    status: Option<Status>,
     kind: Option<mostro_core::order::Kind>,
-    client: &Client,
-) -> Result<Vec<SmallOrder>> {
-    let since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::days(7))
-        .unwrap()
-        .timestamp() as u64;
-
-    let timestamp = Timestamp::from(since_time);
-
-    let filters = Filter::new()
-        .author(pubkey)
-        .limit(50)
-        .since(timestamp)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order".to_string())
-        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
-    info!(
-        "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors, filters.kinds
-    );
-
+) -> Vec<SmallOrder> {
     // Extracted Orders List
     let mut complete_events_list = Vec::<SmallOrder>::new();
     let mut requested_orders_list = Vec::<SmallOrder>::new();
 
-    // Send all requests to relays
-    if let Ok(mostro_req) = client.fetch_events(filters, Duration::from_secs(15)).await {
-        // Scan events to extract all orders
-        for el in mostro_req.iter() {
-            let order = order_from_tags(el.tags.clone());
+    // Scan events to extract all orders
+    for event in events.iter() {
+        let order = order_from_tags(event.tags.clone());
 
-            if order.is_err() {
-                error!("{order:?}");
-                continue;
-            }
-            let mut order = order?;
+        if order.is_err() {
+            error!("{order:?}");
+            continue;
+        }
+        if let Ok(mut order) = order {
 
             info!("Found Order id : {:?}", order.id.unwrap());
 
@@ -445,26 +607,22 @@ pub async fn get_orders_list(
             }
 
             // Get created at field from Nostr event
-            order.created_at = Some(el.created_at.as_u64() as i64);
-
+            order.created_at = Some(event.created_at.as_u64() as i64);
             complete_events_list.push(order.clone());
-
-            if order.status.ne(&Some(status)) {
+            if order.status.ne(&status) {
                 continue;
-            }
-
-            if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
-                continue;
-            }
-
-            if kind.is_some() && order.kind.ne(&kind) {
-                continue;
-            }
-            // Add just requested orders requested by filtering
-            requested_orders_list.push(order);
         }
-    }
 
+        if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
+            continue;
+        }
+
+        if kind.is_some() && order.kind.ne(&kind) {
+            continue;
+        }
+        // Add just requested orders requested by filtering
+        requested_orders_list.push(order);
+    }
     // Order all element ( orders ) received to filter - discard disaligned messages
     // if an order has an older message with the state we received is discarded for the latest one
     requested_orders_list.retain(|keep| {
@@ -475,11 +633,118 @@ pub async fn get_orders_list(
     // Sort by id to remove duplicates
     requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
     requested_orders_list.dedup_by(|a, b| a.id == b.id);
-
+    }
     // Finally sort list by creation time
     requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    requested_orders_list
+}
 
-    Ok(requested_orders_list)
+fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
+    match list_kind {
+        ListKind::Orders => {
+            let since_time = chrono::Utc::now()
+                .checked_sub_signed(chrono::Duration::days(7))
+                .unwrap()
+                .timestamp() as u64;
+
+            let timestamp = Timestamp::from(since_time);
+
+            // Create filter for fetching orders
+            Filter::new()
+                .author(pubkey)
+                .limit(50)
+                .since(timestamp)
+                .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order".to_string())
+                .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND))
+        }
+        ListKind::Disputes => {
+            let since_time = chrono::Utc::now()
+                .checked_sub_signed(chrono::Duration::days(7))
+                .unwrap()
+                .timestamp() as u64;
+
+            let timestamp = Timestamp::from(since_time);
+
+            // Create filter for fetching orders
+            Filter::new()
+                .author(pubkey)
+                .limit(50)
+                .since(timestamp)
+                .custom_tag(
+                    SingleLetterTag::lowercase(Alphabet::Z),
+                    "dispute".to_string(),
+                )
+                .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND))
+        }
+        ListKind::DirectMessagesAdmin => {
+            // We use a fake timestamp to thwart time-analysis attacks
+            let fake_since = 2880;
+            let fake_since_time = chrono::Utc::now()
+                .checked_sub_signed(chrono::Duration::minutes(fake_since))
+                .unwrap()
+                .timestamp() as u64;
+
+            let fake_timestamp = Timestamp::from(fake_since_time);
+
+            Filter::new()
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .pubkey(pubkey)
+                .since(fake_timestamp)
+        }
+        ListKind::DirectMessagesUser => {
+            let since_time = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::minutes(30))
+            .unwrap()
+            .timestamp() as u64;
+        let timestamp = Timestamp::from(since_time);
+        Filter::new()
+            .kind(nostr_sdk::Kind::PrivateDirectMessage)
+            .pubkey(pubkey)
+            .since(timestamp)
+        }
+    }
+}
+
+
+pub async fn fetch_events_list(
+    list_kind: ListKind,
+    status: Option<Status>,
+    currency: Option<String>,
+    kind: Option<mostro_core::order::Kind>,
+    client: &Client,
+) -> Result<Vec<Event>> {
+    match list_kind {
+        ListKind::Orders => {
+            let filters = create_filter(list_kind, MOSTRO_KEYS.get().unwrap().public_key());
+            let fetched_events = client.fetch_events(filters, Duration::from_secs(15)).await?;
+            let orders = parse_orders_events(fetched_events, currency, status, kind);
+            Ok(orders.into_iter().map(Event::SmallOrder).collect())
+        }
+        ListKind::DirectMessagesAdmin => {
+            let filters = create_filter(list_kind, MOSTRO_KEYS.get().unwrap().public_key());
+            let fetched_events = client.fetch_events(filters, Duration::from_secs(15)).await?;
+            let direct_messages_mostro = parse_dm_events(fetched_events, MOSTRO_KEYS.get().unwrap()).await;
+            Ok(direct_messages_mostro.into_iter().map(Event::MessageTuple).collect())
+        }
+        ListKind::DirectMessagesUser => {
+            let trade_index = TRADE_KEY.get().unwrap().1;
+            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            for index in 1..=trade_index {
+                let trade_key = User::get_trade_keys(&POOL.get().unwrap(), index).await?;
+                let filter = create_filter(ListKind::DirectMessagesUser, trade_key.public_key());
+                let fetched_user_messages = client.fetch_events(filter, Duration::from_secs(15)).await?;
+                let direct_messages_for_trade_key = parse_dm_events(fetched_user_messages, &trade_key).await;
+                direct_messages.extend(direct_messages_for_trade_key);
+            }
+            Ok(direct_messages.into_iter().map(Event::MessageTuple).collect())
+        },
+        ListKind::Disputes => {
+            let filters = create_filter(list_kind, MOSTRO_KEYS.get().unwrap().public_key());
+            let fetched_events = client.fetch_events(filters, Duration::from_secs(15)).await?;
+            let disputes = parse_dispute_events(fetched_events);
+            Ok(disputes.into_iter().map(Event::Dispute).collect())
+        }
+    }
 }
 
 pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
