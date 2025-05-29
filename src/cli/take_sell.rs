@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::db::{connect, Order, User};
 use crate::lightning::is_valid_invoice;
-use crate::util::send_message_sync;
+use crate::util::{get_direct_messages, send_message_sync};
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_take_sell(
@@ -65,54 +65,75 @@ pub async fn execute_take_sell(
         Some(payload),
     );
 
-    let dm = send_message_sync(
+    let mut attempts = 0;
+    let max_attempts = 10;
+    let mut order = None;
+
+    // Send dm to receiver pubkey
+    println!(
+        "SENDING DM with trade keys: {:?}",
+        trade_keys.public_key().to_hex()
+    );
+    send_message_sync(
         client,
         Some(identity_keys),
         trade_keys,
         mostro_key,
-        take_sell_message,
+        take_sell_message.clone(),
         true,
         false,
     )
     .await?;
-    let pool = connect().await?;
 
-    let order = dm.iter().find_map(|el| {
-        let message = el.0.get_inner_message_kind();
-        if message.request_id == Some(request_id) {
-            match message.action {
-                Action::AddInvoice => {
-                    if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                        println!(
-                            "Please add a lightning invoice with amount of {}",
-                            order.amount
-                        );
-                        return Some(order.clone());
-                    }
-                }
-                Action::CantDo => {
-                    if let Some(Payload::CantDo(Some(cant_do_reason))) = &message.payload {
-                        match cant_do_reason {
-                            CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount => {
-                                println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                            }
-                            _ => {
-                                println!("Unknown reason: {:?}", message.payload);
-                            }
+    while attempts < max_attempts {
+        let dm = get_direct_messages(client, trade_keys, 15, false).await;
+        order = dm.iter().find_map(|el| {
+            let message = el.0.get_inner_message_kind();
+            if message.request_id == Some(request_id) {
+                match message.action {
+                    Action::AddInvoice => {
+                        if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                            println!(
+                                "Please add a lightning invoice with amount of {}",
+                                order.amount
+                            );
+                            return Some(order.clone());
                         }
-                    } else {
-                        println!("Unknown reason: {:?}", message.payload);
+                    }
+                    Action::CantDo => {
+                        if let Some(Payload::CantDo(Some(cant_do_reason))) = &message.payload {
+                            match cant_do_reason {
+                                CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount => {
+                                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                                }
+                                _ => {
+                                    println!("Unknown reason: {:?}", message.payload);
+                                }
+                            }
+                        } else {
+                            println!("Unknown reason: {:?}", message.payload);
+                            return None;
+                        }
+                    }
+                    _ => {
+                        println!("Unknown action: {:?}", message.action);
                         return None;
                     }
                 }
-                _ => {
-                    println!("Unknown action: {:?}", message.action);
-                    return None;
-                }
             }
+            None
+        });
+
+        if order.is_some() {
+            break; // Exit the loop if an order is found
+        } else {
+            print!("#");
         }
-        None
-    });
+
+        attempts += 1;
+    }
+
+    let pool = connect().await?;
     if let Some(o) = order {
         if let Ok(order) = Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
             if let Some(order_id) = order.id {

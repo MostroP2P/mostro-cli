@@ -8,7 +8,6 @@ use log::{error, info};
 use mostro_core::prelude::*;
 use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
-use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, path::Path};
 
@@ -106,15 +105,13 @@ pub async fn send_message_sync(
     trade_keys: &Keys,
     receiver_pubkey: PublicKey,
     message: Message,
-    wait_for_dm: bool,
+    _wait_for_dm: bool,
     to_user: bool,
-) -> Result<Vec<(Message, u64)>> {
-    let message_json = message.as_json().map_err(|_| Error::msg("Failed to serialize message"))?;
-    // Send dm to receiver pubkey
-    println!(
-        "SENDING DM with trade keys: {:?}",
-        trade_keys.public_key().to_hex()
-    );
+) -> Result<()> {
+    let message_json = message
+        .as_json()
+        .map_err(|_| Error::msg("Failed to serialize message"))?;
+
     send_dm(
         client,
         identity_keys,
@@ -125,16 +122,8 @@ pub async fn send_message_sync(
         to_user,
     )
     .await?;
-    // FIXME: This is a hack to wait for the DM to be sent
-    sleep(Duration::from_secs(2));
 
-    let dm: Vec<(Message, u64)> = if wait_for_dm {
-        get_direct_messages(client, trade_keys, 15, to_user).await
-    } else {
-        Vec::new()
-    };
-
-    Ok(dm)
+    Ok(())
 }
 
 pub async fn get_direct_messages(

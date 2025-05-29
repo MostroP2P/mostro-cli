@@ -1,5 +1,5 @@
 use crate::db::connect;
-use crate::util::send_message_sync;
+use crate::util::{get_direct_messages, send_message_sync};
 use crate::{db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -50,7 +50,7 @@ pub async fn execute_add_invoice(
         payload,
     );
 
-    let dm = send_message_sync(
+    send_message_sync(
         client,
         Some(identity_keys),
         &trade_keys,
@@ -61,6 +61,7 @@ pub async fn execute_add_invoice(
     )
     .await?;
 
+    let dm = get_direct_messages(client, &trade_keys, 15, false).await;
     dm.iter().for_each(|el| {
         let message = el.0.get_inner_message_kind();
         if message.request_id == Some(request_id) && message.action == Action::WaitingSellerToPay {

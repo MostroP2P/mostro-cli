@@ -1,5 +1,5 @@
 use crate::db::{Order, User};
-use crate::util::send_message_sync;
+use crate::util::{get_direct_messages, send_message_sync};
 use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
@@ -119,7 +119,7 @@ async fn handle_order_response(
         Ok(order) => {
             if let Some(trade_keys_str) = order.trade_keys {
                 let trade_keys = Keys::parse(&trade_keys_str)?;
-                let dm = send_message_sync(
+                send_message_sync(
                     client,
                     identity_keys,
                     &trade_keys,
@@ -129,6 +129,7 @@ async fn handle_order_response(
                     false,
                 )
                 .await?;
+                let dm = get_direct_messages(client, &trade_keys, 15, false).await;
                 process_order_response(dm, pool, &trade_keys, request_id).await?;
             } else {
                 println!("Error: Missing trade keys for order {}", order_id);
