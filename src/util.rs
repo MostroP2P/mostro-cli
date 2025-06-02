@@ -52,8 +52,10 @@ pub async fn wait_for_dm(
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotification::Event { event, .. } = notification {
                 if event.kind == nostr_sdk::Kind::GiftWrap {
-                let gift = nip59::extract_rumor(trade_keys, &event).await.map_err(|_| ())?;
-                let (message, _): (Message, Option<String>) = serde_json::from_str(&gift.rumor.content).unwrap();
+                let gift = nip59::extract_rumor(trade_keys, &event).await
+                    .map_err(|e| Error::msg(format!("Failed to extract rumor: {}", e)))?;
+                let (message, _): (Message, Option<String>) = serde_json::from_str(&gift.rumor.content)
+                    .map_err(|e| Error::msg(format!("Failed to parse message: {}", e)))?;
                 let message = message.get_inner_message_kind();
                 if message.request_id == Some(request_id) {
                     match message.action {
