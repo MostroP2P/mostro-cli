@@ -62,7 +62,7 @@ pub async fn execute_add_invoice(
     // Spawn a new task to send the DM
     // This is so we can wait for the gift wrap event in the main thread
     tokio::spawn(async move {
-        let _ = send_dm(
+        if let Err(e) = send_dm(
             &client_clone,
             Some(&identity_keys.clone()),
             &trade_keys_clone,
@@ -71,7 +71,9 @@ pub async fn execute_add_invoice(
             None,
             false,
         )
-        .await;
+        .await {
+            eprintln!("Failed to send DM: {}", e);
+        }
     });
 
     // Wait for the DM to be sent from mostro
