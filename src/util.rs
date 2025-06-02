@@ -1,5 +1,5 @@
+use crate::db::{connect, Order, User};
 use crate::nip33::{dispute_from_tags, order_from_tags};
-
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -10,6 +10,149 @@ use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use std::{fs, path::Path};
+
+pub async fn save_order(
+    order: SmallOrder,
+    trade_keys: &Keys,
+    request_id: u64,
+    trade_index: i64,
+) -> Result<()> {
+    let order_id = order.id.unwrap();
+    println!("Order id {} created", order_id);
+    let pool = connect().await?;
+    if let Ok(order) = Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
+        if let Some(order_id) = order.id {
+            println!("Order {} created", order_id);
+        } else {
+            println!("Warning: The newly created order has no ID.");
+        }
+        // Update last trade index to be used in next trade
+        match User::get(&pool).await {
+            Ok(mut user) => {
+                user.set_last_trade_index(trade_index);
+                if let Err(e) = user.save(&pool).await {
+                    println!("Failed to update user: {}", e);
+                }
+            }
+            Err(e) => println!("Failed to get user: {}", e),
+        }
+    }
+    Ok(())
+}
+
+pub async fn wait_for_dm(
+    client: &Client,
+    trade_keys: &Keys,
+    request_id: u64,
+    trade_index: i64,
+    mut order: Option<Order>,
+) -> Result<()> {
+    // Wait for gift wrap event
+    let mut notifications = client.notifications();
+
+    let _ = tokio::time::timeout(Duration::from_secs(10), async move {
+        while let Ok(notification) = notifications.recv().await {
+            if let RelayPoolNotification::Event { event, .. } = notification {
+                if event.kind == nostr_sdk::Kind::GiftWrap {
+                let gift = nip59::extract_rumor(trade_keys, &event).await.map_err(|_| ())?;
+                let (message, _): (Message, Option<String>) = serde_json::from_str(&gift.rumor.content).unwrap();
+                let message = message.get_inner_message_kind();
+                if message.request_id == Some(request_id) {
+                    match message.action {
+                    Action::NewOrder => {
+                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                                save_order(order.clone(), trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                return Ok(());
+                            }
+                        }
+                        Action::WaitingSellerToPay => {
+                            println!("Now we should wait for the seller to pay the invoice");
+                            if let Some(mut order) = order.take() {
+                                let pool = connect().await.map_err(|_| ())?;
+                                match order
+                                .set_status(Status::WaitingPayment.to_string())
+                                .save(&pool)
+                                .await
+                                {
+                                    Ok(_) => println!("Order status updated"),
+                                    Err(e) => println!("Failed to update order status: {}", e),
+                                }
+                            }
+                        }
+                        Action::AddInvoice => {
+                            if let Some(Payload::Order(order)) = &message.payload {
+                                println!(
+                                    "Please add a lightning invoice with amount of {}",
+                                    order.amount
+                                );
+                                return Ok(());
+                            }
+                        }
+                        Action::PayInvoice => {
+                            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
+                                println!(
+                                    "Mostro sent you this hold invoice for order id: {}",
+                                    order
+                                        .as_ref()
+                                        .and_then(|o| o.id)
+                                        .map_or("unknown".to_string(), |id| id.to_string())
+                                );
+                                println!();
+                                println!("Pay this invoice to continue -->  {}", invoice);
+                                println!();
+                                return Ok(());
+                            }
+                        }
+                        Action::CantDo => {
+                            match message.payload {
+                                Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) => {
+                                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                                    return Err(());
+                                }
+                                Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
+                                        println!("Error: A pending order already exists. Please wait for it to be filled or canceled.");
+                                        return Err(());
+                                    }
+                                Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
+                                    println!("Error: Invalid trade index. Please synchronize the trade index with mostro");
+                                    return Err(());
+                                }
+                                _ => {
+                                    println!("Unknown reason: {:?}", message.payload);
+                                    return Err(());
+                                }
+                            }
+                        }
+                        Action::Canceled => {
+                            if let Some(Payload::Order(order)) = &message.payload {
+                            let pool = connect().await.map_err(|_| ())?;
+
+                            // Verify order exists before deletion
+                            if Order::get_by_id(&pool, &order.id.unwrap().to_string()).await.is_ok() {
+                                Order::delete_by_id(&pool, &order.id.unwrap().to_string())
+                                    .await
+                                    .map_err(|_| ())?;
+                                return Ok(());
+                            } else {
+                                println!("Order not found: {}", order.id.unwrap());
+                                return Err(());
+                                }
+                            }
+                        }
+                        _ => {
+                            println!("Unknown action: {:?}", message.action);
+                            return Err(());
+                        }
+                    }
+                    }
+                }
+        }
+        }
+        Ok(())
+    })
+    .await;
+    Ok(())
+}
 
 pub async fn send_dm(
     client: &Client,
@@ -76,7 +219,6 @@ pub async fn send_dm(
         EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
     };
 
-    info!("Sending event: {event:#?}");
     client.send_event(&event).await?;
 
     Ok(())
@@ -93,6 +235,7 @@ pub async fn connect_nostr() -> Result<Client> {
     for r in relays.into_iter() {
         client.add_relay(r).await?;
     }
+
     // Connect to relays and keep connection alive
     client.connect().await;
 

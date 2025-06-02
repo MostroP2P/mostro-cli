@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::db::{connect, Order, User};
 use crate::pretty_table::print_order_preview;
-use crate::util::{send_message_sync, uppercase_first};
+use crate::util::{send_dm, uppercase_first, wait_for_dm};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -19,7 +19,7 @@ pub async fn save_order(
     request_id: u64,
     trade_index: i64,
 ) -> Result<()> {
-    let order_id = order.id.clone().unwrap();
+    let order_id = order.id.unwrap();
     println!("Order id {} created", order_id);
     // Create order in db
     let pool = connect().await?;
@@ -158,16 +158,16 @@ pub async fn execute_new_order(
         trade_keys.public_key().to_hex()
     );
 
-    let _ = send_message_sync(
-        client,
-        Some(identity_keys),
-        trade_keys,
-        mostro_key,
-        message.clone(),
-        true,
-        false,
-    )
-    .await;
+    // Serialize the message
+    let message_json = message
+        .as_json()
+        .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
+
+    // Clone the keys and client for the async call
+    let identity_keys = identity_keys.clone();
+    let trade_keys_clone = trade_keys.clone();
+    // let mostro_key = mostro_key.clone();
+    let client_clone = client.clone();
 
     // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
     let subscription = Filter::new()
@@ -175,41 +175,27 @@ pub async fn execute_new_order(
         .kind(nostr_sdk::Kind::GiftWrap)
         .limit(0);
 
-    client.subscribe(subscription, None).await?;
+    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
 
-    let _notification = client.handle_notifications(|notification| async {
-        if let RelayPoolNotification::Event { event, .. } = notification {
-            if event.kind == nostr_sdk::Kind::GiftWrap {
-                let UnwrappedGift { rumor, .. } = client.unwrap_gift_wrap(&event).await?;
-                let (message, _): (Message, Option<String>) = serde_json::from_str(&rumor.content).unwrap();
-                let message = message.get_inner_message_kind();
-                if message.request_id == Some(request_id) {
-                    match message.action {
-                        Action::NewOrder => {
-                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                                save_order(order.clone(), trade_keys, request_id, trade_index).await?;
-                                return Ok(true);
-                            } else {
-                                return Ok(false);
-                            }
-                        }
-                    Action::CantDo => {
-                        if let Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) = &message.payload {
-                            println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                        } else {
-                                println!("Unknown reason: {:?}", message.payload);
-                            }
-                        return Ok(true);
-                        }
-                        _ => {
-                            println!("Unknown action: {:?}", message.action);
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(false)
+    client.subscribe(subscription, Some(opts)).await?;
+
+    // Spawn a new task to send the DM
+    // This is so we can wait for the gift wrap event in the main thread
+    tokio::spawn(async move {
+        let _ = send_dm(
+            &client_clone,
+            Some(&identity_keys.clone()),
+            &trade_keys_clone,
+            &mostro_key,
+            message_json,
+            None,
+            false,
+        )
+        .await;
     });
+
+    // Wait for the DM to be sent from mostro
+    wait_for_dm(client, trade_keys, request_id, trade_index, None).await?;
+
     Ok(())
 }

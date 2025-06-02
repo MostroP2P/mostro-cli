@@ -290,7 +290,7 @@ pub async fn run() -> Result<()> {
 
     // Init logger
     if cli.verbose {
-        set_var("RUST_LOG", "info");
+        set_var("RUST_LOG", "debug");
         pretty_env_logger::init();
     }
 

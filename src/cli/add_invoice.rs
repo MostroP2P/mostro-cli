@@ -1,5 +1,5 @@
 use crate::db::connect;
-use crate::util::{get_direct_messages, send_message_sync};
+use crate::util::{send_dm, wait_for_dm};
 use crate::{db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -16,7 +16,7 @@ pub async fn execute_add_invoice(
     client: &Client,
 ) -> Result<()> {
     let pool = connect().await?;
-    let mut order = Order::get_by_id(&pool, &order_id.to_string()).await?;
+    let order = Order::get_by_id(&pool, &order_id.to_string()).await?;
     let trade_keys = order
         .trade_keys
         .clone()
@@ -50,32 +50,32 @@ pub async fn execute_add_invoice(
         payload,
     );
 
-    send_message_sync(
-        client,
-        Some(identity_keys),
-        &trade_keys,
-        mostro_key,
-        add_invoice_message,
-        true,
-        false,
-    )
-    .await?;
+    let message_json = add_invoice_message
+        .as_json()
+        .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    let dm = get_direct_messages(client, &trade_keys, 15, false).await;
-    dm.iter().for_each(|el| {
-        let message = el.0.get_inner_message_kind();
-        if message.request_id == Some(request_id) && message.action == Action::WaitingSellerToPay {
-            println!("Now we should wait for the seller to pay the invoice");
-        }
+    // Clone the keys and client for the async call
+    let identity_keys = identity_keys.clone();
+    let trade_keys_clone = trade_keys.clone();
+    let client_clone = client.clone();
+
+    // Spawn a new task to send the DM
+    // This is so we can wait for the gift wrap event in the main thread
+    tokio::spawn(async move {
+        let _ = send_dm(
+            &client_clone,
+            Some(&identity_keys.clone()),
+            &trade_keys_clone,
+            &mostro_key,
+            message_json,
+            None,
+            false,
+        )
+        .await;
     });
-    match order
-        .set_status(Status::WaitingPayment.to_string())
-        .save(&pool)
-        .await
-    {
-        Ok(_) => println!("Order status updated"),
-        Err(e) => println!("Failed to update order status: {}", e),
-    }
+
+    // Wait for the DM to be sent from mostro
+    wait_for_dm(client, &trade_keys, request_id, 0, Some(order)).await?;
 
     Ok(())
 }

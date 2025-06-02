@@ -3,10 +3,7 @@ use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::{
-    db::{connect, Order, User},
-    util::{get_direct_messages, send_message_sync},
-};
+use crate::util::{send_dm, wait_for_dm};
 
 pub async fn execute_take_buy(
     order_id: &Uuid,
@@ -33,100 +30,47 @@ pub async fn execute_take_buy(
         payload,
     );
 
-    let mut attempts = 0;
-    let max_attempts = 10;
-    let mut order = None;
     // Send dm to receiver pubkey
     println!(
         "SENDING DM with trade keys: {:?}",
         trade_keys.public_key().to_hex()
     );
 
-    send_message_sync(
-        client,
-        Some(identity_keys),
-        trade_keys,
-        mostro_key,
-        take_buy_message.clone(),
-        true,
-        false,
-    )
-    .await?;
+    let message_json = take_buy_message
+        .as_json()
+        .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    while attempts < max_attempts {
-        let dm = get_direct_messages(client, trade_keys, 15, false).await;
-        order = dm.iter().find_map(|el| {
-            let message = el.0.get_inner_message_kind();
-            if message.request_id == Some(request_id) {
-                match message.action {
-                    Action::PayInvoice => {
-                        if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
-                            println!(
-                                "Mostro sent you this hold invoice for order id: {}",
-                                order
-                                    .as_ref()
-                                    .and_then(|o| o.id)
-                                    .map_or("unknown".to_string(), |id| id.to_string())
-                            );
-                            println!();
-                            println!("Pay this invoice to continue -->  {}", invoice);
-                            println!();
-                            return order.clone();
-                        }
-                    }
-                    Action::CantDo => {
-                        if let Some(Payload::CantDo(Some(cant_do_reason))) = &message.payload {
-                            match cant_do_reason {
-                                CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount => {
-                                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                                }
-                                _ => {
-                                    println!("Unknown reason: {:?}", message.payload);
-                                }
-                            }
-                        } else {
-                            println!("Unknown reason: {:?}", message.payload);
-                            return None;
-                        }
-                    }
-                    _ => {
-                        println!("Unknown action: {:?}", message.action);
-                        return None;
-                    }
-                }
-            }
-            None
-        });
+    // Clone the keys and client for the async call
+    let identity_keys = identity_keys.clone();
+    let trade_keys_clone = trade_keys.clone();
+    let client_clone = client.clone();
+    // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
+    let subscription = Filter::new()
+        .pubkey(trade_keys.public_key())
+        .kind(nostr_sdk::Kind::GiftWrap)
+        .limit(0);
 
-        if order.is_some() {
-            break; // Exit the loop if an order is found
-        } else {
-            print!("#");
-        }
+    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
 
-        attempts += 1;
-    }
+    client.subscribe(subscription, Some(opts)).await?;
 
-    let pool = connect().await?;
+    // Spawn a new task to send the DM
+    // This is so we can wait for the gift wrap event in the main thread
+    tokio::spawn(async move {
+        let _ = send_dm(
+            &client_clone,
+            Some(&identity_keys.clone()),
+            &trade_keys_clone,
+            &mostro_key,
+            message_json,
+            None,
+            false,
+        )
+        .await;
+    });
 
-    if let Some(o) = order {
-        match Order::new(&pool, o, trade_keys, Some(request_id as i64)).await {
-            Ok(order) => {
-                println!("Order {} created", order.id.unwrap());
-                // Update last trade index to be used in next trade
-                match User::get(&pool).await {
-                    Ok(mut user) => {
-                        user.set_last_trade_index(trade_index);
-                        if let Err(e) = user.save(&pool).await {
-                            println!("Failed to update user: {}", e);
-                        }
-                    }
-                    Err(e) => println!("Failed to get user: {}", e),
-                }
-            }
-            Err(e) => println!("{}", e),
-        }
-    }
+    // Wait for the DM to be sent from mostro
+    wait_for_dm(client, trade_keys, request_id, trade_index, None).await?;
 
     Ok(())
 }
