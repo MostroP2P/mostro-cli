@@ -63,7 +63,9 @@ pub async fn execute_send_msg(
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
     let client_clone = client.clone();
-    let idkey = identity_keys.unwrap().to_owned();
+    let idkey = identity_keys
+        .ok_or_else(|| anyhow::anyhow!("Identity keys are required"))?
+        .to_owned();
 
     if let Some(order_id) = order_id {
         let order = Order::get_by_id(&pool, &order_id.to_string()).await?;
