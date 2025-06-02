@@ -17,8 +17,6 @@ pub async fn save_order(
     request_id: u64,
     trade_index: i64,
 ) -> Result<()> {
-    let order_id = order.id.unwrap();
-    println!("Order id {} created", order_id);
     let pool = connect().await?;
     if let Ok(order) = Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
         if let Some(order_id) = order.id {
@@ -59,12 +57,13 @@ pub async fn wait_for_dm(
                 let message = message.get_inner_message_kind();
                 if message.request_id == Some(request_id) {
                     match message.action {
-                    Action::NewOrder => {
+                        Action::NewOrder => {
                             if let Some(Payload::Order(order)) = message.payload.as_ref() {
                                 save_order(order.clone(), trade_keys, request_id, trade_index).await.map_err(|_| ())?;
                                 return Ok(());
                             }
                         }
+                        // this is the case where the buyer adds an invoice to a takesell order
                         Action::WaitingSellerToPay => {
                             println!("Now we should wait for the seller to pay the invoice");
                             if let Some(mut order) = order.take() {
@@ -79,6 +78,7 @@ pub async fn wait_for_dm(
                                 }
                             }
                         }
+                        // this is the case where the buyer adds an invoice to a takesell order
                         Action::AddInvoice => {
                             if let Some(Payload::Order(order)) = &message.payload {
                                 println!(
@@ -88,6 +88,7 @@ pub async fn wait_for_dm(
                                 return Ok(());
                             }
                         }
+                        // this is the case where the buyer pays the invoice coming from a takebuy
                         Action::PayInvoice => {
                             if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
                                 println!(
@@ -100,6 +101,10 @@ pub async fn wait_for_dm(
                                 println!();
                                 println!("Pay this invoice to continue -->  {}", invoice);
                                 println!();
+                                if let Some(order) = order {
+                                    let store_order = order.clone();
+                                    save_order(store_order, trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                }
                                 return Ok(());
                             }
                         }
@@ -123,18 +128,22 @@ pub async fn wait_for_dm(
                                 }
                             }
                         }
+                        // this is the case where the user cancels the order
                         Action::Canceled => {
-                            if let Some(Payload::Order(order)) = &message.payload {
+                            if let Some(order_id) = &message.id {
+                            // Acquire database connection
                             let pool = connect().await.map_err(|_| ())?;
-
                             // Verify order exists before deletion
-                            if Order::get_by_id(&pool, &order.id.unwrap().to_string()).await.is_ok() {
-                                Order::delete_by_id(&pool, &order.id.unwrap().to_string())
+                            if Order::get_by_id(&pool, &order_id.to_string()).await.is_ok() {
+                                Order::delete_by_id(&pool, &order_id.to_string())
                                     .await
                                     .map_err(|_| ())?;
+                                // Release database connection
+                                drop(pool);
+                                println!("Order {} canceled!", order_id);
                                 return Ok(());
                             } else {
-                                println!("Order not found: {}", order.id.unwrap());
+                                println!("Order not found: {}", order_id);
                                 return Err(());
                                 }
                             }

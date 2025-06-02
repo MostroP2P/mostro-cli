@@ -49,9 +49,9 @@ pub async fn execute_take_buy(
         .pubkey(trade_keys.public_key())
         .kind(nostr_sdk::Kind::GiftWrap)
         .limit(0);
-
+    // Subscribe to gift wrap events -waiting for 1 event
     let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-
+    //Activate the subscription
     client.subscribe(subscription, Some(opts)).await?;
 
     // Spawn a new task to send the DM
