@@ -88,16 +88,23 @@ pub async fn execute_send_msg(
             // Spawn a new task to send the DM
             // This is so we can wait for the gift wrap event in the main thread
             tokio::spawn(async move {
-                let _ = crate::util::send_dm(
-                    &client_clone,
-                    Some(&idkey),
-                    &trade_keys_clone,
-                    &mostro_key,
-                    message.as_json().unwrap(),
-                    None,
-                    false,
-                )
-                .await;
+                match message.as_json() {
+                    Ok(message_json) => {
+                        if let Err(e) = crate::util::send_dm(
+                            &client_clone,
+                            Some(&idkey),
+                            &trade_keys_clone,
+                            &mostro_key,
+                            message_json,
+                            None,
+                            false,
+                        )
+                        .await {
+                            eprintln!("Failed to send DM: {}", e);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to serialize message: {}", e),
+                }
             });
 
             // Wait for the DM to be sent from mostro
