@@ -4,7 +4,7 @@ use nostr_sdk::prelude::*;
 use std::str::FromStr;
 
 use crate::pretty_table::print_orders_table;
-use crate::util::{fetch_events_list, get_orders_list};
+use crate::util::{fetch_events_list, ListKind};
 
 pub async fn execute_list_orders(
     kind: &Option<String>,

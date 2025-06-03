@@ -12,10 +12,17 @@ use std::time::Duration;
 use std::{fs, path::Path};
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum Event {
+    SmallOrder(SmallOrder),
+    Dispute(Dispute), // Assuming you have a Dispute struct
+    MessageTuple((Message, u64)),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ListKind {
-    Orders(SmallOrder),
-    Disputes(Dispute),
-    DirectMessages((Message, u64)),
+    Orders,
+    Disputes,
+    DirectMessages,
 }
 
 pub async fn save_order(
@@ -423,10 +430,54 @@ fn parse_dispute_events(events: Events) -> Vec<Dispute> {
     disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at))
 }
 
+
+async fn parse_dm_events(events: Events, pubkey: Keys) -> Vec<(Message,u64)>{
+           // Buffer vector for direct messages
+        // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
+        let mut id_list = Vec::<EventId>::new();
+        // Vector for direct messages
+        let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+
+        for dm in events.iter() {
+            if !id_list.contains(&dm.id) {
+                id_list.push(dm.id);
+
+                let unwrapped_gift = match nip59::extract_rumor(&pubkey, dm).await {
+                    Ok(u) => u,
+                    Err(_) => {
+                        println!("Error unwrapping gift");
+                        continue;
+                    }
+                };
+                let (message, _): (Message, Option<String>) =
+                    serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
+
+                // Create a tuple with the created_at and the message
+                let (created_at, message) = (unwrapped_gift.rumor.created_at, message);
+                
+
+                // Here we discard messages older than the real since parameter
+                let since_time = chrono::Utc::now()
+                    .checked_sub_signed(chrono::Duration::minutes(30))
+                    .unwrap()
+                    .timestamp() as u64;
+                if created_at.as_u64() < since_time {
+                    continue;
+                }
+                direct_messages.push((message, created_at.as_u64()));
+            }
+        }
+        // Return element sorted by second tuple element ( Timestamp )
+    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
+
+    direct_messages
+}
+
 fn parse_orders_events(
     events: Events,
     currency: Option<String>,
     status: Option<Status>,
+    kind: Option<mostro_core::order::Kind>,
 ) -> Vec<SmallOrder> {
     // Extracted Orders List
     let mut complete_events_list = Vec::<SmallOrder>::new();
@@ -440,32 +491,30 @@ fn parse_orders_events(
             error!("{order:?}");
             continue;
         }
-        let mut order = order?;
+        if let Ok(mut order) = order {
 
-        info!("Found Order id : {:?}", order.id.unwrap());
+            info!("Found Order id : {:?}", order.id.unwrap());
 
-        if order.id.is_none() {
-            info!("Order ID is none");
-            continue;
-        }
+            if order.id.is_none() {
+                info!("Order ID is none");
+                continue;
+            }
 
-        if order.kind.is_none() {
-            info!("Order kind is none");
-            continue;
-        }
+            if order.kind.is_none() {
+                info!("Order kind is none");
+                continue;
+            }
 
-        if order.status.is_none() {
-            info!("Order status is none");
-            continue;
-        }
+            if order.status.is_none() {
+                info!("Order status is none");
+                continue;
+            }
 
-        // Get created at field from Nostr event
-        order.created_at = Some(event.created_at.as_u64() as i64);
-
-        complete_events_list.push(order.clone());
-
-        if order.status.ne(&status) {
-            continue;
+            // Get created at field from Nostr event
+            order.created_at = Some(event.created_at.as_u64() as i64);
+            complete_events_list.push(order.clone());
+            if order.status.ne(&status) {
+                continue;
         }
 
         if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
@@ -488,9 +537,10 @@ fn parse_orders_events(
     // Sort by id to remove duplicates
     requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
     requested_orders_list.dedup_by(|a, b| a.id == b.id);
-
+    }
     // Finally sort list by creation time
-    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at))
+    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    requested_orders_list
 }
 
 fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
@@ -548,6 +598,7 @@ fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
     }
 }
 
+
 pub async fn fetch_events_list<T>(
     pubkey: PublicKey,
     list_kind: ListKind,
@@ -555,7 +606,7 @@ pub async fn fetch_events_list<T>(
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
     client: &Client,
-) -> Result<Vec> {
+) -> Result<Vec<Event>> {
     // Create filter for fetching orders
     let filters = create_filter(ListKind::Orders, pubkey);
 
@@ -564,18 +615,27 @@ pub async fn fetch_events_list<T>(
         match list_kind {
             ListKind::Orders => {
                 info!("Fetching orders for pubkey: {}", pubkey);
-                Ok(parse_orders_events(fetched_events, currency, status))
+                Ok(parse_orders_events(fetched_events, currency, status, kind)
+                    .into_iter()
+                    .map(Event::SmallOrder)
+                    .collect()
+                )
             }
             ListKind::DirectMessages => {
                 info!("Fetching direct messages for pubkey: {}", pubkey);
-                 Ok(parse_orders_events(fetched_events, currency, status))
+                 Ok(parse_dm_events(fetched_events, pubkey).await
+                    .into_iter()
+                    .map(Event::MessageTuple)
+                    .collect()
+                )
             }
             ListKind::Disputes => {
                 info!("Fetching disputes for pubkey: {}", pubkey);
-                Ok(parse_dispute_events(fetched_events))
-            }
-            _ => {
-                Err(anyhow::anyhow!("Error in fetching events request"))
+                Ok(parse_dispute_events(fetched_events)
+                    .into_iter()
+                    .map(Event::Dispute)
+                    .collect()
+                )
             }
         }
     }
