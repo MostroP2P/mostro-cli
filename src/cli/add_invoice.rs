@@ -71,7 +71,8 @@ pub async fn execute_add_invoice(
             None,
             false,
         )
-        .await {
+        .await
+        {
             eprintln!("Failed to send DM: {}", e);
         }
     });

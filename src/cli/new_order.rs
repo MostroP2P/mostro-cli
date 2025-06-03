@@ -7,42 +7,10 @@ use std::process;
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::db::{connect, Order, User};
 use crate::pretty_table::print_order_preview;
 use crate::util::{send_dm, uppercase_first, wait_for_dm};
 
 pub type FiatNames = HashMap<String, String>;
-
-pub async fn save_order(
-    order: SmallOrder,
-    trade_keys: &Keys,
-    request_id: u64,
-    trade_index: i64,
-) -> Result<()> {
-    let order_id = order.id.unwrap();
-    println!("Order id {} created", order_id);
-    // Create order in db
-    let pool = connect().await?;
-    let db_order = Order::new(&pool, order, trade_keys, Some(request_id as i64))
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create DB order: {:?}", e))?;
-    // Update last trade index
-    match User::get(&pool).await {
-        Ok(mut user) => {
-            user.set_last_trade_index(trade_index);
-            user.save(&pool)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to update user: {}", e))?;
-        }
-        Err(e) => println!("Failed to get user: {}", e),
-    }
-    let db_order_id = db_order
-        .id
-        .clone()
-        .ok_or(anyhow::anyhow!("Missing order id"))?;
-    Order::save_new_id(&pool, db_order_id, order_id.to_string()).await?;
-    Ok(())
-}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_new_order(

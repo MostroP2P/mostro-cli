@@ -34,7 +34,9 @@ pub async fn execute_send_msg(
 
     println!(
         "Sending {} command for order {:?} to mostro pubId {}",
-        requested_action, order_id, mostro_key
+        requested_action,
+        order_id.as_ref(),
+        mostro_key
     );
 
     let pool = connect().await?;
@@ -99,7 +101,8 @@ pub async fn execute_send_msg(
                             None,
                             false,
                         )
-                        .await {
+                        .await
+                        {
                             eprintln!("Failed to send DM: {}", e);
                         }
                     }
