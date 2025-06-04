@@ -19,7 +19,7 @@ pub async fn execute_new_order(
     fiat_code: &str,
     fiat_amount: &(i64, Option<i64>),
     amount: &i64,
-    payment_method: &String,
+    payment_method: &str,
     premium: &i64,
     invoice: &Option<String>,
     identity_keys: &Keys,
@@ -57,6 +57,10 @@ pub async fn execute_new_order(
             Some(expires_at.timestamp())
         }
     };
+    let payment_method = payment_method
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect::<Vec<String>>();
 
     // Get the type of neworder
     // if both tuple field are valid than it's a range order
