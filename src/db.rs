@@ -233,8 +233,6 @@ impl Order {
             Some(id) => id.to_string(),
             None => uuid::Uuid::new_v4().to_string(),
         };
-        let payment_method =
-            serde_json::to_string(order.payment_method.as_ref() as &[String]).unwrap_or_default();
         let order = Order {
             id: Some(id),
             kind: order.kind.as_ref().map(|k| k.to_string()),
@@ -244,7 +242,7 @@ impl Order {
             min_amount: order.min_amount,
             max_amount: order.max_amount,
             fiat_amount: order.fiat_amount,
-            payment_method,
+            payment_method: order.payment_method,
             premium: order.premium,
             trade_keys: Some(trade_keys_hex),
             counterparty_pubkey: None,

@@ -4,6 +4,7 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use mostro_core::prelude::*;
 
+
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let single_order = match ord {
         Payload::Order(o) => o,
@@ -68,7 +69,7 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
             );
             Cell::new(range_str).set_alignment(CellAlignment::Center)
         },
-        Cell::new(single_order.payment_method.join(", ")).set_alignment(CellAlignment::Center),
+        Cell::new(single_order.payment_method.to_string()).set_alignment(CellAlignment::Center),
         Cell::new(single_order.premium.to_string()).set_alignment(CellAlignment::Center),
     ]);
 
@@ -173,7 +174,7 @@ pub fn print_orders_table(orders_table: Vec<SmallOrder>) -> Result<String> {
                     );
                     Cell::new(range_str).set_alignment(CellAlignment::Center)
                 },
-                Cell::new(single_order.payment_method.join(", "))
+                Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
                 Cell::new(date.unwrap()),
             ]);
