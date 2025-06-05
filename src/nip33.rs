@@ -17,7 +17,7 @@ pub fn order_from_tags(tags: Tags) -> Result<SmallOrder> {
         let key = t[0].as_str();
         let values = &t[1..];
 
-        let v = values.get(0).map(|s| s.as_str()).unwrap_or_default();
+        let v = values.first().map(|s| s.as_str()).unwrap_or_default();
 
         match key {
             "d" => {
@@ -30,7 +30,7 @@ pub fn order_from_tags(tags: Tags) -> Result<SmallOrder> {
                 order.fiat_code = v.to_string();
             }
             "s" => {
-                order.status = Status::from_str(v).ok().or(Some(Status::Dispute));
+                order.status = Status::from_str(v).ok().or(Some(Status::Pending));
             }
             "amt" => {
                 order.amount = v.parse::<i64>().unwrap_or(0);
