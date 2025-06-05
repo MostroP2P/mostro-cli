@@ -6,48 +6,50 @@ use uuid::Uuid;
 
 pub fn order_from_tags(tags: Tags) -> Result<SmallOrder> {
     let mut order = SmallOrder::default();
+
     for tag in tags {
-        let t = tag.to_vec();
-        let v = t.get(1).unwrap().as_str();
-        match t.first().unwrap().as_str() {
+        let t = tag.to_vec(); // Vec<String>
+        if t.is_empty() {
+            continue;
+        }
+
+        let key = t[0].as_str();
+        let values = &t[1..];
+
+        let v = values.first().map(|s| s.as_str()).unwrap_or_default();
+
+        match key {
             "d" => {
-                let id = v.parse::<Uuid>();
-                let id = match id {
-                    core::result::Result::Ok(id) => Some(id),
-                    Err(_) => None,
-                };
-                order.id = id;
+                order.id = Uuid::parse_str(v).ok();
             }
             "k" => {
-                order.kind = Some(mostro_core::order::Kind::from_str(v).unwrap());
+                order.kind = mostro_core::order::Kind::from_str(v).ok();
             }
             "f" => {
                 order.fiat_code = v.to_string();
             }
             "s" => {
-                order.status = Some(Status::from_str(v).unwrap_or(Status::Dispute));
+                order.status = Status::from_str(v).ok().or(Some(Status::Pending));
             }
             "amt" => {
-                order.amount = v.parse::<i64>().unwrap();
+                order.amount = v.parse::<i64>().unwrap_or(0);
             }
             "fa" => {
                 if v.contains('.') {
                     continue;
                 }
-                let max = t.get(2);
-                if max.is_some() {
+                if let Some(max_str) = values.get(1) {
                     order.min_amount = v.parse::<i64>().ok();
-                    order.max_amount = max.unwrap().parse::<i64>().ok();
+                    order.max_amount = max_str.parse::<i64>().ok();
                 } else {
-                    let fa = v.parse::<i64>();
-                    order.fiat_amount = fa.unwrap_or(0);
+                    order.fiat_amount = v.parse::<i64>().unwrap_or(0);
                 }
             }
             "pm" => {
-                order.payment_method = v.to_string();
+                order.payment_method = values.join(",");
             }
             "premium" => {
-                order.premium = v.parse::<i64>().unwrap();
+                order.premium = v.parse::<i64>().unwrap_or(0);
             }
             _ => {}
         }
