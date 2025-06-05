@@ -19,7 +19,7 @@ pub async fn execute_new_order(
     fiat_code: &str,
     fiat_amount: &(i64, Option<i64>),
     amount: &i64,
-    payment_method: &String,
+    payment_method: &str,
     premium: &i64,
     invoice: &Option<String>,
     identity_keys: &Keys,
