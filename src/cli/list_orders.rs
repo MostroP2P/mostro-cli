@@ -4,7 +4,7 @@ use nostr_sdk::prelude::*;
 use std::str::FromStr;
 
 use crate::pretty_table::print_orders_table;
-use crate::util::get_orders_list;
+use crate::util::{fetch_events_list, ListKind};
 
 pub async fn execute_list_orders(
     kind: &Option<String>,
@@ -29,7 +29,9 @@ pub async fn execute_list_orders(
     );
     // New check against strings
     if let Some(k) = kind {
-        kind_checked = Some(mostro_core::order::Kind::from_str(k).expect("Not valid order kind! Please check"));
+        kind_checked = Some(
+            mostro_core::order::Kind::from_str(k).expect("Not valid order kind! Please check"),
+        );
         println!("You are searching {} orders", kind_checked.unwrap());
     }
 
@@ -48,9 +50,10 @@ pub async fn execute_list_orders(
     );
 
     // Get orders from relays
-    let table_of_orders = get_orders_list(
+    let table_of_orders = fetch_events_list(
         mostro_key,
-        status_checked.unwrap(),
+        ListKind::Orders,
+        status_checked,
         upper_currency,
         kind_checked,
         client,
