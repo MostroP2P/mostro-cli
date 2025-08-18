@@ -109,7 +109,9 @@ pub async fn send_message_sync(
     wait_for_dm: bool,
     to_user: bool,
 ) -> Result<Vec<(Message, u64)>> {
-    let message_json = message.as_json().map_err(|_| Error::msg("Failed to serialize message"))?;
+    let message_json = message
+        .as_json()
+        .map_err(|_| Error::msg("Failed to serialize message"))?;
     // Send dm to receiver pubkey
     println!(
         "SENDING DM with trade keys: {:?}",
