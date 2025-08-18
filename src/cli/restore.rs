@@ -10,8 +10,9 @@ pub async fn execute_restore(
     client: &Client,
 ) -> Result<()> {
     let restore_message = Message::new_restore(None);
-
-    println!("Restore message: {:?}", restore_message.as_json().unwrap());
+    let message_json = restore_message
+        .as_json()
+        .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Send the restore message to Mostro server
     send_dm(
@@ -19,7 +20,7 @@ pub async fn execute_restore(
         Some(identity_keys),
         identity_keys,
         &mostro_key,
-        restore_message.as_json().unwrap(),
+        message_json,
         None,
         false,
     )
