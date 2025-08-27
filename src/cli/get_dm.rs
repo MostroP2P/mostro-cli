@@ -21,7 +21,7 @@ pub async fn execute_get_dm(
     if !admin {
         for index in 1..=trade_index {
             let keys = User::get_trade_keys(&pool, index).await?;
-            let dm_temp = get_direct_messages(client, &keys, *since, from_user, Some(&mostro_pubkey)).await;
+            let dm_temp = get_direct_messages(client, &keys, *since, from_user, Some(mostro_pubkey)).await;
             dm.extend(dm_temp);
         }
     } else {

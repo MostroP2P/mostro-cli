@@ -433,8 +433,7 @@ pub async fn run() -> Result<()> {
                 let id_key = match std::env::var("NSEC_PRIVKEY") {
                     Ok(id_key) => Keys::parse(&id_key)?,
                     Err(e) => {
-                        println!("Failed to get mostro admin private key: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
                     }
                 };
                 execute_admin_add_solver(npubkey, &id_key, &trade_keys, mostro_key, &client).await?
@@ -476,8 +475,7 @@ pub async fn run() -> Result<()> {
                 let id_key = match std::env::var("NSEC_PRIVKEY") {
                     Ok(id_key) => Keys::parse(&id_key)?,
                     Err(e) => {
-                        println!("Failed to get mostro admin private key: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
                     }
                 };
                 execute_admin_settle_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
@@ -487,8 +485,7 @@ pub async fn run() -> Result<()> {
                 let id_key = match std::env::var("NSEC_PRIVKEY") {
                     Ok(id_key) => Keys::parse(&id_key)?,
                     Err(e) => {
-                        println!("Failed to get mostro admin private key: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
                     }
                 };
                 execute_admin_cancel_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
@@ -498,8 +495,7 @@ pub async fn run() -> Result<()> {
                 let id_key = match std::env::var("NSEC_PRIVKEY") {
                     Ok(id_key) => Keys::parse(&id_key)?,
                     Err(e) => {
-                        println!("Failed to get mostro admin private key: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
                     }
                 };
 

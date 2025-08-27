@@ -10,9 +10,7 @@ pub async fn execute_adm_send_dm(
     let admin_keys = match std::env::var("NSEC_PRIVKEY") {
         Ok(key) => Keys::parse(&key)?,
         Err(e) => {
-            println!("Failed to get admin private key: {}", e);
-            println!("Make sure NSEC_PRIVKEY environment variable is set");
-            std::process::exit(1);
+            anyhow::bail!("NSEC_PRIVKEY not set: {e}");
         }
     };
 
