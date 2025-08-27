@@ -1,6 +1,9 @@
 pub mod add_invoice;
+pub mod adm_send_dm;
 pub mod conversation_key;
+pub mod dm_to_user;
 pub mod get_dm;
+pub mod get_dm_user;
 pub mod list_disputes;
 pub mod list_orders;
 pub mod new_order;
@@ -13,8 +16,11 @@ pub mod take_dispute;
 pub mod take_sell;
 
 use crate::cli::add_invoice::execute_add_invoice;
+use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
+use crate::cli::dm_to_user::execute_dm_to_user;
 use crate::cli::get_dm::execute_get_dm;
+use crate::cli::get_dm_user::execute_get_dm_user;
 use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
@@ -158,6 +164,13 @@ pub enum Commands {
         #[arg(short)]
         from_user: bool,
     },
+    /// Get direct messages sent to any trade keys
+    GetDmUser {
+        /// Since time of the messages in minutes
+        #[arg(short, long)]
+        #[clap(default_value_t = 30)]
+        since: i64,
+    },
     /// Get the latest direct messages for admin
     GetAdminDm {
         /// Since time of the messages in minutes
@@ -174,6 +187,18 @@ pub enum Commands {
         #[arg(short, long)]
         pubkey: String,
         /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Message to send
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Send gift wrapped direct message to a user
+    DmToUser {
+        /// Pubkey of the recipient
+        #[arg(short, long)]
+        pubkey: String,
+        /// Order id to get ephemeral keys
         #[arg(short, long)]
         order_id: Uuid,
         /// Message to send
@@ -240,6 +265,15 @@ pub enum Commands {
         /// Dispute id
         #[arg(short, long)]
         dispute_id: Uuid,
+    },
+    /// Send gift wrapped direct message to a user (only admin)
+    AdmSendDm {
+        /// Pubkey of the recipient
+        #[arg(short, long)]
+        pubkey: String,
+        /// Message to send
+        #[arg(short, long)]
+        message: String,
     },
     /// Get the conversation key for direct messaging with a user
     ConversationKey {
@@ -373,10 +407,13 @@ pub async fn run() -> Result<()> {
                 execute_add_invoice(order_id, invoice, &identity_keys, mostro_key, &client).await?
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, trade_index, &client, *from_user, false).await?
+                execute_get_dm(since, trade_index, &client, *from_user, false, &mostro_key).await?
+            }
+            Commands::GetDmUser { since } => {
+                execute_get_dm_user(since, &client, &mostro_key).await?
             }
             Commands::GetAdminDm { since, from_user } => {
-                execute_get_dm(since, trade_index, &client, *from_user, true).await?
+                execute_get_dm(since, trade_index, &client, *from_user, true, &mostro_key).await?
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
@@ -476,6 +513,18 @@ pub async fn run() -> Result<()> {
             } => {
                 let pubkey = PublicKey::from_str(pubkey)?;
                 execute_send_dm(pubkey, &client, order_id, message).await?
+            }
+            Commands::DmToUser {
+                pubkey,
+                order_id,
+                message,
+            } => {
+                let pubkey = PublicKey::from_str(pubkey)?;
+                execute_dm_to_user(pubkey, &client, order_id, message).await?
+            }
+            Commands::AdmSendDm { pubkey, message } => {
+                let pubkey = PublicKey::from_str(pubkey)?;
+                execute_adm_send_dm(pubkey, &client, message).await?
             }
         };
     }

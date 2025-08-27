@@ -14,13 +14,14 @@ pub async fn execute_get_dm(
     client: &Client,
     from_user: bool,
     admin: bool,
+    mostro_pubkey: &PublicKey,
 ) -> Result<()> {
     let mut dm: Vec<(Message, u64)> = Vec::new();
     let pool = connect().await?;
     if !admin {
         for index in 1..=trade_index {
             let keys = User::get_trade_keys(&pool, index).await?;
-            let dm_temp = get_direct_messages(client, &keys, *since, from_user).await;
+            let dm_temp = get_direct_messages(client, &keys, *since, from_user, Some(&mostro_pubkey)).await;
             dm.extend(dm_temp);
         }
     } else {
@@ -31,7 +32,7 @@ pub async fn execute_get_dm(
                 std::process::exit(1);
             }
         };
-        let dm_temp = get_direct_messages(client, &id_key, *since, from_user).await;
+        let dm_temp = get_direct_messages(client, &id_key, *since, from_user, Some(mostro_pubkey)).await;
         dm.extend(dm_temp);
     }
 
