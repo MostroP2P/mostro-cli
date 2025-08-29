@@ -12,6 +12,62 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, path::Path};
 
+async fn send_gift_wrap_dm_internal(
+    client: &Client,
+    sender_keys: &Keys,
+    receiver_pubkey: &PublicKey,
+    message: &str,
+    is_admin: bool,
+) -> Result<()> {
+    let pow: u8 = var("POW")
+        .unwrap_or_else(|_| "0".to_string())
+        .parse()
+        .unwrap_or(0);
+    
+    // Create Message struct for consistency with Mostro protocol
+    let dm_message = Message::new_dm(
+        None,
+        None,
+        Action::SendDm,
+        Some(Payload::TextMessage(message.to_string())),
+    );
+    
+    // Serialize as JSON with the expected format (Message, Option<Signature>)
+    let content = serde_json::to_string(&(dm_message, None::<String>))?;
+    
+    // Create the rumor with JSON content
+    let rumor = EventBuilder::text_note(content)
+        .pow(pow)
+        .build(sender_keys.public_key());
+    
+    // Create gift wrap using sender_keys as the signing key
+    let event = EventBuilder::gift_wrap(sender_keys, receiver_pubkey, rumor, Tags::new()).await?;
+    
+    let sender_type = if is_admin { "admin" } else { "user" };
+    info!("Sending {} gift wrap event to {}", sender_type, receiver_pubkey);
+    client.send_event(&event).await?;
+    
+    Ok(())
+}
+
+pub async fn send_admin_gift_wrap_dm(
+    client: &Client,
+    admin_keys: &Keys,
+    receiver_pubkey: &PublicKey,
+    message: &str,
+) -> Result<()> {
+    send_gift_wrap_dm_internal(client, admin_keys, receiver_pubkey, message, true).await
+}
+
+pub async fn send_gift_wrap_dm(
+    client: &Client,
+    trade_keys: &Keys,
+    receiver_pubkey: &PublicKey,
+    message: &str,
+) -> Result<()> {
+    send_gift_wrap_dm_internal(client, trade_keys, receiver_pubkey, message, false).await
+}
+
 pub async fn send_dm(
     client: &Client,
     identity_keys: Option<&Keys>,
@@ -131,7 +187,7 @@ pub async fn send_message_sync(
     sleep(Duration::from_secs(2));
 
     let dm: Vec<(Message, u64)> = if wait_for_dm {
-        get_direct_messages(client, trade_keys, 15, to_user).await
+        get_direct_messages(client, trade_keys, 15, to_user, None).await
     } else {
         Vec::new()
     };
@@ -139,11 +195,95 @@ pub async fn send_message_sync(
     Ok(dm)
 }
 
+pub async fn get_direct_messages_from_trade_keys(
+    client: &Client,
+    trade_keys_hex: Vec<String>,
+    since: i64,
+    mostro_pubkey: &PublicKey,
+) -> Vec<(Message, u64, PublicKey)> {
+    if trade_keys_hex.is_empty() {
+        return Vec::new();
+    }
+
+    let fake_since = 2880;
+    let fake_since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(fake_since))
+        .unwrap()
+        .timestamp() as u64;
+    let fake_timestamp = Timestamp::from(fake_since_time);
+    
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(since))
+        .unwrap()
+        .timestamp() as u64;
+
+    let mut all_direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
+    let mut id_set = std::collections::HashSet::<EventId>::new();
+
+    for trade_key_hex in trade_keys_hex {
+        if let Ok(trade_keys) = Keys::parse(&trade_key_hex) {
+            let filters = Filter::new()
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .pubkey(trade_keys.public_key())
+                .since(fake_timestamp);
+
+            info!("Request events with event kind : {:?} for trade key: {}", 
+                  filters.kinds, trade_keys.public_key());
+
+            if let Ok(events) = client.fetch_events(filters, Duration::from_secs(15)).await {
+                for dm in events.iter() {
+                    if !id_set.insert(dm.id) {
+                        continue; // Already processed
+                    }
+                        
+                    let unwrapped_gift = match nip59::extract_rumor(&trade_keys, dm).await {
+                        Ok(u) => u,
+                        Err(_) => {
+                            error!("Error unwrapping gift for trade key: {}", trade_keys.public_key());
+                            continue;
+                        }
+                    };
+                    
+                    // Filter: only process messages NOT from Mostro (user-to-user messages)
+                    if unwrapped_gift.rumor.pubkey == *mostro_pubkey {
+                        continue; // Skip Mostro messages
+                    }
+
+                    if unwrapped_gift.rumor.created_at.as_u64() < since_time {
+                        continue;
+                    }
+
+                    // Parse JSON content (all messages should be JSON now)
+                    let (message, _): (Message, Option<String>) = match serde_json::from_str(&unwrapped_gift.rumor.content) {
+                        Ok(parsed) => parsed,
+                        Err(_) => {
+                            error!("Error parsing JSON content from: {}", unwrapped_gift.rumor.pubkey);
+                            continue;
+                        }
+                    };
+                    
+                    all_direct_messages.push((
+                        message, 
+                        unwrapped_gift.rumor.created_at.as_u64(),
+                        unwrapped_gift.rumor.pubkey
+                    ));
+                }
+            }
+        } else {
+            error!("Failed to parse trade key: {}", trade_key_hex);
+        }
+    }
+
+    all_direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
+    all_direct_messages
+}
+
 pub async fn get_direct_messages(
     client: &Client,
     my_key: &Keys,
     since: i64,
     from_user: bool,
+    mostro_pubkey: Option<&PublicKey>,
 ) -> Vec<(Message, u64)> {
     // We use a fake timestamp to thwart time-analysis attacks
     let fake_since = 2880;
@@ -213,6 +353,14 @@ pub async fn get_direct_messages(
                             continue;
                         }
                     };
+                    
+                    // Filter: only process messages from Mostro
+                    if let Some(mostro_pk) = mostro_pubkey {
+                        if unwrapped_gift.rumor.pubkey != *mostro_pk {
+                            continue; // Skip non-Mostro messages
+                        }
+                    }
+                    
                     let (message, _): (Message, Option<String>) =
                         serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
 

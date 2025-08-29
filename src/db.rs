@@ -439,6 +439,26 @@ impl Order {
         Ok(orders)
     }
 
+    pub async fn get_all_trade_keys(pool: &SqlitePool) -> Result<Vec<String>> {
+        #[derive(sqlx::FromRow)]
+        struct TradeKeyRow {
+            trade_keys: Option<String>,
+        }
+
+        let rows = sqlx::query_as::<_, TradeKeyRow>(
+            "SELECT DISTINCT trade_keys FROM orders WHERE trade_keys IS NOT NULL"
+        )
+        .fetch_all(pool)
+        .await?;
+        
+        let trade_keys: Vec<String> = rows
+            .into_iter()
+            .filter_map(|row| row.trade_keys)
+            .collect();
+        
+        Ok(trade_keys)
+    }
+
     pub async fn delete_by_id(pool: &SqlitePool, id: &str) -> Result<bool> {
         let rows_affected = sqlx::query(
             r#"
