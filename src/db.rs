@@ -38,8 +38,6 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
               counterparty_pubkey TEXT,
               is_mine BOOLEAN,
               buyer_invoice TEXT,
-              buyer_token INTEGER,
-              seller_token INTEGER,
               request_id INTEGER,
               created_at INTEGER,
               expires_at INTEGER
@@ -214,8 +212,6 @@ pub struct Order {
     pub counterparty_pubkey: Option<String>,
     pub is_mine: Option<bool>,
     pub buyer_invoice: Option<String>,
-    pub buyer_token: Option<u16>,
-    pub seller_token: Option<u16>,
     pub request_id: Option<i64>,
     pub created_at: Option<i64>,
     pub expires_at: Option<i64>,
@@ -248,8 +244,6 @@ impl Order {
             counterparty_pubkey: None,
             is_mine: Some(true),
             buyer_invoice: None,
-            buyer_token: None,
-            seller_token: None,
             request_id,
             created_at: Some(chrono::Utc::now().timestamp()),
             expires_at: None,
@@ -259,9 +253,8 @@ impl Order {
             r#"
                   INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
                   fiat_code, fiat_amount, payment_method, premium, trade_keys,
-                  counterparty_pubkey, is_mine, buyer_invoice, buyer_token, seller_token,
-                  request_id, created_at, expires_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
         )
         .bind(&order.id)
@@ -278,8 +271,6 @@ impl Order {
         .bind(&order.counterparty_pubkey)
         .bind(order.is_mine)
         .bind(&order.buyer_invoice)
-        .bind(order.buyer_token)
-        .bind(order.seller_token)
         .bind(order.request_id)
         .bind(order.created_at)
         .bind(order.expires_at)
@@ -359,8 +350,7 @@ impl Order {
               UPDATE orders 
               SET kind = ?, status = ?, amount = ?, fiat_code = ?, min_amount = ?, max_amount = ?, 
                   fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?, counterparty_pubkey = ?,
-                  is_mine = ?, buyer_invoice = ?, created_at = ?, expires_at = ?, buyer_token = ?,
-                seller_token = ?
+                  is_mine = ?, buyer_invoice = ?, created_at = ?, expires_at = ?
               WHERE id = ?
               "#,
             )
@@ -379,8 +369,6 @@ impl Order {
             .bind(&self.buyer_invoice)
             .bind(self.created_at)
             .bind(self.expires_at)
-            .bind(self.buyer_token)
-            .bind(self.seller_token)
             .bind(id)
             .execute(pool)
             .await?;
@@ -446,16 +434,13 @@ impl Order {
         }
 
         let rows = sqlx::query_as::<_, TradeKeyRow>(
-            "SELECT DISTINCT trade_keys FROM orders WHERE trade_keys IS NOT NULL"
+            "SELECT DISTINCT trade_keys FROM orders WHERE trade_keys IS NOT NULL",
         )
         .fetch_all(pool)
         .await?;
-        
-        let trade_keys: Vec<String> = rows
-            .into_iter()
-            .filter_map(|row| row.trade_keys)
-            .collect();
-        
+
+        let trade_keys: Vec<String> = rows.into_iter().filter_map(|row| row.trade_keys).collect();
+
         Ok(trade_keys)
     }
 
