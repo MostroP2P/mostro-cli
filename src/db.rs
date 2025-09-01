@@ -254,7 +254,7 @@ impl Order {
                   INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
                   fiat_code, fiat_amount, payment_method, premium, trade_keys,
                   counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
         )
         .bind(&order.id)
