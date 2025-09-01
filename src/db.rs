@@ -350,7 +350,7 @@ impl Order {
               UPDATE orders 
               SET kind = ?, status = ?, amount = ?, fiat_code = ?, min_amount = ?, max_amount = ?, 
                   fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?, counterparty_pubkey = ?,
-                  is_mine = ?, buyer_invoice = ?, created_at = ?, expires_at = ?
+                  is_mine = ?, buyer_invoice = ?, expires_at = ?
               WHERE id = ?
               "#,
             )
@@ -367,7 +367,6 @@ impl Order {
             .bind(&self.counterparty_pubkey)
             .bind(self.is_mine)
             .bind(&self.buyer_invoice)
-            .bind(self.created_at)
             .bind(self.expires_at)
             .bind(id)
             .execute(pool)
