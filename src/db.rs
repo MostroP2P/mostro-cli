@@ -64,9 +64,66 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
         println!("User created with pubkey: {}", user.i0_pubkey);
     } else {
         pool = SqlitePool::connect(&db_url).await?;
+
+        // Migration: Drop buyer_token and seller_token columns if they exist
+        migrate_remove_token_columns(&pool).await?;
     }
 
     Ok(pool)
+}
+
+async fn migrate_remove_token_columns(pool: &SqlitePool) -> Result<()> {
+    println!("Checking for legacy token columns...");
+
+    // Check if buyer_token column exists
+    let buyer_token_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'buyer_token'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Check if seller_token column exists
+    let seller_token_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'seller_token'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Drop buyer_token column if it exists
+    if buyer_token_exists > 0 {
+        println!("Removing legacy buyer_token column...");
+        match sqlx::query("ALTER TABLE orders DROP COLUMN buyer_token")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => println!("Successfully removed buyer_token column"),
+            Err(e) => {
+                println!("Warning: Could not remove buyer_token column: {}", e);
+                // Continue execution - this is not critical
+            }
+        }
+    }
+
+    // Drop seller_token column if it exists
+    if seller_token_exists > 0 {
+        println!("Removing legacy seller_token column...");
+        match sqlx::query("ALTER TABLE orders DROP COLUMN seller_token")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => println!("Successfully removed seller_token column"),
+            Err(e) => {
+                println!("Warning: Could not remove seller_token column: {}", e);
+                // Continue execution - this is not critical
+            }
+        }
+    }
+
+    if buyer_token_exists == 0 && seller_token_exists == 0 {
+        println!("No legacy token columns found - database is up to date");
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Default, Clone, sqlx::FromRow)]
