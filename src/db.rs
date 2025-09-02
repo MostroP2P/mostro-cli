@@ -38,8 +38,6 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
               counterparty_pubkey TEXT,
               is_mine BOOLEAN,
               buyer_invoice TEXT,
-              buyer_token INTEGER,
-              seller_token INTEGER,
               request_id INTEGER,
               created_at INTEGER,
               expires_at INTEGER
@@ -66,9 +64,66 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
         println!("User created with pubkey: {}", user.i0_pubkey);
     } else {
         pool = SqlitePool::connect(&db_url).await?;
+
+        // Migration: Drop buyer_token and seller_token columns if they exist
+        migrate_remove_token_columns(&pool).await?;
     }
 
     Ok(pool)
+}
+
+async fn migrate_remove_token_columns(pool: &SqlitePool) -> Result<()> {
+    println!("Checking for legacy token columns...");
+
+    // Check if buyer_token column exists
+    let buyer_token_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'buyer_token'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Check if seller_token column exists
+    let seller_token_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'seller_token'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Drop buyer_token column if it exists
+    if buyer_token_exists > 0 {
+        println!("Removing legacy buyer_token column...");
+        match sqlx::query("ALTER TABLE orders DROP COLUMN buyer_token")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => println!("Successfully removed buyer_token column"),
+            Err(e) => {
+                println!("Warning: Could not remove buyer_token column: {}", e);
+                // Continue execution - this is not critical
+            }
+        }
+    }
+
+    // Drop seller_token column if it exists
+    if seller_token_exists > 0 {
+        println!("Removing legacy seller_token column...");
+        match sqlx::query("ALTER TABLE orders DROP COLUMN seller_token")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => println!("Successfully removed seller_token column"),
+            Err(e) => {
+                println!("Warning: Could not remove seller_token column: {}", e);
+                // Continue execution - this is not critical
+            }
+        }
+    }
+
+    if buyer_token_exists == 0 && seller_token_exists == 0 {
+        println!("No legacy token columns found - database is up to date");
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Default, Clone, sqlx::FromRow)]
@@ -214,8 +269,6 @@ pub struct Order {
     pub counterparty_pubkey: Option<String>,
     pub is_mine: Option<bool>,
     pub buyer_invoice: Option<String>,
-    pub buyer_token: Option<u16>,
-    pub seller_token: Option<u16>,
     pub request_id: Option<i64>,
     pub created_at: Option<i64>,
     pub expires_at: Option<i64>,
@@ -248,8 +301,6 @@ impl Order {
             counterparty_pubkey: None,
             is_mine: Some(true),
             buyer_invoice: None,
-            buyer_token: None,
-            seller_token: None,
             request_id,
             created_at: Some(chrono::Utc::now().timestamp()),
             expires_at: None,
@@ -259,9 +310,8 @@ impl Order {
             r#"
                   INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
                   fiat_code, fiat_amount, payment_method, premium, trade_keys,
-                  counterparty_pubkey, is_mine, buyer_invoice, buyer_token, seller_token,
-                  request_id, created_at, expires_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
         )
         .bind(&order.id)
@@ -278,8 +328,6 @@ impl Order {
         .bind(&order.counterparty_pubkey)
         .bind(order.is_mine)
         .bind(&order.buyer_invoice)
-        .bind(order.buyer_token)
-        .bind(order.seller_token)
         .bind(order.request_id)
         .bind(order.created_at)
         .bind(order.expires_at)
@@ -359,8 +407,7 @@ impl Order {
               UPDATE orders 
               SET kind = ?, status = ?, amount = ?, fiat_code = ?, min_amount = ?, max_amount = ?, 
                   fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?, counterparty_pubkey = ?,
-                  is_mine = ?, buyer_invoice = ?, created_at = ?, expires_at = ?, buyer_token = ?,
-                seller_token = ?
+                  is_mine = ?, buyer_invoice = ?, expires_at = ?
               WHERE id = ?
               "#,
             )
@@ -377,10 +424,7 @@ impl Order {
             .bind(&self.counterparty_pubkey)
             .bind(self.is_mine)
             .bind(&self.buyer_invoice)
-            .bind(self.created_at)
             .bind(self.expires_at)
-            .bind(self.buyer_token)
-            .bind(self.seller_token)
             .bind(id)
             .execute(pool)
             .await?;
@@ -440,22 +484,15 @@ impl Order {
     }
 
     pub async fn get_all_trade_keys(pool: &SqlitePool) -> Result<Vec<String>> {
-        #[derive(sqlx::FromRow)]
-        struct TradeKeyRow {
-            trade_keys: Option<String>,
-        }
-
-        let rows = sqlx::query_as::<_, TradeKeyRow>(
-            "SELECT DISTINCT trade_keys FROM orders WHERE trade_keys IS NOT NULL"
+        let trade_keys: Vec<String> = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT DISTINCT trade_keys FROM orders WHERE trade_keys IS NOT NULL",
         )
         .fetch_all(pool)
-        .await?;
-        
-        let trade_keys: Vec<String> = rows
-            .into_iter()
-            .filter_map(|row| row.trade_keys)
-            .collect();
-        
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+
         Ok(trade_keys)
     }
 

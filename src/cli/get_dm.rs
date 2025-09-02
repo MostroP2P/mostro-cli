@@ -21,7 +21,8 @@ pub async fn execute_get_dm(
     if !admin {
         for index in 1..=trade_index {
             let keys = User::get_trade_keys(&pool, index).await?;
-            let dm_temp = get_direct_messages(client, &keys, *since, from_user, Some(mostro_pubkey)).await;
+            let dm_temp =
+                get_direct_messages(client, &keys, *since, from_user, Some(mostro_pubkey)).await;
             dm.extend(dm_temp);
         }
     } else {
@@ -32,7 +33,8 @@ pub async fn execute_get_dm(
                 std::process::exit(1);
             }
         };
-        let dm_temp = get_direct_messages(client, &id_key, *since, from_user, Some(mostro_pubkey)).await;
+        let dm_temp =
+            get_direct_messages(client, &id_key, *since, from_user, Some(mostro_pubkey)).await;
         dm.extend(dm_temp);
     }
 
@@ -63,13 +65,10 @@ pub async fn execute_get_dm(
                         println!("{text}");
                         println!();
                     }
-                    Payload::Dispute(id, token, info) => {
+                    Payload::Dispute(id, info) => {
                         println!("Action: {}", message.action);
                         println!("Dispute id: {}", id);
-                        if token.is_some() {
-                            println!("Dispute token: {}", token.unwrap());
-                        }
-                        if info.is_some() {
+                        if let Some(info) = info {
                             println!();
                             println!("Dispute info: {:#?}", info);
                             println!();
