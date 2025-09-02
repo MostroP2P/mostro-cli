@@ -484,18 +484,14 @@ impl Order {
     }
 
     pub async fn get_all_trade_keys(pool: &SqlitePool) -> Result<Vec<String>> {
-        #[derive(sqlx::FromRow)]
-        struct TradeKeyRow {
-            trade_keys: Option<String>,
-        }
-
-        let rows = sqlx::query_as::<_, TradeKeyRow>(
+        let trade_keys: Vec<String> = sqlx::query_scalar::<_, Option<String>>(
             "SELECT DISTINCT trade_keys FROM orders WHERE trade_keys IS NOT NULL",
         )
         .fetch_all(pool)
-        .await?;
-
-        let trade_keys: Vec<String> = rows.into_iter().filter_map(|row| row.trade_keys).collect();
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         Ok(trade_keys)
     }
