@@ -68,7 +68,7 @@ pub async fn execute_get_dm(
                     Payload::Dispute(id, info) => {
                         println!("Action: {}", message.action);
                         println!("Dispute id: {}", id);
-                        if info.is_some() {
+                        if let Some(info) = info {
                             println!();
                             println!("Dispute info: {:#?}", info);
                             println!();
