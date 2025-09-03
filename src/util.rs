@@ -11,14 +11,14 @@ use nostr_sdk::prelude::*;
 use std::time::Duration;
 use std::{fs, path::Path};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Event {
     SmallOrder(SmallOrder),
     Dispute(Dispute), // Assuming you have a Dispute struct
     MessageTuple((Message, u64)),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum ListKind {
     Orders,
     Disputes,
@@ -397,20 +397,21 @@ fn parse_dispute_events(events: Events) -> Vec<Dispute> {
     let mut disputes_list = Vec::<Dispute>::new();
 
     // Scan events to extract all disputes
-    for event in events.iter() {
-        let dispute = dispute_from_tags(event.tags.clone());
+    for event in events.into_iter() {
+        if let Ok(dispute) = dispute_from_tags(event.tags) {
 
-        if dispute.is_err() {
             error!("{dispute:?}");
             continue;
         }
-        let mut dispute = dispute?;
+        }
+        let mut dispute = dispute.unwrap();
+        }
 
         info!("Found Dispute id : {:?}", dispute.id);
 
         // Get created at field from Nostr event
         dispute.created_at = event.created_at.as_u64() as i64;
-        disputes_list.push(dispute);
+        disputes_list.push(dispute.clone());
     }
 
     let buffer_dispute_list = disputes_list.clone();
@@ -427,7 +428,8 @@ fn parse_dispute_events(events: Events) -> Vec<Dispute> {
     disputes_list.dedup_by(|a, b| a.id == b.id);
 
     // Finally sort list by creation time
-    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at))
+    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    disputes_list
 }
 
 
@@ -599,8 +601,8 @@ fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
 }
 
 
-pub async fn fetch_events_list<T>(
-    pubkey: PublicKey,
+pub async fn fetch_events_list(
+    mostro_key: PublicKey,
     list_kind: ListKind,
     status: Option<Status>,
     currency: Option<String>,
@@ -608,13 +610,13 @@ pub async fn fetch_events_list<T>(
     client: &Client,
 ) -> Result<Vec<Event>> {
     // Create filter for fetching orders
-    let filters = create_filter(ListKind::Orders, pubkey);
+    let filters = create_filter(list_kind, mostro_key);
 
     // Send all requests to relays
     if let Ok(fetched_events) = client.fetch_events(filters, Duration::from_secs(15)).await {
         match list_kind {
             ListKind::Orders => {
-                info!("Fetching orders for pubkey: {}", pubkey);
+                info!("Fetching orders for pubkey: {}", mostro_key);
                 Ok(parse_orders_events(fetched_events, currency, status, kind)
                     .into_iter()
                     .map(Event::SmallOrder)
@@ -622,7 +624,7 @@ pub async fn fetch_events_list<T>(
                 )
             }
             ListKind::DirectMessages => {
-                info!("Fetching direct messages for pubkey: {}", pubkey);
+                info!("Fetching direct messages for pubkey: {}", mostro_key);
                  Ok(parse_dm_events(fetched_events, pubkey).await
                     .into_iter()
                     .map(Event::MessageTuple)
@@ -630,7 +632,7 @@ pub async fn fetch_events_list<T>(
                 )
             }
             ListKind::Disputes => {
-                info!("Fetching disputes for pubkey: {}", pubkey);
+                info!("Fetching disputes for pubkey: {}", mostro_key);
                 Ok(parse_dispute_events(fetched_events)
                     .into_iter()
                     .map(Event::Dispute)

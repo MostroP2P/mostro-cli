@@ -29,12 +29,15 @@ use crate::util;
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use nostr_sdk::prelude::*;
+use std::sync::OnceLock;
 use std::{
     env::{set_var, var},
     str::FromStr,
 };
 use take_dispute::*;
 use uuid::Uuid;
+
+static IDENTITY_KEYS: OnceLock<Keys> = OnceLock::new();
 
 #[derive(Parser)]
 #[command(
@@ -315,6 +318,9 @@ pub async fn run() -> Result<()> {
     let identity_keys = User::get_identity_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
+    
+    // Set identity keys as global variable to reuse in next calls
+    IDENTITY_KEYS.get_or_init(|| identity_keys.clone());
 
     let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
         .await

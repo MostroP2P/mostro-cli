@@ -4,6 +4,8 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use mostro_core::prelude::*;
 
+use crate::util::Event;
+
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let single_order = match ord {
         Payload::Order(o) => o,
@@ -77,8 +79,19 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     Ok(table.to_string())
 }
 
-pub fn print_orders_table(orders_table: Vec<SmallOrder>) -> Result<String> {
+pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
     let mut table = Table::new();
+    // Convert Event to SmallOrder
+    let orders_table: Vec<SmallOrder> = orders_table
+        .into_iter()
+        .filter_map(|event| {
+            if let Event::SmallOrder(order) = event {
+                Some(order)
+            } else {
+                None
+            }
+        })
+        .collect();
 
     //Table rows
     let mut rows: Vec<Row> = Vec::new();
@@ -186,9 +199,21 @@ pub fn print_orders_table(orders_table: Vec<SmallOrder>) -> Result<String> {
     Ok(table.to_string())
 }
 
-pub fn print_disputes_table(disputes_table: Vec<Dispute>) -> Result<String> {
-    let mut table = Table::new();
+pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
+    // Convert Event to Dispute
+    let disputes_table: Vec<Dispute> = disputes_table
+        .into_iter()
+        .filter_map(|event| {
+            if let Event::Dispute(dispute) = event {
+                Some(dispute)
+            } else {
+                None
+            }
+        })
+        .collect();
 
+    // Create table
+    let mut table = Table::new();
     //Table rows
     let mut rows: Vec<Row> = Vec::new();
 
