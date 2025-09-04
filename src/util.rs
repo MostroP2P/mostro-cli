@@ -10,6 +10,7 @@ use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use std::{fs, path::Path};
+use crate::cli::{MOSTRO_KEYS, POOL, TRADE_KEY};
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -22,7 +23,8 @@ pub enum Event {
 pub enum ListKind {
     Orders,
     Disputes,
-    DirectMessages,
+    DirectMessagesUser,
+    DirectMessagesAdmin,
 }
 
 pub async fn save_order(
@@ -398,20 +400,12 @@ fn parse_dispute_events(events: Events) -> Vec<Dispute> {
 
     // Scan events to extract all disputes
     for event in events.into_iter() {
-        if let Ok(dispute) = dispute_from_tags(event.tags) {
-
-            error!("{dispute:?}");
-            continue;
+        if let Ok(mut dispute) = dispute_from_tags(event.tags) {
+            info!("Found Dispute id : {:?}", dispute.id);
+            // Get created at field from Nostr event
+            dispute.created_at = event.created_at.as_u64() as i64;
+            disputes_list.push(dispute.clone());
         }
-        }
-        let mut dispute = dispute.unwrap();
-        }
-
-        info!("Found Dispute id : {:?}", dispute.id);
-
-        // Get created at field from Nostr event
-        dispute.created_at = event.created_at.as_u64() as i64;
-        disputes_list.push(dispute.clone());
     }
 
     let buffer_dispute_list = disputes_list.clone();
@@ -433,7 +427,7 @@ fn parse_dispute_events(events: Events) -> Vec<Dispute> {
 }
 
 
-async fn parse_dm_events(events: Events, pubkey: Keys) -> Vec<(Message,u64)>{
+async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message,u64)>{
            // Buffer vector for direct messages
         // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
         let mut id_list = Vec::<EventId>::new();
@@ -444,7 +438,7 @@ async fn parse_dm_events(events: Events, pubkey: Keys) -> Vec<(Message,u64)>{
             if !id_list.contains(&dm.id) {
                 id_list.push(dm.id);
 
-                let unwrapped_gift = match nip59::extract_rumor(&pubkey, dm).await {
+                let unwrapped_gift = match nip59::extract_rumor(pubkey, dm).await {
                     Ok(u) => u,
                     Err(_) => {
                         println!("Error unwrapping gift");
@@ -582,7 +576,7 @@ fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
                 )
                 .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND))
         }
-        ListKind::DirectMessages => {
+        ListKind::DirectMessagesAdmin => {
             // We use a fake timestamp to thwart time-analysis attacks
             let fake_since = 2880;
             let fake_since_time = chrono::Utc::now()
@@ -597,52 +591,59 @@ fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
                 .pubkey(pubkey)
                 .since(fake_timestamp)
         }
+        ListKind::DirectMessagesUser => {
+            let since_time = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::minutes(30))
+            .unwrap()
+            .timestamp() as u64;
+        let timestamp = Timestamp::from(since_time);
+        Filter::new()
+            .kind(nostr_sdk::Kind::PrivateDirectMessage)
+            .pubkey(pubkey)
+            .since(timestamp)
+        }
     }
 }
 
 
 pub async fn fetch_events_list(
-    mostro_key: PublicKey,
     list_kind: ListKind,
     status: Option<Status>,
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
     client: &Client,
 ) -> Result<Vec<Event>> {
-    // Create filter for fetching orders
-    let filters = create_filter(list_kind, mostro_key);
-
-    // Send all requests to relays
-    if let Ok(fetched_events) = client.fetch_events(filters, Duration::from_secs(15)).await {
-        match list_kind {
-            ListKind::Orders => {
-                info!("Fetching orders for pubkey: {}", mostro_key);
-                Ok(parse_orders_events(fetched_events, currency, status, kind)
-                    .into_iter()
-                    .map(Event::SmallOrder)
-                    .collect()
-                )
-            }
-            ListKind::DirectMessages => {
-                info!("Fetching direct messages for pubkey: {}", mostro_key);
-                 Ok(parse_dm_events(fetched_events, pubkey).await
-                    .into_iter()
-                    .map(Event::MessageTuple)
-                    .collect()
-                )
-            }
-            ListKind::Disputes => {
-                info!("Fetching disputes for pubkey: {}", mostro_key);
-                Ok(parse_dispute_events(fetched_events)
-                    .into_iter()
-                    .map(Event::Dispute)
-                    .collect()
-                )
-            }
+    match list_kind {
+        ListKind::Orders => {
+            let filters = create_filter(list_kind, MOSTRO_KEYS.get().unwrap().public_key());
+            let fetched_events = client.fetch_events(filters, Duration::from_secs(15)).await?;
+            let orders = parse_orders_events(fetched_events, currency, status, kind);
+            Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
-    }
-    else {
-        Err(anyhow::anyhow!("Error in fetching events request"))
+        ListKind::DirectMessagesAdmin => {
+            let filters = create_filter(list_kind, MOSTRO_KEYS.get().unwrap().public_key());
+            let fetched_events = client.fetch_events(filters, Duration::from_secs(15)).await?;
+            let direct_messages_mostro = parse_dm_events(fetched_events, MOSTRO_KEYS.get().unwrap()).await;
+            Ok(direct_messages_mostro.into_iter().map(Event::MessageTuple).collect())
+        }
+        ListKind::DirectMessagesUser => {
+            let trade_index = TRADE_KEY.get().unwrap().1;
+            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            for index in 1..=trade_index {
+                let trade_key = User::get_trade_keys(&POOL.get().unwrap(), index).await?;
+                let filter = create_filter(ListKind::DirectMessagesUser, trade_key.public_key());
+                let fetched_user_messages = client.fetch_events(filter, Duration::from_secs(15)).await?;
+                let direct_messages_for_trade_key = parse_dm_events(fetched_user_messages, &trade_key).await;
+                direct_messages.extend(direct_messages_for_trade_key);
+            }
+            Ok(direct_messages.into_iter().map(Event::MessageTuple).collect())
+        },
+        ListKind::Disputes => {
+            let filters = create_filter(list_kind, MOSTRO_KEYS.get().unwrap().public_key());
+            let fetched_events = client.fetch_events(filters, Duration::from_secs(15)).await?;
+            let disputes = parse_dispute_events(fetched_events);
+            Ok(disputes.into_iter().map(Event::Dispute).collect())
+        }
     }
 }
 

@@ -2,7 +2,7 @@ use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use std::str::FromStr;
-
+use crate::cli::MOSTRO_PUBKEY;
 use crate::pretty_table::print_orders_table;
 use crate::util::{fetch_events_list, ListKind};
 
@@ -10,7 +10,6 @@ pub async fn execute_list_orders(
     kind: &Option<String>,
     currency: &Option<String>,
     status: &Option<String>,
-    mostro_key: PublicKey,
     client: &Client,
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
@@ -46,12 +45,11 @@ pub async fn execute_list_orders(
 
     println!(
         "Requesting orders from mostro pubId - {}",
-        mostro_key.clone()
+        MOSTRO_PUBKEY.get().unwrap()
     );
 
     // Get orders from relays
     let table_of_orders = fetch_events_list(
-        mostro_key,
         ListKind::Orders,
         status_checked,
         upper_currency,

@@ -36,8 +36,13 @@ use std::{
 };
 use take_dispute::*;
 use uuid::Uuid;
+use sqlx::SqlitePool;
 
-static IDENTITY_KEYS: OnceLock<Keys> = OnceLock::new();
+pub static IDENTITY_KEYS: OnceLock<Keys> = OnceLock::new();
+pub static MOSTRO_KEYS: OnceLock<Keys> = OnceLock::new();
+pub static MOSTRO_PUBKEY: OnceLock<PublicKey> = OnceLock::new();
+pub static POOL: OnceLock<SqlitePool> = OnceLock::new();
+pub static TRADE_KEY: OnceLock<(Keys, i64)> = OnceLock::new();
 
 #[derive(Parser)]
 #[command(
@@ -248,6 +253,31 @@ pub enum Commands {
     },
 }
 
+fn get_env_var(cli: &Cli) {
+    // Init logger
+    if cli.verbose {
+        set_var("RUST_LOG", "info");
+        pretty_env_logger::init();
+    }
+
+    if cli.mostropubkey.is_some() {
+        set_var("MOSTRO_PUBKEY", cli.mostropubkey.unwrap());
+    }
+    let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+
+    if cli.relays.is_some() {
+        set_var("RELAYS", cli.relays.unwrap());
+    }
+
+    if cli.pow.is_some() {
+        set_var("POW", cli.pow.unwrap());
+    }
+
+    if cli.secret {
+        set_var("SECRET", "true");
+    }
+}
+
 // Check range with two values value
 fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
     if s.contains('-') {
@@ -291,30 +321,13 @@ fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    // Init logger
-    if cli.verbose {
-        set_var("RUST_LOG", "info");
-        pretty_env_logger::init();
-    }
+    // Get environment variables
+    get_env_var(&cli);
 
-    if cli.mostropubkey.is_some() {
-        set_var("MOSTRO_PUBKEY", cli.mostropubkey.unwrap());
-    }
-    let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
-
-    if cli.relays.is_some() {
-        set_var("RELAYS", cli.relays.unwrap());
-    }
-
-    if cli.pow.is_some() {
-        set_var("POW", cli.pow.unwrap());
-    }
-
-    if cli.secret {
-        set_var("SECRET", "true");
-    }
-
+    // Set pool as global variable to reuse in next calls
     let pool = connect().await?;
+    POOL.get_or_init(|| pool.clone());
+
     let identity_keys = User::get_identity_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
@@ -322,12 +335,19 @@ pub async fn run() -> Result<()> {
     // Set identity keys as global variable to reuse in next calls
     IDENTITY_KEYS.get_or_init(|| identity_keys.clone());
 
+    // Get next trade keys
     let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
+    // Set trade keys as global variable to reuse in next calls
+    TRADE_KEY.get_or_init(|| (trade_keys.clone(), trade_index));
+
     // Mostro pubkey
-    let mostro_key = PublicKey::from_str(&pubkey)?;
+    let mostro_key = Keys::from_str(&std::env::var("NSEC_PRIVKEY").map_err(|e| anyhow::anyhow!("Failed to get mostro keys: {}", e))?)?;
+    // Set mostro keys as global variable to reuse in next calls
+    MOSTRO_KEYS.get_or_init(|| mostro_key.clone()); 
+    MOSTRO_PUBKEY.get_or_init(|| mostro_key.public_key());
 
     // Call function to connect to relays
     let client = util::connect_nostr().await?;
@@ -341,7 +361,7 @@ pub async fn run() -> Result<()> {
                 status,
                 currency,
                 kind,
-            } => execute_list_orders(kind, currency, status, mostro_key, &client).await?,
+            } => execute_list_orders(kind, currency, status,  &client).await?,
             Commands::TakeSell {
                 order_id,
                 invoice,
