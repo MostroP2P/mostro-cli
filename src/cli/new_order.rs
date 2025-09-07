@@ -7,7 +7,7 @@ use std::process;
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::pretty_table::print_order_preview;
+use crate::parser::orders::print_order_preview;
 use crate::util::{send_dm, uppercase_first, wait_for_dm};
 
 pub type FiatNames = HashMap<String, String>;

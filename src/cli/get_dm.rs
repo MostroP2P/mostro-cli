@@ -2,18 +2,19 @@ use anyhow::Result;
 use chrono::DateTime;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use crate::cli::MOSTRO_KEYS;
 
 use crate::{
     db::{connect, Order, User},
-    util::get_direct_messages,
+    parser::dms::parse_dm_events,
+    util::{create_filter, ListKind},
 };
 
 pub async fn execute_get_dm(
-    since: &i64,
+    _since: &i64,
     trade_index: i64,
+    mostro_keys: &Keys,
     client: &Client,
-    from_user: bool,
+    _from_user: bool,
     admin: bool,
 ) -> Result<()> {
     let mut dm: Vec<(Message, u64)> = Vec::new();
@@ -21,11 +22,19 @@ pub async fn execute_get_dm(
     if !admin {
         for index in 1..=trade_index {
             let keys = User::get_trade_keys(&pool, index).await?;
-            let dm_temp = get_direct_messages(client, &keys, *since, from_user).await;
+            let filter = create_filter(ListKind::DirectMessagesUser, keys.public_key());
+            let fetched_events = client
+                .fetch_events(filter, std::time::Duration::from_secs(15))
+                .await?;
+            let dm_temp = parse_dm_events(fetched_events, &keys).await;
             dm.extend(dm_temp);
         }
     } else {
-        let dm_temp = get_direct_messages(client,   MOSTRO_KEYS.get().unwrap(), *since, from_user).await;
+        let filter = create_filter(ListKind::DirectMessagesAdmin, mostro_keys.public_key());
+        let fetched_events = client
+            .fetch_events(filter, std::time::Duration::from_secs(15))
+            .await?;
+        let dm_temp = parse_dm_events(fetched_events, mostro_keys).await;
         dm.extend(dm_temp);
     }
 
