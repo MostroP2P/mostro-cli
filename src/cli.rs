@@ -27,7 +27,6 @@ use crate::cli::new_order::execute_new_order;
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
 use crate::cli::send_dm::execute_send_dm;
-use crate::cli::send_msg::execute_send_msg;
 use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_sell::execute_take_sell;
@@ -37,6 +36,7 @@ use crate::util;
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use nostr_sdk::prelude::*;
+use sqlx::SqlitePool;
 use std::sync::OnceLock;
 use std::{
     env::{set_var, var},
@@ -44,13 +44,22 @@ use std::{
 };
 use take_dispute::*;
 use uuid::Uuid;
-use sqlx::SqlitePool;
 
 pub static IDENTITY_KEYS: OnceLock<Keys> = OnceLock::new();
 pub static MOSTRO_KEYS: OnceLock<Keys> = OnceLock::new();
 pub static MOSTRO_PUBKEY: OnceLock<PublicKey> = OnceLock::new();
 pub static POOL: OnceLock<SqlitePool> = OnceLock::new();
 pub static TRADE_KEY: OnceLock<(Keys, i64)> = OnceLock::new();
+
+pub struct Context {
+    pub client: Client,
+    pub identity_keys: Keys,
+    pub trade_keys: Keys,
+    pub trade_index: i64,
+    pub pool: SqlitePool,
+    pub mostro_keys: Keys,
+    pub mostro_pubkey: PublicKey,
+}
 
 #[derive(Parser)]
 #[command(
@@ -299,16 +308,16 @@ fn get_env_var(cli: &Cli) {
     }
 
     if cli.mostropubkey.is_some() {
-        set_var("MOSTRO_PUBKEY", cli.mostropubkey.unwrap());
+        set_var("MOSTRO_PUBKEY", cli.mostropubkey.clone().unwrap());
     }
-    let pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
+    let _pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
 
     if cli.relays.is_some() {
-        set_var("RELAYS", cli.relays.unwrap());
+        set_var("RELAYS", cli.relays.clone().unwrap());
     }
 
     if cli.pow.is_some() {
-        set_var("POW", cli.pow.unwrap());
+        set_var("POW", cli.pow.clone().unwrap());
     }
 
     if cli.secret {
@@ -359,47 +368,82 @@ fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    // Get environment variables
-    get_env_var(&cli);
+    let ctx = init_context(&cli).await?;
 
-    // Set pool as global variable to reuse in next calls
+    if let Some(cmd) = &cli.command {
+        cmd.run(&ctx).await?;
+    }
+
+    println!("Bye Bye!");
+
+    Ok(())
+}
+
+async fn init_context(cli: &Cli) -> Result<Context> {
+    // Get environment variables
+    get_env_var(cli);
+
+    // Initialize database pool
     let pool = connect().await?;
     POOL.get_or_init(|| pool.clone());
 
+    // Get identity keys
     let identity_keys = User::get_identity_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
-    
-    // Set identity keys as global variable to reuse in next calls
     IDENTITY_KEYS.get_or_init(|| identity_keys.clone());
 
-    // Get next trade keys
+    // Get trade keys
     let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
-
-    // Set trade keys as global variable to reuse in next calls
     TRADE_KEY.get_or_init(|| (trade_keys.clone(), trade_index));
 
-    // Mostro pubkey
-    let mostro_key = Keys::from_str(&std::env::var("NSEC_PRIVKEY").map_err(|e| anyhow::anyhow!("Failed to get mostro keys: {}", e))?)?;
-    // Set mostro keys as global variable to reuse in next calls
-    MOSTRO_KEYS.get_or_init(|| mostro_key.clone()); 
-    MOSTRO_PUBKEY.get_or_init(|| mostro_key.public_key());
+    // Get Mostro admin keys
+    let mostro_keys = Keys::from_str(
+        &std::env::var("NSEC_PRIVKEY")
+            .map_err(|e| anyhow::anyhow!("Failed to get mostro keys: {}", e))?,
+    )?;
+    MOSTRO_KEYS.get_or_init(|| mostro_keys.clone());
+    MOSTRO_PUBKEY.get_or_init(|| mostro_keys.public_key());
 
-    // Call function to connect to relays
+    // Connect to Nostr relays
     let client = util::connect_nostr().await?;
 
-    if let Some(cmd) = cli.command {
-        match &cmd {
+    Ok(Context {
+        client,
+        identity_keys,
+        trade_keys,
+        trade_index,
+        pool,
+        mostro_keys: mostro_keys.clone(),
+        mostro_pubkey: mostro_keys.public_key(),
+    })
+}
+
+impl Commands {
+    pub async fn run(&self, ctx: &Context) -> Result<()> {
+        match self {
             Commands::ConversationKey { pubkey } => {
-                execute_conversation_key(&trade_keys, PublicKey::from_str(pubkey)?).await?
+                execute_conversation_key(&ctx.trade_keys, PublicKey::from_str(pubkey)?).await
             }
             Commands::ListOrders {
                 status,
                 currency,
                 kind,
-            } => execute_list_orders(kind, currency, status,  &client).await?,
+            } => {
+                execute_list_orders(
+                    kind,
+                    currency,
+                    status,
+                    ctx.mostro_pubkey,
+                    &ctx.mostro_keys,
+                    ctx.trade_index,
+                    &ctx.pool,
+                    &ctx.client,
+                )
+                .await
+            }
             Commands::TakeSell {
                 order_id,
                 invoice,
@@ -409,60 +453,83 @@ pub async fn run() -> Result<()> {
                     order_id,
                     invoice,
                     *amount,
-                    &identity_keys,
-                    &trade_keys,
-                    trade_index,
-                    mostro_key,
-                    &client,
+                    &ctx.identity_keys,
+                    &ctx.trade_keys,
+                    ctx.trade_index,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
                 )
-                .await?
+                .await
             }
             Commands::TakeBuy { order_id, amount } => {
                 execute_take_buy(
                     order_id,
                     *amount,
-                    &identity_keys,
-                    &trade_keys,
-                    trade_index,
-                    mostro_key,
-                    &client,
+                    &ctx.identity_keys,
+                    &ctx.trade_keys,
+                    ctx.trade_index,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
                 )
-                .await?
+                .await
             }
             Commands::AddInvoice { order_id, invoice } => {
-                execute_add_invoice(order_id, invoice, &identity_keys, mostro_key, &client).await?
+                execute_add_invoice(
+                    order_id,
+                    invoice,
+                    &ctx.identity_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
             }
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, trade_index, &client, *from_user, false, &mostro_key).await?
+                execute_get_dm(
+                    since,
+                    ctx.trade_index,
+                    &ctx.mostro_keys,
+                    &ctx.client,
+                    *from_user,
+                    false, &mostro_key).await?
             }
             Commands::GetDmUser { since } => {
-                execute_get_dm_user(since, &client, &mostro_key).await?
+                execute_get_dm_user(since, &client, &mostro_key,
+                )
+                .await
             }
             Commands::GetAdminDm { since, from_user } => {
-                execute_get_dm(since, trade_index, &client, *from_user, true, &mostro_key).await?
+                execute_get_dm(
+                    since,
+                    ctx.trade_index,
+                    &ctx.mostro_keys,
+                    &ctx.client,
+                    *from_user,
+                    true,
+                )
+                .await
             }
             Commands::FiatSent { order_id }
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
             | Commands::Cancel { order_id } => {
-                execute_send_msg(
-                    cmd.clone(),
-                    Some(*order_id),
-                    Some(&identity_keys),
-                    mostro_key,
-                    &client,
-                    None,
+                crate::util::run_simple_order_msg(
+                    self.clone(),
+                    order_id,
+                    &ctx.identity_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
                 )
-                .await?
+                .await
             }
             Commands::AdmAddSolver { npubkey } => {
-                let id_key = match std::env::var("NSEC_PRIVKEY") {
-                    Ok(id_key) => Keys::parse(&id_key)?,
-                    Err(e) => {
-                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
-                    }
-                };
-                execute_admin_add_solver(npubkey, &id_key, &trade_keys, mostro_key, &client).await?
+                execute_admin_add_solver(
+                    npubkey,
+                    &ctx.mostro_keys,
+                    &ctx.trade_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
             }
             Commands::NewOrder {
                 kind,
@@ -482,59 +549,75 @@ pub async fn run() -> Result<()> {
                     payment_method,
                     premium,
                     invoice,
-                    &identity_keys,
-                    &trade_keys,
-                    trade_index,
-                    mostro_key,
-                    &client,
+                    &ctx.identity_keys,
+                    &ctx.trade_keys,
+                    ctx.trade_index,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
                     expiration_days,
                 )
-                .await?
+                .await
             }
             Commands::Rate { order_id, rating } => {
-                execute_rate_user(order_id, rating, &identity_keys, mostro_key, &client).await?;
+                execute_rate_user(
+                    order_id,
+                    rating,
+                    &ctx.identity_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
             }
             Commands::Restore {} => {
                 execute_restore(&identity_keys, mostro_key, &client).await?;
             }
             Commands::AdmSettle { order_id } => {
-                let id_key = match std::env::var("NSEC_PRIVKEY") {
-                    Ok(id_key) => Keys::parse(&id_key)?,
-                    Err(e) => {
-                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
-                    }
-                };
-                execute_admin_settle_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
-                    .await?;
+                execute_admin_settle_dispute(
+                    order_id,
+                    &ctx.mostro_keys,
+                    &ctx.trade_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
             }
             Commands::AdmCancel { order_id } => {
-                let id_key = match std::env::var("NSEC_PRIVKEY") {
-                    Ok(id_key) => Keys::parse(&id_key)?,
-                    Err(e) => {
-                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
-                    }
-                };
-                execute_admin_cancel_dispute(order_id, &id_key, &trade_keys, mostro_key, &client)
-                    .await?;
+                execute_admin_cancel_dispute(
+                    order_id,
+                    &ctx.mostro_keys,
+                    &ctx.trade_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
             }
             Commands::AdmTakeDispute { dispute_id } => {
-                let id_key = match std::env::var("NSEC_PRIVKEY") {
-                    Ok(id_key) => Keys::parse(&id_key)?,
-                    Err(e) => {
-                        anyhow::bail!("NSEC_PRIVKEY not set: {e}");
-                    }
-                };
-
-                execute_take_dispute(dispute_id, &id_key, &trade_keys, mostro_key, &client).await?
+                execute_take_dispute(
+                    dispute_id,
+                    &ctx.mostro_keys,
+                    &ctx.trade_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
             }
-            Commands::AdmListDisputes {} => execute_list_disputes(mostro_key, &client).await?,
+            Commands::AdmListDisputes {} => {
+                execute_list_disputes(
+                    ctx.mostro_pubkey,
+                    &ctx.mostro_keys,
+                    ctx.trade_index,
+                    &ctx.pool,
+                    &ctx.client,
+                )
+                .await
+            }
             Commands::SendDm {
                 pubkey,
                 order_id,
                 message,
             } => {
                 let pubkey = PublicKey::from_str(pubkey)?;
-                execute_send_dm(pubkey, &client, order_id, message).await?
+                execute_send_dm(pubkey, &ctx.client, order_id, message).await
             }
             Commands::DmToUser {
                 pubkey,
@@ -548,10 +631,6 @@ pub async fn run() -> Result<()> {
                 let pubkey = PublicKey::from_str(pubkey)?;
                 execute_adm_send_dm(pubkey, &client, message).await?
             }
-        };
+        }
     }
-
-    println!("Bye Bye!");
-
-    Ok(())
 }

@@ -1,10 +1,82 @@
+use crate::util::Event;
 use anyhow::Result;
 use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
+use log::{error, info};
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::*;
 
-use crate::util::Event;
+use crate::nip33::order_from_tags;
+
+pub fn parse_orders_events(
+    events: Events,
+    currency: Option<String>,
+    status: Option<Status>,
+    kind: Option<mostro_core::order::Kind>,
+) -> Vec<SmallOrder> {
+    // Extracted Orders List
+    let mut complete_events_list = Vec::<SmallOrder>::new();
+    let mut requested_orders_list = Vec::<SmallOrder>::new();
+
+    // Scan events to extract all orders
+    for event in events.iter() {
+        let order = order_from_tags(event.tags.clone());
+
+        if order.is_err() {
+            error!("{order:?}");
+            continue;
+        }
+        if let Ok(mut order) = order {
+            info!("Found Order id : {:?}", order.id.unwrap());
+
+            if order.id.is_none() {
+                info!("Order ID is none");
+                continue;
+            }
+
+            if order.kind.is_none() {
+                info!("Order kind is none");
+                continue;
+            }
+
+            if order.status.is_none() {
+                info!("Order status is none");
+                continue;
+            }
+
+            // Get created at field from Nostr event
+            order.created_at = Some(event.created_at.as_u64() as i64);
+            complete_events_list.push(order.clone());
+            if order.status.ne(&status) {
+                continue;
+            }
+
+            if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
+                continue;
+            }
+
+            if kind.is_some() && order.kind.ne(&kind) {
+                continue;
+            }
+            // Add just requested orders requested by filtering
+            requested_orders_list.push(order);
+        }
+        // Order all element ( orders ) received to filter - discard disaligned messages
+        // if an order has an older message with the state we received is discarded for the latest one
+        requested_orders_list.retain(|keep| {
+            !complete_events_list
+                .iter()
+                .any(|x| x.id == keep.id && x.created_at > keep.created_at)
+        });
+        // Sort by id to remove duplicates
+        requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
+        requested_orders_list.dedup_by(|a, b| a.id == b.id);
+    }
+    // Finally sort list by creation time
+    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    requested_orders_list
+}
 
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let single_order = match ord {
@@ -43,10 +115,10 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let r = Row::from(vec![
         if let Some(k) = single_order.kind {
             match k {
-                Kind::Buy => Cell::new(k.to_string())
+                mostro_core::order::Kind::Buy => Cell::new(k.to_string())
                     .fg(Color::Green)
                     .set_alignment(CellAlignment::Center),
-                Kind::Sell => Cell::new(k.to_string())
+                mostro_core::order::Kind::Sell => Cell::new(k.to_string())
                     .fg(Color::Red)
                     .set_alignment(CellAlignment::Center),
             }
@@ -155,10 +227,10 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
             let r = Row::from(vec![
                 if let Some(k) = single_order.kind {
                     match k {
-                        Kind::Buy => Cell::new(k.to_string())
+                        mostro_core::order::Kind::Buy => Cell::new(k.to_string())
                             .fg(Color::Green)
                             .set_alignment(CellAlignment::Center),
-                        Kind::Sell => Cell::new(k.to_string())
+                        mostro_core::order::Kind::Sell => Cell::new(k.to_string())
                             .fg(Color::Red)
                             .set_alignment(CellAlignment::Center),
                     }
@@ -188,79 +260,6 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 },
                 Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
-                Cell::new(date.unwrap()),
-            ]);
-            rows.push(r);
-        }
-    }
-
-    table.add_rows(rows);
-
-    Ok(table.to_string())
-}
-
-pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
-    // Convert Event to Dispute
-    let disputes_table: Vec<Dispute> = disputes_table
-        .into_iter()
-        .filter_map(|event| {
-            if let Event::Dispute(dispute) = event {
-                Some(dispute)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Create table
-    let mut table = Table::new();
-    //Table rows
-    let mut rows: Vec<Row> = Vec::new();
-
-    if disputes_table.is_empty() {
-        table
-            .load_preset(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_width(160)
-            .set_header(vec![Cell::new("Sorry...")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center)]);
-
-        // Single row for error
-        let mut r = Row::new();
-
-        r.add_cell(
-            Cell::new("No disputes found with requested parameters...")
-                .fg(Color::Red)
-                .set_alignment(CellAlignment::Center),
-        );
-
-        //Push single error row
-        rows.push(r);
-    } else {
-        table
-            .load_preset(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_width(160)
-            .set_header(vec![
-                Cell::new("Dispute Id")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Status")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("Created")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-            ]);
-
-        //Iterate to create table of orders
-        for single_dispute in disputes_table.into_iter() {
-            let date = DateTime::from_timestamp(single_dispute.created_at, 0);
-
-            let r = Row::from(vec![
-                Cell::new(single_dispute.id).set_alignment(CellAlignment::Center),
-                Cell::new(single_dispute.status.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(date.unwrap()),
             ]);
             rows.push(r);
