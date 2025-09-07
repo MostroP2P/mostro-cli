@@ -183,6 +183,91 @@ pub async fn wait_for_dm(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum MessageType {
+    PrivateDirectMessage,
+    PrivateGiftWrap,
+    SignedGiftWrap,
+}
+
+fn determine_message_type(to_user: bool, private: bool) -> MessageType {
+    match (to_user, private) {
+        (true, _) => MessageType::PrivateDirectMessage,
+        (false, true) => MessageType::PrivateGiftWrap,
+        (false, false) => MessageType::SignedGiftWrap,
+    }
+}
+
+fn create_expiration_tags(expiration: Option<Timestamp>) -> Tags {
+    let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
+
+    if let Some(timestamp) = expiration {
+        tags.push(Tag::expiration(timestamp));
+    }
+
+    Tags::from_list(tags)
+}
+
+async fn create_private_dm_event(
+    trade_keys: &Keys,
+    receiver_pubkey: &PublicKey,
+    payload: String,
+    pow: u8,
+) -> Result<nostr_sdk::Event> {
+    // Derive conversation key
+    let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey)?;
+    // Encrypt payload
+    let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
+    // Encode with base64
+    let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
+    // Compose builder
+    Ok(
+        EventBuilder::new(nostr_sdk::Kind::PrivateDirectMessage, b64decoded_content)
+            .pow(pow)
+            .tag(Tag::public_key(*receiver_pubkey))
+            .sign_with_keys(trade_keys)?,
+    )
+}
+
+async fn create_gift_wrap_event(
+    trade_keys: &Keys,
+    identity_keys: Option<&Keys>,
+    receiver_pubkey: &PublicKey,
+    payload: String,
+    pow: u8,
+    expiration: Option<Timestamp>,
+    signed: bool,
+) -> Result<nostr_sdk::Event> {
+    let message = Message::from_json(&payload).unwrap();
+
+    let content = if signed {
+        let _identity_keys = identity_keys
+            .ok_or_else(|| Error::msg("identity_keys required for signed messages"))?;
+        // We sign the message
+        let sig = Message::sign(payload, trade_keys);
+        serde_json::to_string(&(message, sig)).unwrap()
+    } else {
+        // We compose the content, when private we don't sign the payload
+        let content: (Message, Option<Signature>) = (message, None);
+        serde_json::to_string(&content).unwrap()
+    };
+
+    // We create the rumor
+    let rumor = EventBuilder::text_note(content)
+        .pow(pow)
+        .build(trade_keys.public_key());
+
+    let tags = create_expiration_tags(expiration);
+
+    let signer_keys = if signed {
+        identity_keys.unwrap()
+    } else {
+        trade_keys
+    };
+
+    Ok(EventBuilder::gift_wrap(signer_keys, receiver_pubkey, rumor, tags).await?)
+}
+
 pub async fn send_dm(
     client: &Client,
     identity_keys: Option<&Keys>,
@@ -197,59 +282,40 @@ pub async fn send_dm(
         .unwrap_or("false".to_string())
         .parse::<bool>()
         .unwrap();
-    let event = if to_user {
-        // Derive conversation key
-        let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey)?;
-        // Encrypt payload
-        let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
-        // Encode with base64
-        let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
-        // Compose builder
-        EventBuilder::new(nostr_sdk::Kind::PrivateDirectMessage, b64decoded_content)
-            .pow(pow)
-            .tag(Tag::public_key(*receiver_pubkey))
-            .sign_with_keys(trade_keys)?
-    } else if private {
-        let message = Message::from_json(&payload).unwrap();
-        // We compose the content, when private we don't sign the payload
-        let content: (Message, Option<Signature>) = (message, None);
-        let content = serde_json::to_string(&content).unwrap();
-        // We create the rumor
-        let rumor = EventBuilder::text_note(content)
-            .pow(pow)
-            .build(trade_keys.public_key());
-        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
 
-        if let Some(timestamp) = expiration {
-            tags.push(Tag::expiration(timestamp));
+    let message_type = determine_message_type(to_user, private);
+
+    let event = match message_type {
+        MessageType::PrivateDirectMessage => {
+            create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?
         }
-        let tags = Tags::from_list(tags);
-
-        EventBuilder::gift_wrap(trade_keys, receiver_pubkey, rumor, tags).await?
-    } else {
-        let identity_keys = identity_keys
-            .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
-        // We sign the message
-        let message = Message::from_json(&payload).unwrap();
-        let sig = Message::sign(payload.clone(), trade_keys);
-        // We compose the content
-        let content = serde_json::to_string(&(message, sig)).unwrap();
-        // We create the rumor
-        let rumor = EventBuilder::text_note(content)
-            .pow(pow)
-            .build(trade_keys.public_key());
-        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
-
-        if let Some(timestamp) = expiration {
-            tags.push(Tag::expiration(timestamp));
+        MessageType::PrivateGiftWrap => {
+            create_gift_wrap_event(
+                trade_keys,
+                identity_keys,
+                receiver_pubkey,
+                payload,
+                pow,
+                expiration,
+                false,
+            )
+            .await?
         }
-        let tags = Tags::from_list(tags);
-
-        EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
+        MessageType::SignedGiftWrap => {
+            create_gift_wrap_event(
+                trade_keys,
+                identity_keys,
+                receiver_pubkey,
+                payload,
+                pow,
+                expiration,
+                true,
+            )
+            .await?
+        }
     };
 
     client.send_event(&event).await?;
-
     Ok(())
 }
 
