@@ -394,16 +394,16 @@ impl Commands {
                 currency,
                 kind,
             } => {
-                execute_list_orders(crate::cli::list_orders::ListOrdersParams {
+                execute_list_orders(
                     kind,
                     currency,
                     status,
-                    mostro_pubkey: ctx.mostro_pubkey,
-                    mostro_keys: &ctx.mostro_keys,
-                    trade_index: ctx.trade_index,
-                    pool: &ctx.pool,
-                    client: &ctx.client,
-                })
+                    ctx.mostro_pubkey,
+                    &ctx.mostro_keys,
+                    ctx.trade_index,
+                    &ctx.pool,
+                    &ctx.client,
+                )
                 .await
             }
             Commands::TakeSell {

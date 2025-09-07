@@ -18,17 +18,17 @@ pub async fn execute_list_disputes(
     );
 
     // Get orders from relays
-    let table_of_disputes = fetch_events_list(crate::util::FetchEventsParams {
-        list_kind: ListKind::Disputes,
-        status: None,
-        currency: None,
-        kind: None,
-        mostro_pubkey: mostro_key,
+    let table_of_disputes = fetch_events_list(
+        ListKind::Disputes,
+        None,
+        None,
+        None,
+        mostro_key,
         mostro_keys,
         trade_index,
         pool,
         client,
-    })
+    )
     .await?;
     let table = print_disputes_table(table_of_disputes)?;
     println!("{table}");

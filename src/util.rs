@@ -364,37 +364,33 @@ pub fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
     }
 }
 
-pub struct FetchEventsParams<'a> {
-    pub list_kind: ListKind,
-    pub status: Option<Status>,
-    pub currency: Option<String>,
-    pub kind: Option<mostro_core::order::Kind>,
-    pub mostro_pubkey: PublicKey,
-    pub mostro_keys: &'a Keys,
-    pub trade_index: i64,
-    pub pool: &'a SqlitePool,
-    pub client: &'a Client,
-}
-
-pub async fn fetch_events_list(params: FetchEventsParams<'_>) -> Result<Vec<Event>> {
-    match params.list_kind {
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_events_list(
+    list_kind: ListKind,
+    status: Option<Status>,
+    currency: Option<String>,
+    kind: Option<mostro_core::order::Kind>,
+    mostro_pubkey: PublicKey,
+    mostro_keys: &Keys,
+    trade_index: i64,
+    pool: &SqlitePool,
+    client: &Client,
+) -> Result<Vec<Event>> {
+    match list_kind {
         ListKind::Orders => {
-            let filters = create_filter(params.list_kind, params.mostro_pubkey);
-            let fetched_events = params
-                .client
+            let filters = create_filter(list_kind, mostro_pubkey);
+            let fetched_events = client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
-            let orders =
-                parse_orders_events(fetched_events, params.currency, params.status, params.kind);
+            let orders = parse_orders_events(fetched_events, currency, status, kind);
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(params.list_kind, params.mostro_keys.public_key());
-            let fetched_events = params
-                .client
+            let filters = create_filter(list_kind, mostro_keys.public_key());
+            let fetched_events = client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
-            let direct_messages_mostro = parse_dm_events(fetched_events, params.mostro_keys).await;
+            let direct_messages_mostro = parse_dm_events(fetched_events, mostro_keys).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|t| Event::MessageTuple(Box::new(t)))
@@ -402,13 +398,11 @@ pub async fn fetch_events_list(params: FetchEventsParams<'_>) -> Result<Vec<Even
         }
         ListKind::DirectMessagesUser => {
             let mut direct_messages: Vec<(Message, u64)> = Vec::new();
-            for index in 1..=params.trade_index {
-                let trade_key = User::get_trade_keys(params.pool, index).await?;
+            for index in 1..=trade_index {
+                let trade_key = User::get_trade_keys(pool, index).await?;
                 let filter = create_filter(ListKind::DirectMessagesUser, trade_key.public_key());
-                let fetched_user_messages = params
-                    .client
-                    .fetch_events(filter, Duration::from_secs(15))
-                    .await?;
+                let fetched_user_messages =
+                    client.fetch_events(filter, Duration::from_secs(15)).await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
                 direct_messages.extend(direct_messages_for_trade_key);
@@ -419,9 +413,8 @@ pub async fn fetch_events_list(params: FetchEventsParams<'_>) -> Result<Vec<Even
                 .collect())
         }
         ListKind::Disputes => {
-            let filters = create_filter(params.list_kind, params.mostro_pubkey);
-            let fetched_events = params
-                .client
+            let filters = create_filter(list_kind, mostro_pubkey);
+            let fetched_events = client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
             let disputes = parse_dispute_events(fetched_events);
