@@ -16,7 +16,7 @@ pub async fn execute_get_dm(
     client: &Client,
     _from_user: bool,
     admin: bool,
-    mostro_pubkey: &PublicKey,
+    _mostro_pubkey: &PublicKey,
 ) -> Result<()> {
     let mut dm: Vec<(Message, u64)> = Vec::new();
     let pool = connect().await?;

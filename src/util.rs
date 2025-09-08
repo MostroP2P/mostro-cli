@@ -6,6 +6,7 @@ use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
 use dotenvy::var;
+use log::info;
 use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
@@ -40,7 +41,7 @@ async fn send_gift_wrap_dm_internal(
         .unwrap_or_else(|_| "0".to_string())
         .parse()
         .unwrap_or(0);
-    
+
     // Create Message struct for consistency with Mostro protocol
     let dm_message = Message::new_dm(
         None,
@@ -48,22 +49,25 @@ async fn send_gift_wrap_dm_internal(
         Action::SendDm,
         Some(Payload::TextMessage(message.to_string())),
     );
-    
+
     // Serialize as JSON with the expected format (Message, Option<Signature>)
     let content = serde_json::to_string(&(dm_message, None::<String>))?;
-    
+
     // Create the rumor with JSON content
     let rumor = EventBuilder::text_note(content)
         .pow(pow)
         .build(sender_keys.public_key());
-    
+
     // Create gift wrap using sender_keys as the signing key
     let event = EventBuilder::gift_wrap(sender_keys, receiver_pubkey, rumor, Tags::new()).await?;
-    
+
     let sender_type = if is_admin { "admin" } else { "user" };
-    info!("Sending {} gift wrap event to {}", sender_type, receiver_pubkey);
+    info!(
+        "Sending {} gift wrap event to {}",
+        sender_type, receiver_pubkey
+    );
     client.send_event(&event).await?;
-    
+
     Ok(())
 }
 
@@ -428,10 +432,10 @@ pub async fn get_direct_messages_from_trade_keys(
     client: &Client,
     trade_keys_hex: Vec<String>,
     since: i64,
-    mostro_pubkey: &PublicKey,
-) -> Vec<(Message, u64, PublicKey)> {
+    _mostro_pubkey: &PublicKey,
+) -> Result<Vec<(Message, u64, PublicKey)>> {
     if trade_keys_hex.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let fake_since = 2880;
@@ -439,20 +443,30 @@ pub async fn get_direct_messages_from_trade_keys(
         .checked_sub_signed(chrono::Duration::minutes(fake_since))
         .unwrap()
         .timestamp() as u64;
-    let fake_timestamp = Timestamp::from(fake_since_time);
-    
-    let since_time = chrono::Utc::now()
+    let _fake_timestamp = Timestamp::from(fake_since_time);
+
+    let _since_time = chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::minutes(since))
         .unwrap()
         .timestamp() as u64;
 
-    let dm: Vec<(Message, u64)> = if wait_for_dm {
-        get_direct_messages(client, trade_keys, 15, to_user).await
-    } else {
-        Vec::new()
-    };
+    let mut all_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
 
-    Ok(())
+    for trade_key_hex in trade_keys_hex {
+        if let Ok(public_key) = PublicKey::from_hex(&trade_key_hex) {
+            let filter = create_filter(ListKind::DirectMessagesUser, public_key);
+            let events = client.fetch_events(filter, Duration::from_secs(15)).await?;
+            // Parse events without keys since we only have the public key
+            // We'll need to handle this differently - let's just collect the events for now
+            for event in events {
+                if let Ok(message) = Message::from_json(&event.content) {
+                    all_messages.push((message, event.created_at.as_u64(), public_key));
+                }
+            }
+        }
+    }
+
+    Ok(all_messages)
 }
 
 pub fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {

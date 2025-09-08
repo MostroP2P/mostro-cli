@@ -424,9 +424,45 @@ async fn init_context(cli: &Cli) -> Result<Context> {
 impl Commands {
     pub async fn run(&self, ctx: &Context) -> Result<()> {
         match self {
+            // Simple order message commands
+            Commands::FiatSent { order_id }
+            | Commands::Release { order_id }
+            | Commands::Dispute { order_id }
+            | Commands::Cancel { order_id } => {
+                crate::util::run_simple_order_msg(
+                    self.clone(),
+                    order_id,
+                    &ctx.identity_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
+            }
+
+            // DM commands with pubkey parsing
+            Commands::SendDm {
+                pubkey,
+                order_id,
+                message,
+            } => {
+                execute_send_dm(PublicKey::from_str(pubkey)?, &ctx.client, order_id, message).await
+            }
+            Commands::DmToUser {
+                pubkey,
+                order_id,
+                message,
+            } => {
+                execute_dm_to_user(PublicKey::from_str(pubkey)?, &ctx.client, order_id, message)
+                    .await
+            }
+            Commands::AdmSendDm { pubkey, message } => {
+                execute_adm_send_dm(PublicKey::from_str(pubkey)?, &ctx.client, message).await
+            }
             Commands::ConversationKey { pubkey } => {
                 execute_conversation_key(&ctx.trade_keys, PublicKey::from_str(pubkey)?).await
             }
+
+            // Order management commands
             Commands::ListOrders {
                 status,
                 currency,
@@ -441,6 +477,33 @@ impl Commands {
                     ctx.trade_index,
                     &ctx.pool,
                     &ctx.client,
+                )
+                .await
+            }
+            Commands::NewOrder {
+                kind,
+                fiat_code,
+                amount,
+                fiat_amount,
+                payment_method,
+                premium,
+                invoice,
+                expiration_days,
+            } => {
+                execute_new_order(
+                    kind,
+                    fiat_code,
+                    fiat_amount,
+                    amount,
+                    payment_method,
+                    premium,
+                    invoice,
+                    &ctx.identity_keys,
+                    &ctx.trade_keys,
+                    ctx.trade_index,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                    expiration_days,
                 )
                 .await
             }
@@ -483,6 +546,18 @@ impl Commands {
                 )
                 .await
             }
+            Commands::Rate { order_id, rating } => {
+                execute_rate_user(
+                    order_id,
+                    rating,
+                    &ctx.identity_keys,
+                    ctx.mostro_pubkey,
+                    &ctx.client,
+                )
+                .await
+            }
+
+            // DM retrieval commands
             Commands::GetDm { since, from_user } => {
                 execute_get_dm(
                     since,
@@ -490,12 +565,13 @@ impl Commands {
                     &ctx.mostro_keys,
                     &ctx.client,
                     *from_user,
-                    false, &mostro_key).await?
-            }
-            Commands::GetDmUser { since } => {
-                execute_get_dm_user(since, &client, &mostro_key,
+                    false,
+                    &ctx.mostro_pubkey,
                 )
                 .await
+            }
+            Commands::GetDmUser { since } => {
+                execute_get_dm_user(since, &ctx.client, &ctx.mostro_pubkey).await
             }
             Commands::GetAdminDm { since, from_user } => {
                 execute_get_dm(
@@ -505,18 +581,18 @@ impl Commands {
                     &ctx.client,
                     *from_user,
                     true,
+                    &ctx.mostro_pubkey,
                 )
                 .await
             }
-            Commands::FiatSent { order_id }
-            | Commands::Release { order_id }
-            | Commands::Dispute { order_id }
-            | Commands::Cancel { order_id } => {
-                crate::util::run_simple_order_msg(
-                    self.clone(),
-                    order_id,
-                    &ctx.identity_keys,
+
+            // Admin commands
+            Commands::AdmListDisputes {} => {
+                execute_list_disputes(
                     ctx.mostro_pubkey,
+                    &ctx.mostro_keys,
+                    ctx.trade_index,
+                    &ctx.pool,
                     &ctx.client,
                 )
                 .await
@@ -530,46 +606,6 @@ impl Commands {
                     &ctx.client,
                 )
                 .await
-            }
-            Commands::NewOrder {
-                kind,
-                fiat_code,
-                amount,
-                fiat_amount,
-                payment_method,
-                premium,
-                invoice,
-                expiration_days,
-            } => {
-                execute_new_order(
-                    kind,
-                    fiat_code,
-                    fiat_amount,
-                    amount,
-                    payment_method,
-                    premium,
-                    invoice,
-                    &ctx.identity_keys,
-                    &ctx.trade_keys,
-                    ctx.trade_index,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                    expiration_days,
-                )
-                .await
-            }
-            Commands::Rate { order_id, rating } => {
-                execute_rate_user(
-                    order_id,
-                    rating,
-                    &ctx.identity_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                )
-                .await
-            }
-            Commands::Restore {} => {
-                execute_restore(&identity_keys, mostro_key, &client).await?;
             }
             Commands::AdmSettle { order_id } => {
                 execute_admin_settle_dispute(
@@ -601,35 +637,10 @@ impl Commands {
                 )
                 .await
             }
-            Commands::AdmListDisputes {} => {
-                execute_list_disputes(
-                    ctx.mostro_pubkey,
-                    &ctx.mostro_keys,
-                    ctx.trade_index,
-                    &ctx.pool,
-                    &ctx.client,
-                )
-                .await
-            }
-            Commands::SendDm {
-                pubkey,
-                order_id,
-                message,
-            } => {
-                let pubkey = PublicKey::from_str(pubkey)?;
-                execute_send_dm(pubkey, &ctx.client, order_id, message).await
-            }
-            Commands::DmToUser {
-                pubkey,
-                order_id,
-                message,
-            } => {
-                let pubkey = PublicKey::from_str(pubkey)?;
-                execute_dm_to_user(pubkey, &client, order_id, message).await?
-            }
-            Commands::AdmSendDm { pubkey, message } => {
-                let pubkey = PublicKey::from_str(pubkey)?;
-                execute_adm_send_dm(pubkey, &client, message).await?
+
+            // Simple commands
+            Commands::Restore {} => {
+                execute_restore(&ctx.identity_keys, ctx.mostro_pubkey, &ctx.client).await
             }
         }
     }

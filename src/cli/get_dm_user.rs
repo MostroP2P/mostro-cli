@@ -6,25 +6,33 @@ use comfy_table::Table;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 
-pub async fn execute_get_dm_user(since: &i64, client: &Client, mostro_pubkey: &PublicKey) -> Result<()> {
+pub async fn execute_get_dm_user(
+    since: &i64,
+    client: &Client,
+    mostro_pubkey: &PublicKey,
+) -> Result<()> {
     let pool = crate::db::connect().await?;
-    
+
     // Get all trade keys from orders
     let mut trade_keys_hex = Order::get_all_trade_keys(&pool).await?;
-    
+
     // Add admin private key to search for messages sent TO admin
     if let Ok(admin_privkey_hex) = std::env::var("NSEC_PRIVKEY") {
         trade_keys_hex.push(admin_privkey_hex);
     }
-    
+
     if trade_keys_hex.is_empty() {
         println!("No trade keys found in orders and NSEC_PRIVKEY not set");
         return Ok(());
     }
-    
-    println!("Searching for DMs in {} trade keys...", trade_keys_hex.len());
-    
-    let direct_messages = get_direct_messages_from_trade_keys(client, trade_keys_hex, *since, mostro_pubkey).await;
+
+    println!(
+        "Searching for DMs in {} trade keys...",
+        trade_keys_hex.len()
+    );
+
+    let direct_messages =
+        get_direct_messages_from_trade_keys(client, trade_keys_hex, *since, mostro_pubkey).await?;
 
     if direct_messages.is_empty() {
         println!("You don't have any direct messages in your trade keys");
