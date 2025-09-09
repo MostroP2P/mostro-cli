@@ -111,7 +111,7 @@ pub async fn execute_send_msg(
             });
 
             // Wait for the DM to be sent from mostro
-            wait_for_dm(client, &trade_keys, request_id, 0, Some(order)).await?;
+            wait_for_dm(client, &trade_keys, request_id, None, Some(order)).await?;
         }
     }
 

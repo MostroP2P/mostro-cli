@@ -5,16 +5,16 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use sqlx::SqlitePool;
 
 pub async fn execute_get_dm_user(
     since: &i64,
     client: &Client,
     mostro_pubkey: &PublicKey,
+    pool: &SqlitePool,
 ) -> Result<()> {
-    let pool = crate::db::connect().await?;
-
     // Get all trade keys from orders
-    let mut trade_keys_hex = Order::get_all_trade_keys(&pool).await?;
+    let mut trade_keys_hex = Order::get_all_trade_keys(pool).await?;
 
     // Add admin private key to search for messages sent TO admin
     if let Ok(admin_privkey_hex) = std::env::var("NSEC_PRIVKEY") {

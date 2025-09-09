@@ -1,10 +1,10 @@
-use crate::db::connect;
 use crate::util::{send_dm, wait_for_dm};
 use crate::{db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use sqlx::SqlitePool;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -14,9 +14,9 @@ pub async fn execute_add_invoice(
     identity_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
+    pool: &SqlitePool,
 ) -> Result<()> {
-    let pool = connect().await?;
-    let order = Order::get_by_id(&pool, &order_id.to_string()).await?;
+    let order = Order::get_by_id(pool, &order_id.to_string()).await?;
     let trade_keys = order
         .trade_keys
         .clone()
@@ -40,6 +40,8 @@ pub async fn execute_add_invoice(
             }
         }
     };
+
+    // Create request id
     let request_id = Uuid::new_v4().as_u128() as u64;
     // Create AddInvoice message
     let add_invoice_message = Message::new_order(
@@ -50,35 +52,24 @@ pub async fn execute_add_invoice(
         payload,
     );
 
+    // Serialize the message
     let message_json = add_invoice_message
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Clone the keys and client for the async call
-    let identity_keys = identity_keys.clone();
-    let trade_keys_clone = trade_keys.clone();
-    let client_clone = client.clone();
+    // Send DM
+    send_dm(
+        client,
+        Some(identity_keys),
+        &trade_keys,
+        &mostro_key,
+        message_json,
+        None,
+        false,
+    )
+    .await?;
 
-    // Spawn a new task to send the DM
-    // This is so we can wait for the gift wrap event in the main thread
-    tokio::spawn(async move {
-        if let Err(e) = send_dm(
-            &client_clone,
-            Some(&identity_keys.clone()),
-            &trade_keys_clone,
-            &mostro_key,
-            message_json,
-            None,
-            false,
-        )
-        .await
-        {
-            eprintln!("Failed to send DM: {}", e);
-        }
-    });
-
-    // Wait for the DM to be sent from mostro
-    wait_for_dm(client, &trade_keys, request_id, 0, Some(order)).await?;
-
+    // Wait for the DM to be sent from mostro and update the order
+    wait_for_dm(client, &trade_keys, request_id, None, Some(order)).await?;
     Ok(())
 }

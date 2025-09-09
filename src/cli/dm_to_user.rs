@@ -19,7 +19,10 @@ pub async fn execute_dm_to_user(
         None => anyhow::bail!("No trade_keys found for this order"),
     };
 
-    println!("SENDING DM with trade keys: {}", trade_keys.public_key().to_hex());
+    println!(
+        "SENDING DM with trade keys: {}",
+        trade_keys.public_key().to_hex()
+    );
 
     send_gift_wrap_dm(client, &trade_keys, &receiver, message).await?;
 

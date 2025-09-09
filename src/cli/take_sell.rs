@@ -112,7 +112,7 @@ pub async fn execute_take_sell(
     client.subscribe(subscription, None).await?;
 
     // Wait for the DM to be sent from mostro
-    wait_for_dm(client, trade_keys, request_id, trade_index, None).await?;
+    wait_for_dm(client, trade_keys, request_id, Some(trade_index), None).await?;
 
     Ok(())
 }

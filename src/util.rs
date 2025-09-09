@@ -121,10 +121,16 @@ pub async fn wait_for_dm(
     client: &Client,
     trade_keys: &Keys,
     request_id: u64,
-    trade_index: i64,
+    trade_index: Option<i64>,
     mut order: Option<Order>,
 ) -> anyhow::Result<()> {
     let mut notifications = client.notifications();
+    // Get trade index
+    let trade_index = if let Some(trade_index) = trade_index {
+        trade_index
+    } else {
+        return Err(anyhow::anyhow!("Trade index is required"));
+    };
 
     match tokio::time::timeout(Duration::from_secs(10), async move {
         while let Ok(notification) = notifications.recv().await {
@@ -564,7 +570,7 @@ pub async fn fetch_events_list(
             let direct_messages_mostro = parse_dm_events(fetched_events, mostro_keys).await;
             Ok(direct_messages_mostro
                 .into_iter()
-                .map(|t| Event::MessageTuple(Box::new(t)))
+                .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
                 .collect())
         }
         ListKind::DirectMessagesUser => {
@@ -576,7 +582,11 @@ pub async fn fetch_events_list(
                     client.fetch_events(filter, Duration::from_secs(15)).await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
-                direct_messages.extend(direct_messages_for_trade_key);
+                direct_messages.extend(
+                    direct_messages_for_trade_key
+                        .into_iter()
+                        .map(|(message, timestamp, _)| (message, timestamp)),
+                );
             }
             Ok(direct_messages
                 .into_iter()

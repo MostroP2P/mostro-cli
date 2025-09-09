@@ -177,9 +177,6 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
-        /// If true, get messages from counterparty, otherwise from Mostro
-        #[arg(short)]
-        from_user: bool,
     },
     /// Get direct messages sent to any trade keys
     GetDmUser {
@@ -194,9 +191,6 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
-        /// If true, get messages from counterparty, otherwise from Mostro
-        #[arg(short)]
-        from_user: bool,
     },
     /// Send direct message to a user
     SendDm {
@@ -543,6 +537,7 @@ impl Commands {
                     &ctx.identity_keys,
                     ctx.mostro_pubkey,
                     &ctx.client,
+                    &ctx.pool,
                 )
                 .await
             }
@@ -558,32 +553,14 @@ impl Commands {
             }
 
             // DM retrieval commands
-            Commands::GetDm { since, from_user } => {
-                execute_get_dm(
-                    since,
-                    ctx.trade_index,
-                    &ctx.mostro_keys,
-                    &ctx.client,
-                    *from_user,
-                    false,
-                    &ctx.mostro_pubkey,
-                )
-                .await
+            Commands::GetDm { since } => {
+                execute_get_dm(since, ctx.trade_index, &ctx.mostro_keys, &ctx.client, false).await
             }
             Commands::GetDmUser { since } => {
-                execute_get_dm_user(since, &ctx.client, &ctx.mostro_pubkey).await
+                execute_get_dm_user(since, &ctx.client, &ctx.mostro_pubkey, &ctx.pool).await
             }
-            Commands::GetAdminDm { since, from_user } => {
-                execute_get_dm(
-                    since,
-                    ctx.trade_index,
-                    &ctx.mostro_keys,
-                    &ctx.client,
-                    *from_user,
-                    true,
-                    &ctx.mostro_pubkey,
-                )
-                .await
+            Commands::GetAdminDm { since } => {
+                execute_get_dm(since, ctx.trade_index, &ctx.mostro_keys, &ctx.client, true).await
             }
 
             // Admin commands

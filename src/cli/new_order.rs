@@ -161,7 +161,7 @@ pub async fn execute_new_order(
     });
 
     // Wait for the DM to be sent from mostro
-    wait_for_dm(client, trade_keys, request_id, trade_index, None).await?;
+    wait_for_dm(client, trade_keys, request_id, Some(trade_index), None).await?;
 
     Ok(())
 }

@@ -14,7 +14,10 @@ pub async fn execute_adm_send_dm(
         }
     };
 
-    println!("SENDING DM with admin keys: {}", admin_keys.public_key().to_hex());
+    println!(
+        "SENDING DM with admin keys: {}",
+        admin_keys.public_key().to_hex()
+    );
 
     send_admin_gift_wrap_dm(client, &admin_keys, &receiver, message).await?;
 
