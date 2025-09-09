@@ -16,13 +16,17 @@ pub async fn execute_get_dm_user(
     // Get all trade keys from orders
     let mut trade_keys_hex = Order::get_all_trade_keys(pool).await?;
 
-    // Add admin private key to search for messages sent TO admin
-    if let Ok(admin_privkey_hex) = std::env::var("NSEC_PRIVKEY") {
-        trade_keys_hex.push(admin_privkey_hex);
+   // Include admin pubkey so we also fetch messages sent TO admin
+    let admin_pubkey_hex = mostro_pubkey.to_hex();
+    if  !trade_keys_hex.iter().any(|k| k == &admin_pubkey_hex) {
+        trade_keys_hex.push(admin_pubkey_hex);
     }
+    // De-duplicate any repeated keys coming from DB/admin
+    trade_keys_hex.sort();
+    trade_keys_hex.dedup();
 
     if trade_keys_hex.is_empty() {
-        println!("No trade keys found in orders and NSEC_PRIVKEY not set");
+        println!("No trade keys found in orders");
         return Ok(());
     }
 
