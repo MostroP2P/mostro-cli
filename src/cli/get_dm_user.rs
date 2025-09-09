@@ -16,9 +16,9 @@ pub async fn execute_get_dm_user(
     // Get all trade keys from orders
     let mut trade_keys_hex = Order::get_all_trade_keys(pool).await?;
 
-   // Include admin pubkey so we also fetch messages sent TO admin
+    // Include admin pubkey so we also fetch messages sent TO admin
     let admin_pubkey_hex = mostro_pubkey.to_hex();
-    if  !trade_keys_hex.iter().any(|k| k == &admin_pubkey_hex) {
+    if !trade_keys_hex.iter().any(|k| k == &admin_pubkey_hex) {
         trade_keys_hex.push(admin_pubkey_hex);
     }
     // De-duplicate any repeated keys coming from DB/admin
