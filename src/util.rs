@@ -169,6 +169,8 @@ pub async fn wait_for_dm(
                                     "Please add a lightning invoice with amount of {}",
                                     order.amount
                                 );
+                                // Save the order
+                                save_order(order.clone(), trade_keys, request_id, trade_index).await.map_err(|_| ())?;
                                 return Ok(());
                             }
                         }
@@ -187,6 +189,7 @@ pub async fn wait_for_dm(
                                 println!();
                                 if let Some(order) = order {
                                     let store_order = order.clone();
+                                    // Save the order
                                     save_order(store_order, trade_keys, request_id, trade_index).await.map_err(|_| ())?;
                                 }
                                 return Ok(());
@@ -456,17 +459,24 @@ pub async fn get_direct_messages_from_trade_keys(
         .unwrap()
         .timestamp() as u64;
 
+    // Get the triple of message, timestamp and public key
     let mut all_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
 
+    // Fetch direct messages from trade keys and in case of since, we filter by since
+    // as bonus we also fetch the events from the admin pubkey in case is specified
     for trade_key_hex in trade_keys_hex {
         if let Ok(public_key) = PublicKey::from_hex(&trade_key_hex) {
+            // Create filter for fetching direct messages
             let filter = create_filter(ListKind::DirectMessagesUser, public_key);
             let events = client.fetch_events(filter, Duration::from_secs(15)).await?;
             // Parse events without keys since we only have the public key
             // We'll need to handle this differently - let's just collect the events for now
             for event in events {
                 if let Ok(message) = Message::from_json(&event.content) {
-                    all_messages.push((message, event.created_at.as_u64(), public_key));
+                    if event.created_at.as_u64() < since as u64 {
+                        continue;
+                    }
+                    all_messages.push((message, event.created_at.as_u64(), event.pubkey));
                 }
             }
         }
@@ -528,15 +538,19 @@ pub fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
                 .since(fake_timestamp)
         }
         ListKind::DirectMessagesUser => {
-            let since_time = chrono::Utc::now()
-                .checked_sub_signed(chrono::Duration::minutes(30))
+            // Get the timestamp from the since parameter
+            let fake_since = 2880;
+            let fake_since_time = chrono::Utc::now()
+                .checked_sub_signed(chrono::Duration::minutes(fake_since))
                 .unwrap()
                 .timestamp() as u64;
-            let timestamp = Timestamp::from(since_time);
+            let fake_timestamp = Timestamp::from(fake_since_time);
+
+            // Create filter for fetching direct messages
             Filter::new()
-                .kind(nostr_sdk::Kind::PrivateDirectMessage)
+                .kind(nostr_sdk::Kind::GiftWrap)
                 .pubkey(pubkey)
-                .since(timestamp)
+                .since(fake_timestamp)
         }
     }
 }

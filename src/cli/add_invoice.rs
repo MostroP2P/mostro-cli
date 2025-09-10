@@ -16,6 +16,7 @@ pub async fn execute_add_invoice(
     client: &Client,
     pool: &SqlitePool,
 ) -> Result<()> {
+    println!("Adding invoice to order {}", order_id);
     let order = Order::get_by_id(pool, &order_id.to_string()).await?;
     let trade_keys = order
         .trade_keys

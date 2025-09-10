@@ -46,8 +46,6 @@ use take_dispute::*;
 use uuid::Uuid;
 
 pub static IDENTITY_KEYS: OnceLock<Keys> = OnceLock::new();
-pub static MOSTRO_KEYS: OnceLock<Keys> = OnceLock::new();
-pub static MOSTRO_PUBKEY: OnceLock<PublicKey> = OnceLock::new();
 pub static POOL: OnceLock<SqlitePool> = OnceLock::new();
 pub static TRADE_KEY: OnceLock<(Keys, i64)> = OnceLock::new();
 
@@ -393,13 +391,19 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
     TRADE_KEY.get_or_init(|| (trade_keys.clone(), trade_index));
 
-    // Get Mostro admin keys
-    let mostro_keys = Keys::from_str(
-        &std::env::var("NSEC_PRIVKEY")
-            .map_err(|e| anyhow::anyhow!("Failed to get mostro keys: {}", e))?,
-    )?;
-    MOSTRO_KEYS.get_or_init(|| mostro_keys.clone());
-    MOSTRO_PUBKEY.get_or_init(|| mostro_keys.public_key());
+     // Load Mostro admin keys if available (optional)  
+    let mostro_keys = if let Ok(k) = std::env::var("NSEC_PRIVKEY"){
+        Keys::from_str(&k)?
+    } else {
+        println!("No Mostro admin keys found");
+        Keys::generate()
+    };
+
+    // Resolve Mostro pubkey from env (required for all flows)  
+    let mostro_pubkey = PublicKey::from_str(  
+        &std::env::var("MOSTRO_PUBKEY")  
+            .map_err(|e| anyhow::anyhow!("Failed to get MOSTRO_PUBKEY: {}", e))?,  
+    )?;  
 
     // Connect to Nostr relays
     let client = util::connect_nostr().await?;
@@ -410,8 +414,8 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         trade_keys,
         trade_index,
         pool,
-        mostro_keys: mostro_keys.clone(),
-        mostro_pubkey: mostro_keys.public_key(),
+        mostro_keys: mostro_keys,
+        mostro_pubkey: mostro_pubkey,
     })
 }
 
