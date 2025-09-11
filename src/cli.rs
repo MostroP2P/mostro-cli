@@ -11,9 +11,8 @@ pub mod rate_user;
 pub mod restore;
 pub mod send_dm;
 pub mod send_msg;
-pub mod take_buy;
 pub mod take_dispute;
-pub mod take_sell;
+pub mod take_order;
 
 use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
@@ -27,14 +26,14 @@ use crate::cli::new_order::execute_new_order;
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
 use crate::cli::send_dm::execute_send_dm;
-use crate::cli::take_buy::execute_take_buy;
 use crate::cli::take_dispute::execute_take_dispute;
-use crate::cli::take_sell::execute_take_sell;
+use crate::cli::take_order::execute_take_order;
 use crate::db::{connect, User};
 use crate::util;
 
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
+use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
 use std::sync::OnceLock;
@@ -391,19 +390,19 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
     TRADE_KEY.get_or_init(|| (trade_keys.clone(), trade_index));
 
-     // Load Mostro admin keys if available (optional)  
-    let mostro_keys = if let Ok(k) = std::env::var("NSEC_PRIVKEY"){
+    // Load Mostro admin keys if available (optional)
+    let mostro_keys = if let Ok(k) = std::env::var("NSEC_PRIVKEY") {
         Keys::from_str(&k)?
     } else {
         println!("No Mostro admin keys found");
         Keys::generate()
     };
 
-    // Resolve Mostro pubkey from env (required for all flows)  
-    let mostro_pubkey = PublicKey::from_str(  
-        &std::env::var("MOSTRO_PUBKEY")  
-            .map_err(|e| anyhow::anyhow!("Failed to get MOSTRO_PUBKEY: {}", e))?,  
-    )?;  
+    // Resolve Mostro pubkey from env (required for all flows)
+    let mostro_pubkey = PublicKey::from_str(
+        &std::env::var("MOSTRO_PUBKEY")
+            .map_err(|e| anyhow::anyhow!("Failed to get MOSTRO_PUBKEY: {}", e))?,
+    )?;
 
     // Connect to Nostr relays
     let client = util::connect_nostr().await?;
@@ -414,8 +413,8 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         trade_keys,
         trade_index,
         pool,
-        mostro_keys: mostro_keys,
-        mostro_pubkey: mostro_pubkey,
+        mostro_keys,
+        mostro_pubkey,
     })
 }
 
@@ -433,6 +432,7 @@ impl Commands {
                     &ctx.identity_keys,
                     ctx.mostro_pubkey,
                     &ctx.client,
+                    &ctx.pool,
                 )
                 .await
             }
@@ -502,6 +502,7 @@ impl Commands {
                     ctx.mostro_pubkey,
                     &ctx.client,
                     expiration_days,
+                    &ctx.pool,
                 )
                 .await
             }
@@ -510,8 +511,9 @@ impl Commands {
                 invoice,
                 amount,
             } => {
-                execute_take_sell(
+                execute_take_order(
                     order_id,
+                    Action::TakeSell,
                     invoice,
                     *amount,
                     &ctx.identity_keys,
@@ -519,18 +521,22 @@ impl Commands {
                     ctx.trade_index,
                     ctx.mostro_pubkey,
                     &ctx.client,
+                    &ctx.pool,
                 )
                 .await
             }
             Commands::TakeBuy { order_id, amount } => {
-                execute_take_buy(
+                execute_take_order(
                     order_id,
+                    Action::TakeBuy,
+                    &None,
                     *amount,
                     &ctx.identity_keys,
                     &ctx.trade_keys,
                     ctx.trade_index,
                     ctx.mostro_pubkey,
                     &ctx.client,
+                    &ctx.pool,
                 )
                 .await
             }
@@ -558,13 +564,29 @@ impl Commands {
 
             // DM retrieval commands
             Commands::GetDm { since } => {
-                execute_get_dm(since, ctx.trade_index, &ctx.mostro_keys, &ctx.client, false).await
+                execute_get_dm(
+                    since,
+                    ctx.trade_index,
+                    &ctx.mostro_keys,
+                    &ctx.client,
+                    false,
+                    &ctx.pool,
+                )
+                .await
             }
             Commands::GetDmUser { since } => {
                 execute_get_dm_user(since, &ctx.client, &ctx.mostro_pubkey, &ctx.pool).await
             }
             Commands::GetAdminDm { since } => {
-                execute_get_dm(since, ctx.trade_index, &ctx.mostro_keys, &ctx.client, true).await
+                execute_get_dm(
+                    since,
+                    ctx.trade_index,
+                    &ctx.mostro_keys,
+                    &ctx.client,
+                    true,
+                    &ctx.pool,
+                )
+                .await
             }
 
             // Admin commands

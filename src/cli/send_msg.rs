@@ -1,6 +1,6 @@
+use crate::cli::Commands;
 use crate::db::{Order, User};
 use crate::util::wait_for_dm;
-use crate::{cli::Commands, db::connect};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -16,6 +16,7 @@ pub async fn execute_send_msg(
     mostro_key: PublicKey,
     client: &Client,
     text: Option<&str>,
+    pool: &SqlitePool,
 ) -> Result<()> {
     // Map CLI command to action
     let requested_action = match command {
@@ -39,20 +40,18 @@ pub async fn execute_send_msg(
         mostro_key
     );
 
-    let pool = connect().await?;
-
     // Determine payload
     let payload = match requested_action {
-        Action::FiatSent | Action::Release => create_next_trade_payload(&pool, &order_id).await?,
+        Action::FiatSent | Action::Release => create_next_trade_payload(pool, &order_id).await?,
         _ => text.map(|t| Payload::TextMessage(t.to_string())),
     };
     // Update last trade index if next trade payload
     if let Some(Payload::NextTrade(_, trade_index)) = &payload {
         // Update last trade index
-        match User::get(&pool).await {
+        match User::get(pool).await {
             Ok(mut user) => {
                 user.set_last_trade_index(*trade_index as i64);
-                if let Err(e) = user.save(&pool).await {
+                if let Err(e) = user.save(pool).await {
                     println!("Failed to update user: {}", e);
                 }
             }
@@ -70,7 +69,7 @@ pub async fn execute_send_msg(
         .to_owned();
 
     if let Some(order_id) = order_id {
-        let order = Order::get_by_id(&pool, &order_id.to_string()).await?;
+        let order = Order::get_by_id(pool, &order_id.to_string()).await?;
 
         if let Some(trade_keys_str) = order.trade_keys.clone() {
             let trade_keys = Keys::parse(&trade_keys_str)?;
@@ -111,7 +110,7 @@ pub async fn execute_send_msg(
             });
 
             // Wait for the DM to be sent from mostro
-            wait_for_dm(client, &trade_keys, request_id, None, Some(order)).await?;
+            wait_for_dm(client, &trade_keys, request_id, None, Some(order), pool).await?;
         }
     }
 

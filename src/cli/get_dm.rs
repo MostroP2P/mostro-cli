@@ -1,9 +1,10 @@
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use sqlx::SqlitePool;
 
 use crate::{
-    db::{connect, User},
+    db::User,
     parser::dms::{parse_dm_events, print_direct_messages},
     util::{create_filter, ListKind},
 };
@@ -14,12 +15,12 @@ pub async fn execute_get_dm(
     mostro_keys: &Keys,
     client: &Client,
     admin: bool,
+    pool: &SqlitePool,
 ) -> Result<()> {
     let mut dm: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let pool = connect().await?;
     if !admin {
         for index in 1..=trade_index {
-            let keys = User::get_trade_keys(&pool, index).await?;
+            let keys = User::get_trade_keys(pool, index).await?;
             let filter = create_filter(ListKind::DirectMessagesUser, keys.public_key());
             let fetched_events = client
                 .fetch_events(filter, std::time::Duration::from_secs(15))
@@ -36,6 +37,6 @@ pub async fn execute_get_dm(
         dm.extend(dm_temp);
     }
 
-    print_direct_messages(&dm, &pool).await?;
+    print_direct_messages(&dm, pool).await?;
     Ok(())
 }

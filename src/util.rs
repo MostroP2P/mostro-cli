@@ -123,13 +123,15 @@ pub async fn wait_for_dm(
     request_id: u64,
     trade_index: Option<i64>,
     mut order: Option<Order>,
+    pool: &SqlitePool,
 ) -> anyhow::Result<()> {
     let mut notifications = client.notifications();
     // Get trade index
     let trade_index = if let Some(trade_index) = trade_index {
         trade_index
     } else {
-        return Err(anyhow::anyhow!("Trade index is required"));
+        println!("Trade index not used for this action");
+        0
     };
 
     match tokio::time::timeout(Duration::from_secs(10), async move {
@@ -219,14 +221,12 @@ pub async fn wait_for_dm(
                         Action::Canceled => {
                             if let Some(order_id) = &message.id {
                             // Acquire database connection
-                            let pool = connect().await.map_err(|_| ())?;
                             // Verify order exists before deletion
-                            if Order::get_by_id(&pool, &order_id.to_string()).await.is_ok() {
-                                Order::delete_by_id(&pool, &order_id.to_string())
+                            if Order::get_by_id(pool, &order_id.to_string()).await.is_ok() {
+                                Order::delete_by_id(pool, &order_id.to_string())
                                     .await
                                     .map_err(|_| ())?;
                                 // Release database connection
-                                drop(pool);
                                 println!("Order {} canceled!", order_id);
                                 return Ok(());
                             } else {
@@ -644,6 +644,7 @@ pub async fn run_simple_order_msg(
     identity_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
+    pool: &SqlitePool,
 ) -> Result<()> {
     execute_send_msg(
         command,
@@ -652,6 +653,7 @@ pub async fn run_simple_order_msg(
         mostro_key,
         client,
         None,
+        pool,
     )
     .await
 }

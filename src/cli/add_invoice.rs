@@ -71,6 +71,6 @@ pub async fn execute_add_invoice(
     .await?;
 
     // Wait for the DM to be sent from mostro and update the order
-    wait_for_dm(client, &trade_keys, request_id, None, Some(order)).await?;
+    wait_for_dm(client, &trade_keys, request_id, None, Some(order), pool).await?;
     Ok(())
 }

@@ -1,14 +1,14 @@
+use crate::parser::orders::print_order_preview;
+use crate::util::{send_dm, uppercase_first, wait_for_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
 use std::str::FromStr;
 use uuid::Uuid;
-
-use crate::parser::orders::print_order_preview;
-use crate::util::{send_dm, uppercase_first, wait_for_dm};
 
 pub type FiatNames = HashMap<String, String>;
 
@@ -27,6 +27,7 @@ pub async fn execute_new_order(
     mostro_key: PublicKey,
     client: &Client,
     expiration_days: &i64,
+    pool: &SqlitePool,
 ) -> Result<()> {
     // Uppercase currency
     let fiat_code = fiat_code.to_uppercase();
@@ -47,7 +48,8 @@ pub async fn execute_new_order(
     }
     let kind = uppercase_first(kind);
     // New check against strings
-    let kind_checked = mostro_core::order::Kind::from_str(&kind).unwrap();
+    let kind_checked = mostro_core::order::Kind::from_str(&kind)
+        .map_err(|_| anyhow::anyhow!("Invalid order kind"))?;
     let expires_at = match *expiration_days {
         0 => None,
         _ => {
@@ -161,7 +163,15 @@ pub async fn execute_new_order(
     });
 
     // Wait for the DM to be sent from mostro
-    wait_for_dm(client, trade_keys, request_id, Some(trade_index), None).await?;
+    wait_for_dm(
+        client,
+        trade_keys,
+        request_id,
+        Some(trade_index),
+        None,
+        pool,
+    )
+    .await?;
 
     Ok(())
 }
