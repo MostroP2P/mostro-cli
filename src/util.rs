@@ -1,6 +1,6 @@
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::Commands;
-use crate::db::{connect, Order, User};
+use crate::db::{Order, User};
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
@@ -27,7 +27,7 @@ pub enum ListKind {
     Orders,
     Disputes,
     DirectMessagesUser,
-    DirectMessagesAdmin,
+    DirectMessagesMostro,
 }
 
 async fn send_gift_wrap_dm_internal(
@@ -94,19 +94,19 @@ pub async fn save_order(
     trade_keys: &Keys,
     request_id: u64,
     trade_index: i64,
+    pool: &SqlitePool,
 ) -> Result<()> {
-    let pool = connect().await?;
-    if let Ok(order) = Order::new(&pool, order, trade_keys, Some(request_id as i64)).await {
+    if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
         if let Some(order_id) = order.id {
             println!("Order {} created", order_id);
         } else {
             println!("Warning: The newly created order has no ID.");
         }
         // Update last trade index to be used in next trade
-        match User::get(&pool).await {
+        match User::get(pool).await {
             Ok(mut user) => {
                 user.set_last_trade_index(trade_index);
-                if let Err(e) = user.save(&pool).await {
+                if let Err(e) = user.save(pool).await {
                     println!("Failed to update user: {}", e);
                 }
             }
@@ -138,14 +138,29 @@ pub async fn wait_for_dm(
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotification::Event { event, .. } = notification {
                 if event.kind == nostr_sdk::Kind::GiftWrap {
-                let gift = nip59::extract_rumor(trade_keys, &event).await.unwrap();
-                let (message, _): (Message, Option<String>) = serde_json::from_str(&gift.rumor.content).unwrap();
+                let gift = match nip59::extract_rumor(trade_keys, &event).await {
+                    Ok(gift) => gift,
+                    Err(e) => {
+                        println!("Failed to extract rumor: {}", e);
+                        continue;
+                    }
+                };
+                let (message, _): (Message, Option<String>) = match serde_json::from_str(&gift.rumor.content) {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        println!("Failed to deserialize message: {}", e);
+                        continue;
+                    }
+                };
                 let message = message.get_inner_message_kind();
                 if message.request_id == Some(request_id) {
                     match message.action {
                         Action::NewOrder => {
                             if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                                save_order(order.clone(), trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
+                                    println!("Failed to save order: {}", e);
+                                    return Err(());
+                                }
                                 return Ok(());
                             }
                         }
@@ -153,10 +168,9 @@ pub async fn wait_for_dm(
                         Action::WaitingSellerToPay => {
                             println!("Now we should wait for the seller to pay the invoice");
                             if let Some(mut order) = order.take() {
-                                let pool = connect().await.map_err(|_| ())?;
                                 match order
                                 .set_status(Status::WaitingPayment.to_string())
-                                .save(&pool)
+                                .save(pool)
                                 .await
                                 {
                                     Ok(_) => println!("Order status updated"),
@@ -172,7 +186,10 @@ pub async fn wait_for_dm(
                                     order.amount
                                 );
                                 // Save the order
-                                save_order(order.clone(), trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
+                                    println!("Failed to save order: {}", e);
+                                    return Err(());
+                                }
                                 return Ok(());
                             }
                         }
@@ -192,7 +209,10 @@ pub async fn wait_for_dm(
                                 if let Some(order) = order {
                                     let store_order = order.clone();
                                     // Save the order
-                                    save_order(store_order, trade_keys, request_id, trade_index).await.map_err(|_| ())?;
+                                    if let Err(e) = save_order(store_order, trade_keys, request_id, trade_index, pool).await {
+                                        println!("Failed to save order: {}", e);
+                                        return Err(());
+                                    }
                                 }
                                 return Ok(());
                             }
@@ -223,9 +243,10 @@ pub async fn wait_for_dm(
                             // Acquire database connection
                             // Verify order exists before deletion
                             if Order::get_by_id(pool, &order_id.to_string()).await.is_ok() {
-                                Order::delete_by_id(pool, &order_id.to_string())
-                                    .await
-                                    .map_err(|_| ())?;
+                                if let Err(e) = Order::delete_by_id(pool, &order_id.to_string()).await {
+                                    println!("Failed to delete order: {}", e);
+                                    return Err(());
+                                }
                                 // Release database connection
                                 println!("Order {} canceled!", order_id);
                                 return Ok(());
@@ -247,7 +268,10 @@ pub async fn wait_for_dm(
         Ok(())
     })
     .await {
-        Ok(_) => Ok(()),
+        Ok(result) => match result {
+            Ok(()) => Ok(()),
+            Err(()) => Err(anyhow::anyhow!("Error in timeout closure")),
+        },
         Err(_) => Err(anyhow::anyhow!("Timeout waiting for DM or gift wrap event"))
     }
 }
@@ -307,18 +331,21 @@ async fn create_gift_wrap_event(
     expiration: Option<Timestamp>,
     signed: bool,
 ) -> Result<nostr_sdk::Event> {
-    let message = Message::from_json(&payload).unwrap();
+    let message = Message::from_json(&payload)
+        .map_err(|e| anyhow::anyhow!("Failed to deserialize message: {e}"))?;
 
     let content = if signed {
         let _identity_keys = identity_keys
             .ok_or_else(|| Error::msg("identity_keys required for signed messages"))?;
         // We sign the message
         let sig = Message::sign(payload, trade_keys);
-        serde_json::to_string(&(message, sig)).unwrap()
+        serde_json::to_string(&(message, sig))
+            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
     } else {
         // We compose the content, when private we don't sign the payload
         let content: (Message, Option<Signature>) = (message, None);
-        serde_json::to_string(&content).unwrap()
+        serde_json::to_string(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
     };
 
     // We create the rumor
@@ -329,7 +356,7 @@ async fn create_gift_wrap_event(
     let tags = create_expiration_tags(expiration);
 
     let signer_keys = if signed {
-        identity_keys.unwrap()
+        identity_keys.ok_or_else(|| Error::msg("identity_keys required for signed messages"))?
     } else {
         trade_keys
     };
@@ -522,7 +549,7 @@ pub fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
                 )
                 .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND))
         }
-        ListKind::DirectMessagesAdmin => {
+        ListKind::DirectMessagesMostro => {
             // We use a fake timestamp to thwart time-analysis attacks
             let fake_since = 2880;
             let fake_since_time = chrono::Utc::now()
@@ -576,7 +603,7 @@ pub async fn fetch_events_list(
             let orders = parse_orders_events(fetched_events, currency, status, kind);
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
-        ListKind::DirectMessagesAdmin => {
+        ListKind::DirectMessagesMostro => {
             let filters = create_filter(list_kind, mostro_keys.public_key());
             let fetched_events = client
                 .fetch_events(filters, Duration::from_secs(15))

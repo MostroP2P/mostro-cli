@@ -29,7 +29,7 @@ pub async fn execute_get_dm(
             dm.extend(dm_temp);
         }
     } else {
-        let filter = create_filter(ListKind::DirectMessagesAdmin, mostro_keys.public_key());
+        let filter = create_filter(ListKind::DirectMessagesMostro, mostro_keys.public_key());
         let fetched_events = client
             .fetch_events(filter, std::time::Duration::from_secs(15))
             .await?;

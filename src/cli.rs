@@ -558,6 +558,7 @@ impl Commands {
                     &ctx.identity_keys,
                     ctx.mostro_pubkey,
                     &ctx.client,
+                    &ctx.pool,
                 )
                 .await
             }

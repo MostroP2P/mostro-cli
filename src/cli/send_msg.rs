@@ -1,6 +1,6 @@
 use crate::cli::Commands;
 use crate::db::{Order, User};
-use crate::util::wait_for_dm;
+use crate::util::{send_dm, wait_for_dm};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -59,11 +59,11 @@ pub async fn execute_send_msg(
         }
     }
 
+    // Create request id
     let request_id = Uuid::new_v4().as_u128() as u64;
 
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
-    let client_clone = client.clone();
     let idkey = identity_keys
         .ok_or_else(|| anyhow::anyhow!("Identity keys are required"))?
         .to_owned();
@@ -81,36 +81,28 @@ pub async fn execute_send_msg(
 
             let opts =
                 SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-
+            // Subscribe to gift wrap events
             client.subscribe(subscription, Some(opts)).await?;
-            // Clone the keys and client for the async call
-            let trade_keys_clone = trade_keys.clone();
-
-            // Spawn a new task to send the DM
-            // This is so we can wait for the gift wrap event in the main thread
-            tokio::spawn(async move {
-                match message.as_json() {
-                    Ok(message_json) => {
-                        if let Err(e) = crate::util::send_dm(
-                            &client_clone,
-                            Some(&idkey),
-                            &trade_keys_clone,
-                            &mostro_key,
-                            message_json,
-                            None,
-                            false,
-                        )
-                        .await
-                        {
-                            eprintln!("Failed to send DM: {}", e);
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to serialize message: {}", e),
-                }
-            });
+            // Send DM
+            let message_json = message
+                .as_json()
+                .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?;
+            send_dm(
+                client,
+                Some(&idkey),
+                &trade_keys,
+                &mostro_key,
+                message_json,
+                None,
+                false,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send DM: {e}"))?;
 
             // Wait for the DM to be sent from mostro
-            wait_for_dm(client, &trade_keys, request_id, None, Some(order), pool).await?;
+            wait_for_dm(client, &trade_keys, request_id, None, Some(order), pool)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
         }
     }
 

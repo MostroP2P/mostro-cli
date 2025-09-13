@@ -77,7 +77,7 @@ pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64
         if created_at.as_u64() < since_time {
             continue;
         }
-        direct_messages.push((message, created_at.as_u64(), pubkey.public_key()));
+        direct_messages.push((message, created_at.as_u64(), dm.pubkey));
     }
     direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
     direct_messages

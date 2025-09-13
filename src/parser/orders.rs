@@ -35,30 +35,36 @@ pub fn parse_orders_events(
                 continue;
             }
 
+            // Check if order kind is none
             if order.kind.is_none() {
                 info!("Order kind is none");
                 continue;
             }
 
-            if order.status.is_none() {
-                info!("Order status is none");
-                continue;
+            // Check if order status is none
+            if let Some(filter_status) = status {
+                if order.status != Some(filter_status) {
+                    continue;
+                }
+            }
+            // Check if order fiat code is none
+            if let Some(ref curr) = currency {
+                if order.fiat_code != *curr {
+                    continue;
+                }
+            }
+
+            // Get created at field from Nostr event
+            if let Some(ref k) = kind {
+                if order.kind.as_ref() != Some(k) {
+                    continue;
+                }
             }
 
             // Get created at field from Nostr event
             order.created_at = Some(event.created_at.as_u64() as i64);
             complete_events_list.push(order.clone());
-            if order.status.ne(&status) {
-                continue;
-            }
 
-            if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
-                continue;
-            }
-
-            if kind.is_some() && order.kind.ne(&kind) {
-                continue;
-            }
             // Add just requested orders requested by filtering
             requested_orders_list.push(order);
         }

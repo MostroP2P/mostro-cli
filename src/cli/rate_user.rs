@@ -1,12 +1,12 @@
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::{
-    db::{connect, Order},
-    util::send_message_sync,
-};
+const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
+
+use crate::{db::Order, util::send_message_sync};
 
 pub async fn execute_rate_user(
     order_id: &Uuid,
@@ -14,21 +14,17 @@ pub async fn execute_rate_user(
     identity_keys: &Keys,
     mostro_key: PublicKey,
     client: &Client,
+    pool: &SqlitePool,
 ) -> Result<()> {
-    // User rating
-    let rating_content;
-
     // Check boundaries
-    if let 1..=5 = *rating {
-        rating_content = Payload::RatingUser(*rating);
+    let rating_content = if let Some(rating) = RATING_BOUNDARIES.iter().find(|r| r == &rating) {
+        Payload::RatingUser(*rating)
     } else {
         println!("Rating must be in the range 1 - 5");
         std::process::exit(0);
-    }
+    };
 
-    let pool = connect().await?;
-
-    let trade_keys = if let Ok(order_to_vote) = Order::get_by_id(&pool, &order_id.to_string()).await
+    let trade_keys = if let Ok(order_to_vote) = Order::get_by_id(pool, &order_id.to_string()).await
     {
         match order_to_vote.trade_keys.as_ref() {
             Some(trade_keys) => Keys::parse(trade_keys)?,
