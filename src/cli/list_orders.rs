@@ -19,33 +19,40 @@ pub async fn execute_list_orders(
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
-    let mut status_checked: Option<Status> = Some(Status::from_str("pending").unwrap());
+    let mut status_checked: Option<Status> = Some(
+        Status::from_str("pending")
+            .map_err(|e| anyhow::anyhow!("Invalid default status 'pending': {:?}", e))?,
+    );
     let mut kind_checked: Option<mostro_core::order::Kind> = None;
 
     // New check against strings
     if let Some(s) = status {
-        status_checked = Some(Status::from_str(s).expect("Not valid status! Please check"));
+        status_checked = Some(
+            Status::from_str(s)
+                .map_err(|e| anyhow::anyhow!("Not valid status '{}': {:?}", s, e))?,
+        );
     }
 
-    println!(
-        "You are searching orders with status {:?}",
-        status_checked.unwrap()
-    );
+    if let Some(status) = &status_checked {
+        println!("You are searching orders with status {:?}", status);
+    }
     // New check against strings
     if let Some(k) = kind {
         kind_checked = Some(
-            mostro_core::order::Kind::from_str(k).expect("Not valid order kind! Please check"),
+            mostro_core::order::Kind::from_str(k)
+                .map_err(|e| anyhow::anyhow!("Not valid order kind '{}': {:?}", k, e))?,
         );
-        println!("You are searching {} orders", kind_checked.unwrap());
+        if let Some(kind) = &kind_checked {
+            println!("You are searching {} orders", kind);
+        }
     }
 
     // Uppercase currency
     if let Some(curr) = currency {
         upper_currency = Some(curr.to_uppercase());
-        println!(
-            "You are searching orders with currency {}",
-            upper_currency.clone().unwrap()
-        );
+        if let Some(currency) = &upper_currency {
+            println!("You are searching orders with currency {}", currency);
+        }
     }
 
     println!("Requesting orders from mostro pubId - {}", mostro_pubkey);

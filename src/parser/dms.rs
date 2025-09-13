@@ -31,7 +31,13 @@ pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64
                     }
                 };
                 let (message, _): (Message, Option<String>) =
-                    serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
+                    match serde_json::from_str(&unwrapped_gift.rumor.content) {
+                        Ok(msg) => msg,
+                        Err(_) => {
+                            println!("Error parsing gift wrap content");
+                            continue;
+                        }
+                    };
                 (unwrapped_gift.rumor.created_at, message)
             }
             nostr_sdk::Kind::PrivateDirectMessage => {
@@ -70,10 +76,14 @@ pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64
             _ => continue,
         };
 
-        let since_time = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::minutes(30))
-            .unwrap()
-            .timestamp() as u64;
+        let since_time = match chrono::Utc::now().checked_sub_signed(chrono::Duration::minutes(30))
+        {
+            Some(dt) => dt.timestamp() as u64,
+            None => {
+                println!("Error: Unable to calculate time 30 minutes ago");
+                continue;
+            }
+        };
         if created_at.as_u64() < since_time {
             continue;
         }
@@ -94,12 +104,17 @@ pub async fn print_direct_messages(
     } else {
         for m in dm.iter() {
             let message = m.0.get_inner_message_kind();
-            let date = DateTime::from_timestamp(m.1 as i64, 0).unwrap();
-            if message.id.is_some() {
+            let date = match DateTime::from_timestamp(m.1 as i64, 0) {
+                Some(dt) => dt,
+                None => {
+                    println!("Error: Invalid timestamp {}", m.1);
+                    continue;
+                }
+            };
+            if let Some(order_id) = message.id {
                 println!(
                     "Mostro sent you this message for order id: {} at {}",
-                    m.0.get_inner_message_kind().id.unwrap(),
-                    date
+                    order_id, date
                 );
             }
             if let Some(payload) = &message.payload {
@@ -129,17 +144,20 @@ pub async fn print_direct_messages(
                         println!();
                     }
                     Payload::Order(new_order) if message.action == Action::NewOrder => {
-                        if new_order.id.is_some() {
-                            let db_order =
-                                Order::get_by_id(pool, &new_order.id.unwrap().to_string()).await;
+                        if let Some(order_id) = new_order.id {
+                            let db_order = Order::get_by_id(pool, &order_id.to_string()).await;
                             if db_order.is_err() {
-                                let trade_index = message.trade_index.unwrap();
-                                let trade_keys = User::get_trade_keys(pool, trade_index).await?;
-                                let _ = Order::new(pool, new_order.clone(), &trade_keys, None)
-                                    .await
-                                    .map_err(|e| {
-                                        anyhow::anyhow!("Failed to create DB order: {:?}", e)
-                                    })?;
+                                if let Some(trade_index) = message.trade_index {
+                                    let trade_keys =
+                                        User::get_trade_keys(pool, trade_index).await?;
+                                    let _ = Order::new(pool, new_order.clone(), &trade_keys, None)
+                                        .await
+                                        .map_err(|e| {
+                                            anyhow::anyhow!("Failed to create DB order: {:?}", e)
+                                        })?;
+                                } else {
+                                    println!("Warning: No trade_index found for new order");
+                                }
                             }
                         }
                         println!();
