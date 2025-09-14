@@ -104,7 +104,10 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
             let r = Row::from(vec![
                 Cell::new(single_dispute.id).set_alignment(CellAlignment::Center),
                 Cell::new(single_dispute.status.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(date.unwrap()),
+                Cell::new(
+                    date.map(|d| d.to_string())
+                        .unwrap_or_else(|| "Invalid date".to_string()),
+                ),
             ]);
             rows.push(r);
         }

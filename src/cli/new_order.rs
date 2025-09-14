@@ -89,7 +89,8 @@ pub async fn execute_new_order(
     let order_content = Payload::Order(small_order.clone());
 
     // Print order preview
-    let ord_preview = print_order_preview(order_content.clone()).unwrap();
+    let ord_preview = print_order_preview(order_content.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to generate order preview: {}", e))?;
     println!("{ord_preview}");
     let mut user_input = String::new();
     let _input = stdin();

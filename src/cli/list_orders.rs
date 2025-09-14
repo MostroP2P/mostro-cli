@@ -63,7 +63,6 @@ pub async fn execute_list_orders(
         status_checked,
         upper_currency,
         kind_checked,
-        mostro_pubkey,
         mostro_keys,
         trade_index,
         pool,

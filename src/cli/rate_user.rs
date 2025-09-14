@@ -8,6 +8,15 @@ const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
 
 use crate::{db::Order, util::send_message_sync};
 
+// Get the user rate
+fn get_user_rate(rating: &u8) -> Result<Payload> {
+    if let Some(rating) = RATING_BOUNDARIES.iter().find(|r| r == &rating) {
+        Ok(Payload::RatingUser(*rating))
+    } else {
+        Err(anyhow::anyhow!("Rating must be in the range 1 - 5"))
+    }
+}
+
 pub async fn execute_rate_user(
     order_id: &Uuid,
     rating: &u8,
@@ -17,24 +26,19 @@ pub async fn execute_rate_user(
     pool: &SqlitePool,
 ) -> Result<()> {
     // Check boundaries
-    let rating_content = if let Some(rating) = RATING_BOUNDARIES.iter().find(|r| r == &rating) {
-        Payload::RatingUser(*rating)
-    } else {
-        println!("Rating must be in the range 1 - 5");
-        std::process::exit(0);
-    };
+    let rating_content = get_user_rate(rating)?;
 
+    // Get the trade keys
     let trade_keys = if let Ok(order_to_vote) = Order::get_by_id(pool, &order_id.to_string()).await
     {
         match order_to_vote.trade_keys.as_ref() {
             Some(trade_keys) => Keys::parse(trade_keys)?,
             None => {
-                anyhow::bail!("No trade_keys found for this order");
+                return Err(anyhow::anyhow!("No trade_keys found for this order"));
             }
         }
     } else {
-        println!("order {} not found", order_id);
-        std::process::exit(0)
+        return Err(anyhow::anyhow!("order {} not found", order_id));
     };
 
     // Create rating message of counterpart

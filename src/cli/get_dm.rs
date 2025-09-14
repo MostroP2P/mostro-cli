@@ -1,12 +1,11 @@
 use anyhow::Result;
-use mostro_core::prelude::*;
+use mostro_core::prelude::Message;
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
 
 use crate::{
-    db::User,
-    parser::dms::{parse_dm_events, print_direct_messages},
-    util::{create_filter, ListKind},
+    parser::dms::print_direct_messages,
+    util::{fetch_events_list, Event, ListKind},
 };
 
 pub async fn execute_get_dm(
@@ -17,26 +16,43 @@ pub async fn execute_get_dm(
     admin: bool,
     pool: &SqlitePool,
 ) -> Result<()> {
-    let mut dm: Vec<(Message, u64, PublicKey)> = Vec::new();
-    if !admin {
-        for index in 1..=trade_index {
-            let keys = User::get_trade_keys(pool, index).await?;
-            let filter = create_filter(ListKind::DirectMessagesUser, keys.public_key());
-            let fetched_events = client
-                .fetch_events(filter, std::time::Duration::from_secs(15))
-                .await?;
-            let dm_temp = parse_dm_events(fetched_events, &keys).await;
-            dm.extend(dm_temp);
-        }
+    // Fetch the requested events
+    let all_fetched_events = if !admin {
+        fetch_events_list(
+            ListKind::DirectMessagesUser,
+            None,
+            None,
+            None,
+            mostro_keys,
+            trade_index,
+            pool,
+            client,
+        )
+        .await?
+        // all_fetched_events.extend(fetched_events);
     } else {
-        let filter = create_filter(ListKind::DirectMessagesMostro, mostro_keys.public_key());
-        let fetched_events = client
-            .fetch_events(filter, std::time::Duration::from_secs(15))
-            .await?;
-        let dm_temp = parse_dm_events(fetched_events, mostro_keys).await;
-        dm.extend(dm_temp);
+        fetch_events_list(
+            ListKind::DirectMessagesMostro,
+            None,
+            None,
+            None,
+            mostro_keys,
+            trade_index,
+            pool,
+            client,
+        )
+        .await?
+        // all_fetched_events.extend(fetched_events);
+    };
+
+    // Extract (Message, u64) tuples from Event::MessageTuple variants
+    let mut dm_events: Vec<(Message, u64)> = Vec::new();
+    for event in all_fetched_events {
+        if let Event::MessageTuple(tuple) = event {
+            dm_events.push(*tuple);
+        }
     }
 
-    print_direct_messages(&dm, pool).await?;
+    print_direct_messages(&dm_events, pool).await?;
     Ok(())
 }

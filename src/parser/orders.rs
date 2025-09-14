@@ -28,9 +28,9 @@ pub fn parse_orders_events(
             continue;
         }
         if let Ok(mut order) = order {
-            info!("Found Order id : {:?}", order.id.unwrap());
-
-            if order.id.is_none() {
+            if let Some(order_id) = order.id {
+                info!("Found Order id : {:?}", order_id);
+            } else {
                 info!("Order ID is none");
                 continue;
             }
@@ -141,11 +141,12 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
         if single_order.min_amount.is_none() && single_order.max_amount.is_none() {
             Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center)
         } else {
-            let range_str = format!(
-                "{}-{}",
-                single_order.min_amount.unwrap(),
-                single_order.max_amount.unwrap()
-            );
+            let range_str = match (single_order.min_amount, single_order.max_amount) {
+                (Some(min), Some(max)) => format!("{}-{}", min, max),
+                (Some(min), None) => format!("{}-?", min),
+                (None, Some(max)) => format!("?-{}", max),
+                (None, None) => "?".to_string(),
+            };
             Cell::new(range_str).set_alignment(CellAlignment::Center)
         },
         Cell::new(single_order.payment_method.to_string()).set_alignment(CellAlignment::Center),
@@ -243,9 +244,20 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 } else {
                     Cell::new("BUY/SELL").set_alignment(CellAlignment::Center)
                 },
-                Cell::new(single_order.id.unwrap()).set_alignment(CellAlignment::Center),
-                Cell::new(single_order.status.unwrap().to_string())
-                    .set_alignment(CellAlignment::Center),
+                Cell::new(
+                    single_order
+                        .id
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "N/A".to_string()),
+                )
+                .set_alignment(CellAlignment::Center),
+                Cell::new(
+                    single_order
+                        .status
+                        .unwrap_or(mostro_core::order::Status::Active)
+                        .to_string(),
+                )
+                .set_alignment(CellAlignment::Center),
                 if single_order.amount == 0 {
                     Cell::new("market price").set_alignment(CellAlignment::Center)
                 } else {
@@ -257,16 +269,20 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                     Cell::new(single_order.fiat_amount.to_string())
                         .set_alignment(CellAlignment::Center)
                 } else {
-                    let range_str = format!(
-                        "{}-{}",
-                        single_order.min_amount.unwrap(),
-                        single_order.max_amount.unwrap()
-                    );
+                    let range_str = match (single_order.min_amount, single_order.max_amount) {
+                        (Some(min), Some(max)) => format!("{}-{}", min, max),
+                        (Some(min), None) => format!("{}-?", min),
+                        (None, Some(max)) => format!("?-{}", max),
+                        (None, None) => "?".to_string(),
+                    };
                     Cell::new(range_str).set_alignment(CellAlignment::Center)
                 },
                 Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
-                Cell::new(date.unwrap()),
+                Cell::new(
+                    date.map(|d| d.to_string())
+                        .unwrap_or_else(|| "Invalid date".to_string()),
+                ),
             ]);
             rows.push(r);
         }

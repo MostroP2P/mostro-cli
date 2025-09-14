@@ -36,7 +36,6 @@ use clap::{Parser, Subcommand};
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
-use std::sync::OnceLock;
 use std::{
     env::{set_var, var},
     str::FromStr,
@@ -44,10 +43,7 @@ use std::{
 use take_dispute::*;
 use uuid::Uuid;
 
-pub static IDENTITY_KEYS: OnceLock<Keys> = OnceLock::new();
-pub static POOL: OnceLock<SqlitePool> = OnceLock::new();
-pub static TRADE_KEY: OnceLock<(Keys, i64)> = OnceLock::new();
-
+#[derive(Debug)]
 pub struct Context {
     pub client: Client,
     pub identity_keys: Keys,
@@ -376,19 +372,16 @@ async fn init_context(cli: &Cli) -> Result<Context> {
 
     // Initialize database pool
     let pool = connect().await?;
-    POOL.get_or_init(|| pool.clone());
 
     // Get identity keys
     let identity_keys = User::get_identity_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
-    IDENTITY_KEYS.get_or_init(|| identity_keys.clone());
 
     // Get trade keys
     let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
-    TRADE_KEY.get_or_init(|| (trade_keys.clone(), trade_index));
 
     // Load Mostro admin keys if available (optional)
     let mostro_keys = if let Ok(k) = std::env::var("NSEC_PRIVKEY") {
@@ -450,8 +443,14 @@ impl Commands {
                 order_id,
                 message,
             } => {
-                execute_dm_to_user(PublicKey::from_str(pubkey)?, &ctx.client, order_id, message)
-                    .await
+                execute_dm_to_user(
+                    PublicKey::from_str(pubkey)?,
+                    &ctx.client,
+                    order_id,
+                    message,
+                    &ctx.pool,
+                )
+                .await
             }
             Commands::AdmSendDm { pubkey, message } => {
                 execute_adm_send_dm(PublicKey::from_str(pubkey)?, &ctx.client, message).await

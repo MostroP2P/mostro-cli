@@ -93,10 +93,7 @@ pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64
     direct_messages
 }
 
-pub async fn print_direct_messages(
-    dm: &[(Message, u64, PublicKey)],
-    pool: &SqlitePool,
-) -> Result<()> {
+pub async fn print_direct_messages(dm: &[(Message, u64)], pool: &SqlitePool) -> Result<()> {
     if dm.is_empty() {
         println!();
         println!("No new messages");

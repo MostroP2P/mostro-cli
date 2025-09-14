@@ -28,6 +28,7 @@ pub enum ListKind {
     Disputes,
     DirectMessagesUser,
     DirectMessagesMostro,
+    PrivateDirectMessagesUser,
 }
 
 async fn send_gift_wrap_dm_internal(
@@ -565,6 +566,21 @@ pub fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
                 .since(fake_timestamp)
         }
         ListKind::DirectMessagesUser => {
+            // We use a fake timestamp to thwart time-analysis attacks
+            let fake_since = 2880;
+            let fake_since_time = chrono::Utc::now()
+                .checked_sub_signed(chrono::Duration::minutes(fake_since))
+                .unwrap()
+                .timestamp() as u64;
+
+            let fake_timestamp = Timestamp::from(fake_since_time);
+
+            Filter::new()
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .pubkey(pubkey)
+                .since(fake_timestamp)
+        }
+        ListKind::PrivateDirectMessagesUser => {
             // Get the timestamp from the since parameter
             let fake_since = 2880;
             let fake_since_time = chrono::Utc::now()
@@ -575,7 +591,7 @@ pub fn create_filter(list_kind: ListKind, pubkey: PublicKey) -> Filter {
 
             // Create filter for fetching direct messages
             Filter::new()
-                .kind(nostr_sdk::Kind::GiftWrap)
+                .kind(nostr_sdk::Kind::PrivateDirectMessage)
                 .pubkey(pubkey)
                 .since(fake_timestamp)
         }
@@ -588,7 +604,6 @@ pub async fn fetch_events_list(
     status: Option<Status>,
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
-    mostro_pubkey: PublicKey,
     mostro_keys: &Keys,
     trade_index: i64,
     pool: &SqlitePool,
@@ -596,7 +611,7 @@ pub async fn fetch_events_list(
 ) -> Result<Vec<Event>> {
     match list_kind {
         ListKind::Orders => {
-            let filters = create_filter(list_kind, mostro_pubkey);
+            let filters = create_filter(list_kind, mostro_keys.public_key);
             let fetched_events = client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
@@ -635,13 +650,14 @@ pub async fn fetch_events_list(
                 .collect())
         }
         ListKind::Disputes => {
-            let filters = create_filter(list_kind, mostro_pubkey);
+            let filters = create_filter(list_kind, mostro_keys.public_key);
             let fetched_events = client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
             let disputes = parse_dispute_events(fetched_events);
             Ok(disputes.into_iter().map(Event::Dispute).collect())
         }
+        _ => Err(anyhow::anyhow!("Invalid list kind")),
     }
 }
 
