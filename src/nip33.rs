@@ -62,23 +62,26 @@ pub fn dispute_from_tags(tags: Tags) -> Result<Dispute> {
     let mut dispute = Dispute::default();
     for tag in tags {
         let t = tag.to_vec();
-        let v = t.get(1).unwrap().as_str();
-        match t.first().unwrap().as_str() {
+
+        // Check if tag has at least 2 elements
+        if t.len() < 2 {
+            continue;
+        }
+
+        let key = t.first().map(|s| s.as_str()).unwrap_or("");
+        let value = t.get(1).map(|s| s.as_str()).unwrap_or("");
+
+        match key {
             "d" => {
-                let id = t.get(1).unwrap().as_str().parse::<Uuid>();
-                let id = match id {
-                    core::result::Result::Ok(id) => id,
-                    Err(_) => return Err(anyhow::anyhow!("Invalid dispute id")),
-                };
+                let id = value
+                    .parse::<Uuid>()
+                    .map_err(|_| anyhow::anyhow!("Invalid dispute id"))?;
                 dispute.id = id;
             }
 
             "s" => {
-                let status = match DisputeStatus::from_str(v) {
-                    core::result::Result::Ok(status) => status,
-                    Err(_) => return Err(anyhow::anyhow!("Invalid dispute status")),
-                };
-
+                let status = DisputeStatus::from_str(value)
+                    .map_err(|_| anyhow::anyhow!("Invalid dispute status"))?;
                 dispute.status = status.to_string();
             }
 

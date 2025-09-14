@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub async fn execute_get_dm(
-    _since: &i64,
+    since: Option<&i64>,
     trade_index: i64,
     mostro_keys: &Keys,
     client: &Client,
@@ -25,11 +25,11 @@ pub async fn execute_get_dm(
             None,
             mostro_keys,
             trade_index,
+            since,
             pool,
             client,
         )
         .await?
-        // all_fetched_events.extend(fetched_events);
     } else {
         fetch_events_list(
             ListKind::DirectMessagesMostro,
@@ -38,11 +38,11 @@ pub async fn execute_get_dm(
             None,
             mostro_keys,
             trade_index,
+            since,
             pool,
             client,
         )
         .await?
-        // all_fetched_events.extend(fetched_events);
     };
 
     // Extract (Message, u64) tuples from Event::MessageTuple variants

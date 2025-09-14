@@ -61,5 +61,5 @@ pub async fn execute_rate_user(
     )
     .await?;
 
-    std::process::exit(0);
+    Ok(())
 }

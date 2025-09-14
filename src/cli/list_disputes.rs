@@ -25,6 +25,7 @@ pub async fn execute_list_disputes(
         None,
         mostro_keys,
         trade_index,
+        None,
         pool,
         client,
     )

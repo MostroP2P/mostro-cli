@@ -294,17 +294,17 @@ fn get_env_var(cli: &Cli) {
         pretty_env_logger::init();
     }
 
-    if cli.mostropubkey.is_some() {
-        set_var("MOSTRO_PUBKEY", cli.mostropubkey.clone().unwrap());
+    if let Some(ref mostro_pubkey) = cli.mostropubkey {
+        set_var("MOSTRO_PUBKEY", mostro_pubkey.clone());
     }
     let _pubkey = var("MOSTRO_PUBKEY").expect("$MOSTRO_PUBKEY env var needs to be set");
 
-    if cli.relays.is_some() {
-        set_var("RELAYS", cli.relays.clone().unwrap());
+    if let Some(ref relays) = cli.relays {
+        set_var("RELAYS", relays.clone());
     }
 
-    if cli.pow.is_some() {
-        set_var("POW", cli.pow.clone().unwrap());
+    if let Some(ref pow) = cli.pow {
+        set_var("POW", pow.clone());
     }
 
     if cli.secret {
@@ -315,9 +315,6 @@ fn get_env_var(cli: &Cli) {
 // Check range with two values value
 fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
     if s.contains('-') {
-        let min: i64;
-        let max: i64;
-
         // Get values from CLI
         let values: Vec<&str> = s.split('-').collect();
 
@@ -327,17 +324,12 @@ fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
         };
 
         // Get ranged command
-        if let Err(e) = values[0].parse::<i64>() {
-            return Err(e.into());
-        } else {
-            min = values[0].parse().unwrap();
-        }
-
-        if let Err(e) = values[1].parse::<i64>() {
-            return Err(e.into());
-        } else {
-            max = values[1].parse().unwrap();
-        }
+        let min = values[0]
+            .parse::<i64>()
+            .map_err(|e| anyhow::anyhow!("Invalid min value: {}", e))?;
+        let max = values[1]
+            .parse::<i64>()
+            .map_err(|e| anyhow::anyhow!("Invalid max value: {}", e))?;
 
         // Check min below max
         if min >= max {
@@ -565,7 +557,7 @@ impl Commands {
             // DM retrieval commands
             Commands::GetDm { since } => {
                 execute_get_dm(
-                    since,
+                    Some(since),
                     ctx.trade_index,
                     &ctx.mostro_keys,
                     &ctx.client,
@@ -579,7 +571,7 @@ impl Commands {
             }
             Commands::GetAdminDm { since } => {
                 execute_get_dm(
-                    since,
+                    Some(since),
                     ctx.trade_index,
                     &ctx.mostro_keys,
                     &ctx.client,

@@ -19,10 +19,9 @@ pub async fn execute_list_orders(
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
-    let mut status_checked: Option<Status> = Some(
-        Status::from_str("pending")
-            .map_err(|e| anyhow::anyhow!("Invalid default status 'pending': {:?}", e))?,
-    );
+    // Default status is pending
+    let mut status_checked: Option<Status> = Some(Status::Pending);
+    // Default kind is none
     let mut kind_checked: Option<mostro_core::order::Kind> = None;
 
     // New check against strings
@@ -33,10 +32,11 @@ pub async fn execute_list_orders(
         );
     }
 
+    // Print status requested
     if let Some(status) = &status_checked {
         println!("You are searching orders with status {:?}", status);
     }
-    // New check against strings
+    // New check against strings for kind
     if let Some(k) = kind {
         kind_checked = Some(
             mostro_core::order::Kind::from_str(k)
@@ -65,6 +65,7 @@ pub async fn execute_list_orders(
         kind_checked,
         mostro_keys,
         trade_index,
+        None,
         pool,
         client,
     )

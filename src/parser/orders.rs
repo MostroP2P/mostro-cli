@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::util::Event;
 use anyhow::Result;
 use chrono::DateTime;
@@ -6,6 +8,7 @@ use comfy_table::*;
 use log::{error, info};
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use uuid::Uuid;
 
 use crate::nip33::order_from_tags;
 
@@ -15,73 +18,59 @@ pub fn parse_orders_events(
     status: Option<Status>,
     kind: Option<mostro_core::order::Kind>,
 ) -> Vec<SmallOrder> {
-    // Extracted Orders List
-    let mut complete_events_list = Vec::<SmallOrder>::new();
-    let mut requested_orders_list = Vec::<SmallOrder>::new();
+    // HashMap to store the latest order by id
+    let mut latest_by_id: HashMap<Uuid, SmallOrder> = HashMap::new();
 
-    // Scan events to extract all orders
     for event in events.iter() {
-        let order = order_from_tags(event.tags.clone());
-
-        if order.is_err() {
-            error!("{order:?}");
-            continue;
-        }
-        if let Ok(mut order) = order {
-            if let Some(order_id) = order.id {
-                info!("Found Order id : {:?}", order_id);
-            } else {
+        // Get order from tags
+        let mut order = match order_from_tags(event.tags.clone()) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("{e:?}");
+                continue;
+            }
+        };
+        // Get order id
+        let order_id = match order.id {
+            Some(id) => id,
+            None => {
                 info!("Order ID is none");
                 continue;
             }
-
-            // Check if order kind is none
-            if order.kind.is_none() {
-                info!("Order kind is none");
-                continue;
-            }
-
-            // Check if order status is none
-            if let Some(filter_status) = status {
-                if order.status != Some(filter_status) {
-                    continue;
-                }
-            }
-            // Check if order fiat code is none
-            if let Some(ref curr) = currency {
-                if order.fiat_code != *curr {
-                    continue;
-                }
-            }
-
-            // Get created at field from Nostr event
-            if let Some(ref k) = kind {
-                if order.kind.as_ref() != Some(k) {
-                    continue;
-                }
-            }
-
-            // Get created at field from Nostr event
-            order.created_at = Some(event.created_at.as_u64() as i64);
-            complete_events_list.push(order.clone());
-
-            // Add just requested orders requested by filtering
-            requested_orders_list.push(order);
+        };
+        // Check if order kind is none
+        if order.kind.is_none() {
+            info!("Order kind is none");
+            continue;
         }
-        // Order all element ( orders ) received to filter - discard disaligned messages
-        // if an order has an older message with the state we received is discarded for the latest one
-        requested_orders_list.retain(|keep| {
-            !complete_events_list
-                .iter()
-                .any(|x| x.id == keep.id && x.created_at > keep.created_at)
-        });
-        // Sort by id to remove duplicates
-        requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
-        requested_orders_list.dedup_by(|a, b| a.id == b.id);
+        // Set created at
+        order.created_at = Some(event.created_at.as_u64() as i64);
+        // Update latest order by id
+        latest_by_id
+            .entry(order_id)
+            .and_modify(|existing| {
+                let new_ts = order.created_at.unwrap_or(0);
+                let old_ts = existing.created_at.unwrap_or(0);
+                if new_ts > old_ts {
+                    *existing = order.clone();
+                }
+            })
+            .or_insert(order);
     }
-    // Finally sort list by creation time
-    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    requested_orders_list
+
+    let mut requested: Vec<SmallOrder> = latest_by_id
+        .into_values()
+        .filter(|o| status.map(|s| o.status == Some(s)).unwrap_or(true))
+        .filter(|o| currency.as_ref().map(|c| o.fiat_code == *c).unwrap_or(true))
+        .filter(|o| {
+            kind.as_ref()
+                .map(|k| o.kind.as_ref() == Some(k))
+                .unwrap_or(true)
+        })
+        .collect();
+
+    requested.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    requested
 }
 
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
