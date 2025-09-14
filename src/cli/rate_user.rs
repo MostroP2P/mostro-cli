@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
 
-use crate::{db::Order, util::send_message_sync};
+use crate::{db::Order, util::send_dm};
 
 // Get the user rate
 fn get_user_rate(rating: &u8) -> Result<Payload> {
@@ -48,15 +48,17 @@ pub async fn execute_rate_user(
         None,
         Action::RateUser,
         Some(rating_content),
-    );
+    )
+    .as_json()
+    .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    send_message_sync(
+    send_dm(
         client,
         Some(identity_keys),
         &trade_keys,
-        mostro_key,
+        &mostro_key,
         rate_message,
-        true,
+        None,
         false,
     )
     .await?;

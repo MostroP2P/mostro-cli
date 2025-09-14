@@ -3,7 +3,7 @@ use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::util::send_message_sync;
+use crate::util::send_dm;
 
 pub async fn execute_admin_add_solver(
     npubkey: &str,
@@ -24,15 +24,17 @@ pub async fn execute_admin_add_solver(
         None,
         Action::AdminAddSolver,
         Some(Payload::TextMessage(npubkey.to_string())),
-    );
+    )
+    .as_json()
+    .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    send_message_sync(
+    send_dm(
         client,
         Some(identity_keys),
         trade_keys,
-        mostro_key,
+        &mostro_key,
         take_dispute_message,
-        true,
+        None,
         false,
     )
     .await?;
@@ -54,17 +56,19 @@ pub async fn execute_admin_cancel_dispute(
     );
     // Create takebuy message
     let take_dispute_message =
-        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, None);
+        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, None)
+            .as_json()
+            .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     println!("identity_keys: {:?}", identity_keys.public_key.to_string());
 
-    send_message_sync(
+    send_dm(
         client,
         Some(identity_keys),
         trade_keys,
-        mostro_key,
+        &mostro_key,
         take_dispute_message,
-        true,
+        None,
         false,
     )
     .await?;
@@ -86,17 +90,19 @@ pub async fn execute_admin_settle_dispute(
     );
     // Create takebuy message
     let take_dispute_message =
-        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, None);
+        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, None)
+            .as_json()
+            .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     println!("identity_keys: {:?}", identity_keys.public_key.to_string());
 
-    send_message_sync(
+    send_dm(
         client,
         Some(identity_keys),
         trade_keys,
-        mostro_key,
+        &mostro_key,
         take_dispute_message,
-        true,
+        None,
         false,
     )
     .await?;
@@ -123,17 +129,19 @@ pub async fn execute_take_dispute(
         None,
         Action::AdminTakeDispute,
         None,
-    );
+    )
+    .as_json()
+    .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     println!("identity_keys: {:?}", identity_keys.public_key.to_string());
 
-    send_message_sync(
+    send_dm(
         client,
         Some(identity_keys),
         trade_keys,
-        mostro_key,
+        &mostro_key,
         take_dispute_message,
-        true,
+        None,
         false,
     )
     .await?;

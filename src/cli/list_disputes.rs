@@ -6,7 +6,7 @@ use crate::parser::disputes::print_disputes_table;
 use crate::util::{fetch_events_list, ListKind};
 
 pub async fn execute_list_disputes(
-    mostro_key: PublicKey,
+    mostro_pubkey: PublicKey,
     mostro_keys: &Keys,
     trade_index: i64,
     pool: &SqlitePool,
@@ -14,7 +14,7 @@ pub async fn execute_list_disputes(
 ) -> Result<()> {
     println!(
         "Requesting disputes from mostro pubId - {}",
-        mostro_key.clone()
+        mostro_pubkey.clone()
     );
 
     // Get orders from relays
@@ -23,6 +23,7 @@ pub async fn execute_list_disputes(
         None,
         None,
         None,
+        &mostro_pubkey,
         mostro_keys,
         trade_index,
         None,

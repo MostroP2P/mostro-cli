@@ -1,4 +1,4 @@
-use crate::{db::Order, util::send_message_sync};
+use crate::{db::Order, util::send_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
@@ -15,7 +15,9 @@ pub async fn execute_send_dm(
         None,
         Action::SendDm,
         Some(Payload::TextMessage(message.to_string())),
-    );
+    )
+    .as_json()
+    .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     let pool = crate::db::connect().await?;
 
@@ -32,7 +34,7 @@ pub async fn execute_send_dm(
         std::process::exit(0)
     };
 
-    send_message_sync(client, None, &trade_keys, receiver, message, true, true).await?;
+    send_dm(client, None, &trade_keys, &receiver, message, None, false).await?;
 
     Ok(())
 }

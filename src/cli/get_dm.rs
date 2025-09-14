@@ -11,31 +11,29 @@ use crate::{
 pub async fn execute_get_dm(
     since: Option<&i64>,
     trade_index: i64,
+    mostro_pubkey: PublicKey,
     mostro_keys: &Keys,
     client: &Client,
     admin: bool,
+    from_user: &bool,
     pool: &SqlitePool,
 ) -> Result<()> {
+    // Get the list kind
+    let list_kind = match (admin, from_user) {
+        (true, true) => ListKind::PrivateDirectMessagesUser,
+        (true, false) => ListKind::DirectMessagesAdmin,
+        (false, true) => ListKind::PrivateDirectMessagesUser,
+        (false, false) => ListKind::DirectMessagesUser,
+    };
+
     // Fetch the requested events
-    let all_fetched_events = if !admin {
+    let all_fetched_events = {
         fetch_events_list(
-            ListKind::DirectMessagesUser,
+            list_kind,
             None,
             None,
             None,
-            mostro_keys,
-            trade_index,
-            since,
-            pool,
-            client,
-        )
-        .await?
-    } else {
-        fetch_events_list(
-            ListKind::DirectMessagesMostro,
-            None,
-            None,
-            None,
+            &mostro_pubkey,
             mostro_keys,
             trade_index,
             since,

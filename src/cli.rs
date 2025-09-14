@@ -170,6 +170,9 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
+        /// If true, get messages from counterparty, otherwise from Mostro
+        #[arg(short, long)]
+        from_user: bool,
     },
     /// Get direct messages sent to any trade keys
     GetDmUser {
@@ -184,6 +187,9 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
+        /// If true, get messages from counterparty, otherwise from Mostro
+        #[arg(short, long)]
+        from_user: bool,
     },
     /// Send direct message to a user
     SendDm {
@@ -555,13 +561,15 @@ impl Commands {
             }
 
             // DM retrieval commands
-            Commands::GetDm { since } => {
+            Commands::GetDm { since, from_user } => {
                 execute_get_dm(
                     Some(since),
                     ctx.trade_index,
+                    ctx.mostro_pubkey,
                     &ctx.mostro_keys,
                     &ctx.client,
                     false,
+                    from_user,
                     &ctx.pool,
                 )
                 .await
@@ -569,13 +577,15 @@ impl Commands {
             Commands::GetDmUser { since } => {
                 execute_get_dm_user(since, &ctx.client, &ctx.mostro_pubkey, &ctx.pool).await
             }
-            Commands::GetAdminDm { since } => {
+            Commands::GetAdminDm { since, from_user } => {
                 execute_get_dm(
                     Some(since),
                     ctx.trade_index,
+                    ctx.mostro_pubkey,
                     &ctx.mostro_keys,
                     &ctx.client,
                     true,
+                    from_user,
                     &ctx.pool,
                 )
                 .await
