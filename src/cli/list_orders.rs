@@ -5,17 +5,14 @@ use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
 use std::str::FromStr;
+use crate::cli::Context;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_list_orders(
     kind: &Option<String>,
     currency: &Option<String>,
     status: &Option<String>,
-    mostro_pubkey: PublicKey,
-    mostro_keys: &Keys,
-    trade_index: i64,
-    pool: &SqlitePool,
-    client: &Client,
+    ctx: &Context,
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
@@ -55,7 +52,7 @@ pub async fn execute_list_orders(
         }
     }
 
-    println!("Requesting orders from mostro pubId - {}", mostro_pubkey);
+    println!("Requesting orders from mostro pubId - {}", &ctx.mostro_pubkey);
 
     // Get orders from relays
     let table_of_orders = fetch_events_list(
@@ -63,12 +60,8 @@ pub async fn execute_list_orders(
         status_checked,
         upper_currency,
         kind_checked,
-        &mostro_pubkey,
-        mostro_keys,
-        trade_index,
-        None,
-        pool,
-        client,
+        &ctx,
+        since
     )
     .await?;
     let table = print_orders_table(table_of_orders)?;

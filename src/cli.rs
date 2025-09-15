@@ -50,7 +50,7 @@ pub struct Context {
     pub trade_keys: Keys,
     pub trade_index: i64,
     pub pool: SqlitePool,
-    pub mostro_keys: Keys,
+    pub context_keys: Keys,
     pub mostro_pubkey: PublicKey,
 }
 
@@ -381,12 +381,9 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
-    // Load Mostro admin keys if available (optional)
-    let mostro_keys = if let Ok(k) = std::env::var("NSEC_PRIVKEY") {
-        Keys::from_str(&k)?
-    } else {
-        println!("No Mostro admin keys found");
-        Keys::generate()
+    // Load private key of user or admin - must be present in .env file
+    let context_keys = std::env::var("NSEC_PRIVKEY").map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set: {}", e))? {
+        Keys::from_str(&k).map_err(|e| anyhow::anyhow!("Failed to get context keys: {}", e))?
     };
 
     // Resolve Mostro pubkey from env (required for all flows)
@@ -404,7 +401,7 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         trade_keys,
         trade_index,
         pool,
-        mostro_keys,
+        context_keys,
         mostro_pubkey,
     })
 }
@@ -420,10 +417,7 @@ impl Commands {
                 crate::util::run_simple_order_msg(
                     self.clone(),
                     order_id,
-                    &ctx.identity_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                    &ctx.pool,
+                    &ctx
                 )
                 .await
             }
@@ -467,11 +461,7 @@ impl Commands {
                     kind,
                     currency,
                     status,
-                    ctx.mostro_pubkey,
-                    &ctx.mostro_keys,
-                    ctx.trade_index,
-                    &ctx.pool,
-                    &ctx.client,
+                    &ctx
                 )
                 .await
             }

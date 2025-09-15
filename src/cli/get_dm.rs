@@ -4,19 +4,14 @@ use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
 
 use crate::{
-    parser::dms::print_direct_messages,
-    util::{fetch_events_list, Event, ListKind},
+    cli::Context, parser::dms::print_direct_messages, util::{fetch_events_list, Event, ListKind}
 };
 
 pub async fn execute_get_dm(
     since: Option<&i64>,
-    trade_index: i64,
-    mostro_pubkey: PublicKey,
-    mostro_keys: &Keys,
-    client: &Client,
     admin: bool,
     from_user: &bool,
-    pool: &SqlitePool,
+    ctx :&Context
 ) -> Result<()> {
     // Get the list kind
     let list_kind = match (admin, from_user) {
@@ -33,12 +28,8 @@ pub async fn execute_get_dm(
             None,
             None,
             None,
-            &mostro_pubkey,
-            mostro_keys,
-            trade_index,
-            since,
-            pool,
-            client,
+            &ctx,
+            since
         )
         .await?
     };
@@ -51,6 +42,6 @@ pub async fn execute_get_dm(
         }
     }
 
-    print_direct_messages(&dm_events, pool).await?;
+    print_direct_messages(&dm_events, &ctx.pool).await?;
     Ok(())
 }

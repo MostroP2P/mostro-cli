@@ -1,5 +1,5 @@
 use crate::cli::send_msg::execute_send_msg;
-use crate::cli::Commands;
+use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use anyhow::{Error, Result};
@@ -562,28 +562,24 @@ pub async fn fetch_events_list(
     status: Option<Status>,
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
-    mostro_pubkey: &PublicKey,
-    mostro_keys: &Keys,
-    trade_index: i64,
+    ctx: &Context,
     _since: Option<&i64>,
-    pool: &SqlitePool,
-    client: &Client,
 ) -> Result<Vec<Event>> {
     match list_kind {
         ListKind::Orders => {
-            let filters = create_filter(list_kind, *mostro_pubkey, None);
-            let fetched_events = client
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
+            let fetched_events = ctx.client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
             let orders = parse_orders_events(fetched_events, currency, status, kind);
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(list_kind, *mostro_pubkey, None);
-            let fetched_events = client
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
+            let fetched_events = ctx.client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
-            let direct_messages_mostro = parse_dm_events(fetched_events, mostro_keys).await;
+            let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
@@ -591,15 +587,15 @@ pub async fn fetch_events_list(
         }
         ListKind::PrivateDirectMessagesUser => {
             let mut direct_messages: Vec<(Message, u64)> = Vec::new();
-            for index in 1..=trade_index {
-                let trade_key = User::get_trade_keys(pool, index).await?;
+            for index in 1..=ctx.trade_index {
+                let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter = create_filter(
                     ListKind::PrivateDirectMessagesUser,
                     trade_key.public_key(),
                     None,
                 );
                 let fetched_user_messages =
-                    client.fetch_events(filter, Duration::from_secs(15)).await?;
+                    ctx.client.fetch_events(filter, Duration::from_secs(15)).await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
                 direct_messages.extend(
@@ -615,12 +611,12 @@ pub async fn fetch_events_list(
         }
         ListKind::DirectMessagesUser => {
             let mut direct_messages: Vec<(Message, u64)> = Vec::new();
-            for index in 1..=trade_index {
-                let trade_key = User::get_trade_keys(pool, index).await?;
+            for index in 1..=ctx.trade_index {
+                let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter =
                     create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None);
                 let fetched_user_messages =
-                    client.fetch_events(filter, Duration::from_secs(15)).await?;
+                    ctx.client.fetch_events(filter, Duration::from_secs(15)).await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
                 direct_messages.extend(
@@ -667,19 +663,13 @@ pub fn get_mcli_path() -> String {
 pub async fn run_simple_order_msg(
     command: Commands,
     order_id: &Uuid,
-    identity_keys: &Keys,
-    mostro_key: PublicKey,
-    client: &Client,
-    pool: &SqlitePool,
+    ctx: &Context,
 ) -> Result<()> {
     execute_send_msg(
         command,
         Some(*order_id),
-        Some(identity_keys),
-        mostro_key,
-        client,
+        &ctx,
         None,
-        pool,
     )
     .await
 }
