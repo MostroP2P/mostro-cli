@@ -1,11 +1,9 @@
+use crate::cli::Context;
 use crate::parser::orders::print_orders_table;
 use crate::util::{fetch_events_list, ListKind};
 use anyhow::Result;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 use std::str::FromStr;
-use crate::cli::Context;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_list_orders(
@@ -52,7 +50,10 @@ pub async fn execute_list_orders(
         }
     }
 
-    println!("Requesting orders from mostro pubId - {}", &ctx.mostro_pubkey);
+    println!(
+        "Requesting orders from mostro pubId - {}",
+        &ctx.mostro_pubkey
+    );
 
     // Get orders from relays
     let table_of_orders = fetch_events_list(
@@ -60,8 +61,8 @@ pub async fn execute_list_orders(
         status_checked,
         upper_currency,
         kind_checked,
-        &ctx,
-        since
+        ctx,
+        None,
     )
     .await?;
     let table = print_orders_table(table_of_orders)?;

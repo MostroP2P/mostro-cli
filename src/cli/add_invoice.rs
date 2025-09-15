@@ -58,17 +58,25 @@ pub async fn execute_add_invoice(
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Send DM
-    send_dm(
-        client,
-        Some(identity_keys),
-        &trade_keys,
-        &mostro_key,
-        message_json,
-        None,
-        false,
-    )
-    .await?;
+    // Clone the keys and client for the async call
+    let identity_keys = identity_keys.clone();
+    let trade_keys_clone = trade_keys.clone();
+    let client_clone = client.clone();
+
+    // Spawn a new task to send the DM
+    // This is so we can wait for the gift wrap event in the main thread
+    tokio::spawn(async move {
+        let _ = send_dm(
+            &client_clone,
+            Some(&identity_keys),
+            &trade_keys_clone,
+            &mostro_key,
+            message_json,
+            None,
+            false,
+        )
+        .await;
+    });
 
     // Wait for the DM to be sent from mostro and update the order
     wait_for_dm(client, &trade_keys, request_id, None, Some(order), pool).await?;

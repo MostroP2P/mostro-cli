@@ -5,7 +5,6 @@ use crate::util::{send_dm, wait_for_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 use std::process;
 use uuid::Uuid;
 
@@ -95,9 +94,16 @@ pub async fn execute_send_msg(
             .map_err(|e| anyhow::anyhow!("Failed to send DM: {e}"))?;
 
             // Wait for the DM to be sent from mostro
-            wait_for_dm(&ctx.client, &trade_keys, request_id, None, Some(order), &ctx.pool)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
+            wait_for_dm(
+                &ctx.client,
+                &trade_keys,
+                request_id,
+                None,
+                Some(order),
+                &ctx.pool,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
         }
     }
 

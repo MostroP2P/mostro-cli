@@ -1,17 +1,17 @@
 use anyhow::Result;
 use mostro_core::prelude::Message;
-use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 
 use crate::{
-    cli::Context, parser::dms::print_direct_messages, util::{fetch_events_list, Event, ListKind}
+    cli::Context,
+    parser::dms::print_direct_messages,
+    util::{fetch_events_list, Event, ListKind},
 };
 
 pub async fn execute_get_dm(
     since: Option<&i64>,
     admin: bool,
     from_user: &bool,
-    ctx :&Context
+    ctx: &Context,
 ) -> Result<()> {
     // Get the list kind
     let list_kind = match (admin, from_user) {
@@ -22,17 +22,7 @@ pub async fn execute_get_dm(
     };
 
     // Fetch the requested events
-    let all_fetched_events = {
-        fetch_events_list(
-            list_kind,
-            None,
-            None,
-            None,
-            &ctx,
-            since
-        )
-        .await?
-    };
+    let all_fetched_events = { fetch_events_list(list_kind, None, None, None, ctx, since).await? };
 
     // Extract (Message, u64) tuples from Event::MessageTuple variants
     let mut dm_events: Vec<(Message, u64)> = Vec::new();

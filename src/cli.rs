@@ -382,9 +382,10 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
     // Load private key of user or admin - must be present in .env file
-    let context_keys = std::env::var("NSEC_PRIVKEY").map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set: {}", e))? {
-        Keys::from_str(&k).map_err(|e| anyhow::anyhow!("Failed to get context keys: {}", e))?
-    };
+    let context_keys = std::env::var("NSEC_PRIVKEY")
+        .map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set: {}", e))?
+        .parse::<Keys>()
+        .map_err(|e| anyhow::anyhow!("Failed to get context keys: {}", e))?;
 
     // Resolve Mostro pubkey from env (required for all flows)
     let mostro_pubkey = PublicKey::from_str(
@@ -414,12 +415,7 @@ impl Commands {
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
             | Commands::Cancel { order_id } => {
-                crate::util::run_simple_order_msg(
-                    self.clone(),
-                    order_id,
-                    &ctx
-                )
-                .await
+                crate::util::run_simple_order_msg(self.clone(), order_id, ctx).await
             }
 
             // DM commands with pubkey parsing
@@ -456,15 +452,7 @@ impl Commands {
                 status,
                 currency,
                 kind,
-            } => {
-                execute_list_orders(
-                    kind,
-                    currency,
-                    status,
-                    &ctx
-                )
-                .await
-            }
+            } => execute_list_orders(kind, currency, status, ctx).await,
             Commands::NewOrder {
                 kind,
                 fiat_code,
@@ -552,86 +540,19 @@ impl Commands {
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(
-                    Some(since),
-                    ctx.trade_index,
-                    ctx.mostro_pubkey,
-                    &ctx.mostro_keys,
-                    &ctx.client,
-                    false,
-                    from_user,
-                    &ctx.pool,
-                )
-                .await
+                execute_get_dm(Some(since), false, from_user, ctx).await
             }
-            Commands::GetDmUser { since } => {
-                execute_get_dm_user(since, &ctx.client, &ctx.mostro_pubkey, &ctx.pool).await
-            }
+            Commands::GetDmUser { since } => execute_get_dm_user(since, ctx).await,
             Commands::GetAdminDm { since, from_user } => {
-                execute_get_dm(
-                    Some(since),
-                    ctx.trade_index,
-                    ctx.mostro_pubkey,
-                    &ctx.mostro_keys,
-                    &ctx.client,
-                    true,
-                    from_user,
-                    &ctx.pool,
-                )
-                .await
+                execute_get_dm(Some(since), true, from_user, ctx).await
             }
 
             // Admin commands
-            Commands::AdmListDisputes {} => {
-                execute_list_disputes(
-                    ctx.mostro_pubkey,
-                    &ctx.mostro_keys,
-                    ctx.trade_index,
-                    &ctx.pool,
-                    &ctx.client,
-                )
-                .await
-            }
-            Commands::AdmAddSolver { npubkey } => {
-                execute_admin_add_solver(
-                    npubkey,
-                    &ctx.mostro_keys,
-                    &ctx.trade_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                )
-                .await
-            }
-            Commands::AdmSettle { order_id } => {
-                execute_admin_settle_dispute(
-                    order_id,
-                    &ctx.mostro_keys,
-                    &ctx.trade_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                )
-                .await
-            }
-            Commands::AdmCancel { order_id } => {
-                execute_admin_cancel_dispute(
-                    order_id,
-                    &ctx.mostro_keys,
-                    &ctx.trade_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                )
-                .await
-            }
-            Commands::AdmTakeDispute { dispute_id } => {
-                execute_take_dispute(
-                    dispute_id,
-                    &ctx.mostro_keys,
-                    &ctx.trade_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                )
-                .await
-            }
+            Commands::AdmListDisputes {} => execute_list_disputes(ctx).await,
+            Commands::AdmAddSolver { npubkey } => execute_admin_add_solver(npubkey, ctx).await,
+            Commands::AdmSettle { order_id } => execute_admin_settle_dispute(order_id, ctx).await,
+            Commands::AdmCancel { order_id } => execute_admin_cancel_dispute(order_id, ctx).await,
+            Commands::AdmTakeDispute { dispute_id } => execute_take_dispute(dispute_id, ctx).await,
 
             // Simple commands
             Commands::Restore {} => {

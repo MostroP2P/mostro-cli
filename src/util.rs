@@ -94,7 +94,7 @@ pub async fn save_order(
     order: SmallOrder,
     trade_keys: &Keys,
     request_id: u64,
-    trade_index: i64,
+    trade_index: Option<i64>,
     pool: &SqlitePool,
 ) -> Result<()> {
     if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
@@ -103,6 +103,15 @@ pub async fn save_order(
         } else {
             println!("Warning: The newly created order has no ID.");
         }
+        // Get trade index - we must have it
+        let trade_index = if let Some(trade_index) = trade_index {
+            trade_index
+        } else {
+            return Err(anyhow::anyhow!(
+                "No trade index found for new order, this should never happen"
+            ));
+        };
+
         // Update last trade index to be used in next trade
         match User::get(pool).await {
             Ok(mut user) => {
@@ -127,15 +136,8 @@ pub async fn wait_for_dm(
     pool: &SqlitePool,
 ) -> anyhow::Result<()> {
     let mut notifications = client.notifications();
-    // Get trade index
-    let trade_index = if let Some(trade_index) = trade_index {
-        trade_index
-    } else {
-        println!("Trade index not used for this action");
-        0
-    };
 
-    match tokio::time::timeout(Duration::from_secs(10), async move {
+    match tokio::time::timeout(Duration::from_secs(15), async move {
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotification::Event { event, .. } = notification {
                 if event.kind == nostr_sdk::Kind::GiftWrap {
@@ -154,6 +156,7 @@ pub async fn wait_for_dm(
                     }
                 };
                 let message = message.get_inner_message_kind();
+                println!("Received message: {:?}", message);
                 if message.request_id == Some(request_id) {
                     match message.action {
                         Action::NewOrder => {
@@ -568,7 +571,8 @@ pub async fn fetch_events_list(
     match list_kind {
         ListKind::Orders => {
             let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
-            let fetched_events = ctx.client
+            let fetched_events = ctx
+                .client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
             let orders = parse_orders_events(fetched_events, currency, status, kind);
@@ -576,7 +580,8 @@ pub async fn fetch_events_list(
         }
         ListKind::DirectMessagesAdmin => {
             let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
-            let fetched_events = ctx.client
+            let fetched_events = ctx
+                .client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
             let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys).await;
@@ -594,8 +599,10 @@ pub async fn fetch_events_list(
                     trade_key.public_key(),
                     None,
                 );
-                let fetched_user_messages =
-                    ctx.client.fetch_events(filter, Duration::from_secs(15)).await?;
+                let fetched_user_messages = ctx
+                    .client
+                    .fetch_events(filter, Duration::from_secs(15))
+                    .await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
                 direct_messages.extend(
@@ -615,8 +622,10 @@ pub async fn fetch_events_list(
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter =
                     create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None);
-                let fetched_user_messages =
-                    ctx.client.fetch_events(filter, Duration::from_secs(15)).await?;
+                let fetched_user_messages = ctx
+                    .client
+                    .fetch_events(filter, Duration::from_secs(15))
+                    .await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
                 direct_messages.extend(
@@ -631,8 +640,9 @@ pub async fn fetch_events_list(
                 .collect())
         }
         ListKind::Disputes => {
-            let filters = create_filter(list_kind, *mostro_pubkey, None);
-            let fetched_events = client
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
+            let fetched_events = ctx
+                .client
                 .fetch_events(filters, Duration::from_secs(15))
                 .await?;
             let disputes = parse_dispute_events(fetched_events);
@@ -660,16 +670,6 @@ pub fn get_mcli_path() -> String {
     mcli_path
 }
 
-pub async fn run_simple_order_msg(
-    command: Commands,
-    order_id: &Uuid,
-    ctx: &Context,
-) -> Result<()> {
-    execute_send_msg(
-        command,
-        Some(*order_id),
-        &ctx,
-        None,
-    )
-    .await
+pub async fn run_simple_order_msg(command: Commands, order_id: &Uuid, ctx: &Context) -> Result<()> {
+    execute_send_msg(command, Some(*order_id), ctx, None).await
 }
