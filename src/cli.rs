@@ -471,13 +471,8 @@ impl Commands {
                     payment_method,
                     premium,
                     invoice,
-                    &ctx.identity_keys,
-                    &ctx.trade_keys,
-                    ctx.trade_index,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
+                    ctx,
                     expiration_days,
-                    &ctx.pool,
                 )
                 .await
             }
@@ -485,58 +480,14 @@ impl Commands {
                 order_id,
                 invoice,
                 amount,
-            } => {
-                execute_take_order(
-                    order_id,
-                    Action::TakeSell,
-                    invoice,
-                    *amount,
-                    &ctx.identity_keys,
-                    &ctx.trade_keys,
-                    ctx.trade_index,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                    &ctx.pool,
-                )
-                .await
-            }
+            } => execute_take_order(order_id, Action::TakeSell, invoice, *amount, ctx).await,
             Commands::TakeBuy { order_id, amount } => {
-                execute_take_order(
-                    order_id,
-                    Action::TakeBuy,
-                    &None,
-                    *amount,
-                    &ctx.identity_keys,
-                    &ctx.trade_keys,
-                    ctx.trade_index,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                    &ctx.pool,
-                )
-                .await
+                execute_take_order(order_id, Action::TakeBuy, &None, *amount, ctx).await
             }
             Commands::AddInvoice { order_id, invoice } => {
-                execute_add_invoice(
-                    order_id,
-                    invoice,
-                    &ctx.identity_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                    &ctx.pool,
-                )
-                .await
+                execute_add_invoice(order_id, invoice, ctx).await
             }
-            Commands::Rate { order_id, rating } => {
-                execute_rate_user(
-                    order_id,
-                    rating,
-                    &ctx.identity_keys,
-                    ctx.mostro_pubkey,
-                    &ctx.client,
-                    &ctx.pool,
-                )
-                .await
-            }
+            Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {

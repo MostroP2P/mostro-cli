@@ -1,23 +1,15 @@
 use crate::util::{send_dm, wait_for_dm};
-use crate::{db::Order, lightning::is_valid_invoice};
+use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 use std::str::FromStr;
 use uuid::Uuid;
 
-pub async fn execute_add_invoice(
-    order_id: &Uuid,
-    invoice: &str,
-    identity_keys: &Keys,
-    mostro_key: PublicKey,
-    client: &Client,
-    pool: &SqlitePool,
-) -> Result<()> {
+pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) -> Result<()> {
     println!("Adding invoice to order {}", order_id);
-    let order = Order::get_by_id(pool, &order_id.to_string()).await?;
+    let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
     let trade_keys = order
         .trade_keys
         .clone()
@@ -26,7 +18,7 @@ pub async fn execute_add_invoice(
 
     println!(
         "Sending a lightning invoice {} to mostro pubId {}",
-        order_id, mostro_key
+        order_id, ctx.mostro_pubkey
     );
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
@@ -59,18 +51,19 @@ pub async fn execute_add_invoice(
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Clone the keys and client for the async call
-    let identity_keys = identity_keys.clone();
+    let identity_keys_clone = ctx.identity_keys.clone();
     let trade_keys_clone = trade_keys.clone();
-    let client_clone = client.clone();
+    let client_clone = ctx.client.clone();
+    let mostro_pubkey_clone = ctx.mostro_pubkey;
 
     // Spawn a new task to send the DM
     // This is so we can wait for the gift wrap event in the main thread
     tokio::spawn(async move {
         let _ = send_dm(
             &client_clone,
-            Some(&identity_keys),
+            Some(&identity_keys_clone),
             &trade_keys_clone,
-            &mostro_key,
+            &mostro_pubkey_clone,
             message_json,
             None,
             false,
@@ -79,6 +72,14 @@ pub async fn execute_add_invoice(
     });
 
     // Wait for the DM to be sent from mostro and update the order
-    wait_for_dm(client, &trade_keys, request_id, None, Some(order), pool).await?;
+    wait_for_dm(
+        &ctx.client,
+        &ctx.trade_keys,
+        request_id,
+        None,
+        Some(order),
+        &ctx.pool,
+    )
+    .await?;
     Ok(())
 }

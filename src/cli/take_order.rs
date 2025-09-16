@@ -2,12 +2,12 @@ use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 use std::str::FromStr;
 use uuid::Uuid;
 
+use crate::cli::Context;
 use crate::lightning::is_valid_invoice;
-use crate::util;
+use crate::util::{send_dm, wait_for_dm};
 
 /// Create payload based on action type and parameters
 fn create_take_order_payload(
@@ -55,12 +55,7 @@ pub async fn execute_take_order(
     action: Action,
     invoice: &Option<String>,
     amount: Option<u32>,
-    identity_keys: &Keys,
-    trade_keys: &Keys,
-    trade_index: i64,
-    mostro_key: PublicKey,
-    client: &Client,
-    pool: &SqlitePool,
+    ctx: &Context,
 ) -> Result<()> {
     let action_name = match action {
         Action::TakeBuy => "take buy",
@@ -70,9 +65,7 @@ pub async fn execute_take_order(
 
     println!(
         "Request of {} order {} from mostro pubId {}",
-        action_name,
-        order_id,
-        mostro_key.clone()
+        action_name, order_id, ctx.mostro_pubkey
     );
 
     // Create payload based on action type
@@ -84,7 +77,7 @@ pub async fn execute_take_order(
     let take_order_message = Message::new_order(
         Some(*order_id),
         Some(request_id),
-        Some(trade_index),
+        Some(ctx.trade_index),
         action.clone(),
         payload,
     );
@@ -92,7 +85,7 @@ pub async fn execute_take_order(
     // Send dm to receiver pubkey
     println!(
         "SENDING DM with trade keys: {:?}",
-        trade_keys.public_key().to_hex()
+        ctx.trade_keys.public_key().to_hex()
     );
 
     let message_json = take_order_message
@@ -100,27 +93,28 @@ pub async fn execute_take_order(
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Clone the keys and client for the async call
-    let identity_keys = identity_keys.clone();
-    let trade_keys_clone = trade_keys.clone();
-    let client_clone = client.clone();
+    let identity_keys_clone = ctx.identity_keys.clone();
+    let trade_keys_clone = ctx.trade_keys.clone();
+    let client_clone = ctx.client.clone();
+    let mostro_pubkey_clone = ctx.mostro_pubkey;
 
     // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
     let subscription = Filter::new()
-        .pubkey(trade_keys.public_key())
+        .pubkey(ctx.trade_keys.public_key())
         .kind(nostr_sdk::Kind::GiftWrap)
         .limit(0);
 
     let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-    client.subscribe(subscription, Some(opts)).await?;
+    ctx.client.subscribe(subscription, Some(opts)).await?;
 
     // Spawn a new task to send the DM
     // This is so we can wait for the gift wrap event in the main thread
     tokio::spawn(async move {
-        let _ = util::send_dm(
+        let _ = send_dm(
             &client_clone,
-            Some(&identity_keys.clone()),
+            Some(&identity_keys_clone),
             &trade_keys_clone,
-            &mostro_key,
+            &mostro_pubkey_clone,
             message_json,
             None,
             false,
@@ -131,22 +125,22 @@ pub async fn execute_take_order(
     // For take_sell, add an additional subscription with timestamp filtering
     if action == Action::TakeSell {
         let subscription = Filter::new()
-            .pubkey(trade_keys.public_key())
+            .pubkey(ctx.trade_keys.public_key())
             .kind(nostr_sdk::Kind::GiftWrap)
             .since(Timestamp::from(chrono::Utc::now().timestamp() as u64))
             .limit(0);
 
-        client.subscribe(subscription, None).await?;
+        ctx.client.subscribe(subscription, None).await?;
     }
 
     // Wait for the DM to be sent from mostro
-    util::wait_for_dm(
-        client,
-        trade_keys,
+    wait_for_dm(
+        &ctx.client,
+        &ctx.trade_keys,
         request_id,
-        Some(trade_index),
+        Some(ctx.trade_index),
         None,
-        pool,
+        &ctx.pool,
     )
     .await?;
 

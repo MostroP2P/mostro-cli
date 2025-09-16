@@ -1,9 +1,9 @@
+use crate::cli::Context;
 use crate::parser::orders::print_order_preview;
 use crate::util::{send_dm, uppercase_first, wait_for_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
@@ -11,6 +11,12 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 pub type FiatNames = HashMap<String, String>;
+
+fn set_order_values() -> Result<SmallOrder> {
+    let mut new_order= SmallOrder::default();
+
+    ;
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_new_order(
@@ -21,13 +27,8 @@ pub async fn execute_new_order(
     payment_method: &str,
     premium: &i64,
     invoice: &Option<String>,
-    identity_keys: &Keys,
-    trade_keys: &Keys,
-    trade_index: i64,
-    mostro_key: PublicKey,
-    client: &Client,
+    ctx: &Context,
     expiration_days: &i64,
-    pool: &SqlitePool,
 ) -> Result<()> {
     // Uppercase currency
     let fiat_code = fiat_code.to_uppercase();
@@ -67,6 +68,9 @@ pub async fn execute_new_order(
     } else {
         (fiat_amount.0, None, None)
     };
+
+    let small_order = set_order_values(kind, fiat_code, amt, payment_method, premium, invoice, expires_at)?;
+    
     let small_order = SmallOrder::new(
         None,
         Some(kind_checked),
@@ -116,7 +120,7 @@ pub async fn execute_new_order(
     let message = Message::new_order(
         None,
         Some(request_id),
-        Some(trade_index),
+        Some(ctx.trade_index),
         Action::NewOrder,
         Some(order_content),
     );
@@ -124,7 +128,7 @@ pub async fn execute_new_order(
     // Send dm to receiver pubkey
     println!(
         "SENDING DM with trade keys: {:?}",
-        trade_keys.public_key().to_hex()
+        ctx.trade_keys.public_key().to_hex()
     );
 
     // Serialize the message
@@ -133,29 +137,29 @@ pub async fn execute_new_order(
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Clone the keys and client for the async call
-    let identity_keys = identity_keys.clone();
-    let trade_keys_clone = trade_keys.clone();
-    // let mostro_key = mostro_key.clone();
-    let client_clone = client.clone();
+    let identity_keys_clone = ctx.identity_keys.clone();
+    let trade_keys_clone = ctx.trade_keys.clone();
+    let client_clone = ctx.client.clone();
+    let mostro_pubkey_clone = ctx.mostro_pubkey;
 
     // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
     let subscription = Filter::new()
-        .pubkey(trade_keys.public_key())
+        .pubkey(ctx.trade_keys.public_key())
         .kind(nostr_sdk::Kind::GiftWrap)
         .limit(0);
 
     let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
 
-    client.subscribe(subscription, Some(opts)).await?;
+    ctx.client.subscribe(subscription, Some(opts)).await?;
 
     // Spawn a new task to send the DM
     // This is so we can wait for the gift wrap event in the main thread
     tokio::spawn(async move {
         let _ = send_dm(
             &client_clone,
-            Some(&identity_keys.clone()),
+            Some(&identity_keys_clone),
             &trade_keys_clone,
-            &mostro_key,
+            &mostro_pubkey_clone,
             message_json,
             None,
             false,
@@ -165,12 +169,12 @@ pub async fn execute_new_order(
 
     // Wait for the DM to be sent from mostro
     wait_for_dm(
-        client,
-        trade_keys,
+        &ctx.client,
+        &ctx.trade_keys,
         request_id,
-        Some(trade_index),
+        Some(ctx.trade_index),
         None,
-        pool,
+        &ctx.pool,
     )
     .await?;
 
