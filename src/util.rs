@@ -156,7 +156,6 @@ pub async fn wait_for_dm(
                     }
                 };
                 let message = message.get_inner_message_kind();
-                println!("Received message: {:?}", message);
                 if message.request_id == Some(request_id) {
                     match message.action {
                         Action::NewOrder => {
@@ -180,6 +179,7 @@ pub async fn wait_for_dm(
                                     Ok(_) => println!("Order status updated"),
                                     Err(e) => println!("Failed to update order status: {}", e),
                                 }
+                                return Ok(());
                             }
                         }
                         // this is the case where the buyer adds an invoice to a takesell order
@@ -260,10 +260,7 @@ pub async fn wait_for_dm(
                                 }
                             }
                         }
-                        _ => {
-                            println!("Unknown action: {:?}", message.action);
-                            return Err(());
-                        }
+                        _ => {}
                     }
                     }
                 }

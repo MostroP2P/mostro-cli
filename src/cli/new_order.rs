@@ -12,12 +12,6 @@ use uuid::Uuid;
 
 pub type FiatNames = HashMap<String, String>;
 
-fn set_order_values() -> Result<SmallOrder> {
-    let mut new_order= SmallOrder::default();
-
-    ;
-}
-
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_new_order(
     kind: &str,
@@ -69,8 +63,6 @@ pub async fn execute_new_order(
         (fiat_amount.0, None, None)
     };
 
-    let small_order = set_order_values(kind, fiat_code, amt, payment_method, premium, invoice, expires_at)?;
-    
     let small_order = SmallOrder::new(
         None,
         Some(kind_checked),

@@ -8,16 +8,19 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) -> Result<()> {
-    println!("Adding invoice to order {}", order_id);
     let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
     let trade_keys = order
         .trade_keys
         .clone()
         .ok_or(anyhow::anyhow!("Missing trade keys"))?;
-    let trade_keys = Keys::parse(&trade_keys)?;
+    let order_trade_keys = Keys::parse(&trade_keys)?;
+    println!(
+        "Order trade keys: {:?}",
+        order_trade_keys.public_key().to_hex()
+    );
 
     println!(
-        "Sending a lightning invoice {} to mostro pubId {}",
+        "Sending a lightning invoice for order {} to mostro pubId {}",
         order_id, ctx.mostro_pubkey
     );
     // Check invoice string
@@ -28,8 +31,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         match is_valid_invoice(invoice) {
             Ok(i) => Some(Payload::PaymentRequest(None, i.to_string(), None)),
             Err(e) => {
-                println!("Invalid invoice: {}", e);
-                None
+                return Err(anyhow::anyhow!("Invalid invoice: {}", e));
             }
         }
     };
@@ -50,11 +52,20 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
+    // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
+    let subscription = Filter::new()
+        .pubkey(order_trade_keys.clone().public_key())
+        .kind(nostr_sdk::Kind::GiftWrap)
+        .limit(0);
+
+    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
+    ctx.client.subscribe(subscription, Some(opts)).await?;
+
     // Clone the keys and client for the async call
     let identity_keys_clone = ctx.identity_keys.clone();
-    let trade_keys_clone = trade_keys.clone();
     let client_clone = ctx.client.clone();
     let mostro_pubkey_clone = ctx.mostro_pubkey;
+    let order_trade_keys_clone = order_trade_keys.clone();
 
     // Spawn a new task to send the DM
     // This is so we can wait for the gift wrap event in the main thread
@@ -62,7 +73,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         let _ = send_dm(
             &client_clone,
             Some(&identity_keys_clone),
-            &trade_keys_clone,
+            &order_trade_keys,
             &mostro_pubkey_clone,
             message_json,
             None,
@@ -74,7 +85,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     // Wait for the DM to be sent from mostro and update the order
     wait_for_dm(
         &ctx.client,
-        &ctx.trade_keys,
+        &order_trade_keys_clone,
         request_id,
         None,
         Some(order),

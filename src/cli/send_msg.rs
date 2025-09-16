@@ -5,7 +5,6 @@ use crate::util::{send_dm, wait_for_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use std::process;
 use uuid::Uuid;
 
 pub async fn execute_send_msg(
@@ -24,8 +23,7 @@ pub async fn execute_send_msg(
         Commands::AdmSettle { .. } => Action::AdminSettle,
         Commands::AdmAddSolver { .. } => Action::AdminAddSolver,
         _ => {
-            eprintln!("Not a valid command!");
-            process::exit(0);
+            return Err(anyhow::anyhow!("Invalid command for send msg"));
         }
     };
 
