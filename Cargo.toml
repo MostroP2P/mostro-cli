@@ -46,3 +46,8 @@ openssl = { version = "0.10.73", features = ["vendored"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-native-tls"] }
 bip39 = { version = "2.2.0", features = ["rand"] }
 dirs = "6.0.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+serial_test = "3.1"
+rstest = "0.26.1"

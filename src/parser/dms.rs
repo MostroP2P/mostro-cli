@@ -178,3 +178,6 @@ pub async fn print_direct_messages(dm: &[(Message, u64)], pool: &SqlitePool) -> 
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {}

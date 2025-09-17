@@ -661,3 +661,6 @@ pub fn get_mcli_path() -> String {
 pub async fn run_simple_order_msg(command: Commands, order_id: &Uuid, ctx: &Context) -> Result<()> {
     execute_send_msg(command, Some(*order_id), ctx, None).await
 }
+
+#[cfg(test)]
+mod tests {}

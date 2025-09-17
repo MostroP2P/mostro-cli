@@ -117,3 +117,6 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
 
     Ok(table.to_string())
 }
+
+#[cfg(test)]
+mod tests {}
