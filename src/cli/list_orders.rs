@@ -1,61 +1,68 @@
+use crate::cli::Context;
+use crate::parser::orders::print_orders_table;
+use crate::util::{fetch_events_list, ListKind};
 use anyhow::Result;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
 use std::str::FromStr;
 
-use crate::pretty_table::print_orders_table;
-use crate::util::get_orders_list;
-
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_list_orders(
     kind: &Option<String>,
     currency: &Option<String>,
     status: &Option<String>,
-    mostro_key: PublicKey,
-    client: &Client,
+    ctx: &Context,
 ) -> Result<()> {
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
-    let mut status_checked: Option<Status> = Some(Status::from_str("pending").unwrap());
+    // Default status is pending
+    let mut status_checked: Option<Status> = Some(Status::Pending);
+    // Default kind is none
     let mut kind_checked: Option<mostro_core::order::Kind> = None;
 
     // New check against strings
     if let Some(s) = status {
-        status_checked = Some(Status::from_str(s).expect("Not valid status! Please check"));
+        status_checked = Some(
+            Status::from_str(s)
+                .map_err(|e| anyhow::anyhow!("Not valid status '{}': {:?}", s, e))?,
+        );
     }
 
-    println!(
-        "You are searching orders with status {:?}",
-        status_checked.unwrap()
-    );
-    // New check against strings
+    // Print status requested
+    if let Some(status) = &status_checked {
+        println!("You are searching orders with status {:?}", status);
+    }
+    // New check against strings for kind
     if let Some(k) = kind {
         kind_checked = Some(
-            mostro_core::order::Kind::from_str(k).expect("Not valid order kind! Please check"),
+            mostro_core::order::Kind::from_str(k)
+                .map_err(|e| anyhow::anyhow!("Not valid order kind '{}': {:?}", k, e))?,
         );
-        println!("You are searching {} orders", kind_checked.unwrap());
+        if let Some(kind) = &kind_checked {
+            println!("You are searching {} orders", kind);
+        }
     }
 
     // Uppercase currency
     if let Some(curr) = currency {
         upper_currency = Some(curr.to_uppercase());
-        println!(
-            "You are searching orders with currency {}",
-            upper_currency.clone().unwrap()
-        );
+        if let Some(currency) = &upper_currency {
+            println!("You are searching orders with currency {}", currency);
+        }
     }
 
     println!(
         "Requesting orders from mostro pubId - {}",
-        mostro_key.clone()
+        &ctx.mostro_pubkey
     );
 
     // Get orders from relays
-    let table_of_orders = get_orders_list(
-        mostro_key,
-        status_checked.unwrap(),
+    let table_of_orders = fetch_events_list(
+        ListKind::Orders,
+        status_checked,
         upper_currency,
         kind_checked,
-        client,
+        ctx,
+        None,
     )
     .await?;
     let table = print_orders_table(table_of_orders)?;

@@ -3,43 +3,35 @@ use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-use crate::{
-    db::{connect, Order},
-    util::send_message_sync,
-};
+const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
 
-pub async fn execute_rate_user(
-    order_id: &Uuid,
-    rating: &u8,
-    identity_keys: &Keys,
-    mostro_key: PublicKey,
-    client: &Client,
-) -> Result<()> {
-    // User rating
-    let rating_content;
+use crate::{cli::Context, db::Order, util::send_dm};
 
-    // Check boundaries
-    if let 1..=5 = *rating {
-        rating_content = Payload::RatingUser(*rating);
+// Get the user rate
+fn get_user_rate(rating: &u8) -> Result<Payload> {
+    if let Some(rating) = RATING_BOUNDARIES.iter().find(|r| r == &rating) {
+        Ok(Payload::RatingUser(*rating))
     } else {
-        println!("Rating must be in the range 1 - 5");
-        std::process::exit(0);
+        Err(anyhow::anyhow!("Rating must be in the range 1 - 5"))
     }
+}
 
-    let pool = connect().await?;
+pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> Result<()> {
+    // Check boundaries
+    let rating_content = get_user_rate(rating)?;
 
-    let trade_keys = if let Ok(order_to_vote) = Order::get_by_id(&pool, &order_id.to_string()).await
-    {
-        match order_to_vote.trade_keys.as_ref() {
-            Some(trade_keys) => Keys::parse(trade_keys)?,
-            None => {
-                anyhow::bail!("No trade_keys found for this order");
+    // Get the trade keys
+    let trade_keys =
+        if let Ok(order_to_vote) = Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
+            match order_to_vote.trade_keys.as_ref() {
+                Some(trade_keys) => Keys::parse(trade_keys)?,
+                None => {
+                    return Err(anyhow::anyhow!("No trade_keys found for this order"));
+                }
             }
-        }
-    } else {
-        println!("order {} not found", order_id);
-        std::process::exit(0)
-    };
+        } else {
+            return Err(anyhow::anyhow!("order {} not found", order_id));
+        };
 
     // Create rating message of counterpart
     let rate_message = Message::new_order(
@@ -48,18 +40,20 @@ pub async fn execute_rate_user(
         None,
         Action::RateUser,
         Some(rating_content),
-    );
+    )
+    .as_json()
+    .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    send_message_sync(
-        client,
-        Some(identity_keys),
+    send_dm(
+        &ctx.client,
+        Some(&ctx.identity_keys),
         &trade_keys,
-        mostro_key,
+        &ctx.mostro_pubkey,
         rate_message,
-        true,
+        None,
         false,
     )
     .await?;
 
-    std::process::exit(0);
+    Ok(())
 }

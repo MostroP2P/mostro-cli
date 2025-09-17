@@ -1,30 +1,41 @@
+use crate::cli::Context;
 use crate::{db::Order, util::get_direct_messages_from_trade_keys};
 use anyhow::Result;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
 
-pub async fn execute_get_dm_user(since: &i64, client: &Client, mostro_pubkey: &PublicKey) -> Result<()> {
-    let pool = crate::db::connect().await?;
-    
+pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
     // Get all trade keys from orders
-    let mut trade_keys_hex = Order::get_all_trade_keys(&pool).await?;
-    
-    // Add admin private key to search for messages sent TO admin
-    if let Ok(admin_privkey_hex) = std::env::var("NSEC_PRIVKEY") {
-        trade_keys_hex.push(admin_privkey_hex);
+    let mut trade_keys_hex = Order::get_all_trade_keys(&ctx.pool).await?;
+
+    // Include admin pubkey so we also fetch messages sent TO admin
+    let admin_pubkey_hex = ctx.mostro_pubkey.to_hex();
+    if !trade_keys_hex.iter().any(|k| k == &admin_pubkey_hex) {
+        trade_keys_hex.push(admin_pubkey_hex);
     }
-    
+    // De-duplicate any repeated keys coming from DB/admin
+    trade_keys_hex.sort();
+    trade_keys_hex.dedup();
+
     if trade_keys_hex.is_empty() {
-        println!("No trade keys found in orders and NSEC_PRIVKEY not set");
+        println!("No trade keys found in orders");
         return Ok(());
     }
-    
-    println!("Searching for DMs in {} trade keys...", trade_keys_hex.len());
-    
-    let direct_messages = get_direct_messages_from_trade_keys(client, trade_keys_hex, *since, mostro_pubkey).await;
+
+    println!(
+        "Searching for DMs in {} trade keys...",
+        trade_keys_hex.len()
+    );
+
+    let direct_messages = get_direct_messages_from_trade_keys(
+        &ctx.client,
+        trade_keys_hex,
+        *since,
+        &ctx.mostro_pubkey,
+    )
+    .await?;
 
     if direct_messages.is_empty() {
         println!("You don't have any direct messages in your trade keys");

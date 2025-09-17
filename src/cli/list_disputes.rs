@@ -1,17 +1,19 @@
 use anyhow::Result;
-use nostr_sdk::prelude::*;
 
-use crate::pretty_table::print_disputes_table;
-use crate::util::get_disputes_list;
+use crate::cli::Context;
+use crate::parser::disputes::print_disputes_table;
+use crate::util::{fetch_events_list, ListKind};
 
-pub async fn execute_list_disputes(mostro_key: PublicKey, client: &Client) -> Result<()> {
+pub async fn execute_list_disputes(ctx: &Context) -> Result<()> {
+    // Print mostro pubkey
     println!(
         "Requesting disputes from mostro pubId - {}",
-        mostro_key.clone()
+        &ctx.mostro_pubkey
     );
 
     // Get orders from relays
-    let table_of_disputes = get_disputes_list(mostro_key, client).await?;
+    let table_of_disputes =
+        fetch_events_list(ListKind::Disputes, None, None, None, ctx, None).await?;
     let table = print_disputes_table(table_of_disputes)?;
     println!("{table}");
 

@@ -1,16 +1,38 @@
-use crate::nip33::{dispute_from_tags, order_from_tags};
-
+use crate::cli::send_msg::execute_send_msg;
+use crate::cli::{Commands, Context};
+use crate::db::{Order, User};
+use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
 use dotenvy::var;
-use log::{error, info};
+use log::info;
 use mostro_core::prelude::*;
-use nip44::v2::{decrypt_to_bytes, encrypt_to_bytes, ConversationKey};
+use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
-use std::thread::sleep;
+use sqlx::SqlitePool;
 use std::time::Duration;
 use std::{fs, path::Path};
+use uuid::Uuid;
+
+const FAKE_SINCE: i64 = 2880;
+const FETCH_EVENTS_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[derive(Clone, Debug)]
+pub enum Event {
+    SmallOrder(SmallOrder),
+    Dispute(Dispute), // Assuming you have a Dispute struct
+    MessageTuple(Box<(Message, u64)>),
+}
+
+#[derive(Clone, Debug)]
+pub enum ListKind {
+    Orders,
+    Disputes,
+    DirectMessagesUser,
+    DirectMessagesAdmin,
+    PrivateDirectMessagesUser,
+}
 
 async fn send_gift_wrap_dm_internal(
     client: &Client,
@@ -23,7 +45,7 @@ async fn send_gift_wrap_dm_internal(
         .unwrap_or_else(|_| "0".to_string())
         .parse()
         .unwrap_or(0);
-    
+
     // Create Message struct for consistency with Mostro protocol
     let dm_message = Message::new_dm(
         None,
@@ -31,22 +53,25 @@ async fn send_gift_wrap_dm_internal(
         Action::SendDm,
         Some(Payload::TextMessage(message.to_string())),
     );
-    
+
     // Serialize as JSON with the expected format (Message, Option<Signature>)
     let content = serde_json::to_string(&(dm_message, None::<String>))?;
-    
+
     // Create the rumor with JSON content
     let rumor = EventBuilder::text_note(content)
         .pow(pow)
         .build(sender_keys.public_key());
-    
+
     // Create gift wrap using sender_keys as the signing key
     let event = EventBuilder::gift_wrap(sender_keys, receiver_pubkey, rumor, Tags::new()).await?;
-    
+
     let sender_type = if is_admin { "admin" } else { "user" };
-    info!("Sending {} gift wrap event to {}", sender_type, receiver_pubkey);
+    info!(
+        "Sending {} gift wrap event to {}",
+        sender_type, receiver_pubkey
+    );
     client.send_event(&event).await?;
-    
+
     Ok(())
 }
 
@@ -68,6 +93,281 @@ pub async fn send_gift_wrap_dm(
     send_gift_wrap_dm_internal(client, trade_keys, receiver_pubkey, message, false).await
 }
 
+pub async fn save_order(
+    order: SmallOrder,
+    trade_keys: &Keys,
+    request_id: u64,
+    trade_index: Option<i64>,
+    pool: &SqlitePool,
+) -> Result<()> {
+    if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
+        if let Some(order_id) = order.id {
+            println!("Order {} created", order_id);
+        } else {
+            println!("Warning: The newly created order has no ID.");
+        }
+        // Get trade index - we must have it
+        let trade_index = if let Some(trade_index) = trade_index {
+            trade_index
+        } else {
+            return Err(anyhow::anyhow!(
+                "No trade index found for new order, this should never happen"
+            ));
+        };
+
+        // Update last trade index to be used in next trade
+        match User::get(pool).await {
+            Ok(mut user) => {
+                user.set_last_trade_index(trade_index);
+                if let Err(e) = user.save(pool).await {
+                    println!("Failed to update user: {}", e);
+                }
+            }
+            Err(e) => println!("Failed to get user: {}", e),
+        }
+    }
+    Ok(())
+}
+
+/// Wait for incoming gift wraps or events coming in
+pub async fn wait_for_dm(
+    client: &Client,
+    trade_keys: &Keys,
+    request_id: u64,
+    trade_index: Option<i64>,
+    mut order: Option<Order>,
+    pool: &SqlitePool,
+) -> anyhow::Result<()> {
+    let mut notifications = client.notifications();
+
+    match tokio::time::timeout(FETCH_EVENTS_TIMEOUT, async move {
+        while let Ok(notification) = notifications.recv().await {
+            if let RelayPoolNotification::Event { event, .. } = notification {
+                if event.kind == nostr_sdk::Kind::GiftWrap {
+                let gift = match nip59::extract_rumor(trade_keys, &event).await {
+                    Ok(gift) => gift,
+                    Err(e) => {
+                        println!("Failed to extract rumor: {}", e);
+                        continue;
+                    }
+                };
+                let (message, _): (Message, Option<String>) = match serde_json::from_str(&gift.rumor.content) {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        println!("Failed to deserialize message: {}", e);
+                        continue;
+                    }
+                };
+                let message = message.get_inner_message_kind();
+                if message.request_id == Some(request_id) {
+                    match message.action {
+                        Action::NewOrder => {
+                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
+                                    println!("Failed to save order: {}", e);
+                                    return Err(());
+                                }
+                                return Ok(());
+                            }
+                        }
+                        // this is the case where the buyer adds an invoice to a takesell order
+                        Action::WaitingSellerToPay => {
+                            println!("Now we should wait for the seller to pay the invoice");
+                            if let Some(mut order) = order.take() {
+                                match order
+                                .set_status(Status::WaitingPayment.to_string())
+                                .save(pool)
+                                .await
+                                {
+                                    Ok(_) => println!("Order status updated"),
+                                    Err(e) => println!("Failed to update order status: {}", e),
+                                }
+                                return Ok(());
+                            }
+                        }
+                        // this is the case where the buyer adds an invoice to a takesell order
+                        Action::AddInvoice => {
+                            if let Some(Payload::Order(order)) = &message.payload {
+                                println!(
+                                    "Please add a lightning invoice with amount of {}",
+                                    order.amount
+                                );
+                                // Save the order
+                                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
+                                    println!("Failed to save order: {}", e);
+                                    return Err(());
+                                }
+                                return Ok(());
+                            }
+                        }
+                        // this is the case where the buyer pays the invoice coming from a takebuy
+                        Action::PayInvoice => {
+                            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
+                                println!(
+                                    "Mostro sent you this hold invoice for order id: {}",
+                                    order
+                                        .as_ref()
+                                        .and_then(|o| o.id)
+                                        .map_or("unknown".to_string(), |id| id.to_string())
+                                );
+                                println!();
+                                println!("Pay this invoice to continue -->  {}", invoice);
+                                println!();
+                                if let Some(order) = order {
+                                    let store_order = order.clone();
+                                    // Save the order
+                                    if let Err(e) = save_order(store_order, trade_keys, request_id, trade_index, pool).await {
+                                        println!("Failed to save order: {}", e);
+                                        return Err(());
+                                    }
+                                }
+                                return Ok(());
+                            }
+                        }
+                        Action::CantDo => {
+                            match message.payload {
+                                Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) => {
+                                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                                    return Err(());
+                                }
+                                Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
+                                        println!("Error: A pending order already exists. Please wait for it to be filled or canceled.");
+                                        return Err(());
+                                    }
+                                Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
+                                    println!("Error: Invalid trade index. Please synchronize the trade index with mostro");
+                                    return Err(());
+                                }
+                                _ => {
+                                    println!("Unknown reason: {:?}", message.payload);
+                                    return Err(());
+                                }
+                            }
+                        }
+                        // this is the case where the user cancels the order
+                        Action::Canceled => {
+                            if let Some(order_id) = &message.id {
+                            // Acquire database connection
+                            // Verify order exists before deletion
+                            if Order::get_by_id(pool, &order_id.to_string()).await.is_ok() {
+                                if let Err(e) = Order::delete_by_id(pool, &order_id.to_string()).await {
+                                    println!("Failed to delete order: {}", e);
+                                    return Err(());
+                                }
+                                // Release database connection
+                                println!("Order {} canceled!", order_id);
+                                return Ok(());
+                            } else {
+                                println!("Order not found: {}", order_id);
+                                return Err(());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    }
+                }
+        }
+        }
+        Ok(())
+    })
+    .await {
+        Ok(result) => match result {
+            Ok(()) => Ok(()),
+            Err(()) => Err(anyhow::anyhow!("Error in timeout closure")),
+        },
+        Err(_) => Err(anyhow::anyhow!("Timeout waiting for DM or gift wrap event"))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MessageType {
+    PrivateDirectMessage,
+    PrivateGiftWrap,
+    SignedGiftWrap,
+}
+
+fn determine_message_type(to_user: bool, private: bool) -> MessageType {
+    match (to_user, private) {
+        (true, _) => MessageType::PrivateDirectMessage,
+        (false, true) => MessageType::PrivateGiftWrap,
+        (false, false) => MessageType::SignedGiftWrap,
+    }
+}
+
+fn create_expiration_tags(expiration: Option<Timestamp>) -> Tags {
+    let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
+
+    if let Some(timestamp) = expiration {
+        tags.push(Tag::expiration(timestamp));
+    }
+
+    Tags::from_list(tags)
+}
+
+async fn create_private_dm_event(
+    trade_keys: &Keys,
+    receiver_pubkey: &PublicKey,
+    payload: String,
+    pow: u8,
+) -> Result<nostr_sdk::Event> {
+    // Derive conversation key
+    let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey)?;
+    // Encrypt payload
+    let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
+    // Encode with base64
+    let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
+    // Compose builder
+    Ok(
+        EventBuilder::new(nostr_sdk::Kind::PrivateDirectMessage, b64decoded_content)
+            .pow(pow)
+            .tag(Tag::public_key(*receiver_pubkey))
+            .sign_with_keys(trade_keys)?,
+    )
+}
+
+async fn create_gift_wrap_event(
+    trade_keys: &Keys,
+    identity_keys: Option<&Keys>,
+    receiver_pubkey: &PublicKey,
+    payload: String,
+    pow: u8,
+    expiration: Option<Timestamp>,
+    signed: bool,
+) -> Result<nostr_sdk::Event> {
+    let message = Message::from_json(&payload)
+        .map_err(|e| anyhow::anyhow!("Failed to deserialize message: {e}"))?;
+
+    let content = if signed {
+        let _identity_keys = identity_keys
+            .ok_or_else(|| Error::msg("identity_keys required for signed messages"))?;
+        // We sign the message
+        let sig = Message::sign(payload, trade_keys);
+        serde_json::to_string(&(message, sig))
+            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
+    } else {
+        // We compose the content, when private we don't sign the payload
+        let content: (Message, Option<Signature>) = (message, None);
+        serde_json::to_string(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
+    };
+
+    // We create the rumor
+    let rumor = EventBuilder::text_note(content)
+        .pow(pow)
+        .build(trade_keys.public_key());
+
+    let tags = create_expiration_tags(expiration);
+
+    let signer_keys = if signed {
+        identity_keys.ok_or_else(|| Error::msg("identity_keys required for signed messages"))?
+    } else {
+        trade_keys
+    };
+
+    Ok(EventBuilder::gift_wrap(signer_keys, receiver_pubkey, rumor, tags).await?)
+}
+
 pub async fn send_dm(
     client: &Client,
     identity_keys: Option<&Keys>,
@@ -77,65 +377,48 @@ pub async fn send_dm(
     expiration: Option<Timestamp>,
     to_user: bool,
 ) -> Result<()> {
-    let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
+    let pow: u8 = var("POW")
+        .unwrap_or('0'.to_string())
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
     let private = var("SECRET")
         .unwrap_or("false".to_string())
         .parse::<bool>()
-        .unwrap();
-    let event = if to_user {
-        // Derive conversation key
-        let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey)?;
-        // Encrypt payload
-        let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
-        // Encode with base64
-        let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
-        // Compose builder
-        EventBuilder::new(nostr_sdk::Kind::PrivateDirectMessage, b64decoded_content)
-            .pow(pow)
-            .tag(Tag::public_key(*receiver_pubkey))
-            .sign_with_keys(trade_keys)?
-    } else if private {
-        let message = Message::from_json(&payload).unwrap();
-        // We compose the content, when private we don't sign the payload
-        let content: (Message, Option<Signature>) = (message, None);
-        let content = serde_json::to_string(&content).unwrap();
-        // We create the rumor
-        let rumor = EventBuilder::text_note(content)
-            .pow(pow)
-            .build(trade_keys.public_key());
-        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
+        .map_err(|e| anyhow::anyhow!("Failed to parse SECRET: {}", e))?;
 
-        if let Some(timestamp) = expiration {
-            tags.push(Tag::expiration(timestamp));
+    let message_type = determine_message_type(to_user, private);
+
+    let event = match message_type {
+        MessageType::PrivateDirectMessage => {
+            create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?
         }
-        let tags = Tags::from_list(tags);
-
-        EventBuilder::gift_wrap(trade_keys, receiver_pubkey, rumor, tags).await?
-    } else {
-        let identity_keys = identity_keys
-            .ok_or_else(|| Error::msg("identity_keys required when to_user is false"))?;
-        // We sign the message
-        let message = Message::from_json(&payload).unwrap();
-        let sig = Message::sign(payload.clone(), trade_keys);
-        // We compose the content
-        let content = serde_json::to_string(&(message, sig)).unwrap();
-        // We create the rumor
-        let rumor = EventBuilder::text_note(content)
-            .pow(pow)
-            .build(trade_keys.public_key());
-        let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
-
-        if let Some(timestamp) = expiration {
-            tags.push(Tag::expiration(timestamp));
+        MessageType::PrivateGiftWrap => {
+            create_gift_wrap_event(
+                trade_keys,
+                identity_keys,
+                receiver_pubkey,
+                payload,
+                pow,
+                expiration,
+                false,
+            )
+            .await?
         }
-        let tags = Tags::from_list(tags);
-
-        EventBuilder::gift_wrap(identity_keys, receiver_pubkey, rumor, tags).await?
+        MessageType::SignedGiftWrap => {
+            create_gift_wrap_event(
+                trade_keys,
+                identity_keys,
+                receiver_pubkey,
+                payload,
+                pow,
+                expiration,
+                true,
+            )
+            .await?
+        }
     };
 
-    info!("Sending event: {event:#?}");
     client.send_event(&event).await?;
-
     Ok(())
 }
 
@@ -150,396 +433,210 @@ pub async fn connect_nostr() -> Result<Client> {
     for r in relays.into_iter() {
         client.add_relay(r).await?;
     }
+
     // Connect to relays and keep connection alive
     client.connect().await;
 
     Ok(client)
 }
 
-pub async fn send_message_sync(
-    client: &Client,
-    identity_keys: Option<&Keys>,
-    trade_keys: &Keys,
-    receiver_pubkey: PublicKey,
-    message: Message,
-    wait_for_dm: bool,
-    to_user: bool,
-) -> Result<Vec<(Message, u64)>> {
-    let message_json = message
-        .as_json()
-        .map_err(|_| Error::msg("Failed to serialize message"))?;
-    // Send dm to receiver pubkey
-    println!(
-        "SENDING DM with trade keys: {:?}",
-        trade_keys.public_key().to_hex()
-    );
-    send_dm(
-        client,
-        identity_keys,
-        trade_keys,
-        &receiver_pubkey,
-        message_json,
-        None,
-        to_user,
-    )
-    .await?;
-    // FIXME: This is a hack to wait for the DM to be sent
-    sleep(Duration::from_secs(2));
-
-    let dm: Vec<(Message, u64)> = if wait_for_dm {
-        get_direct_messages(client, trade_keys, 15, to_user, None).await
-    } else {
-        Vec::new()
-    };
-
-    Ok(dm)
-}
-
 pub async fn get_direct_messages_from_trade_keys(
     client: &Client,
     trade_keys_hex: Vec<String>,
     since: i64,
-    mostro_pubkey: &PublicKey,
-) -> Vec<(Message, u64, PublicKey)> {
+    _mostro_pubkey: &PublicKey,
+) -> Result<Vec<(Message, u64, PublicKey)>> {
     if trade_keys_hex.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
-    let fake_since = 2880;
-    let fake_since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::minutes(fake_since))
-        .unwrap()
-        .timestamp() as u64;
-    let fake_timestamp = Timestamp::from(fake_since_time);
-    
     let since_time = chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::minutes(since))
-        .unwrap()
-        .timestamp() as u64;
+        .ok_or(anyhow::anyhow!("Failed to get since time"))?
+        .timestamp();
 
-    let mut all_direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let mut id_set = std::collections::HashSet::<EventId>::new();
+    // Get the triple of message, timestamp and public key
+    let mut all_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
 
+    // Fetch direct messages from trade keys and in case of since, we filter by since
+    // as bonus we also fetch the events from the admin pubkey in case is specified
     for trade_key_hex in trade_keys_hex {
-        if let Ok(trade_keys) = Keys::parse(&trade_key_hex) {
-            let filters = Filter::new()
-                .kind(nostr_sdk::Kind::GiftWrap)
-                .pubkey(trade_keys.public_key())
-                .since(fake_timestamp);
-
-            info!("Request events with event kind : {:?} for trade key: {}", 
-                  filters.kinds, trade_keys.public_key());
-
-            if let Ok(events) = client.fetch_events(filters, Duration::from_secs(15)).await {
-                for dm in events.iter() {
-                    if !id_set.insert(dm.id) {
-                        continue; // Already processed
-                    }
-                        
-                    let unwrapped_gift = match nip59::extract_rumor(&trade_keys, dm).await {
-                        Ok(u) => u,
-                        Err(_) => {
-                            error!("Error unwrapping gift for trade key: {}", trade_keys.public_key());
-                            continue;
-                        }
-                    };
-                    
-                    // Filter: only process messages NOT from Mostro (user-to-user messages)
-                    if unwrapped_gift.rumor.pubkey == *mostro_pubkey {
-                        continue; // Skip Mostro messages
-                    }
-
-                    if unwrapped_gift.rumor.created_at.as_u64() < since_time {
+        if let Ok(public_key) = PublicKey::from_hex(&trade_key_hex) {
+            // Create filter for fetching direct messages
+            let filter =
+                create_filter(ListKind::DirectMessagesUser, public_key, Some(&since_time))?;
+            let events = client.fetch_events(filter, FETCH_EVENTS_TIMEOUT).await?;
+            // Parse events without keys since we only have the public key
+            // We'll need to handle this differently - let's just collect the events for now
+            for event in events {
+                if let Ok(message) = Message::from_json(&event.content) {
+                    if event.created_at.as_u64() < since as u64 {
                         continue;
                     }
-
-                    // Parse JSON content (all messages should be JSON now)
-                    let (message, _): (Message, Option<String>) = match serde_json::from_str(&unwrapped_gift.rumor.content) {
-                        Ok(parsed) => parsed,
-                        Err(_) => {
-                            error!("Error parsing JSON content from: {}", unwrapped_gift.rumor.pubkey);
-                            continue;
-                        }
-                    };
-                    
-                    all_direct_messages.push((
-                        message, 
-                        unwrapped_gift.rumor.created_at.as_u64(),
-                        unwrapped_gift.rumor.pubkey
-                    ));
+                    all_messages.push((message, event.created_at.as_u64(), event.pubkey));
                 }
             }
-        } else {
-            error!("Failed to parse trade key: {}", trade_key_hex);
         }
     }
-
-    all_direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
-    all_direct_messages
+    Ok(all_messages)
 }
 
-pub async fn get_direct_messages(
-    client: &Client,
-    my_key: &Keys,
-    since: i64,
-    from_user: bool,
-    mostro_pubkey: Option<&PublicKey>,
-) -> Vec<(Message, u64)> {
-    // We use a fake timestamp to thwart time-analysis attacks
-    let fake_since = 2880;
+/// Create a fake timestamp to thwart time-analysis attacks
+fn create_fake_timestamp() -> Result<Timestamp> {
     let fake_since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::minutes(fake_since))
-        .unwrap()
+        .checked_sub_signed(chrono::Duration::minutes(FAKE_SINCE))
+        .ok_or(anyhow::anyhow!("Failed to get fake since time"))?
+        .timestamp() as u64;
+    Ok(Timestamp::from(fake_since_time))
+}
+
+// Create a filter for fetching events in the last 7 days
+fn create_seven_days_filter(letter: Alphabet, value: String, pubkey: PublicKey) -> Result<Filter> {
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
         .timestamp() as u64;
 
-    let fake_timestamp = Timestamp::from(fake_since_time);
-    let filters = if from_user {
-        let since_time = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::minutes(since))
-            .unwrap()
-            .timestamp() as u64;
-        let timestamp = Timestamp::from(since_time);
-        Filter::new()
-            .kind(nostr_sdk::Kind::PrivateDirectMessage)
-            .pubkey(my_key.public_key())
-            .since(timestamp)
-    } else {
-        Filter::new()
-            .kind(nostr_sdk::Kind::GiftWrap)
-            .pubkey(my_key.public_key())
-            .since(fake_timestamp)
-    };
+    let timestamp = Timestamp::from(since_time);
 
-    info!("Request events with event kind : {:?} ", filters.kinds);
+    Ok(Filter::new()
+        .author(pubkey)
+        .limit(50)
+        .since(timestamp)
+        .custom_tag(SingleLetterTag::lowercase(letter), value)
+        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND)))
+}
 
-    let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+// Create a filter for fetching events
+pub fn create_filter(
+    list_kind: ListKind,
+    pubkey: PublicKey,
+    since: Option<&i64>,
+) -> Result<Filter> {
+    match list_kind {
+        ListKind::Orders => create_seven_days_filter(Alphabet::Z, "order".to_string(), pubkey),
+        ListKind::Disputes => create_seven_days_filter(Alphabet::Z, "dispute".to_string(), pubkey),
+        ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
+            // We use a fake timestamp to thwart time-analysis attacks
+            let fake_timestamp = create_fake_timestamp()?;
 
-    if let Ok(mostro_req) = client.fetch_events(filters, Duration::from_secs(15)).await {
-        // Buffer vector for direct messages
-        // Vector for single order id check - maybe multiple relay could send the same order id? Check unique one...
-        let mut id_list = Vec::<EventId>::new();
-
-        for dm in mostro_req.iter() {
-            if !id_list.contains(&dm.id) {
-                id_list.push(dm.id);
-                let (created_at, message) = if from_user {
-                    let ck =
-                        if let Ok(ck) = ConversationKey::derive(my_key.secret_key(), &dm.pubkey) {
-                            ck
-                        } else {
-                            continue;
-                        };
-                    let b64decoded_content =
-                        match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
-                            Ok(b64decoded_content) => b64decoded_content,
-                            Err(_) => {
-                                continue;
-                            }
-                        };
-
-                    let unencrypted_content = decrypt_to_bytes(&ck, &b64decoded_content)
-                        .expect("Failed to decrypt message");
-
-                    let message =
-                        String::from_utf8(unencrypted_content).expect("Found invalid UTF-8");
-                    let message = Message::from_json(&message).expect("Failed on deserializing");
-
-                    (dm.created_at, message)
-                } else {
-                    let unwrapped_gift = match nip59::extract_rumor(my_key, dm).await {
-                        Ok(u) => u,
-                        Err(_) => {
-                            println!("Error unwrapping gift");
-                            continue;
-                        }
-                    };
-                    
-                    // Filter: only process messages from Mostro
-                    if let Some(mostro_pk) = mostro_pubkey {
-                        if unwrapped_gift.rumor.pubkey != *mostro_pk {
-                            continue; // Skip non-Mostro messages
-                        }
-                    }
-                    
-                    let (message, _): (Message, Option<String>) =
-                        serde_json::from_str(&unwrapped_gift.rumor.content).unwrap();
-
-                    (unwrapped_gift.rumor.created_at, message)
-                };
-
-                // Here we discard messages older than the real since parameter
-                let since_time = chrono::Utc::now()
+            Ok(Filter::new()
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .pubkey(pubkey)
+                .since(fake_timestamp))
+        }
+        ListKind::PrivateDirectMessagesUser => {
+            // Get since from cli or use 30 minutes default
+            let since = if let Some(mins) = since {
+                chrono::Utc::now()
+                    .checked_sub_signed(chrono::Duration::minutes(*mins))
+                    .unwrap()
+                    .timestamp()
+            } else {
+                chrono::Utc::now()
                     .checked_sub_signed(chrono::Duration::minutes(30))
                     .unwrap()
-                    .timestamp() as u64;
-                if created_at.as_u64() < since_time {
-                    continue;
-                }
-                direct_messages.push((message, created_at.as_u64()));
-            }
+                    .timestamp()
+            } as u64;
+            // Create filter for fetching privatedirect messages
+            Ok(Filter::new()
+                .kind(nostr_sdk::Kind::PrivateDirectMessage)
+                .pubkey(pubkey)
+                .since(Timestamp::from(since)))
         }
-        // Return element sorted by second tuple element ( Timestamp )
-        direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
     }
-
-    direct_messages
 }
 
-pub async fn get_orders_list(
-    pubkey: PublicKey,
-    status: Status,
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_events_list(
+    list_kind: ListKind,
+    status: Option<Status>,
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
-    client: &Client,
-) -> Result<Vec<SmallOrder>> {
-    let since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::days(7))
-        .unwrap()
-        .timestamp() as u64;
-
-    let timestamp = Timestamp::from(since_time);
-
-    let filters = Filter::new()
-        .author(pubkey)
-        .limit(50)
-        .since(timestamp)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order".to_string())
-        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
-    info!(
-        "Request to mostro id : {:?} with event kind : {:?} ",
-        filters.authors, filters.kinds
-    );
-
-    // Extracted Orders List
-    let mut complete_events_list = Vec::<SmallOrder>::new();
-    let mut requested_orders_list = Vec::<SmallOrder>::new();
-
-    // Send all requests to relays
-    if let Ok(mostro_req) = client.fetch_events(filters, Duration::from_secs(15)).await {
-        // Scan events to extract all orders
-        for el in mostro_req.iter() {
-            let order = order_from_tags(el.tags.clone());
-
-            if order.is_err() {
-                error!("{order:?}");
-                continue;
+    ctx: &Context,
+    _since: Option<&i64>,
+) -> Result<Vec<Event>> {
+    match list_kind {
+        ListKind::Orders => {
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let fetched_events = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let orders = parse_orders_events(fetched_events, currency, status, kind);
+            Ok(orders.into_iter().map(Event::SmallOrder).collect())
+        }
+        ListKind::DirectMessagesAdmin => {
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let fetched_events = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys).await;
+            Ok(direct_messages_mostro
+                .into_iter()
+                .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
+                .collect())
+        }
+        ListKind::PrivateDirectMessagesUser => {
+            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            for index in 1..=ctx.trade_index {
+                let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
+                let filter = create_filter(
+                    ListKind::PrivateDirectMessagesUser,
+                    trade_key.public_key(),
+                    None,
+                )?;
+                let fetched_user_messages = ctx
+                    .client
+                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+                    .await?;
+                let direct_messages_for_trade_key =
+                    parse_dm_events(fetched_user_messages, &trade_key).await;
+                direct_messages.extend(
+                    direct_messages_for_trade_key
+                        .into_iter()
+                        .map(|(message, timestamp, _)| (message, timestamp)),
+                );
             }
-            let mut order = order?;
-
-            info!("Found Order id : {:?}", order.id.unwrap());
-
-            if order.id.is_none() {
-                info!("Order ID is none");
-                continue;
+            Ok(direct_messages
+                .into_iter()
+                .map(|t| Event::MessageTuple(Box::new(t)))
+                .collect())
+        }
+        ListKind::DirectMessagesUser => {
+            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            for index in 1..=ctx.trade_index {
+                let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
+                let filter =
+                    create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None)?;
+                let fetched_user_messages = ctx
+                    .client
+                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+                    .await?;
+                let direct_messages_for_trade_key =
+                    parse_dm_events(fetched_user_messages, &trade_key).await;
+                direct_messages.extend(
+                    direct_messages_for_trade_key
+                        .into_iter()
+                        .map(|(message, timestamp, _)| (message, timestamp)),
+                );
             }
-
-            if order.kind.is_none() {
-                info!("Order kind is none");
-                continue;
-            }
-
-            if order.status.is_none() {
-                info!("Order status is none");
-                continue;
-            }
-
-            // Get created at field from Nostr event
-            order.created_at = Some(el.created_at.as_u64() as i64);
-
-            complete_events_list.push(order.clone());
-
-            if order.status.ne(&Some(status)) {
-                continue;
-            }
-
-            if currency.is_some() && order.fiat_code.ne(&currency.clone().unwrap()) {
-                continue;
-            }
-
-            if kind.is_some() && order.kind.ne(&kind) {
-                continue;
-            }
-            // Add just requested orders requested by filtering
-            requested_orders_list.push(order);
+            Ok(direct_messages
+                .into_iter()
+                .map(|t| Event::MessageTuple(Box::new(t)))
+                .collect())
+        }
+        ListKind::Disputes => {
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let fetched_events = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let disputes = parse_dispute_events(fetched_events);
+            Ok(disputes.into_iter().map(Event::Dispute).collect())
         }
     }
-
-    // Order all element ( orders ) received to filter - discard disaligned messages
-    // if an order has an older message with the state we received is discarded for the latest one
-    requested_orders_list.retain(|keep| {
-        !complete_events_list
-            .iter()
-            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
-    });
-    // Sort by id to remove duplicates
-    requested_orders_list.sort_by(|a, b| b.id.cmp(&a.id));
-    requested_orders_list.dedup_by(|a, b| a.id == b.id);
-
-    // Finally sort list by creation time
-    requested_orders_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(requested_orders_list)
-}
-
-pub async fn get_disputes_list(pubkey: PublicKey, client: &Client) -> Result<Vec<Dispute>> {
-    let since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::days(7))
-        .unwrap()
-        .timestamp() as u64;
-
-    let timestamp = Timestamp::from(since_time);
-
-    let filter = Filter::new()
-        .author(pubkey)
-        .limit(50)
-        .since(timestamp)
-        .custom_tag(
-            SingleLetterTag::lowercase(Alphabet::Z),
-            "dispute".to_string(),
-        )
-        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND));
-
-    // Extracted Orders List
-    let mut disputes_list = Vec::<Dispute>::new();
-
-    // Send all requests to relays
-    if let Ok(mostro_req) = client.fetch_events(filter, Duration::from_secs(15)).await {
-        // Scan events to extract all disputes
-        for d in mostro_req.iter() {
-            let dispute = dispute_from_tags(d.tags.clone());
-
-            if dispute.is_err() {
-                error!("{dispute:?}");
-                continue;
-            }
-            let mut dispute = dispute?;
-
-            info!("Found Dispute id : {:?}", dispute.id);
-
-            // Get created at field from Nostr event
-            dispute.created_at = d.created_at.as_u64() as i64;
-            disputes_list.push(dispute);
-        }
-    }
-
-    let buffer_dispute_list = disputes_list.clone();
-    // Order all element ( orders ) received to filter - discard disaligned messages
-    // if an order has an older message with the state we received is discarded for the latest one
-    disputes_list.retain(|keep| {
-        !buffer_dispute_list
-            .iter()
-            .any(|x| x.id == keep.id && x.created_at > keep.created_at)
-    });
-
-    // Sort by id to remove duplicates
-    disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
-    disputes_list.dedup_by(|a, b| a.id == b.id);
-
-    // Finally sort list by creation time
-    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(disputes_list)
 }
 
 /// Uppercase first letter of a string.
@@ -558,6 +655,12 @@ pub fn get_mcli_path() -> String {
         fs::create_dir(&mcli_path).expect("Couldn't create mostro-cli directory in HOME");
         println!("Directory {} created.", mcli_path);
     }
-
     mcli_path
 }
+
+pub async fn run_simple_order_msg(command: Commands, order_id: &Uuid, ctx: &Context) -> Result<()> {
+    execute_send_msg(command, Some(*order_id), ctx, None).await
+}
+
+#[cfg(test)]
+mod tests {}

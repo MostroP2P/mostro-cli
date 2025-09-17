@@ -1,116 +1,37 @@
 use anyhow::Result;
-use chrono::DateTime;
-use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
+use mostro_core::prelude::Message;
 
 use crate::{
-    db::{connect, Order, User},
-    util::get_direct_messages,
+    cli::Context,
+    parser::dms::print_direct_messages,
+    util::{fetch_events_list, Event, ListKind},
 };
 
 pub async fn execute_get_dm(
-    since: &i64,
-    trade_index: i64,
-    client: &Client,
-    from_user: bool,
+    since: Option<&i64>,
     admin: bool,
-    mostro_pubkey: &PublicKey,
+    from_user: &bool,
+    ctx: &Context,
 ) -> Result<()> {
-    let mut dm: Vec<(Message, u64)> = Vec::new();
-    let pool = connect().await?;
-    if !admin {
-        for index in 1..=trade_index {
-            let keys = User::get_trade_keys(&pool, index).await?;
-            let dm_temp =
-                get_direct_messages(client, &keys, *since, from_user, Some(mostro_pubkey)).await;
-            dm.extend(dm_temp);
+    // Get the list kind
+    let list_kind = match (admin, from_user) {
+        (true, true) => ListKind::PrivateDirectMessagesUser,
+        (true, false) => ListKind::DirectMessagesAdmin,
+        (false, true) => ListKind::PrivateDirectMessagesUser,
+        (false, false) => ListKind::DirectMessagesUser,
+    };
+
+    // Fetch the requested events
+    let all_fetched_events = { fetch_events_list(list_kind, None, None, None, ctx, since).await? };
+
+    // Extract (Message, u64) tuples from Event::MessageTuple variants
+    let mut dm_events: Vec<(Message, u64)> = Vec::new();
+    for event in all_fetched_events {
+        if let Event::MessageTuple(tuple) = event {
+            dm_events.push(*tuple);
         }
-    } else {
-        let id_key = match std::env::var("NSEC_PRIVKEY") {
-            Ok(id_key) => Keys::parse(&id_key)?,
-            Err(e) => {
-                println!("Failed to get mostro admin private key: {}", e);
-                std::process::exit(1);
-            }
-        };
-        let dm_temp =
-            get_direct_messages(client, &id_key, *since, from_user, Some(mostro_pubkey)).await;
-        dm.extend(dm_temp);
     }
 
-    if dm.is_empty() {
-        println!();
-        println!("No new messages");
-        println!();
-    } else {
-        for m in dm.iter() {
-            let message = m.0.get_inner_message_kind();
-            let date = DateTime::from_timestamp(m.1 as i64, 0).unwrap();
-            if message.id.is_some() {
-                println!(
-                    "Mostro sent you this message for order id: {} at {}",
-                    m.0.get_inner_message_kind().id.unwrap(),
-                    date
-                );
-            }
-            if let Some(payload) = &message.payload {
-                match payload {
-                    Payload::PaymentRequest(_, inv, _) => {
-                        println!();
-                        println!("Pay this invoice to continue --> {}", inv);
-                        println!();
-                    }
-                    Payload::TextMessage(text) => {
-                        println!();
-                        println!("{text}");
-                        println!();
-                    }
-                    Payload::Dispute(id, info) => {
-                        println!("Action: {}", message.action);
-                        println!("Dispute id: {}", id);
-                        if let Some(info) = info {
-                            println!();
-                            println!("Dispute info: {:#?}", info);
-                            println!();
-                        }
-                    }
-                    Payload::CantDo(Some(cant_do_reason)) => {
-                        println!();
-                        println!("Error: {:?}", cant_do_reason);
-                        println!();
-                    }
-                    Payload::Order(new_order) if message.action == Action::NewOrder => {
-                        if new_order.id.is_some() {
-                            let db_order =
-                                Order::get_by_id(&pool, &new_order.id.unwrap().to_string()).await;
-                            if db_order.is_err() {
-                                let trade_index = message.trade_index.unwrap();
-                                let trade_keys = User::get_trade_keys(&pool, trade_index).await?;
-                                let _ = Order::new(&pool, new_order.clone(), &trade_keys, None)
-                                    .await
-                                    .map_err(|e| {
-                                        anyhow::anyhow!("Failed to create DB order: {:?}", e)
-                                    })?;
-                            }
-                        }
-                        println!();
-                        println!("Order: {:#?}", new_order);
-                        println!();
-                    }
-                    _ => {
-                        println!();
-                        println!("Action: {}", message.action);
-                        println!("Payload: {:#?}", message.payload);
-                        println!();
-                    }
-                }
-            } else {
-                println!();
-                println!("Action: {}", message.action);
-                println!("Payload: {:#?}", message.payload);
-                println!();
-            }
-        }
-    }
+    print_direct_messages(&dm_events, &ctx.pool).await?;
     Ok(())
 }
