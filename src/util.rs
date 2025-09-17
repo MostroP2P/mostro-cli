@@ -15,6 +15,9 @@ use std::time::Duration;
 use std::{fs, path::Path};
 use uuid::Uuid;
 
+const FAKE_SINCE: i64 = 2880;
+const FETCH_EVENTS_TIMEOUT: Duration = Duration::from_secs(15);
+
 #[derive(Clone, Debug)]
 pub enum Event {
     SmallOrder(SmallOrder),
@@ -137,7 +140,7 @@ pub async fn wait_for_dm(
 ) -> anyhow::Result<()> {
     let mut notifications = client.notifications();
 
-    match tokio::time::timeout(Duration::from_secs(15), async move {
+    match tokio::time::timeout(FETCH_EVENTS_TIMEOUT, async move {
         while let Ok(notification) = notifications.recv().await {
             if let RelayPoolNotification::Event { event, .. } = notification {
                 if event.kind == nostr_sdk::Kind::GiftWrap {
@@ -374,11 +377,14 @@ pub async fn send_dm(
     expiration: Option<Timestamp>,
     to_user: bool,
 ) -> Result<()> {
-    let pow: u8 = var("POW").unwrap_or('0'.to_string()).parse().unwrap();
+    let pow: u8 = var("POW")
+        .unwrap_or('0'.to_string())
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
     let private = var("SECRET")
         .unwrap_or("false".to_string())
         .parse::<bool>()
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("Failed to parse SECRET: {}", e))?;
 
     let message_type = determine_message_type(to_user, private);
 
@@ -444,17 +450,10 @@ pub async fn get_direct_messages_from_trade_keys(
         return Ok(Vec::new());
     }
 
-    let fake_since = 2880;
-    let fake_since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::minutes(fake_since))
-        .unwrap()
-        .timestamp() as u64;
-    let _fake_timestamp = Timestamp::from(fake_since_time);
-
-    let _since_time = chrono::Utc::now()
+    let since_time = chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::minutes(since))
-        .unwrap()
-        .timestamp() as u64;
+        .ok_or(anyhow::anyhow!("Failed to get since time"))?
+        .timestamp();
 
     // Get the triple of message, timestamp and public key
     let mut all_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
@@ -464,8 +463,9 @@ pub async fn get_direct_messages_from_trade_keys(
     for trade_key_hex in trade_keys_hex {
         if let Ok(public_key) = PublicKey::from_hex(&trade_key_hex) {
             // Create filter for fetching direct messages
-            let filter = create_filter(ListKind::DirectMessagesUser, public_key, None);
-            let events = client.fetch_events(filter, Duration::from_secs(15)).await?;
+            let filter =
+                create_filter(ListKind::DirectMessagesUser, public_key, Some(&since_time))?;
+            let events = client.fetch_events(filter, FETCH_EVENTS_TIMEOUT).await?;
             // Parse events without keys since we only have the public key
             // We'll need to handle this differently - let's just collect the events for now
             for event in events {
@@ -478,67 +478,58 @@ pub async fn get_direct_messages_from_trade_keys(
             }
         }
     }
-
     Ok(all_messages)
 }
 
-pub fn create_filter(list_kind: ListKind, pubkey: PublicKey, since: Option<&u64>) -> Filter {
+/// Create a fake timestamp to thwart time-analysis attacks
+fn create_fake_timestamp() -> Result<Timestamp> {
+    let fake_since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(FAKE_SINCE))
+        .ok_or(anyhow::anyhow!("Failed to get fake since time"))?
+        .timestamp() as u64;
+    Ok(Timestamp::from(fake_since_time))
+}
+
+// Create a filter for fetching events in the last 7 days
+fn create_seven_days_filter(letter: Alphabet, value: String, pubkey: PublicKey) -> Result<Filter> {
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
+        .timestamp() as u64;
+
+    let timestamp = Timestamp::from(since_time);
+
+    Ok(Filter::new()
+        .author(pubkey)
+        .limit(50)
+        .since(timestamp)
+        .custom_tag(SingleLetterTag::lowercase(letter), value)
+        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND)))
+}
+
+// Create a filter for fetching events
+pub fn create_filter(
+    list_kind: ListKind,
+    pubkey: PublicKey,
+    since: Option<&i64>,
+) -> Result<Filter> {
     match list_kind {
-        ListKind::Orders => {
-            let since_time = chrono::Utc::now()
-                .checked_sub_signed(chrono::Duration::days(7))
-                .unwrap()
-                .timestamp() as u64;
-
-            let timestamp = Timestamp::from(since_time);
-
-            // Create filter for fetching orders
-            Filter::new()
-                .author(pubkey)
-                .limit(50)
-                .since(timestamp)
-                .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order".to_string())
-                .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND))
-        }
-        ListKind::Disputes => {
-            let since_time = chrono::Utc::now()
-                .checked_sub_signed(chrono::Duration::days(7))
-                .unwrap()
-                .timestamp() as u64;
-
-            let timestamp = Timestamp::from(since_time);
-
-            // Create filter for fetching orders
-            Filter::new()
-                .author(pubkey)
-                .limit(50)
-                .since(timestamp)
-                .custom_tag(
-                    SingleLetterTag::lowercase(Alphabet::Z),
-                    "dispute".to_string(),
-                )
-                .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND))
-        }
+        ListKind::Orders => create_seven_days_filter(Alphabet::Z, "order".to_string(), pubkey),
+        ListKind::Disputes => create_seven_days_filter(Alphabet::Z, "dispute".to_string(), pubkey),
         ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
             // We use a fake timestamp to thwart time-analysis attacks
-            let fake_since = 2880;
-            let fake_since_time = chrono::Utc::now()
-                .checked_sub_signed(chrono::Duration::minutes(fake_since))
-                .unwrap()
-                .timestamp() as u64;
+            let fake_timestamp = create_fake_timestamp()?;
 
-            let fake_timestamp = Timestamp::from(fake_since_time);
-
-            Filter::new()
+            Ok(Filter::new()
                 .kind(nostr_sdk::Kind::GiftWrap)
                 .pubkey(pubkey)
-                .since(fake_timestamp)
+                .since(fake_timestamp))
         }
         ListKind::PrivateDirectMessagesUser => {
             // Get since from cli or use 30 minutes default
-            let since = if let Some(since) = since {
+            let since = if let Some(mins) = since {
                 chrono::Utc::now()
-                    .checked_sub_signed(chrono::Duration::minutes(*since as i64))
+                    .checked_sub_signed(chrono::Duration::minutes(*mins))
                     .unwrap()
                     .timestamp()
             } else {
@@ -548,10 +539,10 @@ pub fn create_filter(list_kind: ListKind, pubkey: PublicKey, since: Option<&u64>
                     .timestamp()
             } as u64;
             // Create filter for fetching privatedirect messages
-            Filter::new()
+            Ok(Filter::new()
                 .kind(nostr_sdk::Kind::PrivateDirectMessage)
                 .pubkey(pubkey)
-                .since(Timestamp::from(since))
+                .since(Timestamp::from(since)))
         }
     }
 }
@@ -567,19 +558,19 @@ pub async fn fetch_events_list(
 ) -> Result<Vec<Event>> {
     match list_kind {
         ListKind::Orders => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
             let fetched_events = ctx
                 .client
-                .fetch_events(filters, Duration::from_secs(15))
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
             let orders = parse_orders_events(fetched_events, currency, status, kind);
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
             let fetched_events = ctx
                 .client
-                .fetch_events(filters, Duration::from_secs(15))
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
             let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys).await;
             Ok(direct_messages_mostro
@@ -595,10 +586,10 @@ pub async fn fetch_events_list(
                     ListKind::PrivateDirectMessagesUser,
                     trade_key.public_key(),
                     None,
-                );
+                )?;
                 let fetched_user_messages = ctx
                     .client
-                    .fetch_events(filter, Duration::from_secs(15))
+                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
@@ -618,10 +609,10 @@ pub async fn fetch_events_list(
             for index in 1..=ctx.trade_index {
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter =
-                    create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None);
+                    create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None)?;
                 let fetched_user_messages = ctx
                     .client
-                    .fetch_events(filter, Duration::from_secs(15))
+                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key).await;
@@ -637,10 +628,10 @@ pub async fn fetch_events_list(
                 .collect())
         }
         ListKind::Disputes => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None);
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
             let fetched_events = ctx
                 .client
-                .fetch_events(filters, Duration::from_secs(15))
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
             let disputes = parse_dispute_events(fetched_events);
             Ok(disputes.into_iter().map(Event::Dispute).collect())
