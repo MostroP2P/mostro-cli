@@ -46,14 +46,11 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!(
-        "identity_keys: {:?}",
-        ctx.identity_keys.public_key.to_string()
-    );
+    println!("Admin keys: {:?}", ctx.context_keys.public_key.to_string());
 
     send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
+        Some(&ctx.context_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
@@ -77,14 +74,11 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!(
-        "identity_keys: {:?}",
-        ctx.identity_keys.public_key.to_string()
-    );
+    println!("Admin keys: {:?}", ctx.context_keys.public_key.to_string());
 
     send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
+        Some(&ctx.context_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
@@ -113,14 +107,11 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!(
-        "identity_keys: {:?}",
-        ctx.identity_keys.public_key.to_string()
-    );
+    println!("Admin keys: {:?}", ctx.context_keys.public_key.to_string());
 
     send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
+        Some(&ctx.context_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
