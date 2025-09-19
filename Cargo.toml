@@ -47,6 +47,20 @@ sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-native-tls"] }
 bip39 = { version = "2.2.0", features = ["rand"] }
 dirs = "6.0.0"
 
+[package.metadata.release]
+# (Default: true) Set to false to prevent automatically running `cargo publish`.
+publish = true
+# (Default: true) Set to false to prevent automatically pushing commits and tags to the Git remote.
+push = true
+# (Default: true) Run `cargo test` before release? Highly recommended.
+verify = true
+# (Default: true) Create a Git tag for the release (e.g., v0.2.1)? You usually want this.
+tag = true
+# (Default: false) Sign the release commit with GPG?
+sign-commit = true
+# (Default: false) Sign the release tag with GPG?
+sign-tag = true
+
 [dev-dependencies]
 tokio-test = "0.4"
 serial_test = "3.1"
