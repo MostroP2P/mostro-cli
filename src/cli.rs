@@ -423,9 +423,7 @@ impl Commands {
                 pubkey,
                 order_id,
                 message,
-            } => {
-                execute_send_dm(PublicKey::from_str(pubkey)?, &ctx.client, order_id, message).await
-            }
+            } => execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, message).await,
             Commands::DmToUser {
                 pubkey,
                 order_id,
@@ -441,7 +439,7 @@ impl Commands {
                 .await
             }
             Commands::AdmSendDm { pubkey, message } => {
-                execute_adm_send_dm(PublicKey::from_str(pubkey)?, &ctx.client, message).await
+                execute_adm_send_dm(PublicKey::from_str(pubkey)?, ctx, message).await
             }
             Commands::ConversationKey { pubkey } => {
                 execute_conversation_key(&ctx.trade_keys, PublicKey::from_str(pubkey)?).await
