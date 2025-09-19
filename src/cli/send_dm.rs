@@ -1,3 +1,4 @@
+use crate::cli::Context;
 use crate::{db::Order, util::send_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -6,7 +7,7 @@ use uuid::Uuid;
 
 pub async fn execute_send_dm(
     receiver: PublicKey,
-    client: &Client,
+    ctx: &Context,
     order_id: &Uuid,
     message: &str,
 ) -> Result<()> {
@@ -19,22 +20,28 @@ pub async fn execute_send_dm(
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    let pool = crate::db::connect().await?;
-
-    let trade_keys = if let Ok(order_to_vote) = Order::get_by_id(&pool, &order_id.to_string()).await
-    {
-        match order_to_vote.trade_keys.as_ref() {
-            Some(trade_keys) => Keys::parse(trade_keys)?,
-            None => {
-                anyhow::bail!("No trade_keys found for this order");
+    let trade_keys =
+        if let Ok(order_to_vote) = Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
+            match order_to_vote.trade_keys.as_ref() {
+                Some(trade_keys) => Keys::parse(trade_keys)?,
+                None => {
+                    anyhow::bail!("No trade_keys found for this order");
+                }
             }
-        }
-    } else {
-        println!("order {} not found", order_id);
-        std::process::exit(0)
-    };
+        } else {
+            return Err(anyhow::anyhow!("order {} not found", order_id));
+        };
 
-    send_dm(client, None, &trade_keys, &receiver, message, None, false).await?;
+    send_dm(
+        &ctx.client,
+        None,
+        &trade_keys,
+        &receiver,
+        message,
+        None,
+        false,
+    )
+    .await?;
 
     Ok(())
 }
