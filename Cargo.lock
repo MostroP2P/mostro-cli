@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.13.2"
+version = "0.13.3"
 dependencies = [
  "anyhow",
  "bip39",
