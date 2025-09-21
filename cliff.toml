@@ -4,7 +4,6 @@
 [remote.github]
 owner = "MostroP2P"
 repo = "mostro-cli"
-token = "${GITHUB_TOKEN}"
 
 [changelog]
 # A Tera template to be rendered for each release in the changelog.
@@ -43,12 +42,12 @@ That will verify the signature of the manifest file, which ensures integrity and
 {%- endfor -%}
 
 {%- if github -%}
-{% if github.contributors | filter(attribute="is_first_time", value=true) | length != 0 %}
+{% if github.contributors | length != 0 %}
   {% raw %}\n{% endraw -%}
-  ## New Contributors
+  ## Contributors
 {%- endif %}\
-{% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
-  * @{{ contributor.username }} made their first contribution
+{% for contributor in github.contributors %}
+  * @{{ contributor.username }} made their contribution
     {%- if contributor.pr_number %} in \
       [#{{ contributor.pr_number }}]({{ self::remote_url() }}/pull/{{ contributor.pr_number }}) \
     {%- endif %}
@@ -77,6 +76,25 @@ footer = """
 # An array of regex based postprocessors to modify the changelog.
 # Replace the placeholder `<REPO>` with a URL.
 postprocessors = []
+
+# regex for parsing and grouping commits
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->🚀 Features" },
+  { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+  { message = "^doc", group = "<!-- 3 -->📚 Documentation" },
+  { message = "^perf", group = "<!-- 4 -->⚡ Performance" },
+  { message = "^refactor", group = "<!-- 2 -->🚜 Refactor" },
+  { message = "^style", group = "<!-- 5 -->🎨 Styling" },
+  { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+  { message = "^chore\\(release\\): prepare for", skip = true },
+  { message = "^chore\\(deps.*\\)", skip = true },
+  { message = "^chore\\(pr\\)", skip = true },
+  { message = "^chore\\(pull\\)", skip = true },
+  { message = "^chore|^ci", group = "<!-- 7 -->⚙️ Miscellaneous Tasks" },
+  { body = ".*security", group = "<!-- 8 -->🛡️ Security" },
+  { message = "^revert", group = "<!-- 9 -->◀️ Revert" },
+  { message = ".*", group = "<!-- 10 -->💼 Other" },
+]
 
 [git]
 # Parse commits according to the conventional commits specification.

@@ -22,7 +22,7 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
 
     send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
+        Some(&ctx.context_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
