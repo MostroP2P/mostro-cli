@@ -662,5 +662,20 @@ pub async fn run_simple_order_msg(command: Commands, order_id: &Uuid, ctx: &Cont
     execute_send_msg(command, Some(*order_id), ctx, None).await
 }
 
+// helper (place near other CLI utils)
+pub async fn admin_send_dm(ctx: &Context, msg: String) -> anyhow::Result<()> {
+    send_dm(
+        &ctx.client,
+        Some(&ctx.context_keys),
+        &ctx.trade_keys,
+        &ctx.mostro_pubkey,
+        msg,
+        None,
+        false,
+    )
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {}

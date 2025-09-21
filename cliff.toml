@@ -4,7 +4,6 @@
 [remote.github]
 owner = "MostroP2P"
 repo = "mostro-cli"
-token = "${GITHUB_TOKEN}"
 
 [changelog]
 # A Tera template to be rendered for each release in the changelog.
@@ -29,6 +28,10 @@ That will verify the signature of the manifest file, which ensures integrity and
 ## What's Changed
 
 {%- if version %} in {{ version }}{%- endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+{% if group != "" %}
+### {{ group }}
+{% endif %}
 {% for commit in commits %}
   {% if commit.remote.pr_title -%}
     {%- set commit_message = commit.remote.pr_title -%}
@@ -40,15 +43,16 @@ That will verify the signature of the manifest file, which ensures integrity and
     {% if commit.remote.pr_number %} in \
       [#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }}) \
     {%- endif %}
+{%- endfor %}
 {%- endfor -%}
 
 {%- if github -%}
-{% if github.contributors | filter(attribute="is_first_time", value=true) | length != 0 %}
+{% if github.contributors | length != 0 %}
   {% raw %}\n{% endraw -%}
-  ## New Contributors
+  ## Contributors
 {%- endif %}\
-{% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
-  * @{{ contributor.username }} made their first contribution
+{% for contributor in github.contributors %}
+  * @{{ contributor.username }} made their contribution
     {%- if contributor.pr_number %} in \
       [#{{ contributor.pr_number }}]({{ self::remote_url() }}/pull/{{ contributor.pr_number }}) \
     {%- endif %}
@@ -76,7 +80,27 @@ footer = """
 """
 # An array of regex based postprocessors to modify the changelog.
 # Replace the placeholder `<REPO>` with a URL.
-postprocessors = []
+postprocessors = [{ pattern = "<!-- \\d+ -->", replace = "" }]
+# regex for parsing and grouping commits
+commit_parsers = [
+  { message = "^feat(\\(.+\\))?!?:", group = "🚀 Features" },
+  { message = "^fix(\\(.+\\))?!?:", group = "🐛 Bug Fixes" },
+  { message = "^docs(\\(.+\\))?!?:", group = "📚 Documentation" },
+  { message = "^perf(\\(.+\\))?!?:", group = "⚡ Performance" },
+  { message = "^refactor(\\(.+\\))?!?:", group = "🚜 Refactor" },
+  { message = "^style(\\(.+\\))?!?:", group = "🎨 Styling" },
+  { message = "^test(\\(.+\\))?!?:", group = "🧪 Testing" },
+  { message = "^ci(\\(.+\\))?!?:", group = "⚙️ CI/CD" },
+  { message = "^build(\\(.+\\))?!?:", group = "🔨 Build" },
+  { message = "^chore\\(release\\): prepare for", skip = true },
+  { message = "^chore\\(deps.*\\)", skip = true },
+  { message = "^chore\\(pr\\)", skip = true },
+  { message = "^chore\\(pull\\)", skip = true },
+  { message = "^chore(\\(.+\\))?!?:", group = "⚙️ Miscellaneous Tasks" },
+  { body = "(?i)security", group = "🛡️ Security" },
+  { message = "^revert", group = "◀️ Revert" },
+  { message = ".*", group = "💼 Other" },
+]
 
 [git]
 # Parse commits according to the conventional commits specification.
