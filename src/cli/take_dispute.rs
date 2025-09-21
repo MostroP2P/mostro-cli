@@ -2,7 +2,7 @@ use anyhow::Result;
 use mostro_core::prelude::*;
 use uuid::Uuid;
 
-use crate::{cli::Context, util::send_dm};
+use crate::{cli::Context, util::admin_send_dm};
 
 pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()> {
     println!(
@@ -20,16 +20,7 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    send_dm(
-        &ctx.client,
-        Some(&ctx.context_keys),
-        &ctx.trade_keys,
-        &ctx.mostro_pubkey,
-        take_dispute_message,
-        None,
-        false,
-    )
-    .await?;
+    admin_send_dm(ctx, take_dispute_message).await?;
 
     Ok(())
 }
@@ -48,16 +39,7 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 
     println!("Admin keys: {:?}", ctx.context_keys.public_key.to_string());
 
-    send_dm(
-        &ctx.client,
-        Some(&ctx.context_keys),
-        &ctx.trade_keys,
-        &ctx.mostro_pubkey,
-        take_dispute_message,
-        None,
-        false,
-    )
-    .await?;
+    admin_send_dm(ctx, take_dispute_message).await?;
 
     Ok(())
 }
@@ -75,18 +57,7 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     println!("Admin keys: {:?}", ctx.context_keys.public_key.to_string());
-
-    send_dm(
-        &ctx.client,
-        Some(&ctx.context_keys),
-        &ctx.trade_keys,
-        &ctx.mostro_pubkey,
-        take_dispute_message,
-        None,
-        false,
-    )
-    .await?;
-
+    admin_send_dm(ctx, take_dispute_message).await?;
     Ok(())
 }
 
@@ -109,16 +80,6 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
 
     println!("Admin keys: {:?}", ctx.context_keys.public_key.to_string());
 
-    send_dm(
-        &ctx.client,
-        Some(&ctx.context_keys),
-        &ctx.trade_keys,
-        &ctx.mostro_pubkey,
-        take_dispute_message,
-        None,
-        false,
-    )
-    .await?;
-
+    admin_send_dm(ctx, take_dispute_message).await?;
     Ok(())
 }
