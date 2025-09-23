@@ -40,8 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install protobuf compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install build dependencies (protobuf, OpenSSL)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libssl-dev
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with: { cache-on-failure: true }
@@ -70,6 +70,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: matrix
+    env:
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_PKG_CONFIG: "1"
     strategy:
       fail-fast: false
       matrix:
