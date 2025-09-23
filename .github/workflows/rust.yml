@@ -23,12 +23,16 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Ensure all tags are present
+        run: git fetch --tags --force --prune
+
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
         id: changelog
         with:
           config: cliff.toml
-          args: --tag latest --strip header --output CHANGELOG.md
+          # Use the latest tag vs previous tag automatically
+          args: --latest --strip header --output CHANGELOG.md
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

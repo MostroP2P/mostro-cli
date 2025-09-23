@@ -121,6 +121,7 @@ topo_order = false
 # Order of commits in each group/release within the changelog.
 # Allowed values: newest, oldest
 sort_commits = "newest"
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
 # Enable link parsing for PR references and user mentions
 link_parsers = [
   { pattern = "Merge pull request #([0-9]+)", href = "https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/$1" },
