@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate changelog
@@ -27,7 +28,7 @@ jobs:
         id: changelog
         with:
           config: cliff.toml
-          args: --tag ${{ github.ref_name }} --strip header --output CHANGELOG.md
+          args: --tag latest --strip header --output CHANGELOG.md
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
