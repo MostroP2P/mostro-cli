@@ -11,7 +11,130 @@ use nostr_sdk::prelude::*;
 use crate::db::{Order, User};
 use sqlx::SqlitePool;
 
-pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64, PublicKey)> {
+pub async fn print_commands_results(event){
+    let message = message.get_inner_message_kind();
+if message.request_id == Some(request_id) {
+    match message.action {
+        Action::NewOrder => {
+            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
+                    println!("Failed to save order: {}", e);
+                    return Err(());
+                }
+                return Ok(());
+            }
+        }
+        // this is the case where the buyer adds an invoice to a takesell order
+        Action::WaitingSellerToPay => {
+            println!("Now we should wait for the seller to pay the invoice");
+            if let Some(mut order) = order.take() {
+                match order
+                .set_status(Status::WaitingPayment.to_string())
+                .save(pool)
+                .await
+                {
+                    Ok(_) => println!("Order status updated"),
+                    Err(e) => println!("Failed to update order status: {}", e),
+                }
+                return Ok(());
+            }
+        }
+        // this is the case where the buyer adds an invoice to a takesell order
+        Action::AddInvoice => {
+            if let Some(Payload::Order(order)) = &message.payload {
+                println!(
+                    "Please add a lightning invoice with amount of {}",
+                    order.amount
+                );
+                // Save the order
+                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
+                    println!("Failed to save order: {}", e);
+                    return Err(());
+                }
+                return Ok(());
+            }
+        }
+        // this is the case where the buyer pays the invoice coming from a takebuy
+        Action::PayInvoice => {
+            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
+                println!(
+                    "Mostro sent you this hold invoice for order id: {}",
+                    order
+                        .as_ref()
+                        .and_then(|o| o.id)
+                        .map_or("unknown".to_string(), |id| id.to_string())
+                );
+                println!();
+                println!("Pay this invoice to continue -->  {}", invoice);
+                println!();
+                if let Some(order) = order {
+                    let store_order = order.clone();
+                    // Save the order
+                    if let Err(e) = save_order(store_order, trade_keys, request_id, trade_index, pool).await {
+                        println!("Failed to save order: {}", e);
+                        return Err(());
+                    }
+                }
+                return Ok(());
+            }
+        }
+        Action::CantDo => {
+            match message.payload {
+                Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) => {
+                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
+                    return Err(());
+                }
+                Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
+                        println!("Error: A pending order already exists. Please wait for it to be filled or canceled.");
+                        return Err(());
+                    }
+                Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
+                    println!("Error: Invalid trade index. Please synchronize the trade index with mostro");
+                    return Err(());
+                }
+                _ => {
+                    println!("Unknown reason: {:?}", message.payload);
+                    return Err(());
+                }
+            }
+        }
+        // this is the case where the user cancels the order
+        Action::Canceled => {
+            if let Some(order_id) = &message.id {
+            // Acquire database connection
+            // Verify order exists before deletion
+            if Order::get_by_id(pool, &order_id.to_string()).await.is_ok() {
+                if let Err(e) = Order::delete_by_id(pool, &order_id.to_string()).await {
+                    println!("Failed to delete order: {}", e);
+                    return Err(());
+                }
+                // Release database connection
+                println!("Order {} canceled!", order_id);
+                return Ok(());
+            } else {
+                println!("Order not found: {}", order_id);
+                return Err(());
+                }
+            }
+        }
+        Action::Rate => {
+            println!("Sats released!");
+            println!("You can rate the counterpart now");
+            return Ok(());
+        }
+        Action::FiatSentOk => {
+            if let Some(order_id) = &message.id {
+                println!("Fiat sent message for order {} received", order_id);
+                println!("Waiting for sats release from seller");
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+    }
+}
+
+pub async fn parse_dm_events(events: Events, pubkey: &Keys, since: Option<&i64>) -> Vec<(Message, u64, PublicKey)> {
     let mut id_set = HashSet::<EventId>::new();
     let mut direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
 
@@ -75,17 +198,11 @@ pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64
             }
             _ => continue,
         };
-
-        let since_time = match chrono::Utc::now().checked_sub_signed(chrono::Duration::minutes(30))
-        {
-            Some(dt) => dt.timestamp() as u64,
-            None => {
-                println!("Error: Unable to calculate time 30 minutes ago");
+        // check if the message is older than the since time if it is, skip it
+        if let Some(since_time) = since {
+            if created_at.as_u64() < *since_time as u64 {
                 continue;
             }
-        };
-        if created_at.as_u64() < since_time {
-            continue;
         }
         direct_messages.push((message, created_at.as_u64(), dm.pubkey));
     }

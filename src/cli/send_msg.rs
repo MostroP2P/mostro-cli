@@ -1,6 +1,6 @@
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{fetch_events_list, send_dm, wait_for_dm, ListKind};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -79,29 +79,40 @@ pub async fn execute_send_msg(
             let message_json = message
                 .as_json()
                 .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?;
-            send_dm(
-                &ctx.client,
-                Some(&idkey),
-                &trade_keys,
-                &ctx.mostro_pubkey,
-                message_json,
-                None,
-                false,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send DM: {e}"))?;
 
-            // Wait for the DM to be sent from mostro
-            wait_for_dm(
-                &ctx.client,
-                &trade_keys,
-                request_id,
-                None,
-                Some(order),
-                &ctx.pool,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
+            // Clone the keys and client for the async call
+            let trade_keys_clone = trade_keys.clone();
+            let client_clone = ctx.client.clone();
+            let mostro_pubkey_clone = ctx.mostro_pubkey;
+            let idkey_clone = idkey.clone();
+
+            // Spawn a new task to send the DM
+            tokio::spawn(async move {
+                let _ = send_dm(
+                    &client_clone,
+                    Some(&idkey_clone),
+                    &trade_keys_clone,
+                    &mostro_pubkey_clone,
+                    message_json,
+                    None,
+                        false,
+                    )
+                    .await;
+            });
+
+            let new_incoming_message = fetch_events_list(ListKind::WaitForUpdate, None, None, None, ctx, Some(&trade_keys),None).await?;
+
+            // // Wait for the DM to be sent from mostro
+            // wait_for_dm(
+            //     &ctx.client,
+            //     &trade_keys,
+            //     request_id,
+            //     None,
+            //     Some(order),
+            //     &ctx.pool,
+            // )
+            // .await
+            // .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
         }
     }
 

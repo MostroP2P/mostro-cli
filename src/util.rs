@@ -32,6 +32,7 @@ pub enum ListKind {
     DirectMessagesUser,
     DirectMessagesAdmin,
     PrivateDirectMessagesUser,
+    WaitForUpdate,
 }
 
 async fn send_gift_wrap_dm_internal(
@@ -261,6 +262,18 @@ pub async fn wait_for_dm(
                                 println!("Order not found: {}", order_id);
                                 return Err(());
                                 }
+                            }
+                        }
+                        Action::Rate => {
+                            println!("Sats released!");
+                            println!("You can rate the counterpart now");
+                            return Ok(());
+                        }
+                        Action::FiatSentOk => {
+                            if let Some(order_id) = &message.id {
+                                println!("Fiat sent message for order {} received", order_id);
+                                println!("Waiting for sats release from seller");
+                                return Ok(());
                             }
                         }
                         _ => {}
@@ -525,6 +538,13 @@ pub fn create_filter(
                 .pubkey(pubkey)
                 .since(fake_timestamp))
         }
+        ListKind::WaitForUpdate => {
+            Ok(Filter::new()
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .pubkey(pubkey)
+                .limit(0)
+                .since(Timestamp::from(chrono::Utc::now().timestamp() as u64)))
+        }
         ListKind::PrivateDirectMessagesUser => {
             // Get since from cli or use 30 minutes default
             let since = if let Some(mins) = since {
@@ -554,7 +574,8 @@ pub async fn fetch_events_list(
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
     ctx: &Context,
-    _since: Option<&i64>,
+    specific_trade_key: Option<&Keys>,
+    since: Option<&i64>
 ) -> Result<Vec<Event>> {
     match list_kind {
         ListKind::Orders => {
@@ -566,13 +587,26 @@ pub async fn fetch_events_list(
             let orders = parse_orders_events(fetched_events, currency, status, kind);
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
+        ListKind::WaitForUpdate => {
+            if let Some(trade_key) = specific_trade_key {
+                let filters = create_filter(list_kind, trade_key.public_key(), None)?;
+                let fetched_event = ctx
+                    .client
+                    .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                    .await?;
+                let message = parse_dm_events(fetched_event, trade_key, None).await;
+                Ok(message.into_iter().map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp)))).collect())
+            } else {
+                Err(anyhow::anyhow!("Specific trade key is required for this command!"))
+            }
+        }
         ListKind::DirectMessagesAdmin => {
             let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
-            let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys).await;
+            let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys, since).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
@@ -592,7 +626,7 @@ pub async fn fetch_events_list(
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
                 let direct_messages_for_trade_key =
-                    parse_dm_events(fetched_user_messages, &trade_key).await;
+                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
                 direct_messages.extend(
                     direct_messages_for_trade_key
                         .into_iter()
@@ -606,6 +640,7 @@ pub async fn fetch_events_list(
         }
         ListKind::DirectMessagesUser => {
             let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            
             for index in 1..=ctx.trade_index {
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter =
@@ -615,7 +650,7 @@ pub async fn fetch_events_list(
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
                 let direct_messages_for_trade_key =
-                    parse_dm_events(fetched_user_messages, &trade_key).await;
+                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
                 direct_messages.extend(
                     direct_messages_for_trade_key
                         .into_iter()

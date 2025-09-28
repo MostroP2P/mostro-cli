@@ -489,11 +489,11 @@ impl Commands {
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(Some(since), false, from_user, ctx).await
+                execute_get_dm(since, false, from_user, ctx).await
             }
             Commands::GetDmUser { since } => execute_get_dm_user(since, ctx).await,
             Commands::GetAdminDm { since, from_user } => {
-                execute_get_dm(Some(since), true, from_user, ctx).await
+                execute_get_dm(since, true, from_user, ctx).await
             }
 
             // Admin commands
