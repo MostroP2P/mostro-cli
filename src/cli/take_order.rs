@@ -1,13 +1,13 @@
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::cli::Context;
 use crate::lightning::is_valid_invoice;
-use crate::util::{send_dm, wait_for_dm};
+use crate::parser::dms::print_commands_results;
+use crate::util::{fetch_events_list, send_dm, Event, ListKind};
 
 /// Create payload based on action type and parameters
 fn create_take_order_payload(
@@ -98,15 +98,6 @@ pub async fn execute_take_order(
     let client_clone = ctx.client.clone();
     let mostro_pubkey_clone = ctx.mostro_pubkey;
 
-    // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
-    let subscription = Filter::new()
-        .pubkey(ctx.trade_keys.public_key())
-        .kind(nostr_sdk::Kind::GiftWrap)
-        .limit(0);
-
-    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-    ctx.client.subscribe(subscription, Some(opts)).await?;
-
     // Spawn a new task to send the DM
     // This is so we can wait for the gift wrap event in the main thread
     tokio::spawn(async move {
@@ -122,27 +113,17 @@ pub async fn execute_take_order(
         .await;
     });
 
-    // For take_sell, add an additional subscription with timestamp filtering
-    if action == Action::TakeSell {
-        let subscription = Filter::new()
-            .pubkey(ctx.trade_keys.public_key())
-            .kind(nostr_sdk::Kind::GiftWrap)
-            .since(Timestamp::from(chrono::Utc::now().timestamp() as u64))
-            .limit(0);
+    let events =
+        fetch_events_list(ListKind::WaitForUpdate, None, None, None, ctx, None, None).await?;
 
-        ctx.client.subscribe(subscription, None).await?;
+    // Extract (Message, u64) tuples from Event::MessageTuple variants
+    for event in events {
+        if let Event::MessageTuple(tuple) = event {
+            let message = tuple.0.get_inner_message_kind();
+            if message.request_id == Some(request_id) {
+                let _ = print_commands_results(message, None, ctx).await;
+            }
+        }
     }
-
-    // Wait for the DM to be sent from mostro
-    wait_for_dm(
-        &ctx.client,
-        &ctx.trade_keys,
-        request_id,
-        Some(ctx.trade_index),
-        None,
-        &ctx.pool,
-    )
-    .await?;
-
     Ok(())
 }

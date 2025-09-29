@@ -1,4 +1,5 @@
-use crate::util::{fetch_events_list, send_dm, wait_for_dm, ListKind};
+use crate::parser::dms::print_commands_results;
+use crate::util::{fetch_events_list, send_dm, Event, ListKind};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -52,15 +53,6 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
-    let subscription = Filter::new()
-        .pubkey(order_trade_keys.clone().public_key())
-        .kind(nostr_sdk::Kind::GiftWrap)
-        .limit(0);
-
-    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-    ctx.client.subscribe(subscription, Some(opts)).await?;
-
     // Clone the keys and client for the async call
     let identity_keys_clone = ctx.identity_keys.clone();
     let client_clone = ctx.client.clone();
@@ -94,8 +86,13 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     .await?;
 
     // We just need the first event
-    let recv_event = events.get(0).unwrap();
-
+    let recv_event = events.first().unwrap();
+    if let Event::MessageTuple(tuple) = recv_event {
+        let message = tuple.0.get_inner_message_kind();
+        if message.request_id == Some(request_id) {
+            let _ = print_commands_results(message, Some(order.clone()), ctx).await;
+        }
+    }
 
     Ok(())
 }

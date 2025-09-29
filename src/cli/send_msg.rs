@@ -108,7 +108,7 @@ pub async fn execute_send_msg(
                 if let Event::MessageTuple(tuple) = event {
                     let message = tuple.0.get_inner_message_kind();
                     if message.request_id == Some(request_id) {
-                        print_commands_results(&message, Some(order.clone()), &ctx).await;
+                        let _ = print_commands_results(message, Some(order.clone()), ctx).await;
                     }
                 }
             }

@@ -37,12 +37,12 @@ pub async fn print_commands_results(
                     {
                         return Err(anyhow::anyhow!("Failed to save order: {}", e));
                     }
-                    return Ok(());
+                    Ok(())
                 } else {
-                    return Err(anyhow::anyhow!("No request id found in message"));
+                    Err(anyhow::anyhow!("No request id found in message"))
                 }
             } else {
-                return Err(anyhow::anyhow!("No order found in message"));
+                Err(anyhow::anyhow!("No order found in message"))
             }
         }
         // this is the case where the buyer adds an invoice to a takesell order
@@ -57,9 +57,9 @@ pub async fn print_commands_results(
                     Ok(_) => println!("Order status updated"),
                     Err(e) => println!("Failed to update order status: {}", e),
                 }
-                return Ok(());
+                Ok(())
             } else {
-                return Err(anyhow::anyhow!("No order found in message"));
+                Err(anyhow::anyhow!("No order found in message"))
             }
         }
         // this is the case where the buyer adds an invoice to a takesell order
@@ -71,23 +71,17 @@ pub async fn print_commands_results(
                 );
                 if let Some(req_id) = message.request_id {
                     // Save the order
-                    if let Err(e) = save_order(
-                        order.clone(),
-                        &ctx.trade_keys,
-                        req_id,
-                        None,
-                        &ctx.pool,
-                    )
-                    .await
+                    if let Err(e) =
+                        save_order(order.clone(), &ctx.trade_keys, req_id, None, &ctx.pool).await
                     {
                         return Err(anyhow::anyhow!("Failed to save order: {}", e));
                     }
                 } else {
                     return Err(anyhow::anyhow!("No request id found in message"));
                 }
-                return Ok(());
+                Ok(())
             } else {
-                return Err(anyhow::anyhow!("No order found in message"));
+                Err(anyhow::anyhow!("No order found in message"))
             }
         }
         // this is the case where the buyer pays the invoice coming from a takebuy
@@ -105,81 +99,82 @@ pub async fn print_commands_results(
                 println!();
                 if let Some(order) = order {
                     if let Some(req_id) = message.request_id {
-                    let store_order = order.clone();
-                    // Save the order
-                    if let Err(e) =
-                        save_order(store_order, &ctx.trade_keys, req_id, Some(ctx.trade_index), &ctx.pool).await
-                    {
-                        println!("Failed to save order: {}", e);
-                        return Err(anyhow::anyhow!("Failed to save order: {}", e));
-                    }
-                }
-                else {
+                        let store_order = order.clone();
+                        // Save the order
+                        if let Err(e) = save_order(
+                            store_order,
+                            &ctx.trade_keys,
+                            req_id,
+                            Some(ctx.trade_index),
+                            &ctx.pool,
+                        )
+                        .await
+                        {
+                            println!("Failed to save order: {}", e);
+                            return Err(anyhow::anyhow!("Failed to save order: {}", e));
+                        }
+                    } else {
                         return Err(anyhow::anyhow!("No request id found in message"));
                     }
-                }
-                else {
+                } else {
                     return Err(anyhow::anyhow!("No request id found in message"));
                 }
-                }
-                return Ok(());
-        }
-        Action::CantDo => {
-            match message.payload {
-                Some(Payload::CantDo(Some(
-                    CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount,
-                ))) => {
-                    return Err(anyhow::anyhow!("Amount is outside the allowed range. Please check the order's min/max limits."));
-                }
-                Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
-                    return Err(anyhow::anyhow!("A pending order already exists. Please wait for it to be filled or canceled."));
-                }
-                Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
-                    return Err(anyhow::anyhow!("Invalid trade index. Please synchronize the trade index with mostro"));
-                }
-                _ => {
-                    return Err(anyhow::anyhow!("Unknown reason: {:?}", message.payload));
-                }
             }
+            Ok(())
         }
+        Action::CantDo => match message.payload {
+            Some(Payload::CantDo(Some(
+                CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount,
+            ))) => Err(anyhow::anyhow!(
+                "Amount is outside the allowed range. Please check the order's min/max limits."
+            )),
+            Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => Err(anyhow::anyhow!(
+                "A pending order already exists. Please wait for it to be filled or canceled."
+            )),
+            Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => Err(anyhow::anyhow!(
+                "Invalid trade index. Please synchronize the trade index with mostro"
+            )),
+            _ => Err(anyhow::anyhow!("Unknown reason: {:?}", message.payload)),
+        },
         // this is the case where the user cancels the order
         Action::Canceled => {
             if let Some(order_id) = &message.id {
                 // Acquire database connection
                 // Verify order exists before deletion
-                if Order::get_by_id(&ctx.pool, &order_id.to_string()).await.is_ok() {
+                if Order::get_by_id(&ctx.pool, &order_id.to_string())
+                    .await
+                    .is_ok()
+                {
                     if let Err(e) = Order::delete_by_id(&ctx.pool, &order_id.to_string()).await {
                         return Err(anyhow::anyhow!("Failed to delete order: {}", e));
                     }
                     // Release database connection
                     println!("Order {} canceled!", order_id);
-                    return Ok(());
+                    Ok(())
                 } else {
-                    return Err(anyhow::anyhow!("Order not found: {}", order_id));
+                    Err(anyhow::anyhow!("Order not found: {}", order_id))
                 }
             } else {
-                return Err(anyhow::anyhow!("No order id found in message"));
+                Err(anyhow::anyhow!("No order id found in message"))
             }
         }
         Action::Rate => {
             println!("Sats released!");
             println!("You can rate the counterpart now");
-            return Ok(());
+            Ok(())
         }
         Action::FiatSentOk => {
             if let Some(order_id) = &message.id {
                 println!("Fiat sent message for order {} received", order_id);
                 println!("Waiting for sats release from seller");
-                return Ok(());
+                Ok(())
             } else {
-                return Err(anyhow::anyhow!("No order id found in message"));
+                Err(anyhow::anyhow!("No order id found in message"))
             }
         }
-        _ => return Err(anyhow::anyhow!("Unknown action: {:?}", message.action)),
+        _ => Err(anyhow::anyhow!("Unknown action: {:?}", message.action)),
     }
 }
-
-
 
 pub async fn parse_dm_events(
     events: Events,

@@ -6,7 +6,7 @@ use nostr_sdk::prelude::*;
 async fn parse_dm_empty() {
     let keys = Keys::generate();
     let events = Events::new(&Filter::new());
-    let out = parse_dm_events(events, &keys).await;
+    let out = parse_dm_events(events, &keys, None).await;
     assert!(out.is_empty());
 }
 
