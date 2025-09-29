@@ -8,20 +8,41 @@ use mostro_core::prelude::*;
 use nip44::v2::{decrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 
-use crate::db::{Order, User};
+use crate::{
+    cli::Context,
+    db::{Order, User},
+    util::save_order,
+};
 use sqlx::SqlitePool;
 
-pub async fn print_commands_results(event){
-    let message = message.get_inner_message_kind();
-if message.request_id == Some(request_id) {
+/// Execute logic of command answer
+pub async fn print_commands_results(
+    message: &MessageKind,
+    mut order: Option<Order>,
+    ctx: &Context,
+) -> Result<()> {
+    // Do the logic for the message response
     match message.action {
         Action::NewOrder => {
             if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
-                    println!("Failed to save order: {}", e);
-                    return Err(());
+                if let Some(req_id) = message.request_id {
+                    if let Err(e) = save_order(
+                        order.clone(),
+                        &ctx.trade_keys,
+                        req_id,
+                        Some(ctx.trade_index),
+                        &ctx.pool,
+                    )
+                    .await
+                    {
+                        return Err(anyhow::anyhow!("Failed to save order: {}", e));
+                    }
+                    return Ok(());
+                } else {
+                    return Err(anyhow::anyhow!("No request id found in message"));
                 }
-                return Ok(());
+            } else {
+                return Err(anyhow::anyhow!("No order found in message"));
             }
         }
         // this is the case where the buyer adds an invoice to a takesell order
@@ -29,14 +50,16 @@ if message.request_id == Some(request_id) {
             println!("Now we should wait for the seller to pay the invoice");
             if let Some(mut order) = order.take() {
                 match order
-                .set_status(Status::WaitingPayment.to_string())
-                .save(pool)
-                .await
+                    .set_status(Status::WaitingPayment.to_string())
+                    .save(&ctx.pool)
+                    .await
                 {
                     Ok(_) => println!("Order status updated"),
                     Err(e) => println!("Failed to update order status: {}", e),
                 }
                 return Ok(());
+            } else {
+                return Err(anyhow::anyhow!("No order found in message"));
             }
         }
         // this is the case where the buyer adds an invoice to a takesell order
@@ -46,12 +69,25 @@ if message.request_id == Some(request_id) {
                     "Please add a lightning invoice with amount of {}",
                     order.amount
                 );
-                // Save the order
-                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
-                    println!("Failed to save order: {}", e);
-                    return Err(());
+                if let Some(req_id) = message.request_id {
+                    // Save the order
+                    if let Err(e) = save_order(
+                        order.clone(),
+                        &ctx.trade_keys,
+                        req_id,
+                        None,
+                        &ctx.pool,
+                    )
+                    .await
+                    {
+                        return Err(anyhow::anyhow!("Failed to save order: {}", e));
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("No request id found in message"));
                 }
                 return Ok(());
+            } else {
+                return Err(anyhow::anyhow!("No order found in message"));
             }
         }
         // this is the case where the buyer pays the invoice coming from a takebuy
@@ -68,53 +104,61 @@ if message.request_id == Some(request_id) {
                 println!("Pay this invoice to continue -->  {}", invoice);
                 println!();
                 if let Some(order) = order {
+                    if let Some(req_id) = message.request_id {
                     let store_order = order.clone();
                     // Save the order
-                    if let Err(e) = save_order(store_order, trade_keys, request_id, trade_index, pool).await {
+                    if let Err(e) =
+                        save_order(store_order, &ctx.trade_keys, req_id, Some(ctx.trade_index), &ctx.pool).await
+                    {
                         println!("Failed to save order: {}", e);
-                        return Err(());
+                        return Err(anyhow::anyhow!("Failed to save order: {}", e));
                     }
                 }
+                else {
+                        return Err(anyhow::anyhow!("No request id found in message"));
+                    }
+                }
+                else {
+                    return Err(anyhow::anyhow!("No request id found in message"));
+                }
+                }
                 return Ok(());
-            }
         }
         Action::CantDo => {
             match message.payload {
-                Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) => {
-                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                    return Err(());
+                Some(Payload::CantDo(Some(
+                    CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount,
+                ))) => {
+                    return Err(anyhow::anyhow!("Amount is outside the allowed range. Please check the order's min/max limits."));
                 }
                 Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
-                        println!("Error: A pending order already exists. Please wait for it to be filled or canceled.");
-                        return Err(());
-                    }
+                    return Err(anyhow::anyhow!("A pending order already exists. Please wait for it to be filled or canceled."));
+                }
                 Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
-                    println!("Error: Invalid trade index. Please synchronize the trade index with mostro");
-                    return Err(());
+                    return Err(anyhow::anyhow!("Invalid trade index. Please synchronize the trade index with mostro"));
                 }
                 _ => {
-                    println!("Unknown reason: {:?}", message.payload);
-                    return Err(());
+                    return Err(anyhow::anyhow!("Unknown reason: {:?}", message.payload));
                 }
             }
         }
         // this is the case where the user cancels the order
         Action::Canceled => {
             if let Some(order_id) = &message.id {
-            // Acquire database connection
-            // Verify order exists before deletion
-            if Order::get_by_id(pool, &order_id.to_string()).await.is_ok() {
-                if let Err(e) = Order::delete_by_id(pool, &order_id.to_string()).await {
-                    println!("Failed to delete order: {}", e);
-                    return Err(());
+                // Acquire database connection
+                // Verify order exists before deletion
+                if Order::get_by_id(&ctx.pool, &order_id.to_string()).await.is_ok() {
+                    if let Err(e) = Order::delete_by_id(&ctx.pool, &order_id.to_string()).await {
+                        return Err(anyhow::anyhow!("Failed to delete order: {}", e));
+                    }
+                    // Release database connection
+                    println!("Order {} canceled!", order_id);
+                    return Ok(());
+                } else {
+                    return Err(anyhow::anyhow!("Order not found: {}", order_id));
                 }
-                // Release database connection
-                println!("Order {} canceled!", order_id);
-                return Ok(());
             } else {
-                println!("Order not found: {}", order_id);
-                return Err(());
-                }
+                return Err(anyhow::anyhow!("No order id found in message"));
             }
         }
         Action::Rate => {
@@ -127,14 +171,21 @@ if message.request_id == Some(request_id) {
                 println!("Fiat sent message for order {} received", order_id);
                 println!("Waiting for sats release from seller");
                 return Ok(());
+            } else {
+                return Err(anyhow::anyhow!("No order id found in message"));
             }
         }
-        _ => {}
-    }
+        _ => return Err(anyhow::anyhow!("Unknown action: {:?}", message.action)),
     }
 }
 
-pub async fn parse_dm_events(events: Events, pubkey: &Keys, since: Option<&i64>) -> Vec<(Message, u64, PublicKey)> {
+
+
+pub async fn parse_dm_events(
+    events: Events,
+    pubkey: &Keys,
+    since: Option<&i64>,
+) -> Vec<(Message, u64, PublicKey)> {
     let mut id_set = HashSet::<EventId>::new();
     let mut direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
 

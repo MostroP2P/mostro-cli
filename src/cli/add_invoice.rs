@@ -1,4 +1,4 @@
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{fetch_events_list, send_dm, wait_for_dm, ListKind};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -82,15 +82,20 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .await;
     });
 
-    // Wait for the DM to be sent from mostro and update the order
-    wait_for_dm(
-        &ctx.client,
-        &order_trade_keys_clone,
-        request_id,
+    let events = fetch_events_list(
+        ListKind::WaitForUpdate,
         None,
-        Some(order),
-        &ctx.pool,
+        None,
+        None,
+        ctx,
+        Some(&order_trade_keys_clone),
+        None,
     )
     .await?;
+
+    // We just need the first event
+    let recv_event = events.get(0).unwrap();
+
+
     Ok(())
 }

@@ -22,7 +22,8 @@ pub async fn execute_get_dm(
     };
 
     // Fetch the requested events
-    let all_fetched_events = fetch_events_list(list_kind, None, None, None, ctx, None, Some(since)).await?;
+    let all_fetched_events =
+        fetch_events_list(list_kind, None, None, None, ctx, None, Some(since)).await?;
 
     // Extract (Message, u64) tuples from Event::MessageTuple variants
     let mut dm_events: Vec<(Message, u64)> = Vec::new();

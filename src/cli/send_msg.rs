@@ -1,6 +1,7 @@
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
-use crate::util::{fetch_events_list, send_dm, wait_for_dm, ListKind};
+use crate::parser::dms::print_commands_results;
+use crate::util::{fetch_events_list, send_dm, Event, ListKind};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -65,16 +66,7 @@ pub async fn execute_send_msg(
 
         if let Some(trade_keys_str) = order.trade_keys.clone() {
             let trade_keys = Keys::parse(&trade_keys_str)?;
-            // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
-            let subscription = Filter::new()
-                .pubkey(trade_keys.public_key())
-                .kind(nostr_sdk::Kind::GiftWrap)
-                .limit(0);
 
-            let opts =
-                SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-            // Subscribe to gift wrap events
-            ctx.client.subscribe(subscription, Some(opts)).await?;
             // Send DM
             let message_json = message
                 .as_json()
@@ -95,27 +87,33 @@ pub async fn execute_send_msg(
                     &mostro_pubkey_clone,
                     message_json,
                     None,
-                        false,
-                    )
-                    .await;
+                    false,
+                )
+                .await;
             });
 
-            let new_incoming_message = fetch_events_list(ListKind::WaitForUpdate, None, None, None, ctx, Some(&trade_keys),None).await?;
+            let events = fetch_events_list(
+                ListKind::WaitForUpdate,
+                None,
+                None,
+                None,
+                ctx,
+                Some(&trade_keys),
+                None,
+            )
+            .await?;
 
-            // // Wait for the DM to be sent from mostro
-            // wait_for_dm(
-            //     &ctx.client,
-            //     &trade_keys,
-            //     request_id,
-            //     None,
-            //     Some(order),
-            //     &ctx.pool,
-            // )
-            // .await
-            // .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
+            // Extract (Message, u64) tuples from Event::MessageTuple variants
+            for event in events {
+                if let Event::MessageTuple(tuple) = event {
+                    let message = tuple.0.get_inner_message_kind();
+                    if message.request_id == Some(request_id) {
+                        print_commands_results(&message, Some(order.clone()), &ctx).await;
+                    }
+                }
+            }
         }
     }
-
     Ok(())
 }
 

@@ -13,7 +13,7 @@ pub async fn execute_list_disputes(ctx: &Context) -> Result<()> {
 
     // Get orders from relays
     let table_of_disputes =
-        fetch_events_list(ListKind::Disputes, None, None, None, ctx, None).await?;
+        fetch_events_list(ListKind::Disputes, None, None, None, ctx, None, None).await?;
     let table = print_disputes_table(table_of_disputes)?;
     println!("{table}");
 
