@@ -586,24 +586,22 @@ pub async fn fetch_events_list(
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::WaitForUpdate => {
-            if let Some(trade_key) = specific_trade_key {
-                let filters = create_filter(list_kind, trade_key.public_key(), None)?;
-                let fetched_event = ctx
-                    .client
-                    .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
-                    .await?;
-                let message = parse_dm_events(fetched_event, trade_key, None).await;
-                Ok(message
-                    .into_iter()
-                    .map(|(message, timestamp, _)| {
-                        Event::MessageTuple(Box::new((message, timestamp)))
-                    })
-                    .collect())
-            } else {
-                Err(anyhow::anyhow!(
-                    "Specific trade key is required for this command!"
-                ))
-            }
+            // get trade key from previous order if specic tradey is Some or get trade key from ctx
+            let trade_key = match specific_trade_key {
+                Some(key) => key.clone(),
+                None => ctx.trade_keys.clone(),
+            };
+
+            let filters = create_filter(list_kind, trade_key.public_key(), None)?;
+            let fetched_event = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let message = parse_dm_events(fetched_event, &trade_key, None).await;
+            Ok(message
+                .into_iter()
+                .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
+                .collect())
         }
         ListKind::DirectMessagesAdmin => {
             let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
