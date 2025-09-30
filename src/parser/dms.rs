@@ -165,7 +165,7 @@ pub async fn print_commands_results(
         }
         Action::FiatSentOk => {
             if let Some(order_id) = &message.id {
-                println!("Fiat sent message for order {} received", order_id);
+                println!("Fiat sent message for order {:?} received", order_id);
                 println!("Waiting for sats release from seller");
                 Ok(())
             } else {

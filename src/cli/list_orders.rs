@@ -63,7 +63,6 @@ pub async fn execute_list_orders(
         kind_checked,
         ctx,
         None,
-        None,
     )
     .await?;
     let table = print_orders_table(table_of_orders)?;

@@ -1,5 +1,6 @@
 use crate::parser::dms::print_commands_results;
-use crate::util::{fetch_events_list, send_dm, Event, ListKind};
+use crate::parser::parse_dm_events;
+use crate::util::{send_dm, wait_for_dm};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -53,42 +54,25 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Clone the keys and client for the async call
-    let identity_keys_clone = ctx.identity_keys.clone();
-    let client_clone = ctx.client.clone();
-    let mostro_pubkey_clone = ctx.mostro_pubkey;
-    let order_trade_keys_clone = order_trade_keys.clone();
-
-    // Spawn a new task to send the DM
-    // This is so we can wait for the gift wrap event in the main thread
-    tokio::spawn(async move {
-        let _ = send_dm(
-            &client_clone,
-            Some(&identity_keys_clone),
-            &order_trade_keys,
-            &mostro_pubkey_clone,
-            message_json,
-            None,
-            false,
-        )
-        .await;
-    });
-
-    let events = fetch_events_list(
-        ListKind::WaitForUpdate,
+    // Send the DM
+    let _ = send_dm(
+        &ctx.client,
+        Some(&ctx.identity_keys),
+        &order_trade_keys,
+        &ctx.mostro_pubkey,
+        message_json,
         None,
-        None,
-        None,
-        ctx,
-        Some(&order_trade_keys_clone),
-        None,
+        false,
     )
-    .await?;
+    .await;
 
-    // We just need the first event
-    let recv_event = events.first().unwrap();
-    if let Event::MessageTuple(tuple) = recv_event {
-        let message = tuple.0.get_inner_message_kind();
+    // Wait for the DM to be sent from mostro
+    let recv_event = wait_for_dm(ctx).await?;
+
+    // Parse the incoming DM
+    let messages = parse_dm_events(recv_event, &order_trade_keys, None).await;
+    if let Some(message) = messages.first() {
+        let message = message.0.get_inner_message_kind();
         if message.request_id == Some(request_id) {
             let _ = print_commands_results(message, Some(order.clone()), ctx).await;
         }

@@ -7,7 +7,8 @@ use uuid::Uuid;
 use crate::cli::Context;
 use crate::lightning::is_valid_invoice;
 use crate::parser::dms::print_commands_results;
-use crate::util::{fetch_events_list, send_dm, Event, ListKind};
+use crate::parser::parse_dm_events;
+use crate::util::{send_dm, wait_for_dm};
 
 /// Create payload based on action type and parameters
 fn create_take_order_payload(
@@ -92,38 +93,30 @@ pub async fn execute_take_order(
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Clone the keys and client for the async call
-    let identity_keys_clone = ctx.identity_keys.clone();
-    let trade_keys_clone = ctx.trade_keys.clone();
-    let client_clone = ctx.client.clone();
-    let mostro_pubkey_clone = ctx.mostro_pubkey;
-
-    // Spawn a new task to send the DM
+    // Send the DM
     // This is so we can wait for the gift wrap event in the main thread
-    tokio::spawn(async move {
-        let _ = send_dm(
-            &client_clone,
-            Some(&identity_keys_clone),
-            &trade_keys_clone,
-            &mostro_pubkey_clone,
-            message_json,
-            None,
-            false,
-        )
-        .await;
-    });
+    let _ = send_dm(
+        &ctx.client,
+        Some(&ctx.identity_keys),
+        &ctx.trade_keys,
+        &ctx.mostro_pubkey,
+        message_json,
+        None,
+        false,
+    )
+    .await;
 
-    let events =
-        fetch_events_list(ListKind::WaitForUpdate, None, None, None, ctx, None, None).await?;
+    // Wait for the DM to be sent from mostro
+    let recv_event = wait_for_dm(ctx).await?;
 
-    // Extract (Message, u64) tuples from Event::MessageTuple variants
-    for event in events {
-        if let Event::MessageTuple(tuple) = event {
-            let message = tuple.0.get_inner_message_kind();
-            if message.request_id == Some(request_id) {
-                let _ = print_commands_results(message, None, ctx).await;
-            }
+    // Parse the incoming DM
+    let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
+    if let Some(message) = messages.first() {
+        let message = message.0.get_inner_message_kind();
+        if message.request_id == Some(request_id) {
+            let _ = print_commands_results(message, None, ctx).await;
         }
     }
+
     Ok(())
 }

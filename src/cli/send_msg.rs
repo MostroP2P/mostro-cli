@@ -1,7 +1,8 @@
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
 use crate::parser::dms::print_commands_results;
-use crate::util::{fetch_events_list, send_dm, Event, ListKind};
+use crate::parser::parse_dm_events;
+use crate::util::{send_dm, wait_for_dm};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -29,7 +30,7 @@ pub async fn execute_send_msg(
     };
 
     println!(
-        "Sending {} command for order {:?} to mostro pubId {}",
+        "Sending {} command for order {:#?} to mostro pubId {}",
         requested_action,
         order_id.as_ref(),
         &ctx.mostro_pubkey
@@ -59,7 +60,6 @@ pub async fn execute_send_msg(
 
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
-    let idkey = ctx.identity_keys.to_owned();
 
     if let Some(order_id) = order_id {
         let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
@@ -72,44 +72,27 @@ pub async fn execute_send_msg(
                 .as_json()
                 .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?;
 
-            // Clone the keys and client for the async call
-            let trade_keys_clone = trade_keys.clone();
-            let client_clone = ctx.client.clone();
-            let mostro_pubkey_clone = ctx.mostro_pubkey;
-            let idkey_clone = idkey.clone();
-
-            // Spawn a new task to send the DM
-            tokio::spawn(async move {
-                let _ = send_dm(
-                    &client_clone,
-                    Some(&idkey_clone),
-                    &trade_keys_clone,
-                    &mostro_pubkey_clone,
-                    message_json,
-                    None,
-                    false,
-                )
-                .await;
-            });
-
-            let events = fetch_events_list(
-                ListKind::WaitForUpdate,
+            // Send DM
+            let _ = send_dm(
+                &ctx.client,
+                Some(&ctx.identity_keys),
+                &trade_keys,
+                &ctx.mostro_pubkey,
+                message_json,
                 None,
-                None,
-                None,
-                ctx,
-                Some(&trade_keys),
-                None,
+                false,
             )
-            .await?;
+            .await;
 
-            // Extract (Message, u64) tuples from Event::MessageTuple variants
-            for event in events {
-                if let Event::MessageTuple(tuple) = event {
-                    let message = tuple.0.get_inner_message_kind();
-                    if message.request_id == Some(request_id) {
-                        let _ = print_commands_results(message, Some(order.clone()), ctx).await;
-                    }
+            // Wait for incoming DM
+            let recv_event = wait_for_dm(ctx).await?;
+            println!("Recv event: {:?}", recv_event);
+            let messages = parse_dm_events(recv_event, &trade_keys, None).await;
+            if let Some(message) = messages.first() {
+                let message = message.0.get_inner_message_kind();
+                println!("Message: {:?}", message);
+                if message.request_id == Some(request_id) {
+                    let _ = print_commands_results(message, None, ctx).await;
                 }
             }
         }
