@@ -67,14 +67,16 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     .await;
 
     // Wait for the DM to be sent from mostro
-    let recv_event = wait_for_dm(ctx).await?;
+    let recv_event = wait_for_dm(ctx, Some(&order_trade_keys)).await?;
 
     // Parse the incoming DM
     let messages = parse_dm_events(recv_event, &order_trade_keys, None).await;
     if let Some(message) = messages.first() {
         let message = message.0.get_inner_message_kind();
         if message.request_id == Some(request_id) {
-            let _ = print_commands_results(message, Some(order.clone()), ctx).await;
+            if let Err(e) = print_commands_results(message, Some(order.clone()), ctx).await {
+                println!("Error in print_commands_results: {}", e);
+            }
         }
     }
 

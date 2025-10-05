@@ -97,7 +97,7 @@ pub async fn save_order(
     order: SmallOrder,
     trade_keys: &Keys,
     request_id: u64,
-    trade_index: Option<i64>,
+    trade_index: i64,
     pool: &SqlitePool,
 ) -> Result<()> {
     if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
@@ -106,14 +106,6 @@ pub async fn save_order(
         } else {
             println!("Warning: The newly created order has no ID.");
         }
-        // Get trade index - we must have it
-        let trade_index = if let Some(trade_index) = trade_index {
-            trade_index
-        } else {
-            return Err(anyhow::anyhow!(
-                "No trade index found for new order, this should never happen"
-            ));
-        };
 
         // Update last trade index to be used in next trade
         match User::get(pool).await {
@@ -130,12 +122,14 @@ pub async fn save_order(
 }
 
 /// Wait for incoming gift wraps or events coming in
-pub async fn wait_for_dm(ctx: &Context) -> anyhow::Result<Events> {
+pub async fn wait_for_dm(ctx: &Context, order_trade_keys: Option<&Keys>) -> anyhow::Result<Events> {
+    // Get correct trade keys to wait for
+    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     // Create subscription
     let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
     // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
     let subscription = Filter::new()
-        .pubkey(ctx.trade_keys.public_key())
+        .pubkey(trade_keys.public_key())
         .kind(nostr_sdk::Kind::GiftWrap)
         .limit(0);
     // Subscribe to subscription with exit policy of just waiting for 1 event

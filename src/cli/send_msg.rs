@@ -29,12 +29,13 @@ pub async fn execute_send_msg(
         }
     };
 
-    println!(
-        "Sending {} command for order {:#?} to mostro pubId {}",
-        requested_action,
-        order_id.as_ref(),
-        &ctx.mostro_pubkey
-    );
+    match order_id {
+        Some(id) => println!(
+            "Sending {} command for order {} to mostro pubId {}",
+            requested_action, id, ctx.mostro_pubkey
+        ),
+        None => return Err(anyhow::anyhow!("Missing order id!")),
+    };
 
     // Determine payload
     let payload = match requested_action {
@@ -85,8 +86,7 @@ pub async fn execute_send_msg(
             .await;
 
             // Wait for incoming DM
-            let recv_event = wait_for_dm(ctx).await?;
-            println!("Recv event: {:?}", recv_event);
+            let recv_event = wait_for_dm(ctx, Some(&trade_keys)).await?;
             let messages = parse_dm_events(recv_event, &trade_keys, None).await;
             if let Some(message) = messages.first() {
                 let message = message.0.get_inner_message_kind();
