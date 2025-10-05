@@ -270,7 +270,7 @@ pub async fn wait_for_dm(
                                 // Update order status to disputed if we have the order
                                 if let Some(mut order) = order.take() {
                                     match order
-                                        .set_status("Dispute".to_string())
+                                        .set_status(Status::Dispute.to_string())
                                         .save(pool)
                                         .await
                                     {
