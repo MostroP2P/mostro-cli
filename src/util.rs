@@ -263,6 +263,16 @@ pub async fn wait_for_dm(
                                 }
                             }
                         }
+                        // this is the case where the user initiates a dispute
+                        Action::DisputeInitiatedByYou => {
+                            if let Some(Payload::Dispute(dispute_id, _)) = &message.payload {
+                                println!("Dispute initiated successfully with ID: {}", dispute_id);
+                                return Ok(());
+                            } else {
+                                println!("Dispute initiated successfully");
+                                return Ok(());
+                            }
+                        }
                         _ => {}
                     }
                     }
