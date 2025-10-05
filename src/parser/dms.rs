@@ -25,16 +25,16 @@ pub async fn parse_dm_events(events: Events, pubkey: &Keys) -> Vec<(Message, u64
             nostr_sdk::Kind::GiftWrap => {
                 let unwrapped_gift = match nip59::extract_rumor(pubkey, dm).await {
                     Ok(u) => u,
-                    Err(_) => {
-                        println!("Error unwrapping gift");
+                    Err(e) => {
+                        eprintln!("Warning: Could not decrypt gift wrap (event {}): {}", dm.id, e);
                         continue;
                     }
                 };
                 let (message, _): (Message, Option<String>) =
                     match serde_json::from_str(&unwrapped_gift.rumor.content) {
                         Ok(msg) => msg,
-                        Err(_) => {
-                            println!("Error parsing gift wrap content");
+                        Err(e) => {
+                            eprintln!("Warning: Could not parse message content (event {}): {}", dm.id, e);
                             continue;
                         }
                     };
