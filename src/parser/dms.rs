@@ -140,6 +140,10 @@ pub async fn print_commands_results(
             Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => Err(anyhow::anyhow!(
                 "Invalid trade index. Please synchronize the trade index with mostro"
             )),
+            Some(Payload::CantDo(Some(CantDoReason::InvalidFiatCurrency))) => Err(anyhow::anyhow!(
+                "
+            Invalid currency"
+            )),
             _ => Err(anyhow::anyhow!("Unknown reason: {:?}", message.payload)),
         },
         // this is the case where the user cancels the order
