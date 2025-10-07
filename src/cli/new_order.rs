@@ -130,7 +130,7 @@ pub async fn execute_new_order(
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Send the DM
-    let _ = send_dm(
+    send_dm(
         &ctx.client,
         Some(&ctx.identity_keys),
         &ctx.trade_keys,
@@ -139,7 +139,7 @@ pub async fn execute_new_order(
         None,
         false,
     )
-    .await;
+    .await?;
 
     // Wait for the DM to be sent from mostro
     let recv_event = wait_for_dm(ctx, None).await?;
