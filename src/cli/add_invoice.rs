@@ -55,7 +55,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Send the DM
-    let _ = send_dm(
+    send_dm(
         &ctx.client,
         Some(&ctx.identity_keys),
         &order_trade_keys,
@@ -64,7 +64,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         None,
         false,
     )
-    .await;
+    .await?;
 
     // Wait for the DM to be sent from mostro
     let recv_event = wait_for_dm(ctx, Some(&order_trade_keys)).await?;

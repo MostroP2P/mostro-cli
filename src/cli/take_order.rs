@@ -96,7 +96,7 @@ pub async fn execute_take_order(
 
     // Send the DM
     // This is so we can wait for the gift wrap event in the main thread
-    let _ = send_dm(
+    send_dm(
         &ctx.client,
         Some(&ctx.identity_keys),
         &ctx.trade_keys,
@@ -105,7 +105,7 @@ pub async fn execute_take_order(
         None,
         false,
     )
-    .await;
+    .await?;
 
     // Wait for the DM to be sent from mostro
     let recv_event = wait_for_dm(ctx, None).await?;
