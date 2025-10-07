@@ -306,7 +306,8 @@ impl Order {
             expires_at: None,
         };
 
-        sqlx::query(
+        // Try insert; if id already exists, perform an update instead
+        let insert_result = sqlx::query(
             r#"
                   INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
                   fiat_code, fiat_amount, payment_method, premium, trade_keys,
@@ -332,7 +333,52 @@ impl Order {
         .bind(order.created_at)
         .bind(order.expires_at)
         .execute(pool)
-        .await?;
+        .await;
+
+        if let Err(e) = insert_result {
+            // If the error is due to unique constraint (id already present), update instead
+            // SQLite uses error code 1555 (constraint failed) or 2067 (unique constraint failed)
+            let is_unique_violation = match e.as_database_error() {
+                Some(db_err) => {
+                    let code = db_err.code().map(|c| c.to_string()).unwrap_or_default();
+                    code == "1555" || code == "2067"
+                }
+                None => false,
+            };
+
+            if is_unique_violation {
+                sqlx::query(
+                    r#"
+                  UPDATE orders 
+                  SET kind = ?, status = ?, amount = ?, min_amount = ?, max_amount = ?,
+                      fiat_code = ?, fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?,
+                      counterparty_pubkey = ?, is_mine = ?, buyer_invoice = ?, request_id = ?, created_at = ?, expires_at = ?
+                  WHERE id = ?
+                "#,
+                )
+                .bind(&order.kind)
+                .bind(&order.status)
+                .bind(order.amount)
+                .bind(order.min_amount)
+                .bind(order.max_amount)
+                .bind(&order.fiat_code)
+                .bind(order.fiat_amount)
+                .bind(&order.payment_method)
+                .bind(order.premium)
+                .bind(&order.trade_keys)
+                .bind(&order.counterparty_pubkey)
+                .bind(order.is_mine)
+                .bind(&order.buyer_invoice)
+                .bind(order.request_id)
+                .bind(order.created_at)
+                .bind(order.expires_at)
+                .bind(&order.id)
+                .execute(pool)
+                .await?;
+            } else {
+                return Err(e.into());
+            }
+        }
 
         Ok(order)
     }

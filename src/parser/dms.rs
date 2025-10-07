@@ -137,28 +137,9 @@ pub async fn print_commands_results(
             Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => Err(anyhow::anyhow!(
                 "A pending order already exists. Please wait for it to be filled or canceled."
             )),
-            Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
-                if let Some(order_id) = message.id {
-                    let _ = Order::delete_by_id(&ctx.pool, &order_id.to_string()).await;
-                }
-                // Workaround to update the trade index if mostro is sending this error
-                match User::get(&ctx.pool).await {
-                    Ok(mut user) => {
-                        let new_trade_index = ctx.trade_index + 1;
-                        user.set_last_trade_index(new_trade_index);
-                        if let Err(e) = user.save(&ctx.pool).await {
-                            println!("Failed to update user trade index to continue: {}", e);
-                        }
-                    }
-                    Err(e) => println!(
-                        "Failed to get user to update trade index to continue: {}",
-                        e
-                    ),
-                }
-                Err(anyhow::anyhow!(
-                "Invalid trade index. I have incremented the trade index to the next one to continue - try again to repeat command!"
-                ))
-            }
+            Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => Err(anyhow::anyhow!(
+                "Invalid trade index. Please synchronize the trade index with mostro"
+            )),
             _ => Err(anyhow::anyhow!("Unknown reason: {:?}", message.payload)),
         },
         // this is the case where the user cancels the order

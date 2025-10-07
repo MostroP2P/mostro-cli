@@ -72,6 +72,7 @@ pub async fn execute_take_order(
     // Create payload based on action type
     let payload = create_take_order_payload(action.clone(), invoice, amount)?;
 
+    // Create request id
     let request_id = Uuid::new_v4().as_u128() as u64;
 
     // Create message
