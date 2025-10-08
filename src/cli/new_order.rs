@@ -120,7 +120,8 @@ pub async fn execute_new_order(
 
     // Send dm to receiver pubkey
     println!(
-        "SENDING DM with trade keys: {:?}",
+        "SENDING DM with trade index: {} and trade keys: {:?}",
+        ctx.trade_index,
         ctx.trade_keys.public_key().to_hex()
     );
 
