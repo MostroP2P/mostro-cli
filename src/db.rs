@@ -307,33 +307,7 @@ impl Order {
         };
 
         // Try insert; if id already exists, perform an update instead
-        let insert_result = sqlx::query(
-            r#"
-                  INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
-                  fiat_code, fiat_amount, payment_method, premium, trade_keys,
-                  counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                "#,
-        )
-        .bind(&order.id)
-        .bind(&order.kind)
-        .bind(&order.status)
-        .bind(order.amount)
-        .bind(order.min_amount)
-        .bind(order.max_amount)
-        .bind(&order.fiat_code)
-        .bind(order.fiat_amount)
-        .bind(&order.payment_method)
-        .bind(order.premium)
-        .bind(&order.trade_keys)
-        .bind(&order.counterparty_pubkey)
-        .bind(order.is_mine)
-        .bind(&order.buyer_invoice)
-        .bind(order.request_id)
-        .bind(order.created_at)
-        .bind(order.expires_at)
-        .execute(pool)
-        .await;
+        let insert_result = order.insert_db(pool).await;
 
         if let Err(e) = insert_result {
             // If the error is due to unique constraint (id already present), update instead
@@ -347,40 +321,78 @@ impl Order {
             };
 
             if is_unique_violation {
-                sqlx::query(
-                    r#"
-                  UPDATE orders 
-                  SET kind = ?, status = ?, amount = ?, min_amount = ?, max_amount = ?,
-                      fiat_code = ?, fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?,
-                      counterparty_pubkey = ?, is_mine = ?, buyer_invoice = ?, request_id = ?, created_at = ?, expires_at = ?
-                  WHERE id = ?
-                "#,
-                )
-                .bind(&order.kind)
-                .bind(&order.status)
-                .bind(order.amount)
-                .bind(order.min_amount)
-                .bind(order.max_amount)
-                .bind(&order.fiat_code)
-                .bind(order.fiat_amount)
-                .bind(&order.payment_method)
-                .bind(order.premium)
-                .bind(&order.trade_keys)
-                .bind(&order.counterparty_pubkey)
-                .bind(order.is_mine)
-                .bind(&order.buyer_invoice)
-                .bind(order.request_id)
-                .bind(order.created_at)
-                .bind(order.expires_at)
-                .bind(&order.id)
-                .execute(pool)
-                .await?;
+                order.update_db(pool).await?;
             } else {
                 return Err(e.into());
             }
         }
 
         Ok(order)
+    }
+
+    async fn insert_db(&self, pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+			      INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
+			      fiat_code, fiat_amount, payment_method, premium, trade_keys,
+			      counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at)
+			      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			    "#,
+        )
+        .bind(&self.id)
+        .bind(&self.kind)
+        .bind(&self.status)
+        .bind(self.amount)
+        .bind(self.min_amount)
+        .bind(self.max_amount)
+        .bind(&self.fiat_code)
+        .bind(self.fiat_amount)
+        .bind(&self.payment_method)
+        .bind(self.premium)
+        .bind(&self.trade_keys)
+        .bind(&self.counterparty_pubkey)
+        .bind(self.is_mine)
+        .bind(&self.buyer_invoice)
+        .bind(self.request_id)
+        .bind(self.created_at)
+        .bind(self.expires_at)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        Ok(())
+    }
+
+    async fn update_db(&self, pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+			r#"
+			  UPDATE orders 
+			  SET kind = ?, status = ?, amount = ?, min_amount = ?, max_amount = ?,
+			      fiat_code = ?, fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?,
+			      counterparty_pubkey = ?, is_mine = ?, buyer_invoice = ?, request_id = ?, created_at = ?, expires_at = ?
+			  WHERE id = ?
+			"#,
+		)
+		.bind(&self.kind)
+		.bind(&self.status)
+		.bind(self.amount)
+		.bind(self.min_amount)
+		.bind(self.max_amount)
+		.bind(&self.fiat_code)
+		.bind(self.fiat_amount)
+		.bind(&self.payment_method)
+		.bind(self.premium)
+		.bind(&self.trade_keys)
+		.bind(&self.counterparty_pubkey)
+		.bind(self.is_mine)
+		.bind(&self.buyer_invoice)
+		.bind(self.request_id)
+		.bind(self.created_at)
+		.bind(self.expires_at)
+		.bind(&self.id)
+		.execute(pool)
+		.await?
+		.rows_affected();
+        Ok(())
     }
 
     // Setters encadenables

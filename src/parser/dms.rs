@@ -256,7 +256,13 @@ pub async fn parse_dm_events(
         };
         // check if the message is older than the since time if it is, skip it
         if let Some(since_time) = since {
-            if created_at.as_u64() < *since_time as u64 {
+            // Calculate since time from now in minutes subtracting the since time
+            let since_time = chrono::Utc::now()
+                .checked_sub_signed(chrono::Duration::minutes(*since_time))
+                .unwrap()
+                .timestamp() as u64;
+
+            if created_at.as_u64() < since_time {
                 continue;
             }
         }
