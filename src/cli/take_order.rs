@@ -113,13 +113,21 @@ pub async fn execute_take_order(
 
     // Parse the incoming DM
     let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
-    if let Some(message) = messages.first() {
+    if let Some((message, _, _)) = messages.first() {
         let message = message.0.get_inner_message_kind();
         if message.request_id == Some(request_id) {
-            if let Err(e) = print_commands_results(message, None, ctx).await {
-                println!("Error in print_commands_results: {}", e);
-            }
+            print_commands_results(message, None, ctx).await?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
+                request_id,
+                message.request_id
+            ));
         }
+    } else {
+        return Err(anyhow::anyhow!(
+            "No valid response received from Mostro after taking order"
+        ));
     }
     Ok(())
 }
