@@ -10,11 +10,14 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) -> Result<()> {
+    // Get order from order id
     let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
+    // Get trade keys of specific order
     let trade_keys = order
         .trade_keys
         .clone()
         .ok_or(anyhow::anyhow!("Missing trade keys"))?;
+    
     let order_trade_keys = Keys::parse(&trade_keys)?;
     println!(
         "Order trade keys: {:?}",
@@ -71,13 +74,21 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
 
     // Parse the incoming DM
     let messages = parse_dm_events(recv_event, &order_trade_keys, None).await;
-    if let Some(message) = messages.first() {
-        let message = message.0.get_inner_message_kind();
+    if let Some((message, _, _)) = messages.first() {
+        let message = message.get_inner_message_kind();
         if message.request_id == Some(request_id) {
-            if let Err(e) = print_commands_results(message, Some(order.clone()), ctx).await {
-                println!("Error in print_commands_results: {}", e);
-            }
+            print_commands_results(message, None, ctx).await?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
+                request_id,
+                message.request_id
+            ));
         }
+    } else {
+        return Err(anyhow::anyhow!(
+            "No valid response received from Mostro after adding invoice to order"
+        ));
     }
 
     Ok(())

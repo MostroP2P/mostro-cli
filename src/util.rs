@@ -125,8 +125,10 @@ pub async fn save_order(
 pub async fn wait_for_dm(ctx: &Context, order_trade_keys: Option<&Keys>) -> anyhow::Result<Events> {
     // Get correct trade keys to wait for
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
+    // Get notifications from client
+    let mut notifications = ctx.client.notifications();
     // Create subscription
-    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
+    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
     // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
     let subscription = Filter::new()
         .pubkey(trade_keys.public_key())
@@ -134,9 +136,6 @@ pub async fn wait_for_dm(ctx: &Context, order_trade_keys: Option<&Keys>) -> anyh
         .limit(0);
     // Subscribe to subscription with exit policy of just waiting for 1 event
     ctx.client.subscribe(subscription, Some(opts)).await?;
-
-    // Get notifications from client
-    let mut notifications = ctx.client.notifications();
 
     // Wait for event
     let event = tokio::time::timeout(FETCH_EVENTS_TIMEOUT, async move {
