@@ -164,6 +164,29 @@ where
                             // Continue waiting for a valid event
                             continue;
                         }
+                        // this is the case where the user initiates a dispute
+                        Action::DisputeInitiatedByYou => {
+                            if let Some(Payload::Dispute(dispute_id, _)) = &message.payload {
+                                println!("Dispute initiated successfully with ID: {}", dispute_id);
+                                // Update order status to disputed if we have the order
+                                if let Some(mut order) = order.take() {
+                                    match order
+                                        .set_status(Status::Dispute.to_string())
+                                        .save(pool)
+                                        .await
+                                    {
+                                        Ok(_) => println!("Order status updated to Dispute"),
+                                        Err(e) => println!("Failed to update order status: {}", e),
+                                    }
+                                }
+                                return Ok(());
+                            } else {
+                                println!("Warning: Dispute initiated but received unexpected payload structure");
+                                return Ok(());
+                            }
+                        }
+                        _ => {}
+                    }
                     }
                 }
                 Err(e) => {
