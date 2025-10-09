@@ -4,18 +4,18 @@
 
 Very simple command line interface that show all new replaceable events from [Mostro](https://github.com/MostroP2P/mostro)
 
-## Requirements:
+## Requirements
 
 0. You need Rust version 1.64 or higher to compile.
 1. You will need a lightning network node
 
-## Install dependencies:
+## Install dependencies
 
 To compile on Ubuntu/Pop!\_OS, please install [cargo](https://www.rust-lang.org/tools/install), then run the following commands:
 
 ```
-$ sudo apt update
-$ sudo apt install -y cmake build-essential pkg-config
+sudo apt update
+sudo apt install -y cmake build-essential pkg-config
 ```
 
 ## Install
@@ -23,33 +23,41 @@ $ sudo apt install -y cmake build-essential pkg-config
 To install you need to fill the env vars (`.env`) on the with your own private key and add a Mostro pubkey.
 
 ```
-$ git clone https://github.com/MostroP2P/mostro-cli.git
-$ cd mostro-cli
-$ cp .env-sample .env
-$ cargo run
+git clone https://github.com/MostroP2P/mostro-cli.git
+cd mostro-cli
+cp .env-sample .env
+cargo run
 ```
 
 # Usage
 
 ```
 Commands:
-  listorders       Requests open orders from Mostro pubkey
-  neworder         Create a new buy/sell order on Mostro
-  takesell         Take a sell order from a Mostro pubkey
-  takebuy          Take a buy order from a Mostro pubkey
-  addinvoice       Buyer add a new invoice to receive the payment
-  getdm            Get the latest direct messages from Mostro
-  fiatsent         Send fiat sent message to confirm payment to other user
-  release          Settle the hold invoice and pay to buyer
-  cancel           Cancel a pending order
-  rate             Rate counterpart after a successful trade
-  dispute          Start a dispute
-  admcancel        Cancel an order (only admin)
-  admsettle        Settle a seller's hold invoice (only admin)
-  admlistdisputes  Requests open disputes from Mostro pubkey
-  admaddsolver     Add a new dispute's solver (only admin)
-  admtakedispute   Admin or solver take a Pending dispute (only admin)
-  help             Print this message or the help of the given subcommand(s)
+  listorders         Requests open orders from Mostro pubkey
+  neworder           Create a new buy/sell order on Mostro
+  takesell           Take a sell order from a Mostro pubkey
+  takebuy            Take a buy order from a Mostro pubkey
+  addinvoice         Buyer add a new invoice to receive the payment
+  getdm              Get the latest direct messages
+  getdmuser          Get direct messages sent to any trade keys
+  getadmindm         Get the latest direct messages for admin
+  senddm             Send direct message to a user
+  dmtouser           Send gift wrapped direct message to a user
+  fiatsent           Send fiat sent message to confirm payment to other user
+  release            Settle the hold invoice and pay to buyer
+  cancel             Cancel a pending order
+  rate               Rate counterpart after a successful trade
+  restore            Restore session to recover all pending orders and disputes
+  dispute            Start a dispute
+  admcancel          Cancel an order (only admin)
+  admsettle          Settle a seller's hold invoice (only admin)
+  admlistdisputes    Requests open disputes from Mostro pubkey
+  admaddsolver       Add a new dispute's solver (only admin)
+  admtakedispute     Admin or solver take a Pending dispute (only admin)
+  admsenddm          Send gift wrapped direct message to a user (only admin)
+  conversationkey    Get the conversation key for direct messaging with a user
+  getlasttradeindex  Get last trade index of user
+  help               Print this message or the help of the given subcommand(s)
 
 Options:
   -v, --verbose
