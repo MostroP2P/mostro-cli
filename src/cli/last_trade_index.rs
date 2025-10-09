@@ -31,7 +31,10 @@ pub async fn execute_last_trade_index(
     );
 
     // Log the sent message
-    println!("Sent request to Mostro to get last trade index of user {}", identity_keys.public_key().to_string());
+    println!(
+        "Sent request to Mostro to get last trade index of user {}",
+        identity_keys.public_key()
+    );
 
     // Wait for incoming DM
     let recv_event = wait_for_dm(ctx, Some(identity_keys), sent_message).await?;
