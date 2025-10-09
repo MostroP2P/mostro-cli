@@ -1,4 +1,4 @@
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{print_dm_events, send_dm, wait_for_dm};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -8,11 +8,14 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) -> Result<()> {
+    // Get order from order id
     let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
+    // Get trade keys of specific order
     let trade_keys = order
         .trade_keys
         .clone()
         .ok_or(anyhow::anyhow!("Missing trade keys"))?;
+
     let order_trade_keys = Keys::parse(&trade_keys)?;
     println!(
         "Order trade keys: {:?}",
@@ -52,45 +55,22 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
-    let subscription = Filter::new()
-        .pubkey(order_trade_keys.clone().public_key())
-        .kind(nostr_sdk::Kind::GiftWrap)
-        .limit(0);
-
-    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-    ctx.client.subscribe(subscription, Some(opts)).await?;
-
-    // Clone the keys and client for the async call
-    let identity_keys_clone = ctx.identity_keys.clone();
-    let client_clone = ctx.client.clone();
-    let mostro_pubkey_clone = ctx.mostro_pubkey;
-    let order_trade_keys_clone = order_trade_keys.clone();
-
-    // Spawn a new task to send the DM
-    // This is so we can wait for the gift wrap event in the main thread
-    tokio::spawn(async move {
-        let _ = send_dm(
-            &client_clone,
-            Some(&identity_keys_clone),
-            &order_trade_keys,
-            &mostro_pubkey_clone,
-            message_json,
-            None,
-            false,
-        )
-        .await;
-    });
-
-    // Wait for the DM to be sent from mostro and update the order
-    wait_for_dm(
+    // Send the DM
+    let sent_message = send_dm(
         &ctx.client,
-        &order_trade_keys_clone,
-        request_id,
+        Some(&ctx.identity_keys),
+        &order_trade_keys,
+        &ctx.mostro_pubkey,
+        message_json,
         None,
-        Some(order),
-        &ctx.pool,
-    )
-    .await?;
+        false,
+    );
+
+    // Wait for the DM to be sent from mostro
+    let recv_event = wait_for_dm(ctx, Some(&order_trade_keys), sent_message).await?;
+
+    // Parse the incoming DM
+    print_dm_events(recv_event, request_id, ctx, Some(&order_trade_keys)).await?;
+
     Ok(())
 }

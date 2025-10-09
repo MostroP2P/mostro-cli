@@ -1,6 +1,6 @@
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{print_dm_events, send_dm, wait_for_dm};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -27,11 +27,12 @@ pub async fn execute_send_msg(
         }
     };
 
+    // Printout command information
     println!(
-        "Sending {} command for order {:?} to mostro pubId {}",
+        "Sending {} command for order {} to mostro pubId {}",
         requested_action,
-        order_id.as_ref(),
-        &ctx.mostro_pubkey
+        order_id.unwrap(),
+        ctx.mostro_pubkey
     );
 
     // Determine payload
@@ -58,53 +59,36 @@ pub async fn execute_send_msg(
 
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
-    let idkey = ctx.identity_keys.to_owned();
 
     if let Some(order_id) = order_id {
         let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
 
         if let Some(trade_keys_str) = order.trade_keys.clone() {
             let trade_keys = Keys::parse(&trade_keys_str)?;
-            // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
-            let subscription = Filter::new()
-                .pubkey(trade_keys.public_key())
-                .kind(nostr_sdk::Kind::GiftWrap)
-                .limit(0);
 
-            let opts =
-                SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEvents(1));
-            // Subscribe to gift wrap events
-            ctx.client.subscribe(subscription, Some(opts)).await?;
             // Send DM
             let message_json = message
                 .as_json()
                 .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?;
-            send_dm(
+
+            // Send DM
+            let sent_message = send_dm(
                 &ctx.client,
-                Some(&idkey),
+                Some(&ctx.identity_keys),
                 &trade_keys,
                 &ctx.mostro_pubkey,
                 message_json,
                 None,
                 false,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send DM: {e}"))?;
+            );
 
-            // Wait for the DM to be sent from mostro
-            wait_for_dm(
-                &ctx.client,
-                &trade_keys,
-                request_id,
-                None,
-                Some(order),
-                &ctx.pool,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to wait for DM: {e}"))?;
+            // Wait for incoming DM
+            let recv_event = wait_for_dm(ctx, Some(&trade_keys), sent_message).await?;
+
+            // Parse the incoming DM
+            print_dm_events(recv_event, request_id, ctx, Some(&trade_keys)).await?;
         }
     }
-
     Ok(())
 }
 
