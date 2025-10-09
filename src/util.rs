@@ -1,6 +1,7 @@
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
+use crate::parser::dms::print_commands_results;
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
@@ -128,7 +129,8 @@ pub async fn wait_for_dm(ctx: &Context, order_trade_keys: Option<&Keys>) -> anyh
     // Get notifications from client
     let mut notifications = ctx.client.notifications();
     // Create subscription
-    let opts = SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
+    let opts =
+        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
     // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
     let subscription = Filter::new()
         .pubkey(trade_keys.public_key())
@@ -548,8 +550,12 @@ pub fn get_mcli_path() -> String {
     mcli_path
 }
 
-pub async fn run_simple_order_msg(command: Commands, order_id: &Uuid, ctx: &Context) -> Result<()> {
-    execute_send_msg(command, Some(*order_id), ctx, None).await
+pub async fn run_simple_order_msg(
+    command: Commands,
+    order_id: Option<Uuid>,
+    ctx: &Context,
+) -> Result<()> {
+    execute_send_msg(command, order_id, ctx, None).await
 }
 
 // helper (place near other CLI utils)
@@ -564,6 +570,26 @@ pub async fn admin_send_dm(ctx: &Context, msg: String) -> anyhow::Result<()> {
         false,
     )
     .await?;
+    Ok(())
+}
+
+pub async fn print_dm_events(recv_event: Events, request_id: u64, ctx: &Context) -> Result<()> {
+    // Parse the incoming DM
+    let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
+    if let Some((message, _, _)) = messages.first() {
+        let message = message.get_inner_message_kind();
+        if message.request_id == Some(request_id) {
+            print_commands_results(message, None, ctx).await?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
+                request_id,
+                message.request_id
+            ));
+        }
+    } else {
+        return Err(anyhow::anyhow!("No response received from Mostro"));
+    }
     Ok(())
 }
 

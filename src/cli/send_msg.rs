@@ -1,8 +1,6 @@
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
-use crate::parser::dms::print_commands_results;
-use crate::parser::parse_dm_events;
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{print_dm_events, send_dm, wait_for_dm};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -29,13 +27,13 @@ pub async fn execute_send_msg(
         }
     };
 
-    match order_id {
-        Some(id) => println!(
-            "Sending {} command for order {} to mostro pubId {}",
-            requested_action, id, ctx.mostro_pubkey
-        ),
-        None => return Err(anyhow::anyhow!("Missing order id!")),
-    };
+    // Printout command information
+    println!(
+        "Sending {} command for order {} to mostro pubId {}",
+        requested_action,
+        order_id.unwrap(),
+        ctx.mostro_pubkey
+    );
 
     // Determine payload
     let payload = match requested_action {
@@ -87,14 +85,9 @@ pub async fn execute_send_msg(
 
             // Wait for incoming DM
             let recv_event = wait_for_dm(ctx, Some(&trade_keys)).await?;
-            let messages = parse_dm_events(recv_event, &trade_keys, None).await;
-            if let Some(message) = messages.first() {
-                let message = message.0.get_inner_message_kind();
-                println!("Message: {:?}", message);
-                if message.request_id == Some(request_id) {
-                    let _ = print_commands_results(message, None, ctx).await;
-                }
-            }
+
+            // Parse the incoming DM
+            print_dm_events(recv_event, request_id, ctx).await?;
         }
     }
     Ok(())

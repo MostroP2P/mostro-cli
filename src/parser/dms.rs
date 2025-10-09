@@ -182,6 +182,23 @@ pub async fn print_commands_results(
                 Err(anyhow::anyhow!("No order id found in message"))
             }
         }
+        Action::LastTradeIndex => {
+            if let Some(last_trade_index) = message.trade_index {
+                println!("Last trade index message received: {}", last_trade_index);
+                match User::get(&ctx.pool).await {
+                    Ok(mut user) => {
+                        user.set_last_trade_index(last_trade_index);
+                        if let Err(e) = user.save(&ctx.pool).await {
+                            println!("Failed to update user: {}", e);
+                        }
+                    }
+                    Err(_) => return Err(anyhow::anyhow!("Failed to get user")),
+                }
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("No trade index found in message"))
+            }
+        }
         _ => Err(anyhow::anyhow!("Unknown action: {:?}", message.action)),
     }
 }

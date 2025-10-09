@@ -6,9 +6,7 @@ use uuid::Uuid;
 
 use crate::cli::Context;
 use crate::lightning::is_valid_invoice;
-use crate::parser::dms::print_commands_results;
-use crate::parser::parse_dm_events;
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{print_dm_events, send_dm, wait_for_dm};
 
 /// Create payload based on action type and parameters
 fn create_take_order_payload(
@@ -112,22 +110,7 @@ pub async fn execute_take_order(
     let recv_event = wait_for_dm(ctx, None).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
-    if let Some((message, _, _)) = messages.first() {
-        let message = message.get_inner_message_kind();
-        if message.request_id == Some(request_id) {
-            print_commands_results(message, None, ctx).await?;
-        } else {
-            return Err(anyhow::anyhow!(
-                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
-                request_id,
-                message.request_id
-            ));
-        }
-    } else {
-        return Err(anyhow::anyhow!(
-            "No valid response received from Mostro after taking order"
-        ));
-    }
+    print_dm_events(recv_event, request_id, ctx).await?;
+
     Ok(())
 }

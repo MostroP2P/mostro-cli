@@ -1,6 +1,4 @@
-use crate::parser::dms::print_commands_results;
-use crate::parser::parse_dm_events;
-use crate::util::{send_dm, wait_for_dm};
+use crate::util::{print_dm_events, send_dm, wait_for_dm};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -17,7 +15,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .trade_keys
         .clone()
         .ok_or(anyhow::anyhow!("Missing trade keys"))?;
-    
+
     let order_trade_keys = Keys::parse(&trade_keys)?;
     println!(
         "Order trade keys: {:?}",
@@ -73,23 +71,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     let recv_event = wait_for_dm(ctx, Some(&order_trade_keys)).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &order_trade_keys, None).await;
-    if let Some((message, _, _)) = messages.first() {
-        let message = message.get_inner_message_kind();
-        if message.request_id == Some(request_id) {
-            print_commands_results(message, None, ctx).await?;
-        } else {
-            return Err(anyhow::anyhow!(
-                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
-                request_id,
-                message.request_id
-            ));
-        }
-    } else {
-        return Err(anyhow::anyhow!(
-            "No valid response received from Mostro after adding invoice to order"
-        ));
-    }
+    print_dm_events(recv_event, request_id, ctx).await?;
 
     Ok(())
 }
