@@ -164,29 +164,6 @@ where
                             // Continue waiting for a valid event
                             continue;
                         }
-                        // this is the case where the user initiates a dispute
-                        Action::DisputeInitiatedByYou => {
-                            if let Some(Payload::Dispute(dispute_id, _)) = &message.payload {
-                                println!("Dispute initiated successfully with ID: {}", dispute_id);
-                                // Update order status to disputed if we have the order
-                                if let Some(mut order) = order.take() {
-                                    match order
-                                        .set_status(Status::Dispute.to_string())
-                                        .save(pool)
-                                        .await
-                                    {
-                                        Ok(_) => println!("Order status updated to Dispute"),
-                                        Err(e) => println!("Failed to update order status: {}", e),
-                                    }
-                                }
-                                return Ok(());
-                            } else {
-                                println!("Warning: Dispute initiated but received unexpected payload structure");
-                                return Ok(());
-                            }
-                        }
-                        _ => {}
-                    }
                     }
                 }
                 Err(e) => {
@@ -621,7 +598,7 @@ pub async fn print_dm_events(
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.request_id == Some(request_id) {
-            print_commands_results(message, None, ctx).await?;
+            print_commands_results(message, ctx).await?;
         } else {
             return Err(anyhow::anyhow!(
                 "Received response with mismatched request_id. Expected: {}, Got: {:?}",

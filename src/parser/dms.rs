@@ -16,11 +16,7 @@ use crate::{
 use sqlx::SqlitePool;
 
 /// Execute logic of command answer
-pub async fn print_commands_results(
-    message: &MessageKind,
-    mut order: Option<Order>,
-    ctx: &Context,
-) -> Result<()> {
+pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Result<()> {
     // Do the logic for the message response
     match message.action {
         Action::NewOrder => {
@@ -48,7 +44,8 @@ pub async fn print_commands_results(
         // this is the case where the buyer adds an invoice to a takesell order
         Action::WaitingSellerToPay => {
             println!("Now we should wait for the seller to pay the invoice");
-            if let Some(mut order) = order.take() {
+            if let Some(order_id) = &message.id {
+                let mut order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
                 match order
                     .set_status(Status::WaitingPayment.to_string())
                     .save(&ctx.pool)
@@ -199,6 +196,27 @@ pub async fn print_commands_results(
                 Err(anyhow::anyhow!("No trade index found in message"))
             }
         }
+        Action::DisputeInitiatedByYou => {
+            if let Some(Payload::Dispute(dispute_id, _)) = &message.payload {
+                println!("Dispute initiated successfully with ID: {}", dispute_id);
+                if let Some(order_id) = &message.id {
+                    let mut order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
+                    // Update order status to disputed if we have the order
+                    match order
+                        .set_status(Status::Dispute.to_string())
+                        .save(&ctx.pool)
+                        .await
+                    {
+                        Ok(_) => println!("Order status updated to Dispute"),
+                        Err(e) => println!("Failed to update order status: {}", e),
+                    }
+                }
+                Ok(())
+            } else {
+                println!("Warning: Dispute initiated but received unexpected payload structure");
+                Ok(())
+            }
+        }
         Action::HoldInvoicePaymentSettled => {
             println!("Hold invoice payment settled");
             Ok(())
@@ -226,7 +244,10 @@ pub async fn parse_dm_events(
                 let unwrapped_gift = match nip59::extract_rumor(pubkey, dm).await {
                     Ok(u) => u,
                     Err(e) => {
-                        eprintln!("Warning: Could not decrypt gift wrap (event {}): {}", dm.id, e);
+                        eprintln!(
+                            "Warning: Could not decrypt gift wrap (event {}): {}",
+                            dm.id, e
+                        );
                         continue;
                     }
                 };
@@ -234,7 +255,10 @@ pub async fn parse_dm_events(
                     match serde_json::from_str(&unwrapped_gift.rumor.content) {
                         Ok(msg) => msg,
                         Err(e) => {
-                            eprintln!("Warning: Could not parse message content (event {}): {}", dm.id, e);
+                            eprintln!(
+                                "Warning: Could not parse message content (event {}): {}",
+                                dm.id, e
+                            );
                             continue;
                         }
                     };
