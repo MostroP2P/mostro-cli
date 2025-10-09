@@ -13,7 +13,7 @@ Very simple command line interface that show all new replaceable events from [Mo
 
 To compile on Ubuntu/Pop!\_OS, please install [cargo](https://www.rust-lang.org/tools/install), then run the following commands:
 
-```
+```bash
 sudo apt update
 sudo apt install -y cmake build-essential pkg-config
 ```
@@ -22,16 +22,16 @@ sudo apt install -y cmake build-essential pkg-config
 
 To install you need to fill the env vars (`.env`) on the with your own private key and add a Mostro pubkey.
 
-```
+```bash
 git clone https://github.com/MostroP2P/mostro-cli.git
 cd mostro-cli
 cp .env-sample .env
 cargo run
 ```
 
-# Usage
+## Usage
 
-```
+```bash
 Commands:
   listorders         Requests open orders from Mostro pubkey
   neworder           Create a new buy/sell order on Mostro
@@ -66,9 +66,9 @@ Options:
   -V, --version                      Print version
 ```
 
-# Examples
+## Examples
 
-```
+```bash
 $ mostro-cli -m npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0 -r 'wss://nos.lol,wss://relay.damus.io,wss://nostr-pub.wellorder.net,wss://nostr.mutinywallet.com,wss://relay.nostr.band,wss://nostr.cizmar.net,wss://140.f7z.io,wss://nostrrelay.com,wss://relay.nostrr.de' listorders
 
 # You can set the env vars to avoid the -m, -n and -r flags
