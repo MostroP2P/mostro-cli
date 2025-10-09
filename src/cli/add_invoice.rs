@@ -70,7 +70,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     let recv_event = wait_for_dm(ctx, Some(&order_trade_keys), sent_message).await?;
 
     // Parse the incoming DM
-    print_dm_events(recv_event, request_id, ctx).await?;
+    print_dm_events(recv_event, request_id, ctx, Some(&order_trade_keys)).await?;
 
     Ok(())
 }

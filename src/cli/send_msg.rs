@@ -86,7 +86,7 @@ pub async fn execute_send_msg(
             let recv_event = wait_for_dm(ctx, Some(&trade_keys), sent_message).await?;
 
             // Parse the incoming DM
-            print_dm_events(recv_event, request_id, ctx).await?;
+            print_dm_events(recv_event, request_id, ctx, Some(&trade_keys)).await?;
         }
     }
     Ok(())

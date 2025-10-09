@@ -199,6 +199,10 @@ pub async fn print_commands_results(
                 Err(anyhow::anyhow!("No trade index found in message"))
             }
         }
+        Action::HoldInvoicePaymentSettled => {
+            println!("Hold invoice payment settled");
+            Ok(())
+        }
         _ => Err(anyhow::anyhow!("Unknown action: {:?}", message.action)),
     }
 }

@@ -584,9 +584,16 @@ pub async fn admin_send_dm(ctx: &Context, msg: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn print_dm_events(recv_event: Events, request_id: u64, ctx: &Context) -> Result<()> {
+pub async fn print_dm_events(
+    recv_event: Events,
+    request_id: u64,
+    ctx: &Context,
+    order_trade_keys: Option<&Keys>,
+) -> Result<()> {
+    // Get the trade keys
+    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
+    let messages = parse_dm_events(recv_event, &trade_keys, None).await;
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.request_id == Some(request_id) {

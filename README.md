@@ -39,10 +39,8 @@ Commands:
   takebuy            Take a buy order from a Mostro pubkey
   addinvoice         Buyer add a new invoice to receive the payment
   getdm              Get the latest direct messages
-  getdmuser          Get direct messages sent to any trade keys
   getadmindm         Get the latest direct messages for admin
   senddm             Send direct message to a user
-  dmtouser           Send gift wrapped direct message to a user
   fiatsent           Send fiat sent message to confirm payment to other user
   release            Settle the hold invoice and pay to buyer
   cancel             Cancel a pending order

@@ -109,7 +109,7 @@ pub async fn execute_take_order(
     let recv_event = wait_for_dm(ctx, None, sent_message).await?;
 
     // Parse the incoming DM
-    print_dm_events(recv_event, request_id, ctx).await?;
+    print_dm_events(recv_event, request_id, ctx, None).await?;
 
     Ok(())
 }
