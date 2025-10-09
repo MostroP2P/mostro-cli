@@ -468,7 +468,8 @@ pub async fn fetch_events_list(
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            // Fetch gift wraps sent TO the admin's public key (not Mostro's)
+            let filters = create_filter(list_kind, ctx.context_keys.public_key(), None)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
