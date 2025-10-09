@@ -20,7 +20,7 @@ pub async fn execute_last_trade_index(
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // Send the last trade index message to Mostro server
-    send_dm(
+    let sent_message = send_dm(
         &ctx.client,
         Some(identity_keys),
         identity_keys,
@@ -28,14 +28,16 @@ pub async fn execute_last_trade_index(
         message_json,
         None,
         false,
-    )
-    .await?;
+    );
+
+    // Log the sent message
+    println!("Sent request to Mostro to get last trade index of user {}", identity_keys.public_key().to_string());
 
     // Wait for incoming DM
-    let recv_event = wait_for_dm(ctx, Some(identity_keys)).await?;
+    let recv_event = wait_for_dm(ctx, Some(identity_keys), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
+    let messages = parse_dm_events(recv_event, &ctx.identity_keys, None).await;
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.action == Action::LastTradeIndex {

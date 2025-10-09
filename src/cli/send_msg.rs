@@ -72,7 +72,7 @@ pub async fn execute_send_msg(
                 .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?;
 
             // Send DM
-            send_dm(
+            let sent_message = send_dm(
                 &ctx.client,
                 Some(&ctx.identity_keys),
                 &trade_keys,
@@ -80,11 +80,10 @@ pub async fn execute_send_msg(
                 message_json,
                 None,
                 false,
-            )
-            .await?;
+            );
 
             // Wait for incoming DM
-            let recv_event = wait_for_dm(ctx, Some(&trade_keys)).await?;
+            let recv_event = wait_for_dm(ctx, Some(&trade_keys), sent_message).await?;
 
             // Parse the incoming DM
             print_dm_events(recv_event, request_id, ctx).await?;

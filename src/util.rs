@@ -12,6 +12,7 @@ use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
+use std::future::Future;
 use std::time::Duration;
 use std::{fs, path::Path};
 use uuid::Uuid;
@@ -123,7 +124,14 @@ pub async fn save_order(
 }
 
 /// Wait for incoming gift wraps or events coming in
-pub async fn wait_for_dm(ctx: &Context, order_trade_keys: Option<&Keys>) -> anyhow::Result<Events> {
+pub async fn wait_for_dm<F>(
+    ctx: &Context,
+    order_trade_keys: Option<&Keys>,
+    sent_message: F,
+) -> anyhow::Result<Events>
+where
+    F: Future<Output = Result<()>> + Send,
+{
     // Get correct trade keys to wait for
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     // Get notifications from client
@@ -138,6 +146,9 @@ pub async fn wait_for_dm(ctx: &Context, order_trade_keys: Option<&Keys>) -> anyh
         .limit(0);
     // Subscribe to subscription with exit policy of just waiting for 1 event
     ctx.client.subscribe(subscription, Some(opts)).await?;
+
+    // Await the sent message
+    sent_message.await?;
 
     // Wait for event
     let event = tokio::time::timeout(FETCH_EVENTS_TIMEOUT, async move {
