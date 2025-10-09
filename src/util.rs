@@ -1,6 +1,7 @@
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
+use crate::parser::dms::print_commands_results;
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
@@ -11,6 +12,7 @@ use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
+use std::future::Future;
 use std::time::Duration;
 use std::{fs, path::Path};
 use uuid::Uuid;
@@ -97,7 +99,7 @@ pub async fn save_order(
     order: SmallOrder,
     trade_keys: &Keys,
     request_id: u64,
-    trade_index: Option<i64>,
+    trade_index: i64,
     pool: &SqlitePool,
 ) -> Result<()> {
     if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
@@ -106,14 +108,6 @@ pub async fn save_order(
         } else {
             println!("Warning: The newly created order has no ID.");
         }
-        // Get trade index - we must have it
-        let trade_index = if let Some(trade_index) = trade_index {
-            trade_index
-        } else {
-            return Err(anyhow::anyhow!(
-                "No trade index found for new order, this should never happen"
-            ));
-        };
 
         // Update last trade index to be used in next trade
         match User::get(pool).await {
@@ -130,138 +124,45 @@ pub async fn save_order(
 }
 
 /// Wait for incoming gift wraps or events coming in
-pub async fn wait_for_dm(
-    client: &Client,
-    trade_keys: &Keys,
-    request_id: u64,
-    trade_index: Option<i64>,
-    mut order: Option<Order>,
-    pool: &SqlitePool,
-) -> anyhow::Result<()> {
-    let mut notifications = client.notifications();
+pub async fn wait_for_dm<F>(
+    ctx: &Context,
+    order_trade_keys: Option<&Keys>,
+    sent_message: F,
+) -> anyhow::Result<Events>
+where
+    F: Future<Output = Result<()>> + Send,
+{
+    // Get correct trade keys to wait for
+    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
+    // Get notifications from client
+    let mut notifications = ctx.client.notifications();
+    // Create subscription
+    let opts =
+        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
+    // Subscribe to gift wrap events - ONLY NEW ONES WITH LIMIT 0
+    let subscription = Filter::new()
+        .pubkey(trade_keys.public_key())
+        .kind(nostr_sdk::Kind::GiftWrap)
+        .limit(0);
+    // Subscribe to subscription with exit policy of just waiting for 1 event
+    ctx.client.subscribe(subscription, Some(opts)).await?;
 
-    match tokio::time::timeout(FETCH_EVENTS_TIMEOUT, async move {
-        while let Ok(notification) = notifications.recv().await {
-            if let RelayPoolNotification::Event { event, .. } = notification {
-                if event.kind == nostr_sdk::Kind::GiftWrap {
-                let gift = match nip59::extract_rumor(trade_keys, &event).await {
-                    Ok(gift) => gift,
-                    Err(e) => {
-                        println!("Failed to extract rumor: {}", e);
-                        continue;
-                    }
-                };
-                let (message, _): (Message, Option<String>) = match serde_json::from_str(&gift.rumor.content) {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        println!("Failed to deserialize message: {}", e);
-                        continue;
-                    }
-                };
-                let message = message.get_inner_message_kind();
-                if message.request_id == Some(request_id) {
-                    match message.action {
-                        Action::NewOrder => {
-                            if let Some(Payload::Order(order)) = message.payload.as_ref() {
-                                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
-                                    println!("Failed to save order: {}", e);
-                                    return Err(());
-                                }
-                                return Ok(());
-                            }
+    // Await the sent message
+    sent_message.await?;
+
+    // Wait for event
+    let event = tokio::time::timeout(FETCH_EVENTS_TIMEOUT, async move {
+        loop {
+            match notifications.recv().await {
+                Ok(notification) => {
+                    match notification {
+                        RelayPoolNotification::Event { event, .. } => {
+                            // Return event
+                            return Ok(*event);
                         }
-                        // this is the case where the buyer adds an invoice to a takesell order
-                        Action::WaitingSellerToPay => {
-                            println!("Now we should wait for the seller to pay the invoice");
-                            if let Some(mut order) = order.take() {
-                                match order
-                                .set_status(Status::WaitingPayment.to_string())
-                                .save(pool)
-                                .await
-                                {
-                                    Ok(_) => println!("Order status updated"),
-                                    Err(e) => println!("Failed to update order status: {}", e),
-                                }
-                                return Ok(());
-                            }
-                        }
-                        // this is the case where the buyer adds an invoice to a takesell order
-                        Action::AddInvoice => {
-                            if let Some(Payload::Order(order)) = &message.payload {
-                                println!(
-                                    "Please add a lightning invoice with amount of {}",
-                                    order.amount
-                                );
-                                // Save the order
-                                if let Err(e) = save_order(order.clone(), trade_keys, request_id, trade_index, pool).await {
-                                    println!("Failed to save order: {}", e);
-                                    return Err(());
-                                }
-                                return Ok(());
-                            }
-                        }
-                        // this is the case where the buyer pays the invoice coming from a takebuy
-                        Action::PayInvoice => {
-                            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
-                                println!(
-                                    "Mostro sent you this hold invoice for order id: {}",
-                                    order
-                                        .as_ref()
-                                        .and_then(|o| o.id)
-                                        .map_or("unknown".to_string(), |id| id.to_string())
-                                );
-                                println!();
-                                println!("Pay this invoice to continue -->  {}", invoice);
-                                println!();
-                                if let Some(order) = order {
-                                    let store_order = order.clone();
-                                    // Save the order
-                                    if let Err(e) = save_order(store_order, trade_keys, request_id, trade_index, pool).await {
-                                        println!("Failed to save order: {}", e);
-                                        return Err(());
-                                    }
-                                }
-                                return Ok(());
-                            }
-                        }
-                        Action::CantDo => {
-                            match message.payload {
-                                Some(Payload::CantDo(Some(CantDoReason::OutOfRangeFiatAmount | CantDoReason::OutOfRangeSatsAmount))) => {
-                                    println!("Error: Amount is outside the allowed range. Please check the order's min/max limits.");
-                                    return Err(());
-                                }
-                                Some(Payload::CantDo(Some(CantDoReason::PendingOrderExists))) => {
-                                        println!("Error: A pending order already exists. Please wait for it to be filled or canceled.");
-                                        return Err(());
-                                    }
-                                Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex))) => {
-                                    println!("Error: Invalid trade index. Please synchronize the trade index with mostro");
-                                    return Err(());
-                                }
-                                _ => {
-                                    println!("Unknown reason: {:?}", message.payload);
-                                    return Err(());
-                                }
-                            }
-                        }
-                        // this is the case where the user cancels the order
-                        Action::Canceled => {
-                            if let Some(order_id) = &message.id {
-                            // Acquire database connection
-                            // Verify order exists before deletion
-                            if Order::get_by_id(pool, &order_id.to_string()).await.is_ok() {
-                                if let Err(e) = Order::delete_by_id(pool, &order_id.to_string()).await {
-                                    println!("Failed to delete order: {}", e);
-                                    return Err(());
-                                }
-                                // Release database connection
-                                println!("Order {} canceled!", order_id);
-                                return Ok(());
-                            } else {
-                                println!("Order not found: {}", order_id);
-                                return Err(());
-                                }
-                            }
+                        _ => {
+                            // Continue waiting for a valid event
+                            continue;
                         }
                         // this is the case where the user initiates a dispute
                         Action::DisputeInitiatedByYou => {
@@ -288,17 +189,19 @@ pub async fn wait_for_dm(
                     }
                     }
                 }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Error receiving notification: {:?}", e));
+                }
+            }
         }
-        }
-        Ok(())
     })
-    .await {
-        Ok(result) => match result {
-            Ok(()) => Ok(()),
-            Err(()) => Err(anyhow::anyhow!("Error in timeout closure")),
-        },
-        Err(_) => Err(anyhow::anyhow!("Timeout waiting for DM or gift wrap event"))
-    }
+    .await?
+    .map_err(|_| anyhow::anyhow!("Timeout waiting for DM or gift wrap event"))?;
+
+    // Convert event to events
+    let mut events = Events::default();
+    events.insert(event);
+    Ok(events)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -575,7 +478,7 @@ pub async fn fetch_events_list(
     currency: Option<String>,
     kind: Option<mostro_core::order::Kind>,
     ctx: &Context,
-    _since: Option<&i64>,
+    since: Option<&i64>,
 ) -> Result<Vec<Event>> {
     match list_kind {
         ListKind::Orders => {
@@ -588,12 +491,14 @@ pub async fn fetch_events_list(
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            // Fetch gift wraps sent TO the admin's public key (not Mostro's)
+            let filters = create_filter(list_kind, ctx.context_keys.public_key(), None)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
-            let direct_messages_mostro = parse_dm_events(fetched_events, &ctx.context_keys).await;
+            let direct_messages_mostro =
+                parse_dm_events(fetched_events, &ctx.context_keys, since).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
@@ -613,7 +518,7 @@ pub async fn fetch_events_list(
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
                 let direct_messages_for_trade_key =
-                    parse_dm_events(fetched_user_messages, &trade_key).await;
+                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
                 direct_messages.extend(
                     direct_messages_for_trade_key
                         .into_iter()
@@ -627,6 +532,7 @@ pub async fn fetch_events_list(
         }
         ListKind::DirectMessagesUser => {
             let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+
             for index in 1..=ctx.trade_index {
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter =
@@ -636,7 +542,7 @@ pub async fn fetch_events_list(
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
                 let direct_messages_for_trade_key =
-                    parse_dm_events(fetched_user_messages, &trade_key).await;
+                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
                 direct_messages.extend(
                     direct_messages_for_trade_key
                         .into_iter()
@@ -679,8 +585,12 @@ pub fn get_mcli_path() -> String {
     mcli_path
 }
 
-pub async fn run_simple_order_msg(command: Commands, order_id: &Uuid, ctx: &Context) -> Result<()> {
-    execute_send_msg(command, Some(*order_id), ctx, None).await
+pub async fn run_simple_order_msg(
+    command: Commands,
+    order_id: Option<Uuid>,
+    ctx: &Context,
+) -> Result<()> {
+    execute_send_msg(command, order_id, ctx, None).await
 }
 
 // helper (place near other CLI utils)
@@ -695,6 +605,33 @@ pub async fn admin_send_dm(ctx: &Context, msg: String) -> anyhow::Result<()> {
         false,
     )
     .await?;
+    Ok(())
+}
+
+pub async fn print_dm_events(
+    recv_event: Events,
+    request_id: u64,
+    ctx: &Context,
+    order_trade_keys: Option<&Keys>,
+) -> Result<()> {
+    // Get the trade keys
+    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
+    // Parse the incoming DM
+    let messages = parse_dm_events(recv_event, trade_keys, None).await;
+    if let Some((message, _, _)) = messages.first() {
+        let message = message.get_inner_message_kind();
+        if message.request_id == Some(request_id) {
+            print_commands_results(message, None, ctx).await?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
+                request_id,
+                message.request_id
+            ));
+        }
+    } else {
+        return Err(anyhow::anyhow!("No response received from Mostro"));
+    }
     Ok(())
 }
 

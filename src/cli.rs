@@ -4,6 +4,7 @@ pub mod conversation_key;
 pub mod dm_to_user;
 pub mod get_dm;
 pub mod get_dm_user;
+pub mod last_trade_index;
 pub mod list_disputes;
 pub mod list_orders;
 pub mod new_order;
@@ -20,6 +21,7 @@ use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::dm_to_user::execute_dm_to_user;
 use crate::cli::get_dm::execute_get_dm;
 use crate::cli::get_dm_user::execute_get_dm_user;
+use crate::cli::last_trade_index::execute_last_trade_index;
 use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
@@ -291,6 +293,8 @@ pub enum Commands {
         #[arg(short, long)]
         pubkey: String,
     },
+    /// Get last trade index of user
+    GetLastTradeIndex {},
 }
 
 fn get_env_var(cli: &Cli) {
@@ -415,9 +419,12 @@ impl Commands {
             | Commands::Release { order_id }
             | Commands::Dispute { order_id }
             | Commands::Cancel { order_id } => {
-                crate::util::run_simple_order_msg(self.clone(), order_id, ctx).await
+                crate::util::run_simple_order_msg(self.clone(), Some(*order_id), ctx).await
             }
-
+            // Last trade index commands
+            Commands::GetLastTradeIndex {} => {
+                execute_last_trade_index(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
+            }
             // DM commands with pubkey parsing
             Commands::SendDm {
                 pubkey,
@@ -489,11 +496,11 @@ impl Commands {
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {
-                execute_get_dm(Some(since), false, from_user, ctx).await
+                execute_get_dm(since, false, from_user, ctx).await
             }
             Commands::GetDmUser { since } => execute_get_dm_user(since, ctx).await,
             Commands::GetAdminDm { since, from_user } => {
-                execute_get_dm(Some(since), true, from_user, ctx).await
+                execute_get_dm(since, true, from_user, ctx).await
             }
 
             // Admin commands

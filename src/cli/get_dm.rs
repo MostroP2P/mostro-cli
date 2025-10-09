@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub async fn execute_get_dm(
-    since: Option<&i64>,
+    since: &i64,
     admin: bool,
     from_user: &bool,
     ctx: &Context,
@@ -22,7 +22,8 @@ pub async fn execute_get_dm(
     };
 
     // Fetch the requested events
-    let all_fetched_events = { fetch_events_list(list_kind, None, None, None, ctx, since).await? };
+    let all_fetched_events =
+        fetch_events_list(list_kind, None, None, None, ctx, Some(since)).await?;
 
     // Extract (Message, u64) tuples from Event::MessageTuple variants
     let mut dm_events: Vec<(Message, u64)> = Vec::new();
