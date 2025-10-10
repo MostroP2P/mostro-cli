@@ -31,7 +31,7 @@ cargo run
 
 ## Usage
 
-```bash
+```text
 Commands:
   listorders         Requests open orders from Mostro pubkey
   neworder           Create a new buy/sell order on Mostro
