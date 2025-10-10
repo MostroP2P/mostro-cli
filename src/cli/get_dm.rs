@@ -1,5 +1,6 @@
 use anyhow::Result;
 use mostro_core::prelude::Message;
+use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
@@ -26,7 +27,7 @@ pub async fn execute_get_dm(
         fetch_events_list(list_kind, None, None, None, ctx, Some(since)).await?;
 
     // Extract (Message, u64) tuples from Event::MessageTuple variants
-    let mut dm_events: Vec<(Message, u64)> = Vec::new();
+    let mut dm_events: Vec<(Message, u64, PublicKey)> = Vec::new();
     for event in all_fetched_events {
         if let Event::MessageTuple(tuple) = event {
             dm_events.push(*tuple);

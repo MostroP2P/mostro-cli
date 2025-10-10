@@ -1,10 +1,11 @@
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum Event {
     SmallOrder(SmallOrder),
     Dispute(Dispute),
-    MessageTuple(Box<(Message, u64)>),
+    MessageTuple(Box<(Message, u64, PublicKey)>),
 }
 
 #[derive(Clone, Debug)]

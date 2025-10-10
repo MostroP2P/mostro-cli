@@ -245,14 +245,21 @@ pub async fn print_dm_events(
     let messages = parse_dm_events(recv_event, trade_keys, None).await;
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
-        if message.request_id == Some(request_id) {
-            print_commands_results(message, ctx).await?;
-        } else {
-            return Err(anyhow::anyhow!(
-                "Received response with mismatched request_id. Expected: {}, Got: {:?}",
-                request_id,
-                message.request_id
-            ));
+        match message.request_id {
+            Some(id) => {
+                if request_id == id {
+                    print_commands_results(message, ctx).await?;
+                }
+            }
+            None if message.action == Action::RateReceived => {
+                print_commands_results(message, ctx).await?;
+            }
+            None => {
+                return Err(anyhow::anyhow!(
+                    "Received response with mismatched request_id. Expected: {}, Got: Null",
+                    request_id,
+                ));
+            }
         }
     } else {
         return Err(anyhow::anyhow!("No response received from Mostro"));

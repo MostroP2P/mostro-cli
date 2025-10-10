@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
 
-use crate::{cli::Context, db::Order, util::send_dm};
+use crate::{
+    cli::Context,
+    db::Order,
+    util::{print_dm_events, send_dm, wait_for_dm},
+};
 
 // Get the user rate
 fn get_user_rate(rating: &u8) -> Result<Payload> {
@@ -44,7 +48,7 @@ pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> R
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    send_dm(
+    let sent_message = send_dm(
         &ctx.client,
         Some(&ctx.identity_keys),
         &trade_keys,
@@ -52,8 +56,15 @@ pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> R
         rate_message,
         None,
         false,
-    )
-    .await?;
+    );
+
+    // Wait for incoming DM
+    let recv_event = wait_for_dm(ctx, Some(&trade_keys), sent_message).await?;
+
+    // Parse the incoming DM
+    // use a fake request id
+    let fake_request_id = Uuid::new_v4().as_u128() as u64;
+    print_dm_events(recv_event, fake_request_id, ctx, Some(&trade_keys)).await?;
 
     Ok(())
 }

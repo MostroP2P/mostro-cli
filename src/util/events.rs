@@ -10,40 +10,6 @@ const FAKE_SINCE: i64 = 2880;
 
 use super::types::{Event, ListKind};
 
-pub async fn get_direct_messages_from_trade_keys(
-    client: &Client,
-    trade_keys_hex: Vec<String>,
-    since: i64,
-    _mostro_pubkey: &PublicKey,
-) -> Result<Vec<(Message, u64, PublicKey)>> {
-    if trade_keys_hex.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let since_time = chrono::Utc::now()
-        .checked_sub_signed(chrono::Duration::minutes(since))
-        .ok_or(anyhow::anyhow!("Failed to get since time"))?
-        .timestamp();
-
-    let mut all_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
-    for trade_key_hex in trade_keys_hex {
-        if let Ok(public_key) = PublicKey::from_hex(&trade_key_hex) {
-            let filter =
-                create_filter(ListKind::DirectMessagesUser, public_key, Some(&since_time))?;
-            let events = client.fetch_events(filter, FETCH_EVENTS_TIMEOUT).await?;
-            for event in events {
-                if let Ok(message) = Message::from_json(&event.content) {
-                    if event.created_at.as_u64() < since as u64 {
-                        continue;
-                    }
-                    all_messages.push((message, event.created_at.as_u64(), event.pubkey));
-                }
-            }
-        }
-    }
-    Ok(all_messages)
-}
-
 fn create_fake_timestamp() -> Result<Timestamp> {
     let fake_since_time = chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::minutes(FAKE_SINCE))
@@ -130,11 +96,13 @@ pub async fn fetch_events_list(
                 parse_dm_events(fetched_events, &ctx.context_keys, since).await;
             Ok(direct_messages_mostro
                 .into_iter()
-                .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
+                .map(|(message, timestamp, sender_pubkey)| {
+                    Event::MessageTuple(Box::new((message, timestamp, sender_pubkey)))
+                })
                 .collect())
         }
         ListKind::PrivateDirectMessagesUser => {
-            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            let mut direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
             for index in 1..=ctx.trade_index {
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter = create_filter(
@@ -148,11 +116,8 @@ pub async fn fetch_events_list(
                     .await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key, since).await;
-                direct_messages.extend(
-                    direct_messages_for_trade_key
-                        .into_iter()
-                        .map(|(message, timestamp, _)| (message, timestamp)),
-                );
+                // Extend the direct messages
+                direct_messages.extend(direct_messages_for_trade_key);
             }
             Ok(direct_messages
                 .into_iter()
@@ -160,7 +125,7 @@ pub async fn fetch_events_list(
                 .collect())
         }
         ListKind::DirectMessagesUser => {
-            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            let mut direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
             for index in 1..=ctx.trade_index {
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
                 let filter =
@@ -171,11 +136,8 @@ pub async fn fetch_events_list(
                     .await?;
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key, since).await;
-                direct_messages.extend(
-                    direct_messages_for_trade_key
-                        .into_iter()
-                        .map(|(message, timestamp, _)| (message, timestamp)),
-                );
+                // Extend the direct messages
+                direct_messages.extend(direct_messages_for_trade_key);
             }
             Ok(direct_messages
                 .into_iter()

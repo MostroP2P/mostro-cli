@@ -6,9 +6,7 @@ pub mod storage;
 pub mod types;
 
 // Re-export commonly used items to preserve existing import paths
-pub use events::{
-    create_filter, fetch_events_list, get_direct_messages_from_trade_keys, FETCH_EVENTS_TIMEOUT,
-};
+pub use events::{create_filter, fetch_events_list, FETCH_EVENTS_TIMEOUT};
 pub use messaging::{
     print_dm_events, send_admin_gift_wrap_dm, send_dm, send_gift_wrap_dm, wait_for_dm,
 };

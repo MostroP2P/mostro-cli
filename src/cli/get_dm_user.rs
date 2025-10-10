@@ -1,10 +1,12 @@
 use crate::cli::Context;
-use crate::{db::Order, util::get_direct_messages_from_trade_keys};
+use crate::db::Order;
+use crate::util::{fetch_events_list, Event, ListKind};
 use anyhow::Result;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::*;
 
 pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
     // Get all trade keys from orders
@@ -19,27 +21,40 @@ pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
     trade_keys_hex.sort();
     trade_keys_hex.dedup();
 
+    // Check if the trade keys are empty
     if trade_keys_hex.is_empty() {
         println!("No trade keys found in orders");
         return Ok(());
     }
 
+    // Print the number of trade keys
     println!(
         "Searching for DMs in {} trade keys...",
         trade_keys_hex.len()
     );
 
-    let direct_messages = get_direct_messages_from_trade_keys(
-        &ctx.client,
-        trade_keys_hex,
-        *since,
-        &ctx.mostro_pubkey,
+    let direct_messages = fetch_events_list(
+        ListKind::DirectMessagesUser,
+        None,
+        None,
+        None,
+        ctx,
+        Some(since),
     )
     .await?;
 
+    // Extract (Message, u64) tuples from Event::MessageTuple variants
+    let mut dm_events: Vec<(Message, u64, PublicKey)> = Vec::new();
+    // Check if the direct messages are empty
     if direct_messages.is_empty() {
         println!("You don't have any direct messages in your trade keys");
         return Ok(());
+    }
+    // Extract the direct messages
+    for event in direct_messages {
+        if let Event::MessageTuple(tuple) = event {
+            dm_events.push(*tuple);
+        }
     }
 
     let mut table = Table::new();
@@ -49,7 +64,7 @@ pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
         .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
         .set_header(vec!["Time", "From", "Message"]);
 
-    for (message, created_at, sender_pubkey) in direct_messages.iter() {
+    for (message, created_at, sender_pubkey) in dm_events.iter() {
         let datetime = chrono::DateTime::from_timestamp(*created_at as i64, 0);
         let formatted_date = match datetime {
             Some(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
