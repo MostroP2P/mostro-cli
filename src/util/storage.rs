@@ -46,7 +46,7 @@ pub async fn run_simple_order_msg(
     execute_send_msg(command, order_id, ctx, None).await
 }
 
-pub async fn admin_send_dm(ctx: &Context, msg: String) -> anyhow::Result<()> {
+pub async fn admin_send_dm(ctx: &Context, msg: String) -> Result<()> {
     super::messaging::send_dm(
         &ctx.client,
         Some(&ctx.context_keys),
