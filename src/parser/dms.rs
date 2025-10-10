@@ -216,8 +216,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Ok(())
             }
         }
-        Action::HoldInvoicePaymentSettled
-        | Action::Released => {
+        Action::HoldInvoicePaymentSettled | Action::Released => {
             println!("Hold invoice payment settled");
             Ok(())
         }
