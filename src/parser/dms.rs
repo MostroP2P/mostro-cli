@@ -165,9 +165,8 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Err(anyhow::anyhow!("No order id found in message"))
             }
         }
-        Action::Rate => {
-            println!("Sats released!");
-            println!("You can rate the counterpart now");
+        Action::RateReceived => {
+            println!("Rate received! Thank you!");
             Ok(())
         }
         Action::FiatSentOk => {
@@ -217,7 +216,8 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Ok(())
             }
         }
-        Action::HoldInvoicePaymentSettled => {
+        Action::HoldInvoicePaymentSettled
+        | Action::Released => {
             println!("Hold invoice payment settled");
             Ok(())
         }

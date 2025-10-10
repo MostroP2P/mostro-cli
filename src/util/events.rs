@@ -1,0 +1,195 @@
+use anyhow::Result;
+use mostro_core::prelude::*;
+use nostr_sdk::prelude::*;
+
+use crate::db::User;
+use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
+
+pub const FETCH_EVENTS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const FAKE_SINCE: i64 = 2880;
+
+use super::types::{Event, ListKind};
+
+pub async fn get_direct_messages_from_trade_keys(
+    client: &Client,
+    trade_keys_hex: Vec<String>,
+    since: i64,
+    _mostro_pubkey: &PublicKey,
+) -> Result<Vec<(Message, u64, PublicKey)>> {
+    if trade_keys_hex.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(since))
+        .ok_or(anyhow::anyhow!("Failed to get since time"))?
+        .timestamp();
+
+    let mut all_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
+    for trade_key_hex in trade_keys_hex {
+        if let Ok(public_key) = PublicKey::from_hex(&trade_key_hex) {
+            let filter =
+                create_filter(ListKind::DirectMessagesUser, public_key, Some(&since_time))?;
+            let events = client.fetch_events(filter, FETCH_EVENTS_TIMEOUT).await?;
+            for event in events {
+                if let Ok(message) = Message::from_json(&event.content) {
+                    if event.created_at.as_u64() < since as u64 {
+                        continue;
+                    }
+                    all_messages.push((message, event.created_at.as_u64(), event.pubkey));
+                }
+            }
+        }
+    }
+    Ok(all_messages)
+}
+
+fn create_fake_timestamp() -> Result<Timestamp> {
+    let fake_since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::minutes(FAKE_SINCE))
+        .ok_or(anyhow::anyhow!("Failed to get fake since time"))?
+        .timestamp() as u64;
+    Ok(Timestamp::from(fake_since_time))
+}
+
+fn create_seven_days_filter(letter: Alphabet, value: String, pubkey: PublicKey) -> Result<Filter> {
+    let since_time = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
+        .timestamp() as u64;
+    let timestamp = Timestamp::from(since_time);
+    Ok(Filter::new()
+        .author(pubkey)
+        .limit(50)
+        .since(timestamp)
+        .custom_tag(SingleLetterTag::lowercase(letter), value)
+        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND)))
+}
+
+pub fn create_filter(
+    list_kind: ListKind,
+    pubkey: PublicKey,
+    since: Option<&i64>,
+) -> Result<Filter> {
+    match list_kind {
+        ListKind::Orders => create_seven_days_filter(Alphabet::Z, "order".to_string(), pubkey),
+        ListKind::Disputes => create_seven_days_filter(Alphabet::Z, "dispute".to_string(), pubkey),
+        ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
+            let fake_timestamp = create_fake_timestamp()?;
+            Ok(Filter::new()
+                .kind(nostr_sdk::Kind::GiftWrap)
+                .pubkey(pubkey)
+                .since(fake_timestamp))
+        }
+        ListKind::PrivateDirectMessagesUser => {
+            let since = if let Some(mins) = since {
+                chrono::Utc::now()
+                    .checked_sub_signed(chrono::Duration::minutes(*mins))
+                    .unwrap()
+                    .timestamp()
+            } else {
+                chrono::Utc::now()
+                    .checked_sub_signed(chrono::Duration::minutes(30))
+                    .unwrap()
+                    .timestamp()
+            } as u64;
+            Ok(Filter::new()
+                .kind(nostr_sdk::Kind::PrivateDirectMessage)
+                .pubkey(pubkey)
+                .since(Timestamp::from(since)))
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_events_list(
+    list_kind: ListKind,
+    status: Option<Status>,
+    currency: Option<String>,
+    kind: Option<mostro_core::order::Kind>,
+    ctx: &crate::cli::Context,
+    since: Option<&i64>,
+) -> Result<Vec<Event>> {
+    match list_kind {
+        ListKind::Orders => {
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let fetched_events = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let orders = parse_orders_events(fetched_events, currency, status, kind);
+            Ok(orders.into_iter().map(Event::SmallOrder).collect())
+        }
+        ListKind::DirectMessagesAdmin => {
+            let filters = create_filter(list_kind, ctx.context_keys.public_key(), None)?;
+            let fetched_events = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let direct_messages_mostro =
+                parse_dm_events(fetched_events, &ctx.context_keys, since).await;
+            Ok(direct_messages_mostro
+                .into_iter()
+                .map(|(message, timestamp, _)| Event::MessageTuple(Box::new((message, timestamp))))
+                .collect())
+        }
+        ListKind::PrivateDirectMessagesUser => {
+            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            for index in 1..=ctx.trade_index {
+                let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
+                let filter = create_filter(
+                    ListKind::PrivateDirectMessagesUser,
+                    trade_key.public_key(),
+                    None,
+                )?;
+                let fetched_user_messages = ctx
+                    .client
+                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+                    .await?;
+                let direct_messages_for_trade_key =
+                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
+                direct_messages.extend(
+                    direct_messages_for_trade_key
+                        .into_iter()
+                        .map(|(message, timestamp, _)| (message, timestamp)),
+                );
+            }
+            Ok(direct_messages
+                .into_iter()
+                .map(|t| Event::MessageTuple(Box::new(t)))
+                .collect())
+        }
+        ListKind::DirectMessagesUser => {
+            let mut direct_messages: Vec<(Message, u64)> = Vec::new();
+            for index in 1..=ctx.trade_index {
+                let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
+                let filter =
+                    create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None)?;
+                let fetched_user_messages = ctx
+                    .client
+                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+                    .await?;
+                let direct_messages_for_trade_key =
+                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
+                direct_messages.extend(
+                    direct_messages_for_trade_key
+                        .into_iter()
+                        .map(|(message, timestamp, _)| (message, timestamp)),
+                );
+            }
+            Ok(direct_messages
+                .into_iter()
+                .map(|t| Event::MessageTuple(Box::new(t)))
+                .collect())
+        }
+        ListKind::Disputes => {
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let fetched_events = ctx
+                .client
+                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let disputes = parse_dispute_events(fetched_events);
+            Ok(disputes.into_iter().map(Event::Dispute).collect())
+        }
+    }
+}
