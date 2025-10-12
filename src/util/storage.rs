@@ -15,26 +15,23 @@ pub async fn save_order(
     trade_index: i64,
     pool: &SqlitePool,
 ) -> Result<()> {
-    let req_id_i64 = i64::try_from(request_id)
-        .map_err(|_| anyhow::anyhow!("request_id too large for i64: {}", request_id))?;
-    let order = Order::new(pool, order, trade_keys, Some(req_id_i64)).await?;
-
-    if let Some(order_id) = order.id {
-        println!("Order {} created", order_id);
-    } else {
-        println!("Warning: The newly created order has no ID.");
-    }
-
-    match User::get(pool).await {
-        Ok(mut user) => {
-            user.set_last_trade_index(trade_index);
-            if let Err(e) = user.save(pool).await {
-                println!("Failed to update user: {}", e);
-            }
+    if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
+        if let Some(order_id) = order.id {
+            println!("Order {} created", order_id);
+        } else {
+            println!("Warning: The newly created order has no ID.");
         }
-        Err(e) => println!("Failed to get user: {}", e),
-    }
 
+        match User::get(pool).await {
+            Ok(mut user) => {
+                user.set_last_trade_index(trade_index);
+                if let Err(e) = user.save(pool).await {
+                    println!("Failed to update user: {}", e);
+                }
+            }
+            Err(e) => println!("Failed to get user: {}", e),
+        }
+    }
     Ok(())
 }
 
