@@ -2,6 +2,8 @@ use crate::cli::Context;
 use crate::parser::orders::print_order_preview;
 use crate::util::{print_dm_events, send_dm, uppercase_first, wait_for_dm};
 use anyhow::Result;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::*;
 use mostro_core::prelude::*;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
@@ -89,7 +91,6 @@ pub async fn execute_new_order(
     println!("{ord_preview}");
     let mut user_input = String::new();
     let _input = stdin();
-    print!("Check your order! Is it correct? (Y/n) > ");
     stdout().flush()?;
 
     let mut answer = stdin().lock();
@@ -117,11 +118,68 @@ pub async fn execute_new_order(
     );
 
     // Send dm to receiver pubkey
-    println!(
-        "SENDING DM with trade index: {} and trade keys: {:?}",
-        ctx.trade_index,
-        ctx.trade_keys.public_key().to_hex()
-    );
+    println!("🆕 Create New Order");
+    println!("═══════════════════════════════════════");
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(100)
+        .set_header(vec![
+            Cell::new("Field")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Value")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
+
+    let mut rows: Vec<Row> = Vec::new();
+    rows.push(Row::from(vec![Cell::new("📈 Order Type"), Cell::new(kind)]));
+    rows.push(Row::from(vec![
+        Cell::new("💱 Fiat Code"),
+        Cell::new(fiat_code),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("💰 Amount (sats)"),
+        Cell::new(amount.to_string()),
+    ]));
+    if let Some(max) = fiat_amount.1 {
+        rows.push(Row::from(vec![
+            Cell::new("📊 Fiat Range"),
+            Cell::new(format!("{}-{}", fiat_amount.0, max)),
+        ]));
+    } else {
+        rows.push(Row::from(vec![
+            Cell::new("💵 Fiat Amount"),
+            Cell::new(fiat_amount.0.to_string()),
+        ]));
+    }
+    rows.push(Row::from(vec![
+        Cell::new("💳 Payment Method"),
+        Cell::new(payment_method),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("📊 Premium (%)"),
+        Cell::new(premium.to_string()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("🔢 Trade Index"),
+        Cell::new(ctx.trade_index.to_string()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("🔑 Trade Keys"),
+        Cell::new(ctx.trade_keys.public_key().to_hex()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("🎯 Target"),
+        Cell::new(ctx.mostro_pubkey.to_string()),
+    ]));
+
+    table.add_rows(rows);
+    println!("{table}");
+    println!("💡 Sending new order to Mostro...\n");
 
     // Serialize the message
     let message_json = message

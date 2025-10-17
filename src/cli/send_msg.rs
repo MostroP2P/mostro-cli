@@ -3,6 +3,8 @@ use crate::db::{Order, User};
 use crate::util::{print_dm_events, send_dm, wait_for_dm};
 
 use anyhow::Result;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::*;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
@@ -28,12 +30,35 @@ pub async fn execute_send_msg(
     };
 
     // Printout command information
-    println!(
-        "Sending {} command for order {} to mostro pubId {}",
-        requested_action,
-        order_id.unwrap(),
-        ctx.mostro_pubkey
-    );
+    println!("📤 Send Message Command");
+    println!("═══════════════════════════════════════");
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(100)
+        .set_header(vec![
+            Cell::new("Field")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Value")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
+    table.add_row(Row::from(vec![
+        Cell::new("🎯 Action"),
+        Cell::new(requested_action.to_string()),
+    ]));
+    table.add_row(Row::from(vec![
+        Cell::new("📋 Order ID"),
+        Cell::new(order_id.unwrap().to_string()),
+    ]));
+    table.add_row(Row::from(vec![
+        Cell::new("🎯 Target"),
+        Cell::new(ctx.mostro_pubkey.to_string()),
+    ]));
+    println!("{table}");
+    println!("💡 Sending command to Mostro...\n");
 
     // Determine payload
     let payload = match requested_action {

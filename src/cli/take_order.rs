@@ -1,4 +1,6 @@
 use anyhow::Result;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::*;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use std::str::FromStr;
@@ -62,10 +64,44 @@ pub async fn execute_take_order(
         _ => return Err(anyhow::anyhow!("Invalid action for take order")),
     };
 
-    println!(
-        "Request of {} order {} from mostro pubId {}",
-        action_name, order_id, ctx.mostro_pubkey
-    );
+    println!("🛒 Take Order");
+    println!("═══════════════════════════════════════");
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(100)
+        .set_header(vec![
+            Cell::new("Field")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Value")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
+    table.add_row(Row::from(vec![
+        Cell::new("📈 Action"),
+        Cell::new(action_name),
+    ]));
+    table.add_row(Row::from(vec![
+        Cell::new("📋 Order ID"),
+        Cell::new(order_id.to_string()),
+    ]));
+    if let Some(inv) = invoice {
+        table.add_row(Row::from(vec![Cell::new("⚡ Invoice"), Cell::new(inv)]));
+    }
+    if let Some(amt) = amount {
+        table.add_row(Row::from(vec![
+            Cell::new("💰 Amount (sats)"),
+            Cell::new(amt.to_string()),
+        ]));
+    }
+    table.add_row(Row::from(vec![
+        Cell::new("🎯 Mostro PubKey"),
+        Cell::new(ctx.mostro_pubkey.to_string()),
+    ]));
+    println!("{table}");
+    println!("💡 Taking order from Mostro...\n");
 
     // Create payload based on action type
     let payload = create_take_order_payload(action.clone(), invoice, amount)?;
@@ -83,11 +119,12 @@ pub async fn execute_take_order(
     );
 
     // Send dm to receiver pubkey
-    println!(
-        "SENDING DM with trade index: {} and trade keys: {:?}",
-        ctx.trade_index,
-        ctx.trade_keys.public_key().to_hex()
-    );
+    println!("📤 Sending Message");
+    println!("─────────────────────────────────────");
+    println!("🔢 Trade Index: {}", ctx.trade_index);
+    println!("🔑 Trade Keys: {}", ctx.trade_keys.public_key().to_hex());
+    println!("💡 Sending DM to Mostro...");
+    println!();
 
     let message_json = take_order_message
         .as_json()

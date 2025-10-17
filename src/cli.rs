@@ -8,6 +8,7 @@ pub mod last_trade_index;
 pub mod list_disputes;
 pub mod list_orders;
 pub mod new_order;
+pub mod orders_info;
 pub mod rate_user;
 pub mod restore;
 pub mod send_dm;
@@ -25,6 +26,7 @@ use crate::cli::last_trade_index::execute_last_trade_index;
 use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
+use crate::cli::orders_info::execute_orders_info;
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
 use crate::cli::send_dm::execute_send_dm;
@@ -295,6 +297,12 @@ pub enum Commands {
     },
     /// Get last trade index of user
     GetLastTradeIndex {},
+    /// Request detailed information for specific orders
+    OrdersInfo {
+        /// Order IDs to request information for
+        #[arg(short, long)]
+        order_ids: Vec<Uuid>,
+    },
 }
 
 fn get_env_var(cli: &Cli) {
@@ -512,8 +520,9 @@ impl Commands {
 
             // Simple commands
             Commands::Restore {} => {
-                execute_restore(&ctx.identity_keys, ctx.mostro_pubkey, &ctx.client).await
+                execute_restore(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
             }
+            Commands::OrdersInfo { order_ids } => execute_orders_info(order_ids, ctx).await,
         }
     }
 }

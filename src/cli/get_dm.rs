@@ -14,6 +14,14 @@ pub async fn execute_get_dm(
     from_user: &bool,
     ctx: &Context,
 ) -> Result<()> {
+    println!("📨 Fetch Direct Messages");
+    println!("═══════════════════════════════════════");
+    println!("👤 Admin Mode: {}", if admin { "Yes" } else { "No" });
+    println!("📤 From User: {}", if *from_user { "Yes" } else { "No" });
+    println!("⏰ Since: {} minutes ago", since);
+    println!("💡 Fetching direct messages...");
+    println!();
+
     // Get the list kind
     let list_kind = match (admin, from_user) {
         (true, true) => ListKind::PrivateDirectMessagesUser,
@@ -34,6 +42,6 @@ pub async fn execute_get_dm(
         }
     }
 
-    print_direct_messages(&dm_events, &ctx.pool).await?;
+    print_direct_messages(&dm_events, &ctx.pool, Some(ctx.mostro_pubkey)).await?;
     Ok(())
 }

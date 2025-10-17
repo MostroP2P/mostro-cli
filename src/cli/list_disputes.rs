@@ -5,11 +5,11 @@ use crate::parser::disputes::print_disputes_table;
 use crate::util::{fetch_events_list, ListKind};
 
 pub async fn execute_list_disputes(ctx: &Context) -> Result<()> {
-    // Print mostro pubkey
-    println!(
-        "Requesting disputes from mostro pubId - {}",
-        &ctx.mostro_pubkey
-    );
+    println!("⚖️  List Disputes");
+    println!("═══════════════════════════════════════");
+    println!("🎯 Mostro PubKey: {}", &ctx.mostro_pubkey);
+    println!("💡 Fetching disputes from relays...");
+    println!();
 
     // Get orders from relays
     let table_of_disputes =

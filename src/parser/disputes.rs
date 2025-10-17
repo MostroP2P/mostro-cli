@@ -65,7 +65,7 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
             .load_preset(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
-            .set_header(vec![Cell::new("Sorry...")
+            .set_header(vec![Cell::new("📭 No Disputes")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center)]);
 
@@ -73,7 +73,7 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
         let mut r = Row::new();
 
         r.add_cell(
-            Cell::new("No disputes found with requested parameters...")
+            Cell::new("No disputes found with requested parameters…")
                 .fg(Color::Red)
                 .set_alignment(CellAlignment::Center),
         );
@@ -86,13 +86,13 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![
-                Cell::new("Dispute Id")
+                Cell::new("🆔 Dispute Id")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Status")
+                Cell::new("📊 Status")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Created")
+                Cell::new("📅 Created")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
             ]);
@@ -101,13 +101,25 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
         for single_dispute in disputes_table.into_iter() {
             let date = DateTime::from_timestamp(single_dispute.created_at, 0);
 
+            let status_str = single_dispute.status.to_string();
+            let s_lower = status_str.to_lowercase();
+            let mut status_cell = Cell::new(status_str).set_alignment(CellAlignment::Center);
+            if s_lower.contains("init") || s_lower.contains("pending") {
+                status_cell = status_cell.fg(Color::Yellow);
+            } else if s_lower.contains("taken") || s_lower.contains("settled") {
+                status_cell = status_cell.fg(Color::Green);
+            } else if s_lower.contains("cancel") {
+                status_cell = status_cell.fg(Color::Red);
+            }
+
             let r = Row::from(vec![
                 Cell::new(single_dispute.id).set_alignment(CellAlignment::Center),
-                Cell::new(single_dispute.status.to_string()).set_alignment(CellAlignment::Center),
+                status_cell,
                 Cell::new(
                     date.map(|d| d.to_string())
                         .unwrap_or_else(|| "Invalid date".to_string()),
-                ),
+                )
+                .set_alignment(CellAlignment::Center),
             ]);
             rows.push(r);
         }

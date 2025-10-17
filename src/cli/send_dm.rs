@@ -11,6 +11,14 @@ pub async fn execute_send_dm(
     order_id: &Uuid,
     message: &str,
 ) -> Result<()> {
+    println!("💬 Send Direct Message");
+    println!("═══════════════════════════════════════");
+    println!("📋 Order ID: {}", order_id);
+    println!("🎯 Recipient: {}", receiver);
+    println!("💬 Message: {}", message);
+    println!("💡 Sending direct message...");
+    println!();
+
     let message = Message::new_dm(
         None,
         None,
@@ -42,6 +50,8 @@ pub async fn execute_send_dm(
         false,
     )
     .await?;
+
+    println!("✅ Direct message sent successfully!");
 
     Ok(())
 }

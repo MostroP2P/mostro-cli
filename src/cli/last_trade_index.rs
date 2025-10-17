@@ -31,10 +31,12 @@ pub async fn execute_last_trade_index(
     );
 
     // Log the sent message
-    println!(
-        "Sent request to Mostro to get last trade index of user {}",
-        identity_keys.public_key()
-    );
+    println!("🔢 Last Trade Index Request");
+    println!("═══════════════════════════════════════");
+    println!("👤 User: {}", identity_keys.public_key());
+    println!("🎯 Target: {}", mostro_key);
+    println!("💡 Requesting last trade index from Mostro...");
+    println!();
 
     // Wait for incoming DM
     let recv_event = wait_for_dm(ctx, Some(identity_keys), sent_message).await?;
@@ -44,7 +46,7 @@ pub async fn execute_last_trade_index(
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.action == Action::LastTradeIndex {
-            print_commands_results(message, ctx).await?
+            print_commands_results(message, ctx).await?;
         } else {
             return Err(anyhow::anyhow!(
                 "Received response with mismatched action. Expected: {:?}, Got: {:?}",

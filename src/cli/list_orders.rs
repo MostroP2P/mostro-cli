@@ -27,9 +27,12 @@ pub async fn execute_list_orders(
         );
     }
 
+    println!("📋 List Orders");
+    println!("═══════════════════════════════════════");
+
     // Print status requested
     if let Some(status) = &status_checked {
-        println!("You are searching orders with status {:?}", status);
+        println!("📊 Status Filter: {:?}", status);
     }
     // New check against strings for kind
     if let Some(k) = kind {
@@ -38,7 +41,7 @@ pub async fn execute_list_orders(
                 .map_err(|e| anyhow::anyhow!("Not valid order kind '{}': {:?}", k, e))?,
         );
         if let Some(kind) = &kind_checked {
-            println!("You are searching {} orders", kind);
+            println!("📈 Order Type: {} orders", kind);
         }
     }
 
@@ -46,14 +49,13 @@ pub async fn execute_list_orders(
     if let Some(curr) = currency {
         upper_currency = Some(curr.to_uppercase());
         if let Some(currency) = &upper_currency {
-            println!("You are searching orders with currency {}", currency);
+            println!("💱 Currency Filter: {}", currency);
         }
     }
 
-    println!(
-        "Requesting orders from mostro pubId - {}",
-        &ctx.mostro_pubkey
-    );
+    println!("🎯 Mostro PubKey: {}", &ctx.mostro_pubkey);
+    println!("💡 Fetching orders from relays...");
+    println!();
 
     // Get orders from relays
     let table_of_orders = fetch_events_list(

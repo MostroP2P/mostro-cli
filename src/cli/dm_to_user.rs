@@ -22,12 +22,18 @@ pub async fn execute_dm_to_user(
     };
 
     // Send the DM
-    println!(
-        "SENDING DM with trade keys: {}",
-        trade_keys.public_key().to_hex()
-    );
+    println!("💬 Direct Message to User");
+    println!("═══════════════════════════════════════");
+    println!("📋 Order ID: {}", order_id);
+    println!("🔑 Trade Keys: {}", trade_keys.public_key().to_hex());
+    println!("🎯 Recipient: {}", receiver);
+    println!("💬 Message: {}", message);
+    println!("💡 Sending gift wrap message...");
+    println!();
 
     send_gift_wrap_dm(client, &trade_keys, &receiver, message).await?;
+
+    println!("✅ Gift wrap message sent successfully!");
 
     Ok(())
 }

@@ -21,6 +21,13 @@ fn get_user_rate(rating: &u8) -> Result<Payload> {
 }
 
 pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> Result<()> {
+    println!("⭐ Rate User");
+    println!("═══════════════════════════════════════");
+    println!("📋 Order ID: {}", order_id);
+    println!("⭐ Rating: {}/5", rating);
+    println!("💡 Sending user rating...");
+    println!();
+
     // Check boundaries
     let rating_content = get_user_rate(rating)?;
 

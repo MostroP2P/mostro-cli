@@ -1,6 +1,8 @@
 use crate::util::{print_dm_events, send_dm, wait_for_dm};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::*;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
@@ -17,15 +19,37 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .ok_or(anyhow::anyhow!("Missing trade keys"))?;
 
     let order_trade_keys = Keys::parse(&trade_keys)?;
-    println!(
-        "Order trade keys: {:?}",
-        order_trade_keys.public_key().to_hex()
-    );
 
-    println!(
-        "Sending a lightning invoice for order {} to mostro pubId {}",
-        order_id, ctx.mostro_pubkey
-    );
+    println!("⚡ Add Lightning Invoice");
+    println!("═══════════════════════════════════════");
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(100)
+        .set_header(vec![
+            Cell::new("Field")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Value")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
+    table.add_row(Row::from(vec![
+        Cell::new("📋 Order ID"),
+        Cell::new(order_id.to_string()),
+    ]));
+    table.add_row(Row::from(vec![
+        Cell::new("🔑 Trade Keys"),
+        Cell::new(order_trade_keys.public_key().to_hex()),
+    ]));
+    table.add_row(Row::from(vec![
+        Cell::new("🎯 Target"),
+        Cell::new(ctx.mostro_pubkey.to_string()),
+    ]));
+    println!("{table}");
+    println!("💡 Sending lightning invoice to Mostro...\n");
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
     let payload = if ln_addr.is_ok() {

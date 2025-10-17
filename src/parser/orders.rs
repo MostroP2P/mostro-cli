@@ -86,22 +86,22 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
         .set_header(vec![
-            Cell::new("Buy/Sell")
+            Cell::new("📈 Buy/Sell")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("Sats Amount")
+            Cell::new("💰 Sats Amount")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("Fiat Code")
+            Cell::new("💱 Fiat Code")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("Fiat Amount")
+            Cell::new("💵 Fiat Amount")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("Payment method")
+            Cell::new("💳 Payment Method")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("Premium %")
+            Cell::new("📊 Premium %")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
         ]);
@@ -144,7 +144,15 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
 
     table.add_row(r);
 
-    Ok(table.to_string())
+    let mut result = table.to_string();
+    result.push('\n');
+    result.push_str("═══════════════════════════════════════\n");
+    result.push_str("📋 Order Preview - Please review carefully\n");
+    result.push_str("💡 This order will be submitted to Mostro\n");
+    result.push_str("✅ All details look correct? (Y/n)\n");
+    result.push_str("═══════════════════════════════════════\n");
+
+    Ok(result)
 }
 
 pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
@@ -169,7 +177,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
             .load_preset(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
-            .set_header(vec![Cell::new("Sorry...")
+            .set_header(vec![Cell::new("📭 No Offers")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center)]);
 
@@ -177,7 +185,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
         let mut r = Row::new();
 
         r.add_cell(
-            Cell::new("No offers found with requested parameters...")
+            Cell::new("No offers found with requested parameters…")
                 .fg(Color::Red)
                 .set_alignment(CellAlignment::Center),
         );
@@ -190,28 +198,28 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![
-                Cell::new("Buy/Sell")
+                Cell::new("📈 Buy/Sell")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Order Id")
+                Cell::new("🆔 Order Id")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Status")
+                Cell::new("📊 Status")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Amount")
+                Cell::new("💰 Amount")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Fiat Code")
+                Cell::new("💱 Fiat Code")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Fiat Amount")
+                Cell::new("💵 Fiat Amount")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Payment method")
+                Cell::new("💳 Payment Method")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Created")
+                Cell::new("📅 Created")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
             ]);
@@ -240,13 +248,27 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                         .unwrap_or_else(|| "N/A".to_string()),
                 )
                 .set_alignment(CellAlignment::Center),
-                Cell::new(
-                    single_order
+                {
+                    let status = single_order
                         .status
                         .unwrap_or(mostro_core::order::Status::Active)
-                        .to_string(),
-                )
-                .set_alignment(CellAlignment::Center),
+                        .to_string();
+                    let s_lower = status.to_lowercase();
+                    let mut c = Cell::new(status).set_alignment(CellAlignment::Center);
+                    if s_lower.contains("pending") || s_lower.contains("waiting") {
+                        c = c.fg(Color::Yellow);
+                    } else if s_lower.contains("active")
+                        || s_lower.contains("released")
+                        || s_lower.contains("settled")
+                    {
+                        c = c.fg(Color::Green);
+                    } else if s_lower.contains("fiat") {
+                        c = c.fg(Color::Cyan);
+                    } else if s_lower.contains("dispute") || s_lower.contains("cancel") {
+                        c = c.fg(Color::Red);
+                    }
+                    c
+                },
                 if single_order.amount == 0 {
                     Cell::new("market price").set_alignment(CellAlignment::Center)
                 } else {
@@ -271,7 +293,8 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 Cell::new(
                     date.map(|d| d.to_string())
                         .unwrap_or_else(|| "Invalid date".to_string()),
-                ),
+                )
+                .set_alignment(CellAlignment::Center),
             ]);
             rows.push(r);
         }
