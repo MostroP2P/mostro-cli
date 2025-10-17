@@ -42,6 +42,6 @@ pub async fn execute_get_dm(
         }
     }
 
-    print_direct_messages(&dm_events, &ctx.pool, Some(ctx.mostro_pubkey)).await?;
+    print_direct_messages(&dm_events, Some(ctx.mostro_pubkey)).await?;
     Ok(())
 }

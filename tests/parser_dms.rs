@@ -12,8 +12,7 @@ async fn parse_dm_empty() {
 
 #[tokio::test]
 async fn print_dms_empty() {
-    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
     let msgs: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let res = print_direct_messages(&msgs, &pool).await;
+    let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }

@@ -15,7 +15,6 @@ use crate::{
     db::{Order, User},
     util::save_order,
 };
-use sqlx::SqlitePool;
 
 /// Execute logic of command answer
 pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Result<()> {
@@ -540,7 +539,6 @@ pub async fn parse_dm_events(
 
 pub async fn print_direct_messages(
     dm: &[(Message, u64, PublicKey)],
-    _pool: &SqlitePool,
     mostro_pubkey: Option<PublicKey>,
 ) -> Result<()> {
     if dm.is_empty() {

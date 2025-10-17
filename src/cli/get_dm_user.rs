@@ -59,6 +59,6 @@ pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
         }
     }
 
-    print_direct_messages(&dm_events, &ctx.pool, Some(ctx.mostro_pubkey)).await?;
+    print_direct_messages(&dm_events, Some(ctx.mostro_pubkey)).await?;
     Ok(())
 }
