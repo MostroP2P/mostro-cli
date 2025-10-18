@@ -63,7 +63,7 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
+    println!("🔑 Admin PubKey: {}", ctx.context_keys.public_key);
 
     admin_send_dm(ctx, take_dispute_message).await?;
 
@@ -148,8 +148,11 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
 
     // Parse the incoming DM
     let messages = parse_dm_events(recv_event, &ctx.context_keys, None).await;
-    if let Some((message, _, _)) = messages.first() {
+    if let Some((message, _, sender_pubkey)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
+        if *sender_pubkey != ctx.mostro_pubkey {
+            return Err(anyhow::anyhow!("Received response from wrong sender"));
+        }
         if message_kind.action == Action::AdminTookDispute {
             print_commands_results(message_kind, ctx).await?;
         } else {

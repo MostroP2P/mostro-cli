@@ -254,7 +254,7 @@ fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisput
 
     // Basic dispute information
     rows.push(Row::from(vec![
-        Cell::new("🆔 Dispute ID"),
+        Cell::new("📋 Order ID:"),
         Cell::new(dispute_info.id.to_string()),
     ]));
     rows.push(Row::from(vec![
@@ -589,12 +589,14 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                             print_success_message("Trade index synchronized successfully!");
                         }
                     }
-                    Err(_) => return Err(anyhow::anyhow!("Failed to get user")),
+                    Err(_) => {
+                        println!("⚠️  Warning: Last trade index but received unexpected payload structure: {:#?}", message.payload);
+                    }
                 }
-                Ok(())
             } else {
-                Err(anyhow::anyhow!("No trade index found in message"))
+                println!("⚠️  Warning: Last trade index but received unexpected payload structure: {:#?}", message.payload);
             }
+            Ok(())
         }
         Action::DisputeInitiatedByYou => {
             if let Some(Payload::Dispute(dispute_id, _)) = &message.payload {
@@ -627,6 +629,22 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Ok(())
             }
         }
+        Action::HoldInvoicePaymentAccepted => {
+            if let Some(order_id) = &message.id {
+            println!("🎉 Hold Invoice Payment Accepted");
+            println!("═══════════════════════════════════════");
+            println!("📋 Order ID: {}", order_id);
+                println!("✅ Hold invoice payment accepted successfully!");
+                println!("💰 Bitcoin has been released to the buyer");
+                println!("🎊 Trade completed successfully!");
+                Ok(())
+            } else {
+                println!(
+                    "⚠️  Warning: Hold invoice payment accepted but received unexpected payload structure"
+                );
+                Ok(())
+            }
+        }
         Action::HoldInvoicePaymentSettled | Action::Released => {
             println!("🎉 Payment Settled & Released");
             println!("═══════════════════════════════════════");
@@ -638,10 +656,13 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         Action::Orders => {
             if let Some(Payload::Orders(orders)) = &message.payload {
                 handle_orders_list_display(orders);
-                Ok(())
             } else {
-                Err(anyhow::anyhow!("No orders payload found in message"))
+                println!(
+                    "⚠️  Warning: Orders list but received unexpected payload structure: {:#?}",
+                    message.payload
+                );
             }
+            Ok(())
         }
         Action::AdminTookDispute => {
             if let Some(Payload::Dispute(_, Some(dispute_info))) = &message.payload {
