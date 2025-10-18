@@ -86,16 +86,16 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
         .set_header(vec![
-            Cell::new("📈 Buy/Sell")
+            Cell::new("📈 Kind")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("💰 Sats Amount")
+            Cell::new("₿ Amount")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("💱 Fiat Code")
+            Cell::new("💱 Fiat")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
-            Cell::new("💵 Fiat Amount")
+            Cell::new("💵 Fiat Amt")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center),
             Cell::new("💳 Payment Method")
@@ -121,7 +121,7 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
             Cell::new("BUY/SELL").set_alignment(CellAlignment::Center)
         },
         if single_order.amount == 0 {
-            Cell::new("market price").set_alignment(CellAlignment::Center)
+            Cell::new("market").set_alignment(CellAlignment::Center)
         } else {
             Cell::new(single_order.amount).set_alignment(CellAlignment::Center)
         },
@@ -198,7 +198,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![
-                Cell::new("📈 Buy/Sell")
+                Cell::new("📈 Kind")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
                 Cell::new("🆔 Order Id")
@@ -207,13 +207,13 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 Cell::new("📊 Status")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("💰 Amount")
+                Cell::new("₿ Amount")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("💱 Fiat Code")
+                Cell::new("💱 Fiat")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("💵 Fiat Amount")
+                Cell::new("💵 Fiat Amt")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
                 Cell::new("💳 Payment Method")
@@ -270,7 +270,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                     c
                 },
                 if single_order.amount == 0 {
-                    Cell::new("market price").set_alignment(CellAlignment::Center)
+                    Cell::new("market").set_alignment(CellAlignment::Center)
                 } else {
                     Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center)
                 },
@@ -291,7 +291,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
                 Cell::new(
-                    date.map(|d| d.to_string())
+                    date.map(|d| d.format("%Y-%m-%d %H:%M").to_string())
                         .unwrap_or_else(|| "Invalid date".to_string()),
                 )
                 .set_alignment(CellAlignment::Center),
