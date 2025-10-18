@@ -116,11 +116,10 @@ Tests for utility functions, particularly the critical path change in `get_mcli_
 - `test_uppercase_first_numeric` - Numeric prefix
 - `test_uppercase_first_whitespace` - Leading whitespace
 
-##### get_mcli_path Function (4 tests)
+##### get_mcli_path Function (3 tests)
 - `test_get_mcli_path_returns_valid_path` - Valid path with `.mcli`
 - `test_get_mcli_path_is_absolute` - Absolute path verification
 - `test_get_mcli_path_consistent` - Consistency across calls
-- `test_get_mcli_path_contains_home` - Home directory inclusion
 
 ---
 
