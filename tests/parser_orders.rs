@@ -100,14 +100,14 @@ fn parse_orders_with_kind_filter() {
     let mut events = Events::new(&filter);
     events.insert(e1);
     events.insert(e2);
-    
+
     let out = parse_orders_events(
         events,
         Some("USD".into()),
         Some(Status::Active),
         Some(mostro_core::order::Kind::Buy),
     );
-    
+
     // Should only return Buy orders
     assert_eq!(out.len(), 1);
 }
@@ -132,14 +132,9 @@ fn parse_orders_with_status_filter() {
     let mut events = Events::new(&filter);
     events.insert(e1);
     events.insert(e2);
-    
-    let out = parse_orders_events(
-        events,
-        Some("EUR".into()),
-        Some(Status::Active),
-        None,
-    );
-    
+
+    let out = parse_orders_events(events, Some("EUR".into()), Some(Status::Active), None);
+
     // Should only return Active orders
     assert_eq!(out.len(), 1);
 }
@@ -164,14 +159,9 @@ fn parse_orders_with_currency_filter() {
     let mut events = Events::new(&filter);
     events.insert(e1);
     events.insert(e2);
-    
-    let out = parse_orders_events(
-        events,
-        Some("USD".into()),
-        Some(Status::Active),
-        None,
-    );
-    
+
+    let out = parse_orders_events(events, Some("USD".into()), Some(Status::Active), None);
+
     // Should only return USD orders
     assert_eq!(out.len(), 1);
 }
@@ -196,9 +186,9 @@ fn parse_orders_no_filters() {
     let mut events = Events::new(&filter);
     events.insert(e1);
     events.insert(e2);
-    
+
     let out = parse_orders_events(events, None, None, None);
-    
+
     // Should return all orders
     assert_eq!(out.len(), 2);
 }
@@ -207,7 +197,7 @@ fn parse_orders_no_filters() {
 fn print_orders_empty_list() {
     let orders: Vec<mostro_client::util::Event> = Vec::new();
     let table = print_orders_table(orders);
-    
+
     assert!(table.is_ok());
     let table_str = table.unwrap();
     assert!(table_str.contains("No offers found"));
@@ -232,21 +222,21 @@ fn print_orders_multiple_orders() {
             500,
         ),
     ];
-    
+
     let mut events = Events::new(&filter);
     for order in orders {
         events.insert(order);
     }
-    
+
     let parsed = parse_orders_events(events, None, None, None);
     let printable = parsed
         .into_iter()
         .map(mostro_client::util::Event::SmallOrder)
         .collect::<Vec<_>>();
-    
+
     let table = print_orders_table(printable);
     assert!(table.is_ok());
-    
+
     let table_str = table.unwrap();
     assert!(table_str.contains("USD") || table_str.contains("EUR"));
 }
@@ -256,7 +246,7 @@ fn parse_orders_different_amounts() {
     let filter = Filter::new();
     let amounts = vec![10000i64, 50000i64, 100000i64, 1000000i64];
     let mut events = Events::new(&filter);
-    
+
     for amount in &amounts {
         let e = build_order_event(
             mostro_core::order::Kind::Buy,
@@ -267,7 +257,7 @@ fn parse_orders_different_amounts() {
         );
         events.insert(e);
     }
-    
+
     let out = parse_orders_events(events, Some("USD".into()), None, None);
     assert_eq!(out.len(), amounts.len());
 }
@@ -277,7 +267,7 @@ fn parse_orders_different_currencies() {
     let filter = Filter::new();
     let currencies = vec!["USD", "EUR", "GBP", "JPY", "CAD"];
     let mut events = Events::new(&filter);
-    
+
     for currency in &currencies {
         let e = build_order_event(
             mostro_core::order::Kind::Sell,
@@ -288,7 +278,7 @@ fn parse_orders_different_currencies() {
         );
         events.insert(e);
     }
-    
+
     let out = parse_orders_events(events, None, None, None);
     assert_eq!(out.len(), currencies.len());
 }
@@ -306,7 +296,7 @@ fn parse_orders_market_price() {
     );
     let mut events = Events::new(&filter);
     events.insert(e);
-    
+
     let out = parse_orders_events(events, Some("USD".into()), None, None);
     assert_eq!(out.len(), 1);
 }

@@ -1,4 +1,4 @@
-use mostro_client::util::misc::{uppercase_first, get_mcli_path};
+use mostro_client::util::misc::{get_mcli_path, uppercase_first};
 
 #[test]
 fn test_uppercase_first_empty_string() {
@@ -57,10 +57,10 @@ fn test_uppercase_first_whitespace() {
 #[test]
 fn test_get_mcli_path_returns_valid_path() {
     let path = get_mcli_path();
-    
+
     // Should return a non-empty string
     assert!(!path.is_empty());
-    
+
     // Should contain the mcliUserB directory name
     assert!(path.contains(".mcliUserB"));
 }
@@ -68,12 +68,12 @@ fn test_get_mcli_path_returns_valid_path() {
 #[test]
 fn test_get_mcli_path_is_absolute() {
     let path = get_mcli_path();
-    
+
     // On Unix systems, should start with /
-    // On Windows, should contain :\ 
+    // On Windows, should contain :\
     #[cfg(unix)]
     assert!(path.starts_with('/'));
-    
+
     #[cfg(windows)]
     assert!(path.contains(":\\"));
 }
@@ -82,7 +82,7 @@ fn test_get_mcli_path_is_absolute() {
 fn test_get_mcli_path_consistent() {
     let path1 = get_mcli_path();
     let path2 = get_mcli_path();
-    
+
     // Should return the same path on multiple calls
     assert_eq!(path1, path2);
 }
@@ -92,7 +92,7 @@ fn test_get_mcli_path_contains_home() {
     let path = get_mcli_path();
     let home_dir = dirs::home_dir().expect("Couldn't get home directory");
     let home_str = home_dir.to_string_lossy();
-    
+
     // Path should start with home directory
     assert!(path.starts_with(home_str.as_ref()));
 }

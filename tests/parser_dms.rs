@@ -37,7 +37,7 @@ async fn print_dms_with_single_message() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -55,7 +55,7 @@ async fn print_dms_with_text_payload() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -74,7 +74,7 @@ async fn print_dms_with_payment_request() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -83,7 +83,7 @@ async fn print_dms_with_payment_request() {
 async fn print_dms_with_multiple_messages() {
     let sender_keys = Keys::generate();
     let mut msgs = Vec::new();
-    
+
     // Add different message types
     let actions = vec![
         Action::NewOrder,
@@ -92,7 +92,7 @@ async fn print_dms_with_multiple_messages() {
         Action::Released,
         Action::Canceled,
     ];
-    
+
     for (i, action) in actions.iter().enumerate() {
         let message = Message::new_order(
             Some(uuid::Uuid::new_v4()),
@@ -104,7 +104,7 @@ async fn print_dms_with_multiple_messages() {
         let timestamp = (1700000000 + i * 60) as u64;
         msgs.push((message, timestamp, sender_keys.public_key()));
     }
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -123,7 +123,7 @@ async fn print_dms_with_dispute_payload() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -161,7 +161,7 @@ async fn print_dms_with_orders_payload() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -170,7 +170,7 @@ async fn print_dms_with_orders_payload() {
 async fn print_dms_distinguishes_mostro() {
     let mostro_keys = Keys::generate();
     let sender_keys = Keys::generate();
-    
+
     let msg1 = Message::new_order(
         Some(uuid::Uuid::new_v4()),
         Some(12345),
@@ -185,12 +185,12 @@ async fn print_dms_distinguishes_mostro() {
         Action::PayInvoice,
         None,
     );
-    
+
     let msgs = vec![
         (msg1, 1700000000u64, mostro_keys.public_key()),
         (msg2, 1700000060u64, sender_keys.public_key()),
     ];
-    
+
     let res = print_direct_messages(&msgs, Some(mostro_keys.public_key())).await;
     assert!(res.is_ok());
 }
@@ -222,7 +222,7 @@ async fn print_dms_with_restore_session_payload() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -250,7 +250,7 @@ async fn print_dms_with_long_details_truncation() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -268,7 +268,7 @@ async fn print_dms_with_rating_action() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -306,7 +306,7 @@ async fn print_dms_with_add_invoice_action() {
     );
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
@@ -324,7 +324,7 @@ async fn print_dms_with_invalid_timestamp() {
     // Invalid timestamp (negative or out of range handled by DateTime)
     let timestamp = 0u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
-    
+
     let res = print_direct_messages(&msgs, None).await;
     assert!(res.is_ok());
 }
