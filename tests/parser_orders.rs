@@ -253,7 +253,7 @@ fn parse_orders_different_amounts() {
             Status::Active,
             "USD",
             *amount,
-            (*amount / 100) as i64,
+            *amount / 100_i64,
         );
         events.insert(e);
     }

@@ -78,7 +78,7 @@ async fn print_dms_with_multiple_messages() {
     let sender_keys = Keys::generate();
     let mut msgs = Vec::new();
 
-    let actions = vec![
+    let actions = [
         Action::NewOrder,
         Action::PayInvoice,
         Action::FiatSent,

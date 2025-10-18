@@ -6,7 +6,7 @@ use uuid::Uuid;
 fn test_get_user_rate_valid_ratings() {
     let valid_ratings = vec![1u8, 2u8, 3u8, 4u8, 5u8];
     for rating in valid_ratings {
-        assert!(rating >= 1 && rating <= 5);
+        assert!((1..=5).contains(&rating));
     }
 }
 
@@ -14,7 +14,7 @@ fn test_get_user_rate_valid_ratings() {
 fn test_invalid_ratings_out_of_range() {
     let invalid_ratings = vec![0u8, 6u8, 10u8, 255u8];
     for rating in invalid_ratings {
-        assert!(rating < 1 || rating > 5);
+        assert!(!(1..=5).contains(&rating));
     }
 }
 
@@ -27,14 +27,14 @@ fn test_orders_info_empty_order_ids() {
 #[test]
 fn test_orders_info_single_order_id() {
     let order_id = Uuid::new_v4();
-    let order_ids = vec![order_id];
+    let order_ids = [order_id];
     assert_eq!(order_ids.len(), 1);
     assert_eq!(order_ids[0], order_id);
 }
 
 #[test]
 fn test_orders_info_multiple_order_ids() {
-    let order_ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    let order_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
     assert_eq!(order_ids.len(), 3);
     assert_ne!(order_ids[0], order_ids[1]);
     assert_ne!(order_ids[1], order_ids[2]);
@@ -111,7 +111,7 @@ fn test_rating_payload_creation() {
         match payload {
             Payload::RatingUser(r) => {
                 assert_eq!(r, rating);
-                assert!(r >= 1 && r <= 5);
+                assert!((1..=5).contains(&r));
             }
             _ => panic!("Expected Payload::RatingUser"),
         }
