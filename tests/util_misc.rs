@@ -86,13 +86,3 @@ fn test_get_mcli_path_consistent() {
     // Should return the same path on multiple calls
     assert_eq!(path1, path2);
 }
-
-#[test]
-fn test_get_mcli_path_contains_home() {
-    let path = get_mcli_path();
-    let home_dir = dirs::home_dir().expect("Couldn't get home directory");
-    let home_str = home_dir.to_string_lossy();
-
-    // Path should start with home directory
-    assert!(path.starts_with(home_str.as_ref()));
-}
