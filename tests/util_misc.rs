@@ -61,8 +61,8 @@ fn test_get_mcli_path_returns_valid_path() {
     // Should return a non-empty string
     assert!(!path.is_empty());
 
-    // Should contain the mcliUserB directory name
-    assert!(path.contains(".mcliUserB"));
+    // Should contain the mcli directory name
+    assert!(path.contains(".mcli"));
 }
 
 #[test]

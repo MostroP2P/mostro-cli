@@ -56,13 +56,13 @@ fn parse_disputes_multiple_statuses() {
         DisputeStatus::Initiated,
         DisputeStatus::InProgress,
         DisputeStatus::Settled,
-        DisputeStatus::Canceled,
+        DisputeStatus::SellerRefunded,
     ];
     let mut events = Events::new(&filter);
 
     for status in &statuses {
         let id = uuid::Uuid::new_v4();
-        let e = build_dispute_event(id, *status);
+        let e = build_dispute_event(id, status.clone());
         events.insert(e);
     }
 
@@ -104,8 +104,7 @@ fn print_disputes_multiple_disputes() {
     assert!(table.is_ok());
 
     let table_str = table.unwrap();
-    // Should contain status information
-    assert!(table_str.len() > 0);
+    assert!(!table_str.is_empty());
 }
 
 #[test]
@@ -124,7 +123,6 @@ fn parse_disputes_unique_ids() {
     let out = parse_dispute_events(events);
     assert_eq!(out.len(), 2);
 
-    // IDs should be unique
     assert_ne!(id1, id2);
 }
 
@@ -155,10 +153,10 @@ fn parse_disputes_settled_status() {
 }
 
 #[test]
-fn parse_disputes_canceled_status() {
+fn parse_disputes_seller_refunded_status() {
     let filter = Filter::new();
     let id = uuid::Uuid::new_v4();
-    let e = build_dispute_event(id, DisputeStatus::Canceled);
+    let e = build_dispute_event(id, DisputeStatus::SellerRefunded);
 
     let mut events = Events::new(&filter);
     events.insert(e);

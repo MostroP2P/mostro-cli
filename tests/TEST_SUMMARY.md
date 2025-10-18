@@ -117,15 +117,10 @@ Tests for utility functions, particularly the critical path change in `get_mcli_
 - `test_uppercase_first_whitespace` - Leading whitespace
 
 ##### get_mcli_path Function (4 tests)
-- `test_get_mcli_path_returns_valid_path` - Valid path with `.mcliUserB`
+- `test_get_mcli_path_returns_valid_path` - Valid path with `.mcli`
 - `test_get_mcli_path_is_absolute` - Absolute path verification
 - `test_get_mcli_path_consistent` - Consistency across calls
 - `test_get_mcli_path_contains_home` - Home directory inclusion
-
-**Key Changes Tested:**
-- ⚠️ **CRITICAL:** Path change from `.mcli` to `.mcliUserB`
-- Path consistency and validity
-- Cross-platform path handling
 
 ---
 
@@ -360,26 +355,10 @@ All tests use only existing dependencies:
 
 ---
 
-## Critical Path Testing
-
-### Path Change: `.mcli` → `.mcliUserB`
-The most critical change in this diff is the modification to `get_mcli_path()` in `src/util/misc.rs`:
-
-```rust
-// OLD: let mcli_path = format!("{}/.mcli", home_dir.display());
-// NEW: let mcli_path = format!("{}/.mcliUserB", home_dir.display());
-```
-
 **Testing Strategy:**
 - 4 dedicated tests verify the new path
-- Tests confirm `.mcliUserB` is in the path
 - Path consistency across multiple calls verified
 - Home directory integration confirmed
-
-**Potential Impact:**
-- Users will need to migrate data from `.mcli` to `.mcliUserB`
-- Existing installations may break without migration
-- Tests ensure the new path is correctly generated
 
 ---
 
@@ -396,11 +375,6 @@ The most critical change in this diff is the modification to `get_mcli_path()` i
 - Test color output rendering (currently visual only)
 - Add tests for table width calculations
 - Test Unicode emoji rendering
-
-### 3. **Documentation:**
-- Add migration guide for `.mcli` → `.mcliUserB` change
-- Document breaking changes in CHANGELOG.md
-- Add examples of new commands to README.md
 
 ---
 

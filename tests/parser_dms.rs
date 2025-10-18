@@ -46,13 +46,7 @@ async fn print_dms_with_single_message() {
 async fn print_dms_with_text_payload() {
     let sender_keys = Keys::generate();
     let text_payload = Payload::TextMessage("Hello World".to_string());
-    let message = Message::new_dm(
-        Some(uuid::Uuid::new_v4()),
-        Some(12345),
-        Some(1),
-        Action::SendDm,
-        Some(text_payload),
-    );
+    let message = Message::new_dm(None, None, Action::SendDm, Some(text_payload));
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
@@ -84,7 +78,6 @@ async fn print_dms_with_multiple_messages() {
     let sender_keys = Keys::generate();
     let mut msgs = Vec::new();
 
-    // Add different message types
     let actions = vec![
         Action::NewOrder,
         Action::PayInvoice,
@@ -98,7 +91,7 @@ async fn print_dms_with_multiple_messages() {
             Some(uuid::Uuid::new_v4()),
             Some((12345 + i) as u64),
             Some(1),
-            *action,
+            action.clone(),
             None,
         );
         let timestamp = (1700000000 + i * 60) as u64;
@@ -131,7 +124,7 @@ async fn print_dms_with_dispute_payload() {
 #[tokio::test]
 async fn print_dms_with_orders_payload() {
     let sender_keys = Keys::generate();
-    let order = Order {
+    let order = SmallOrder {
         id: Some(uuid::Uuid::new_v4()),
         kind: Some(mostro_core::order::Kind::Buy),
         status: Some(Status::Active),
@@ -143,13 +136,10 @@ async fn print_dms_with_orders_payload() {
         created_at: Some(1700000000),
         expires_at: Some(1700086400),
         buyer_invoice: None,
-        master_buyer_pubkey: None,
-        master_seller_pubkey: None,
-        buyer_token: None,
-        seller_token: None,
+        buyer_trade_pubkey: None,
+        seller_trade_pubkey: None,
         min_amount: None,
         max_amount: None,
-        price: None,
     };
     let orders_payload = Payload::Orders(vec![order]);
     let message = Message::new_order(
@@ -198,18 +188,18 @@ async fn print_dms_distinguishes_mostro() {
 #[tokio::test]
 async fn print_dms_with_restore_session_payload() {
     let sender_keys = Keys::generate();
-    let order_info = RestoreOrderData {
+    let order_info = RestoredOrdersInfo {
         order_id: uuid::Uuid::new_v4(),
         trade_index: 1,
-        status: Status::Active,
+        status: "active".to_string(),
     };
-    let dispute_info = RestoreDisputeData {
+    let dispute_info = RestoredDisputesInfo {
         dispute_id: uuid::Uuid::new_v4(),
         order_id: uuid::Uuid::new_v4(),
         trade_index: 1,
-        status: DisputeStatus::Initiated,
+        status: "initiated".to_string(),
     };
-    let restore_payload = Payload::RestoreData(RestoreData {
+    let restore_payload = Payload::RestoreData(RestoreSessionInfo {
         restore_orders: vec![order_info],
         restore_disputes: vec![dispute_info],
     });
@@ -241,13 +231,7 @@ async fn print_dms_with_long_details_truncation() {
     let sender_keys = Keys::generate();
     let long_text = "A".repeat(200);
     let text_payload = Payload::TextMessage(long_text);
-    let message = Message::new_dm(
-        Some(uuid::Uuid::new_v4()),
-        Some(12345),
-        Some(1),
-        Action::SendDm,
-        Some(text_payload),
-    );
+    let message = Message::new_dm(None, None, Action::SendDm, Some(text_payload));
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
@@ -276,7 +260,7 @@ async fn print_dms_with_rating_action() {
 #[tokio::test]
 async fn print_dms_with_add_invoice_action() {
     let sender_keys = Keys::generate();
-    let order = Order {
+    let order = SmallOrder {
         id: Some(uuid::Uuid::new_v4()),
         kind: Some(mostro_core::order::Kind::Sell),
         status: Some(Status::WaitingBuyerInvoice),
@@ -285,16 +269,13 @@ async fn print_dms_with_add_invoice_action() {
         fiat_amount: 500,
         payment_method: "revolut".to_string(),
         premium: 2,
+        buyer_trade_pubkey: None,
+        seller_trade_pubkey: None,
+        buyer_invoice: None,
         created_at: Some(1700000000),
         expires_at: Some(1700086400),
-        buyer_invoice: None,
-        master_buyer_pubkey: None,
-        master_seller_pubkey: None,
-        buyer_token: None,
-        seller_token: None,
         min_amount: None,
         max_amount: None,
-        price: None,
     };
     let order_payload = Payload::Order(order);
     let message = Message::new_order(
@@ -321,7 +302,6 @@ async fn print_dms_with_invalid_timestamp() {
         Action::NewOrder,
         None,
     );
-    // Invalid timestamp (negative or out of range handled by DateTime)
     let timestamp = 0u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 

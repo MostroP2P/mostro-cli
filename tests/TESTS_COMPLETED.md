@@ -27,8 +27,7 @@ Comprehensive unit tests have been successfully generated for all changes in thi
 
 ## Critical Changes Tested
 
-### 1. Path Migration (⚠️ Breaking Change)
-- **Change:** `.mcli` → `.mcliUserB`
+### 1. Path
 - **Tests:** 4 dedicated tests
 - **File:** `src/util/misc.rs`
 - **Impact:** Users will need data migration
@@ -139,9 +138,8 @@ All tests are designed to pass and follow these principles:
 4. Tests are maintainable and clear
 
 ### For Users
-1. Be aware of the `.mcli` → `.mcliUserB` path change
-2. New commands are fully tested and ready to use
-3. Enhanced UI features are covered by tests
+1. New commands are fully tested and ready to use
+2. Enhanced UI features are covered by tests
 
 ## Documentation
 

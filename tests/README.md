@@ -20,7 +20,7 @@ This directory contains comprehensive unit and integration tests for the Mostro 
 
 3. **`util_misc.rs`** (13 tests)
    - Utility function tests
-   - Path handling (critical `.mcliUserB` change)
+   - Path check
    - String manipulation
 
 4. **`parser_orders.rs`** (11 tests)
@@ -88,7 +88,6 @@ cargo test -- --test-threads=1
 - ✅ Colored output and icons (covered in display tests)
 
 ### 2. Modified Features
-- ✅ Path change: `.mcli` → `.mcliUserB` (4 tests)
 - ✅ Enhanced dispute handling (9 tests)
 - ✅ Improved order display (11 tests)
 - ✅ Rating system validation (3 tests)
