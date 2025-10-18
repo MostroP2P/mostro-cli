@@ -631,9 +631,9 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         Action::HoldInvoicePaymentAccepted => {
             if let Some(order_id) = &message.id {
-            println!("🎉 Hold Invoice Payment Accepted");
-            println!("═══════════════════════════════════════");
-            println!("📋 Order ID: {}", order_id);
+                println!("🎉 Hold Invoice Payment Accepted");
+                println!("═══════════════════════════════════════");
+                println!("📋 Order ID: {}", order_id);
                 println!("✅ Hold invoice payment accepted successfully!");
                 println!("💰 Bitcoin has been released to the buyer");
                 println!("🎊 Trade completed successfully!");
