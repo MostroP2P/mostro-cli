@@ -38,7 +38,7 @@ uuid = { version = "1.18.1", features = [
 ] }
 dotenvy = "0.15.6"
 lightning-invoice = { version = "0.33.2", features = ["std"] }
-reqwest = { version = "0.12.23", features = ["json","rustls-tls"] }
+reqwest = { version = "0.12.23", default-features = false, features = ["json","rustls-tls"] }
 mostro-core = "0.6.56"
 lnurl-rs = { version = "0.9.0", default-features = false, features = ["ureq"] }
 pretty_env_logger = "0.5.0"
