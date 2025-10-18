@@ -1,3 +1,6 @@
+use crate::parser::common::{
+    print_info_line, print_key_value, print_section_header, print_success_message,
+};
 use crate::{db::Order, util::send_gift_wrap_dm};
 use anyhow::Result;
 use nostr_sdk::prelude::*;
@@ -22,18 +25,17 @@ pub async fn execute_dm_to_user(
     };
 
     // Send the DM
-    println!("💬 Direct Message to User");
-    println!("═══════════════════════════════════════");
-    println!("📋 Order ID: {}", order_id);
-    println!("🔑 Trade Keys: {}", trade_keys.public_key().to_hex());
-    println!("🎯 Recipient: {}", receiver);
-    println!("💬 Message: {}", message);
-    println!("💡 Sending gift wrap message...");
+    print_section_header("💬 Direct Message to User");
+    print_key_value("📋", "Order ID", &order_id.to_string());
+    print_key_value("🔑", "Trade Keys", &trade_keys.public_key().to_hex());
+    print_key_value("🎯", "Recipient", &receiver.to_string());
+    print_key_value("💬", "Message", message);
+    print_info_line("💡", "Sending gift wrap message...");
     println!();
 
     send_gift_wrap_dm(client, &trade_keys, &receiver, message).await?;
 
-    println!("✅ Gift wrap message sent successfully!");
+    print_success_message("Gift wrap message sent successfully!");
 
     Ok(())
 }

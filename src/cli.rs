@@ -371,8 +371,6 @@ pub async fn run() -> Result<()> {
         cmd.run(&ctx).await?;
     }
 
-    println!("Bye Bye!");
-
     Ok(())
 }
 

@@ -1,4 +1,7 @@
 use crate::cli::Context;
+use crate::parser::common::{
+    create_emoji_field_row, create_field_value_header, create_standard_table,
+};
 use crate::{db::Order, util::send_dm};
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -13,11 +16,21 @@ pub async fn execute_send_dm(
 ) -> Result<()> {
     println!("💬 Send Direct Message");
     println!("═══════════════════════════════════════");
-    println!("📋 Order ID: {}", order_id);
-    println!("🎯 Recipient: {}", receiver);
-    println!("💬 Message: {}", message);
-    println!("💡 Sending direct message...");
-    println!();
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "📋 ",
+        "Order ID",
+        &order_id.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Recipient",
+        &receiver.to_string(),
+    ));
+    table.add_row(create_emoji_field_row("💬 ", "Message", message));
+    println!("{table}");
+    println!("💡 Sending direct message...\n");
 
     let message = Message::new_dm(
         None,

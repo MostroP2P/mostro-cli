@@ -1,11 +1,10 @@
 use anyhow::Result;
-use comfy_table::presets::UTF8_FULL;
-use comfy_table::*;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
+    parser::common::{create_emoji_field_row, create_field_value_header, create_standard_table},
     parser::{dms::print_commands_results, parse_dm_events},
     util::{send_dm, wait_for_dm},
 };
@@ -33,27 +32,18 @@ pub async fn execute_restore(
 
     println!("🔄 Restore Session");
     println!("═══════════════════════════════════════");
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(100)
-        .set_header(vec![
-            Cell::new("Field")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Value")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    table.add_row(Row::from(vec![
-        Cell::new("👤 User"),
-        Cell::new(identity_keys.public_key().to_string()),
-    ]));
-    table.add_row(Row::from(vec![
-        Cell::new("🎯 Target"),
-        Cell::new(mostro_key.to_string()),
-    ]));
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "👤 ",
+        "User",
+        &identity_keys.public_key().to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Target",
+        &mostro_key.to_string(),
+    ));
     println!("{table}");
     println!("💡 Sending restore request to Mostro...");
     println!("⏳ Recovering pending orders and disputes...\n");

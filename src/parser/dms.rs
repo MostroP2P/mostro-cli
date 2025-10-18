@@ -13,8 +13,368 @@ use nostr_sdk::prelude::*;
 use crate::{
     cli::Context,
     db::{Order, User},
+    parser::common::{
+        format_timestamp, print_amount_info, print_fiat_code, print_order_count,
+        print_payment_method, print_premium, print_required_amount, print_section_header,
+        print_success_message, print_trade_index,
+    },
     util::save_order,
 };
+use serde_json;
+
+/// Handle new order creation display
+fn handle_new_order_display(order: &mostro_core::order::SmallOrder) {
+    print_section_header("🆕 New Order Created");
+    if let Some(order_id) = order.id {
+        println!("📋 Order ID: {}", order_id);
+    }
+    print_amount_info(order.amount);
+    print_fiat_code(&order.fiat_code);
+    println!("💵 Fiat Amount: {}", order.fiat_amount);
+    print_premium(order.premium);
+    print_payment_method(&order.payment_method);
+    println!(
+        "📈 Kind: {:?}",
+        order
+            .kind
+            .as_ref()
+            .unwrap_or(&mostro_core::order::Kind::Sell)
+    );
+    println!(
+        "📊 Status: {:?}",
+        order.status.as_ref().unwrap_or(&Status::Pending)
+    );
+    print_success_message("Order saved successfully!");
+}
+
+/// Handle add invoice display
+fn handle_add_invoice_display(order: &mostro_core::order::SmallOrder) {
+    print_section_header("⚡ Add Lightning Invoice");
+    if let Some(order_id) = order.id {
+        println!("📋 Order ID: {}", order_id);
+    }
+    print_required_amount(order.amount);
+    println!("💡 Please add a lightning invoice with the exact amount above");
+    println!();
+}
+
+/// Handle pay invoice display
+fn handle_pay_invoice_display(order: &Option<mostro_core::order::SmallOrder>, invoice: &str) {
+    print_section_header("💳 Payment Invoice Received");
+    if let Some(order) = order {
+        if let Some(order_id) = order.id {
+            println!("📋 Order ID: {}", order_id);
+        }
+        print_amount_info(order.amount);
+        print_fiat_code(&order.fiat_code);
+        println!("💵 Fiat Amount: {}", order.fiat_amount);
+    }
+    println!();
+    println!("⚡ LIGHTNING INVOICE TO PAY:");
+    println!("─────────────────────────────────────");
+    println!("{}", invoice);
+    println!("─────────────────────────────────────");
+    println!("💡 Pay this invoice to continue the trade");
+    println!();
+}
+
+/// Format payload details for DM table display
+fn format_payload_details(payload: &Payload, action: &Action) -> String {
+    match payload {
+        Payload::TextMessage(t) => format!("✉️ {}", t),
+        Payload::PaymentRequest(_, inv, _) => {
+            // For invoices, show the full invoice without truncation
+            format!("⚡ Lightning Invoice:\n{}", inv)
+        }
+        Payload::Dispute(id, _) => format!("⚖️ Dispute ID: {}", id),
+        Payload::Order(o) if *action == Action::NewOrder => format!(
+            "🆕 New Order: {} {} sats ({})",
+            o.id.as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            o.amount,
+            o.fiat_code
+        ),
+        Payload::Order(o) => {
+            // Pretty format order details
+            let status_emoji = match o.status.as_ref().unwrap_or(&Status::Pending) {
+                Status::Pending => "⏳",
+                Status::Active => "✅",
+                Status::Dispute => "⚖️",
+                Status::Canceled => "🚫",
+                Status::CanceledByAdmin => "🚫",
+                Status::CooperativelyCanceled => "🤝",
+                Status::Success => "🎉",
+                Status::FiatSent => "💸",
+                Status::WaitingPayment => "⏳",
+                Status::WaitingBuyerInvoice => "⚡",
+                Status::SettledByAdmin => "✅",
+                Status::CompletedByAdmin => "🎉",
+                Status::Expired => "⏰",
+                Status::SettledHoldInvoice => "💰",
+                Status::InProgress => "🔄",
+            };
+
+            let kind_emoji = match o.kind.as_ref().unwrap_or(&mostro_core::order::Kind::Sell) {
+                mostro_core::order::Kind::Buy => "📈",
+                mostro_core::order::Kind::Sell => "📉",
+            };
+
+            format!(
+                "📋 Order: {} {} sats ({})\n{} Status: {:?}\n{} Kind: {:?}",
+                o.id.as_ref()
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                o.amount,
+                o.fiat_code,
+                status_emoji,
+                o.status.as_ref().unwrap_or(&Status::Pending),
+                kind_emoji,
+                o.kind.as_ref().unwrap_or(&mostro_core::order::Kind::Sell)
+            )
+        }
+        Payload::Peer(peer) => {
+            // Pretty format peer information
+            if let Some(reputation) = &peer.reputation {
+                let rating_emoji = if reputation.rating >= 4.0 {
+                    "⭐"
+                } else if reputation.rating >= 3.0 {
+                    "🔶"
+                } else if reputation.rating >= 2.0 {
+                    "🔸"
+                } else {
+                    "🔻"
+                };
+
+                format!(
+                    "👤 Peer: {}\n{} Rating: {:.1}/5.0\n📊 Reviews: {}\n📅 Operating Days: {}",
+                    if peer.pubkey.is_empty() {
+                        "Anonymous"
+                    } else {
+                        &peer.pubkey
+                    },
+                    rating_emoji,
+                    reputation.rating,
+                    reputation.reviews,
+                    reputation.operating_days
+                )
+            } else {
+                format!(
+                    "👤 Peer: {}",
+                    if peer.pubkey.is_empty() {
+                        "Anonymous"
+                    } else {
+                        &peer.pubkey
+                    }
+                )
+            }
+        }
+        _ => {
+            // For other payloads, try to pretty-print as JSON
+            match serde_json::to_string_pretty(payload) {
+                Ok(json) => format!("📄 Payload:\n{}", json),
+                Err(_) => format!("📄 Payload: {:?}", payload),
+            }
+        }
+    }
+}
+
+/// Handle orders list display
+fn handle_orders_list_display(orders: &[mostro_core::order::SmallOrder]) {
+    if orders.is_empty() {
+        print_section_header("📋 Orders List");
+        println!("📭 No orders found or unauthorized access");
+    } else {
+        print_section_header("📋 Orders List");
+        print_order_count(orders.len());
+        println!();
+        for (i, order) in orders.iter().enumerate() {
+            println!("📄 Order {}:", i + 1);
+            println!("─────────────────────────────────────");
+            println!(
+                "🆔 ID: {}",
+                order
+                    .id
+                    .as_ref()
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string())
+            );
+            println!(
+                "📈 Kind: {:?}",
+                order
+                    .kind
+                    .as_ref()
+                    .unwrap_or(&mostro_core::order::Kind::Sell)
+            );
+            println!(
+                "📊 Status: {:?}",
+                order.status.as_ref().unwrap_or(&Status::Pending)
+            );
+            print_amount_info(order.amount);
+            print_fiat_code(&order.fiat_code);
+            if let Some(min) = order.min_amount {
+                if let Some(max) = order.max_amount {
+                    println!("💵 Fiat Range: {}-{}", min, max);
+                } else {
+                    println!("💵 Fiat Amount: {}", order.fiat_amount);
+                }
+            } else {
+                println!("💵 Fiat Amount: {}", order.fiat_amount);
+            }
+            print_payment_method(&order.payment_method);
+            print_premium(order.premium);
+            if let Some(created_at) = order.created_at {
+                if let Some(expires_at) = order.expires_at {
+                    println!("📅 Created: {}", format_timestamp(created_at));
+                    println!("⏰ Expires: {}", format_timestamp(expires_at));
+                }
+            }
+            println!();
+        }
+    }
+}
+
+/// Display SolverDisputeInfo in a beautiful table format
+fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisputeInfo) -> String {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(120)
+        .set_header(vec![
+            Cell::new("Field")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+            Cell::new("Value")
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center),
+        ]);
+
+    let mut rows: Vec<Row> = Vec::new();
+
+    // Basic dispute information
+    rows.push(Row::from(vec![
+        Cell::new("🆔 Dispute ID"),
+        Cell::new(dispute_info.id.to_string()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("📊 Kind"),
+        Cell::new(dispute_info.kind.clone()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("📈 Status"),
+        Cell::new(dispute_info.status.clone()),
+    ]));
+
+    // Financial information
+    rows.push(Row::from(vec![
+        Cell::new("💰 Amount"),
+        Cell::new(format!("{} sats", dispute_info.amount)),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("💵 Fiat Amount"),
+        Cell::new(dispute_info.fiat_amount.to_string()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("📊 Premium"),
+        Cell::new(format!("{}%", dispute_info.premium)),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("💳 Payment Method"),
+        Cell::new(dispute_info.payment_method.clone()),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("💸 Fee"),
+        Cell::new(format!("{} sats", dispute_info.fee)),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("🛣️ Routing Fee"),
+        Cell::new(format!("{} sats", dispute_info.routing_fee)),
+    ]));
+
+    // Participant information
+    rows.push(Row::from(vec![
+        Cell::new("👤 Initiator"),
+        Cell::new(dispute_info.initiator_pubkey.clone()),
+    ]));
+
+    if let Some(buyer) = &dispute_info.buyer_pubkey {
+        rows.push(Row::from(vec![
+            Cell::new("🛒 Buyer"),
+            Cell::new(buyer.clone()),
+        ]));
+    }
+
+    if let Some(seller) = &dispute_info.seller_pubkey {
+        rows.push(Row::from(vec![
+            Cell::new("🏪 Seller"),
+            Cell::new(seller.clone()),
+        ]));
+    }
+
+    // Privacy settings
+    rows.push(Row::from(vec![
+        Cell::new("🔒 Initiator Privacy"),
+        Cell::new(if dispute_info.initiator_full_privacy {
+            "Full Privacy"
+        } else {
+            "Standard"
+        }),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("🔒 Counterpart Privacy"),
+        Cell::new(if dispute_info.counterpart_full_privacy {
+            "Full Privacy"
+        } else {
+            "Standard"
+        }),
+    ]));
+
+    // Optional fields
+    if let Some(hash) = &dispute_info.hash {
+        rows.push(Row::from(vec![
+            Cell::new("🔐 Hash"),
+            Cell::new(hash.clone()),
+        ]));
+    }
+
+    if let Some(preimage) = &dispute_info.preimage {
+        rows.push(Row::from(vec![
+            Cell::new("🔑 Preimage"),
+            Cell::new(preimage.clone()),
+        ]));
+    }
+
+    if let Some(buyer_invoice) = &dispute_info.buyer_invoice {
+        rows.push(Row::from(vec![
+            Cell::new("⚡ Buyer Invoice"),
+            Cell::new(buyer_invoice.clone()),
+        ]));
+    }
+
+    // Status information
+    rows.push(Row::from(vec![
+        Cell::new("📊 Previous Status"),
+        Cell::new(dispute_info.order_previous_status.clone()),
+    ]));
+
+    // Timestamps
+    rows.push(Row::from(vec![
+        Cell::new("📅 Created"),
+        Cell::new(format_timestamp(dispute_info.created_at)),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("⏰ Taken At"),
+        Cell::new(format_timestamp(dispute_info.taken_at)),
+    ]));
+    rows.push(Row::from(vec![
+        Cell::new("⚡ Invoice Held At"),
+        Cell::new(format_timestamp(dispute_info.invoice_held_at)),
+    ]));
+
+    table.add_rows(rows);
+    table.to_string()
+}
 
 /// Execute logic of command answer
 pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Result<()> {
@@ -35,28 +395,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                         return Err(anyhow::anyhow!("Failed to save order: {}", e));
                     }
 
-                    println!("🆕 New Order Created");
-                    println!("═══════════════════════════════════════");
-                    if let Some(order_id) = order.id {
-                        println!("📋 Order ID: {}", order_id);
-                    }
-                    println!("💰 Amount: {} sats", order.amount);
-                    println!("💱 Fiat Code: {}", order.fiat_code);
-                    println!("💵 Fiat Amount: {}", order.fiat_amount);
-                    println!("📊 Premium: {}%", order.premium);
-                    println!("💳 Payment Method: {}", order.payment_method);
-                    println!(
-                        "📈 Kind: {:?}",
-                        order
-                            .kind
-                            .as_ref()
-                            .unwrap_or(&mostro_core::order::Kind::Sell)
-                    );
-                    println!(
-                        "📊 Status: {:?}",
-                        order.status.as_ref().unwrap_or(&Status::Pending)
-                    );
-                    println!("✅ Order saved successfully!");
+                    handle_new_order_display(order);
                     Ok(())
                 } else {
                     Err(anyhow::anyhow!("No request id found in message"))
@@ -92,14 +431,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         // this is the case where the buyer adds an invoice to a takesell order
         Action::AddInvoice => {
             if let Some(Payload::Order(order)) = &message.payload {
-                println!("⚡ Add Lightning Invoice");
-                println!("═══════════════════════════════════════");
-                if let Some(order_id) = order.id {
-                    println!("📋 Order ID: {}", order_id);
-                }
-                println!("💰 Required Amount: {} sats", order.amount);
-                println!("💡 Please add a lightning invoice with the exact amount above");
-                println!();
+                handle_add_invoice_display(order);
 
                 if let Some(req_id) = message.request_id {
                     // Save the order
@@ -114,7 +446,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                     {
                         return Err(anyhow::anyhow!("Failed to save order: {}", e));
                     }
-                    println!("✅ Order saved successfully!");
+                    print_success_message("Order saved successfully!");
                 } else {
                     return Err(anyhow::anyhow!("No request id found in message"));
                 }
@@ -126,23 +458,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         // this is the case where the buyer pays the invoice coming from a takebuy
         Action::PayInvoice => {
             if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
-                println!("💳 Payment Invoice Received");
-                println!("═══════════════════════════════════════");
-                if let Some(order) = order {
-                    if let Some(order_id) = order.id {
-                        println!("📋 Order ID: {}", order_id);
-                    }
-                    println!("💰 Amount: {} sats", order.amount);
-                    println!("💱 Fiat Code: {}", order.fiat_code);
-                    println!("💵 Fiat Amount: {}", order.fiat_amount);
-                }
-                println!();
-                println!("⚡ LIGHTNING INVOICE TO PAY:");
-                println!("─────────────────────────────────────");
-                println!("{}", invoice);
-                println!("─────────────────────────────────────");
-                println!("💡 Pay this invoice to continue the trade");
-                println!();
+                handle_pay_invoice_display(order, invoice);
 
                 if let Some(order) = order {
                     if let Some(req_id) = message.request_id {
@@ -160,7 +476,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                             println!("❌ Failed to save order: {}", e);
                             return Err(anyhow::anyhow!("Failed to save order: {}", e));
                         }
-                        println!("✅ Order saved successfully!");
+                        print_success_message("Order saved successfully!");
                     } else {
                         return Err(anyhow::anyhow!("No request id found in message"));
                     }
@@ -242,17 +558,15 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
             }
         }
         Action::RateReceived => {
-            println!("⭐ Rating Received");
-            println!("═══════════════════════════════════════");
+            print_section_header("⭐ Rating Received");
             println!("🙏 Thank you for your rating!");
             println!("💡 Your feedback helps improve the trading experience");
-            println!("✅ Rating processed successfully!");
+            print_success_message("Rating processed successfully!");
             Ok(())
         }
         Action::FiatSentOk => {
             if let Some(order_id) = &message.id {
-                println!("💸 Fiat Payment Confirmed");
-                println!("═══════════════════════════════════════");
+                print_section_header("💸 Fiat Payment Confirmed");
                 println!("📋 Order ID: {}", order_id);
                 println!("✅ Fiat payment confirmation received");
                 println!("⏳ Waiting for sats release from seller");
@@ -264,16 +578,15 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         Action::LastTradeIndex => {
             if let Some(last_trade_index) = message.trade_index {
-                println!("🔢 Last Trade Index Updated");
-                println!("═══════════════════════════════════════");
-                println!("📊 Last Trade Index: {}", last_trade_index);
+                print_section_header("🔢 Last Trade Index Updated");
+                print_trade_index(last_trade_index as u64);
                 match User::get(&ctx.pool).await {
                     Ok(mut user) => {
                         user.set_last_trade_index(last_trade_index);
                         if let Err(e) = user.save(&ctx.pool).await {
                             println!("❌ Failed to update user: {}", e);
                         } else {
-                            println!("✅ Trade index synchronized successfully!");
+                            print_success_message("Trade index synchronized successfully!");
                         }
                     }
                     Err(_) => return Err(anyhow::anyhow!("Failed to get user")),
@@ -324,72 +637,36 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         Action::Orders => {
             if let Some(Payload::Orders(orders)) = &message.payload {
-                if orders.is_empty() {
-                    println!("📋 Orders List");
-                    println!("═══════════════════════════════════════");
-                    println!("📭 No orders found or unauthorized access");
-                } else {
-                    println!("📋 Orders List");
-                    println!("═══════════════════════════════════════");
-                    println!("📊 Found {} order(s):", orders.len());
-                    println!();
-                    for (i, order) in orders.iter().enumerate() {
-                        println!("📄 Order {}:", i + 1);
-                        println!("─────────────────────────────────────");
-                        println!(
-                            "🆔 ID: {}",
-                            order
-                                .id
-                                .as_ref()
-                                .map(|id| id.to_string())
-                                .unwrap_or_else(|| "N/A".to_string())
-                        );
-                        println!(
-                            "📈 Kind: {:?}",
-                            order
-                                .kind
-                                .as_ref()
-                                .unwrap_or(&mostro_core::order::Kind::Sell)
-                        );
-                        println!(
-                            "📊 Status: {:?}",
-                            order.status.as_ref().unwrap_or(&Status::Pending)
-                        );
-                        println!("💰 Amount: {} sats", order.amount);
-                        println!("💱 Fiat Code: {}", order.fiat_code);
-                        if let Some(min) = order.min_amount {
-                            if let Some(max) = order.max_amount {
-                                println!("💵 Fiat Range: {}-{}", min, max);
-                            } else {
-                                println!("💵 Fiat Amount: {}", order.fiat_amount);
-                            }
-                        } else {
-                            println!("💵 Fiat Amount: {}", order.fiat_amount);
-                        }
-                        println!("💳 Payment Method: {}", order.payment_method);
-                        println!("📊 Premium: {}%", order.premium);
-                        if let Some(created_at) = order.created_at {
-                            if let Some(expires_at) = order.expires_at {
-                                println!(
-                                    "📅 Created: {}",
-                                    chrono::DateTime::from_timestamp(created_at, 0)
-                                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-                                        .unwrap_or_else(|| "Invalid timestamp".to_string())
-                                );
-                                println!(
-                                    "⏰ Expires: {}",
-                                    chrono::DateTime::from_timestamp(expires_at, 0)
-                                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-                                        .unwrap_or_else(|| "Invalid timestamp".to_string())
-                                );
-                            }
-                        }
-                        println!();
-                    }
-                }
+                handle_orders_list_display(orders);
                 Ok(())
             } else {
                 Err(anyhow::anyhow!("No orders payload found in message"))
+            }
+        }
+        Action::AdminTookDispute => {
+            if let Some(Payload::Dispute(_, Some(dispute_info))) = &message.payload {
+                println!("🎉 Dispute Successfully Taken!");
+                println!("═══════════════════════════════════════");
+                println!();
+
+                // Display the dispute info using our dedicated function
+                let dispute_table = display_solver_dispute_info(dispute_info);
+                println!("{dispute_table}");
+                println!();
+                println!("✅ Dispute taken successfully! You are now the solver for this dispute.");
+                Ok(())
+            } else {
+                // Fallback for debugging - show what we actually received
+                println!("🎉 Dispute Successfully Taken!");
+                println!("═══════════════════════════════════════");
+                println!();
+                println!(
+                    "⚠️  Warning: Expected Dispute payload with SolverDisputeInfo but received:"
+                );
+                println!("📋 Payload: {:#?}", message.payload);
+                println!();
+                println!("✅ Dispute taken successfully! You are now the solver for this dispute.");
+                Ok(())
             }
         }
         Action::RestoreSession => {
@@ -548,28 +825,10 @@ pub async fn print_direct_messages(
         return Ok(());
     }
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(160)
-        .set_header(vec![
-            Cell::new("⏰ Time")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("📨 From")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("🎯 Action")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("📝 Details")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
+    println!();
+    print_section_header("📨 Direct Messages");
 
-    let mut rows: Vec<Row> = Vec::new();
-    for (message, created_at, sender_pubkey) in dm.iter() {
+    for (i, (message, created_at, sender_pubkey)) in dm.iter().enumerate() {
         let date = match DateTime::from_timestamp(*created_at as i64, 0) {
             Some(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
             None => "Invalid timestamp".to_string(),
@@ -593,47 +852,7 @@ pub async fn print_direct_messages(
             _ => "🎯",
         };
 
-        let mut action_cell = Cell::new(format!("{} {}", action_icon, action_str))
-            .set_alignment(CellAlignment::Center);
-        let action_lower = action_str.to_lowercase();
-        if action_lower.contains("invoice") {
-            action_cell = action_cell.fg(Color::Cyan);
-        } else if action_lower.contains("dispute") {
-            action_cell = action_cell.fg(Color::Red);
-        } else if action_lower.contains("rate") || action_lower.contains("released") {
-            action_cell = action_cell.fg(Color::Green);
-        } else if action_lower.contains("cancel") {
-            action_cell = action_cell.fg(Color::Red);
-        }
-
-        // Build details summary
-        let details = if let Some(payload) = &inner.payload {
-            match payload {
-                Payload::TextMessage(t) => format!("✉️ {}", t),
-                Payload::PaymentRequest(_, inv, _) => format!("⚡ Invoice: {}", inv),
-                Payload::Dispute(id, _) => format!("⚖️ Dispute ID: {}", id),
-                Payload::Order(o) if inner.action == Action::NewOrder => format!(
-                    "🆕 Order: {} {} sats ({})",
-                    o.id.as_ref()
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| "N/A".to_string()),
-                    o.amount,
-                    o.fiat_code
-                ),
-                _ => format!("{:?}", payload),
-            }
-        } else {
-            "-".to_string()
-        };
-
-        // Truncate long details for compact table row
-        let details = if details.len() > 120 {
-            format!("{}…", &details[..120])
-        } else {
-            details
-        };
-
-        // From cell: show 🧌 Mostro if matches provided pubkey
+        // From label: show 🧌 Mostro if matches provided pubkey
         let from_label = if let Some(pk) = mostro_pubkey {
             if *sender_pubkey == pk {
                 format!("🧌 {}", sender_pubkey.to_hex())
@@ -644,18 +863,27 @@ pub async fn print_direct_messages(
             sender_pubkey.to_hex()
         };
 
-        let row = Row::from(vec![
-            Cell::new(date).set_alignment(CellAlignment::Center),
-            Cell::new(from_label).set_alignment(CellAlignment::Center),
-            action_cell,
-            Cell::new(details),
-        ]);
-        rows.push(row);
+        // Print message header
+        println!("📄 Message {}:", i + 1);
+        println!("─────────────────────────────────────");
+        println!("⏰ Time: {}", date);
+        println!("📨 From: {}", from_label);
+        println!("🎯 Action: {} {}", action_icon, action_str);
+
+        // Print details with proper formatting
+        if let Some(payload) = &inner.payload {
+            let details = format_payload_details(payload, &inner.action);
+            println!("📝 Details:");
+            for line in details.lines() {
+                println!("   {}", line);
+            }
+        } else {
+            println!("📝 Details: -");
+        }
+
+        println!();
     }
 
-    table.add_rows(rows);
-    println!("{table}");
-    println!();
     Ok(())
 }
 

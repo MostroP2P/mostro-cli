@@ -1,5 +1,8 @@
 use crate::cli::Context;
 use crate::db::Order;
+use crate::parser::common::{
+    print_info_line, print_key_value, print_no_data_message, print_section_header,
+};
 use crate::parser::dms::print_direct_messages;
 use crate::util::{fetch_events_list, Event, ListKind};
 use anyhow::Result;
@@ -21,18 +24,18 @@ pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
 
     // Check if the trade keys are empty
     if trade_keys_hex.is_empty() {
-        println!("📭 No trade keys found in orders");
+        print_no_data_message("No trade keys found in orders");
         return Ok(());
     }
 
-    println!("📨 Fetch User Direct Messages");
-    println!("═══════════════════════════════════════");
-    println!(
-        "🔍 Searching for DMs in {} trade keys...",
-        trade_keys_hex.len()
+    print_section_header("📨 Fetch User Direct Messages");
+    print_key_value(
+        "🔍",
+        "Searching for DMs in trade keys",
+        &format!("{}", trade_keys_hex.len()),
     );
-    println!("⏰ Since: {} minutes ago", since);
-    println!("💡 Fetching direct messages...");
+    print_key_value("⏰", "Since", &format!("{} minutes ago", since));
+    print_info_line("💡", "Fetching direct messages...");
     println!();
 
     let direct_messages = fetch_events_list(
@@ -49,7 +52,7 @@ pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
     let mut dm_events: Vec<(Message, u64, PublicKey)> = Vec::new();
     // Check if the direct messages are empty
     if direct_messages.is_empty() {
-        println!("📭 You don't have any direct messages in your trade keys");
+        print_no_data_message("You don't have any direct messages in your trade keys");
         return Ok(());
     }
     // Extract the direct messages

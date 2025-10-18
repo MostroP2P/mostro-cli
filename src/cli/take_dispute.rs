@@ -1,35 +1,25 @@
 use anyhow::Result;
-use comfy_table::presets::UTF8_FULL;
-use comfy_table::*;
 use mostro_core::prelude::*;
 use uuid::Uuid;
 
-use crate::{cli::Context, util::admin_send_dm};
+use crate::{
+    cli::Context,
+    parser::common::{create_emoji_field_row, create_field_value_header, create_standard_table},
+    parser::{dms::print_commands_results, parse_dm_events},
+    util::{admin_send_dm, send_dm, wait_for_dm},
+};
 
 pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()> {
     println!("👑 Admin Add Solver");
     println!("═══════════════════════════════════════");
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(100)
-        .set_header(vec![
-            Cell::new("Field")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Value")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    table.add_row(Row::from(vec![
-        Cell::new("🔑 Solver PubKey"),
-        Cell::new(npubkey),
-    ]));
-    table.add_row(Row::from(vec![
-        Cell::new("🎯 Mostro PubKey"),
-        Cell::new(ctx.mostro_pubkey.to_string()),
-    ]));
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row("🔑 ", "Solver PubKey", npubkey));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Mostro PubKey",
+        &ctx.mostro_pubkey.to_string(),
+    ));
     println!("{table}");
     println!("💡 Adding new solver to Mostro...\n");
     // Create takebuy message
@@ -53,27 +43,18 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
 pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()> {
     println!("👑 Admin Cancel Dispute");
     println!("═══════════════════════════════════════");
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(100)
-        .set_header(vec![
-            Cell::new("Field")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Value")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    table.add_row(Row::from(vec![
-        Cell::new("🆔 Dispute ID"),
-        Cell::new(dispute_id.to_string()),
-    ]));
-    table.add_row(Row::from(vec![
-        Cell::new("🎯 Mostro PubKey"),
-        Cell::new(ctx.mostro_pubkey.to_string()),
-    ]));
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "🆔 ",
+        "Dispute ID",
+        &dispute_id.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Mostro PubKey",
+        &ctx.mostro_pubkey.to_string(),
+    ));
     println!("{table}");
     println!("💡 Canceling dispute...\n");
     // Create takebuy message
@@ -94,27 +75,18 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()> {
     println!("👑 Admin Settle Dispute");
     println!("═══════════════════════════════════════");
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(100)
-        .set_header(vec![
-            Cell::new("Field")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Value")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    table.add_row(Row::from(vec![
-        Cell::new("🆔 Dispute ID"),
-        Cell::new(dispute_id.to_string()),
-    ]));
-    table.add_row(Row::from(vec![
-        Cell::new("🎯 Mostro PubKey"),
-        Cell::new(ctx.mostro_pubkey.to_string()),
-    ]));
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "🆔 ",
+        "Dispute ID",
+        &dispute_id.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Mostro PubKey",
+        &ctx.mostro_pubkey.to_string(),
+    ));
     println!("{table}");
     println!("💡 Settling dispute...\n");
     // Create takebuy message
@@ -133,27 +105,18 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()> {
     println!("👑 Admin Take Dispute");
     println!("═══════════════════════════════════════");
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(100)
-        .set_header(vec![
-            Cell::new("Field")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Value")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    table.add_row(Row::from(vec![
-        Cell::new("🆔 Dispute ID"),
-        Cell::new(dispute_id.to_string()),
-    ]));
-    table.add_row(Row::from(vec![
-        Cell::new("🎯 Mostro PubKey"),
-        Cell::new(ctx.mostro_pubkey.to_string()),
-    ]));
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "🆔 ",
+        "Dispute ID",
+        &dispute_id.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Mostro PubKey",
+        &ctx.mostro_pubkey.to_string(),
+    ));
     println!("{table}");
     println!("💡 Taking dispute...\n");
     // Create takebuy message
@@ -169,8 +132,36 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
 
     println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
 
-    admin_send_dm(ctx, take_dispute_message).await?;
+    // Send the dispute message and wait for response
+    let sent_message = send_dm(
+        &ctx.client,
+        Some(&ctx.context_keys),
+        &ctx.trade_keys,
+        &ctx.mostro_pubkey,
+        take_dispute_message,
+        None,
+        false,
+    );
 
-    println!("✅ Dispute taken successfully!");
+    // Wait for incoming DM response
+    let recv_event = wait_for_dm(ctx, Some(&ctx.context_keys), sent_message).await?;
+
+    // Parse the incoming DM
+    let messages = parse_dm_events(recv_event, &ctx.context_keys, None).await;
+    if let Some((message, _, _)) = messages.first() {
+        let message_kind = message.get_inner_message_kind();
+        if message_kind.action == Action::AdminTookDispute {
+            print_commands_results(message_kind, ctx).await?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Received response with mismatched action. Expected: {:?}, Got: {:?}",
+                Action::AdminTookDispute,
+                message_kind.action
+            ));
+        }
+    } else {
+        return Err(anyhow::anyhow!("No response received from Mostro"));
+    }
+
     Ok(())
 }

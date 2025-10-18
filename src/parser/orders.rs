@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::parser::common::{apply_kind_color, apply_status_color, create_error_cell};
 use crate::util::Event;
 use anyhow::Result;
 use chrono::DateTime;
@@ -109,14 +110,10 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     //Table rows
     let r = Row::from(vec![
         if let Some(k) = single_order.kind {
-            match k {
-                mostro_core::order::Kind::Buy => Cell::new(k.to_string())
-                    .fg(Color::Green)
-                    .set_alignment(CellAlignment::Center),
-                mostro_core::order::Kind::Sell => Cell::new(k.to_string())
-                    .fg(Color::Red)
-                    .set_alignment(CellAlignment::Center),
-            }
+            apply_kind_color(
+                Cell::new(k.to_string()).set_alignment(CellAlignment::Center),
+                &k,
+            )
         } else {
             Cell::new("BUY/SELL").set_alignment(CellAlignment::Center)
         },
@@ -184,11 +181,9 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
         // Single row for error
         let mut r = Row::new();
 
-        r.add_cell(
-            Cell::new("No offers found with requested parameters…")
-                .fg(Color::Red)
-                .set_alignment(CellAlignment::Center),
-        );
+        r.add_cell(create_error_cell(
+            "No offers found with requested parameters…",
+        ));
 
         //Push single error row
         rows.push(r);
@@ -230,14 +225,10 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
 
             let r = Row::from(vec![
                 if let Some(k) = single_order.kind {
-                    match k {
-                        mostro_core::order::Kind::Buy => Cell::new(k.to_string())
-                            .fg(Color::Green)
-                            .set_alignment(CellAlignment::Center),
-                        mostro_core::order::Kind::Sell => Cell::new(k.to_string())
-                            .fg(Color::Red)
-                            .set_alignment(CellAlignment::Center),
-                    }
+                    apply_kind_color(
+                        Cell::new(k.to_string()).set_alignment(CellAlignment::Center),
+                        &k,
+                    )
                 } else {
                     Cell::new("BUY/SELL").set_alignment(CellAlignment::Center)
                 },
@@ -253,21 +244,10 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                         .status
                         .unwrap_or(mostro_core::order::Status::Active)
                         .to_string();
-                    let s_lower = status.to_lowercase();
-                    let mut c = Cell::new(status).set_alignment(CellAlignment::Center);
-                    if s_lower.contains("pending") || s_lower.contains("waiting") {
-                        c = c.fg(Color::Yellow);
-                    } else if s_lower.contains("active")
-                        || s_lower.contains("released")
-                        || s_lower.contains("settled")
-                    {
-                        c = c.fg(Color::Green);
-                    } else if s_lower.contains("fiat") {
-                        c = c.fg(Color::Cyan);
-                    } else if s_lower.contains("dispute") || s_lower.contains("cancel") {
-                        c = c.fg(Color::Red);
-                    }
-                    c
+                    apply_status_color(
+                        Cell::new(&status).set_alignment(CellAlignment::Center),
+                        &status,
+                    )
                 },
                 if single_order.amount == 0 {
                     Cell::new("market").set_alignment(CellAlignment::Center)

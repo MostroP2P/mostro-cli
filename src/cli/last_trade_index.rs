@@ -4,6 +4,7 @@ use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
+    parser::common::{print_key_value, print_section_header},
     parser::{dms::print_commands_results, parse_dm_events},
     util::{send_dm, wait_for_dm},
 };
@@ -31,11 +32,10 @@ pub async fn execute_last_trade_index(
     );
 
     // Log the sent message
-    println!("🔢 Last Trade Index Request");
-    println!("═══════════════════════════════════════");
-    println!("👤 User: {}", identity_keys.public_key());
-    println!("🎯 Target: {}", mostro_key);
-    println!("💡 Requesting last trade index from Mostro...");
+    print_section_header("🔢 Last Trade Index Request");
+    print_key_value("👤", "User", &identity_keys.public_key().to_string());
+    print_key_value("🎯", "Target", &mostro_key.to_string());
+    print_key_value("💡", "Action", "Requesting last trade index from Mostro...");
     println!();
 
     // Wait for incoming DM
