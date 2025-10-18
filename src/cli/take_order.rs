@@ -1,6 +1,4 @@
 use anyhow::Result;
-use comfy_table::presets::UTF8_FULL;
-use comfy_table::*;
 use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use std::str::FromStr;
@@ -8,6 +6,9 @@ use uuid::Uuid;
 
 use crate::cli::Context;
 use crate::lightning::is_valid_invoice;
+use crate::parser::common::{
+    create_emoji_field_row, create_field_value_header, create_standard_table,
+};
 use crate::util::{print_dm_events, send_dm, wait_for_dm};
 
 /// Create payload based on action type and parameters
@@ -66,40 +67,29 @@ pub async fn execute_take_order(
 
     println!("🛒 Take Order");
     println!("═══════════════════════════════════════");
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_width(100)
-        .set_header(vec![
-            Cell::new("Field")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-            Cell::new("Value")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center),
-        ]);
-    table.add_row(Row::from(vec![
-        Cell::new("📈 Action"),
-        Cell::new(action_name),
-    ]));
-    table.add_row(Row::from(vec![
-        Cell::new("📋 Order ID"),
-        Cell::new(order_id.to_string()),
-    ]));
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row("📈 ", "Action", action_name));
+    table.add_row(create_emoji_field_row(
+        "📋 ",
+        "Order ID",
+        &order_id.to_string(),
+    ));
     if let Some(inv) = invoice {
-        table.add_row(Row::from(vec![Cell::new("⚡ Invoice"), Cell::new(inv)]));
+        table.add_row(create_emoji_field_row("⚡ ", "Invoice", inv));
     }
     if let Some(amt) = amount {
-        table.add_row(Row::from(vec![
-            Cell::new("💰 Amount (sats)"),
-            Cell::new(amt.to_string()),
-        ]));
+        table.add_row(create_emoji_field_row(
+            "💰 ",
+            "Amount (sats)",
+            &amt.to_string(),
+        ));
     }
-    table.add_row(Row::from(vec![
-        Cell::new("🎯 Mostro PubKey"),
-        Cell::new(ctx.mostro_pubkey.to_string()),
-    ]));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Mostro PubKey",
+        &ctx.mostro_pubkey.to_string(),
+    ));
     println!("{table}");
     println!("💡 Taking order from Mostro...\n");
 

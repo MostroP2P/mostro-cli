@@ -1,4 +1,5 @@
 use crate::cli::Context;
+use crate::parser::common::{print_key_value, print_section_header};
 use crate::parser::orders::print_orders_table;
 use crate::util::{fetch_events_list, ListKind};
 use anyhow::Result;
@@ -27,12 +28,11 @@ pub async fn execute_list_orders(
         );
     }
 
-    println!("📋 List Orders");
-    println!("═══════════════════════════════════════");
+    print_section_header("📋 List Orders");
 
     // Print status requested
     if let Some(status) = &status_checked {
-        println!("📊 Status Filter: {:?}", status);
+        print_key_value("📊", "Status Filter", &format!("{:?}", status));
     }
     // New check against strings for kind
     if let Some(k) = kind {
@@ -41,7 +41,7 @@ pub async fn execute_list_orders(
                 .map_err(|e| anyhow::anyhow!("Not valid order kind '{}': {:?}", k, e))?,
         );
         if let Some(kind) = &kind_checked {
-            println!("📈 Order Type: {} orders", kind);
+            print_key_value("📈", "Order Type", &format!("{} orders", kind));
         }
     }
 
@@ -49,12 +49,12 @@ pub async fn execute_list_orders(
     if let Some(curr) = currency {
         upper_currency = Some(curr.to_uppercase());
         if let Some(currency) = &upper_currency {
-            println!("💱 Currency Filter: {}", currency);
+            print_key_value("💱", "Currency Filter", currency);
         }
     }
 
-    println!("🎯 Mostro PubKey: {}", &ctx.mostro_pubkey);
-    println!("💡 Fetching orders from relays...");
+    print_key_value("🎯", "Mostro PubKey", &ctx.mostro_pubkey.to_string());
+    print_key_value("💡", "Action", "Fetching orders from relays...");
     println!();
 
     // Get orders from relays

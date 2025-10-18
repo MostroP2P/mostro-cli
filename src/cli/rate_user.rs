@@ -8,6 +8,7 @@ const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
 use crate::{
     cli::Context,
     db::Order,
+    parser::common::{print_info_line, print_key_value, print_section_header},
     util::{print_dm_events, send_dm, wait_for_dm},
 };
 
@@ -21,11 +22,18 @@ fn get_user_rate(rating: &u8) -> Result<Payload> {
 }
 
 pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> Result<()> {
-    println!("⭐ Rate User");
-    println!("═══════════════════════════════════════");
-    println!("📋 Order ID: {}", order_id);
-    println!("⭐ Rating: {}/5", rating);
-    println!("💡 Sending user rating...");
+    // Validate rating before proceeding
+    if !RATING_BOUNDARIES.contains(rating) {
+        print_section_header("❌ Invalid Rating");
+        print_key_value("⭐", "Rating", &rating.to_string());
+        print_info_line("💡", "Rating must be between 1 and 5");
+        print_info_line("📊", "Valid ratings: 1, 2, 3, 4, 5");
+        return Err(anyhow::anyhow!("Rating must be in the range 1 - 5"));
+    }
+    print_section_header("⭐ Rate User");
+    print_key_value("📋", "Order ID", &order_id.to_string());
+    print_key_value("⭐", "Rating", &format!("{}/5", rating));
+    print_info_line("💡", "Sending user rating...");
     println!();
 
     // Check boundaries

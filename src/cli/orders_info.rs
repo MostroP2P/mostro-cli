@@ -1,4 +1,5 @@
 use crate::cli::Context;
+use crate::parser::common::{print_key_value, print_section_header};
 use crate::parser::dms::print_commands_results;
 use crate::util::{send_dm, wait_for_dm};
 use anyhow::Result;
@@ -10,15 +11,14 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
         return Err(anyhow::anyhow!("At least one order ID is required"));
     }
 
-    println!("📋 Orders Information Request");
-    println!("═══════════════════════════════════════");
-    println!("📊 Number of Orders: {}", order_ids.len());
-    println!("🆔 Order IDs:");
+    print_section_header("📋 Orders Information Request");
+    print_key_value("📊", "Number of Orders", &order_ids.len().to_string());
+    print_key_value("🆔", "Order IDs", &format!("{} order(s)", order_ids.len()));
     for (i, order_id) in order_ids.iter().enumerate() {
-        println!("  {}. {}", i + 1, order_id);
+        print_key_value("  ", &format!("{}.", i + 1), &order_id.to_string());
     }
-    println!("🎯 Mostro PubKey: {}", ctx.mostro_pubkey);
-    println!("💡 Requesting order information...");
+    print_key_value("🎯", "Mostro PubKey", &ctx.mostro_pubkey.to_string());
+    print_key_value("💡", "Action", "Requesting order information...");
     println!();
 
     // Create request id
