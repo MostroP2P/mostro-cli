@@ -164,17 +164,14 @@ pub async fn execute_new_order(
     ));
     table.add_row(create_emoji_field_row(
         "🔑 ",
-        "Trade Keys",
-        &ctx.trade_keys.public_key().to_hex(),
+        "Trade Key",
+        &ctx.trade_keys.public_key.to_hex(),
     ));
     table.add_row(create_emoji_field_row(
         "🎯 ",
         "Target",
         &ctx.mostro_pubkey.to_string(),
     ));
-
-    println!("{table}");
-    println!("💡 Sending new order to Mostro...\n");
 
     // Serialize the message
     let message_json = message

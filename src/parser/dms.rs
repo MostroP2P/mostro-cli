@@ -757,7 +757,7 @@ pub async fn parse_dm_events(
             continue;
         }
 
-        let (created_at, message) = match dm.kind {
+        let (created_at, message, sender) = match dm.kind {
             nostr_sdk::Kind::GiftWrap => {
                 let unwrapped_gift = match nip59::extract_rumor(pubkey, dm).await {
                     Ok(u) => u,
@@ -780,7 +780,12 @@ pub async fn parse_dm_events(
                             continue;
                         }
                     };
-                (unwrapped_gift.rumor.created_at, message)
+
+                (
+                    unwrapped_gift.rumor.created_at,
+                    message,
+                    unwrapped_gift.sender,
+                )
             }
             nostr_sdk::Kind::PrivateDirectMessage => {
                 let ck = if let Ok(ck) = ConversationKey::derive(pubkey.secret_key(), &dm.pubkey) {
@@ -813,7 +818,7 @@ pub async fn parse_dm_events(
                         continue;
                     }
                 };
-                (dm.created_at, message)
+                (dm.created_at, message, dm.pubkey)
             }
             _ => continue,
         };
@@ -829,7 +834,7 @@ pub async fn parse_dm_events(
                 continue;
             }
         }
-        direct_messages.push((message, created_at.as_u64(), dm.pubkey));
+        direct_messages.push((message, created_at.as_u64(), sender));
     }
     direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
     direct_messages
@@ -876,13 +881,16 @@ pub async fn print_direct_messages(
         // From label: show 🧌 Mostro if matches provided pubkey
         let from_label = if let Some(pk) = mostro_pubkey {
             if *sender_pubkey == pk {
-                format!("🧌 {}", sender_pubkey.to_hex())
+                format!("🧌 {}", sender_pubkey.to_string())
             } else {
-                sender_pubkey.to_hex()
+                sender_pubkey.to_string()
             }
         } else {
-            sender_pubkey.to_hex()
+            sender_pubkey.to_string()
         };
+
+        println!("mostro pubkey : {}", mostro_pubkey.unwrap());
+        println!("sender pubkey : {}", sender_pubkey);
 
         // Print message header
         println!("📄 Message {}:", i + 1);
