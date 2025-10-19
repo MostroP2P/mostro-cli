@@ -889,9 +889,6 @@ pub async fn print_direct_messages(
             sender_pubkey.to_string()
         };
 
-        println!("mostro pubkey : {}", mostro_pubkey.unwrap());
-        println!("sender pubkey : {}", sender_pubkey);
-
         // Print message header
         println!("📄 Message {}:", i + 1);
         println!("─────────────────────────────────────");
