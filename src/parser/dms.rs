@@ -881,7 +881,7 @@ pub async fn print_direct_messages(
         // From label: show 🧌 Mostro if matches provided pubkey
         let from_label = if let Some(pk) = mostro_pubkey {
             if *sender_pubkey == pk {
-                format!("🧌 {}", sender_pubkey.to_string())
+                format!("🧌 {}", sender_pubkey)
             } else {
                 sender_pubkey.to_string()
             }
