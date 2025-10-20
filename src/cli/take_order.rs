@@ -6,6 +6,9 @@ use uuid::Uuid;
 
 use crate::cli::Context;
 use crate::lightning::is_valid_invoice;
+use crate::parser::common::{
+    create_emoji_field_row, create_field_value_header, create_standard_table,
+};
 use crate::util::{print_dm_events, send_dm, wait_for_dm};
 
 /// Create payload based on action type and parameters
@@ -62,10 +65,33 @@ pub async fn execute_take_order(
         _ => return Err(anyhow::anyhow!("Invalid action for take order")),
     };
 
-    println!(
-        "Request of {} order {} from mostro pubId {}",
-        action_name, order_id, ctx.mostro_pubkey
-    );
+    println!("🛒 Take Order");
+    println!("═══════════════════════════════════════");
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row("📈 ", "Action", action_name));
+    table.add_row(create_emoji_field_row(
+        "📋 ",
+        "Order ID",
+        &order_id.to_string(),
+    ));
+    if let Some(inv) = invoice {
+        table.add_row(create_emoji_field_row("⚡ ", "Invoice", inv));
+    }
+    if let Some(amt) = amount {
+        table.add_row(create_emoji_field_row(
+            "💰 ",
+            "Amount (sats)",
+            &amt.to_string(),
+        ));
+    }
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Mostro PubKey",
+        &ctx.mostro_pubkey.to_string(),
+    ));
+    println!("{table}");
+    println!("💡 Taking order from Mostro...\n");
 
     // Create payload based on action type
     let payload = create_take_order_payload(action.clone(), invoice, amount)?;
@@ -83,11 +109,12 @@ pub async fn execute_take_order(
     );
 
     // Send dm to receiver pubkey
-    println!(
-        "SENDING DM with trade index: {} and trade keys: {:?}",
-        ctx.trade_index,
-        ctx.trade_keys.public_key().to_hex()
-    );
+    println!("📤 Sending Message");
+    println!("─────────────────────────────────────");
+    println!("🔢 Trade Index: {}", ctx.trade_index);
+    println!("🔑 Trade Keys: {}", ctx.trade_keys.public_key().to_hex());
+    println!("💡 Sending DM to Mostro...");
+    println!();
 
     let message_json = take_order_message
         .as_json()

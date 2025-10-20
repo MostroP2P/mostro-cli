@@ -1,4 +1,7 @@
 use crate::cli::Context;
+use crate::parser::common::{
+    create_emoji_field_row, create_field_value_header, create_standard_table,
+};
 use crate::parser::orders::print_order_preview;
 use crate::util::{print_dm_events, send_dm, uppercase_first, wait_for_dm};
 use anyhow::Result;
@@ -89,7 +92,6 @@ pub async fn execute_new_order(
     println!("{ord_preview}");
     let mut user_input = String::new();
     let _input = stdin();
-    print!("Check your order! Is it correct? (Y/n) > ");
     stdout().flush()?;
 
     let mut answer = stdin().lock();
@@ -117,11 +119,61 @@ pub async fn execute_new_order(
     );
 
     // Send dm to receiver pubkey
-    println!(
-        "SENDING DM with trade index: {} and trade keys: {:?}",
-        ctx.trade_index,
-        ctx.trade_keys.public_key().to_hex()
-    );
+    println!("🆕 Create New Order");
+    println!("═══════════════════════════════════════");
+
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+
+    table.add_row(create_emoji_field_row("📈 ", "Order Type", &kind));
+    table.add_row(create_emoji_field_row("💱 ", "Fiat Code", &fiat_code));
+    table.add_row(create_emoji_field_row(
+        "💰 ",
+        "Amount (sats)",
+        &amount.to_string(),
+    ));
+
+    if let Some(max) = fiat_amount.1 {
+        table.add_row(create_emoji_field_row(
+            "📊 ",
+            "Fiat Range",
+            &format!("{}-{}", fiat_amount.0, max),
+        ));
+    } else {
+        table.add_row(create_emoji_field_row(
+            "💵 ",
+            "Fiat Amount",
+            &fiat_amount.0.to_string(),
+        ));
+    }
+
+    table.add_row(create_emoji_field_row(
+        "💳 ",
+        "Payment Method",
+        payment_method,
+    ));
+    table.add_row(create_emoji_field_row(
+        "📈 ",
+        "Premium (%)",
+        &premium.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🔢 ",
+        "Trade Index",
+        &ctx.trade_index.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🔑 ",
+        "Trade Key",
+        &ctx.trade_keys.public_key.to_hex(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Target",
+        &ctx.mostro_pubkey.to_string(),
+    ));
+    println!("{}", table);
+    println!("\n💡 Sending new order to Mostro...\n");
 
     // Serialize the message
     let message_json = message

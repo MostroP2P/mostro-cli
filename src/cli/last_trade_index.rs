@@ -4,6 +4,7 @@ use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
+    parser::common::{print_key_value, print_section_header},
     parser::{dms::print_commands_results, parse_dm_events},
     util::{send_dm, wait_for_dm},
 };
@@ -31,10 +32,11 @@ pub async fn execute_last_trade_index(
     );
 
     // Log the sent message
-    println!(
-        "Sent request to Mostro to get last trade index of user {}",
-        identity_keys.public_key()
-    );
+    print_section_header("🔢 Last Trade Index Request");
+    print_key_value("👤", "User", &identity_keys.public_key().to_string());
+    print_key_value("🎯", "Target", &mostro_key.to_string());
+    print_key_value("💡", "Action", "Requesting last trade index from Mostro...");
+    println!();
 
     // Wait for incoming DM
     let recv_event = wait_for_dm(ctx, Some(identity_keys), sent_message).await?;
@@ -44,7 +46,7 @@ pub async fn execute_last_trade_index(
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.action == Action::LastTradeIndex {
-            print_commands_results(message, ctx).await?
+            print_commands_results(message, ctx).await?;
         } else {
             return Err(anyhow::anyhow!(
                 "Received response with mismatched action. Expected: {:?}, Got: {:?}",

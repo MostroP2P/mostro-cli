@@ -84,8 +84,10 @@ where
         .limit(0);
     ctx.client.subscribe(subscription, Some(opts)).await?;
 
+    // Send message here after opening notifications to avoid missing messages.
     sent_message.await?;
 
+    // Wait for the DM or gift wrap event
     let event = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
             match notifications.recv().await {
@@ -251,7 +253,9 @@ pub async fn print_dm_events(
                     print_commands_results(message, ctx).await?;
                 }
             }
-            None if message.action == Action::RateReceived => {
+            None if message.action == Action::RateReceived
+                || message.action == Action::NewOrder =>
+            {
                 print_commands_results(message, ctx).await?;
             }
             None => {

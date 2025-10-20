@@ -4,6 +4,7 @@ use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
+    parser::common::{print_key_value, print_section_header},
     parser::dms::print_direct_messages,
     util::{fetch_events_list, Event, ListKind},
 };
@@ -14,6 +15,13 @@ pub async fn execute_get_dm(
     from_user: &bool,
     ctx: &Context,
 ) -> Result<()> {
+    print_section_header("📨 Fetch Direct Messages");
+    print_key_value("👤", "Admin Mode", if admin { "Yes" } else { "No" });
+    print_key_value("📤", "From User", if *from_user { "Yes" } else { "No" });
+    print_key_value("⏰", "Since", &format!("{} minutes ago", since));
+    print_key_value("💡", "Action", "Fetching direct messages...");
+    println!();
+
     // Get the list kind
     let list_kind = match (admin, from_user) {
         (true, true) => ListKind::PrivateDirectMessagesUser,
@@ -34,6 +42,6 @@ pub async fn execute_get_dm(
         }
     }
 
-    print_direct_messages(&dm_events, &ctx.pool).await?;
+    print_direct_messages(&dm_events, Some(ctx.mostro_pubkey)).await?;
     Ok(())
 }

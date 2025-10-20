@@ -1,3 +1,6 @@
+use crate::parser::common::{
+    create_emoji_field_row, create_field_value_header, create_standard_table,
+};
 use crate::util::{print_dm_events, send_dm, wait_for_dm};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
@@ -17,15 +20,29 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
         .ok_or(anyhow::anyhow!("Missing trade keys"))?;
 
     let order_trade_keys = Keys::parse(&trade_keys)?;
-    println!(
-        "Order trade keys: {:?}",
-        order_trade_keys.public_key().to_hex()
-    );
 
-    println!(
-        "Sending a lightning invoice for order {} to mostro pubId {}",
-        order_id, ctx.mostro_pubkey
-    );
+    println!("⚡ Add Lightning Invoice");
+    println!("═══════════════════════════════════════");
+
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "📋 ",
+        "Order ID",
+        &order_id.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🔑 ",
+        "Trade Keys",
+        &order_trade_keys.public_key().to_hex(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Target",
+        &ctx.mostro_pubkey.to_string(),
+    ));
+    println!("{table}");
+    println!("💡 Sending lightning invoice to Mostro...\n");
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
     let payload = if ln_addr.is_ok() {

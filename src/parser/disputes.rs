@@ -6,6 +6,7 @@ use log::info;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 
+use crate::parser::common::{apply_status_color, create_error_cell};
 use crate::util::Event;
 
 use crate::nip33::dispute_from_tags;
@@ -65,18 +66,16 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
             .load_preset(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
-            .set_header(vec![Cell::new("Sorry...")
+            .set_header(vec![Cell::new("📭 No Disputes")
                 .add_attribute(Attribute::Bold)
                 .set_alignment(CellAlignment::Center)]);
 
         // Single row for error
         let mut r = Row::new();
 
-        r.add_cell(
-            Cell::new("No disputes found with requested parameters...")
-                .fg(Color::Red)
-                .set_alignment(CellAlignment::Center),
-        );
+        r.add_cell(create_error_cell(
+            "No disputes found with requested parameters…",
+        ));
 
         //Push single error row
         rows.push(r);
@@ -86,13 +85,13 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![
-                Cell::new("Dispute Id")
+                Cell::new("🆔 Dispute Id")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Status")
+                Cell::new("📊 Status")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
-                Cell::new("Created")
+                Cell::new("📅 Created")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
             ]);
@@ -101,13 +100,20 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
         for single_dispute in disputes_table.into_iter() {
             let date = DateTime::from_timestamp(single_dispute.created_at, 0);
 
+            let status_str = single_dispute.status.to_string();
+            let status_cell = apply_status_color(
+                Cell::new(&status_str).set_alignment(CellAlignment::Center),
+                &status_str,
+            );
+
             let r = Row::from(vec![
                 Cell::new(single_dispute.id).set_alignment(CellAlignment::Center),
-                Cell::new(single_dispute.status.to_string()).set_alignment(CellAlignment::Center),
+                status_cell,
                 Cell::new(
                     date.map(|d| d.to_string())
                         .unwrap_or_else(|| "Invalid date".to_string()),
-                ),
+                )
+                .set_alignment(CellAlignment::Center),
             ]);
             rows.push(r);
         }

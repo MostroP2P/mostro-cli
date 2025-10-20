@@ -38,11 +38,10 @@ uuid = { version = "1.18.1", features = [
 ] }
 dotenvy = "0.15.6"
 lightning-invoice = { version = "0.33.2", features = ["std"] }
-reqwest = { version = "0.12.23", features = ["json"] }
+reqwest = { version = "0.12.23", default-features = false, features = ["json","rustls-tls"] }
 mostro-core = "0.6.56"
-lnurl-rs = "0.9.0"
+lnurl-rs = { version = "0.9.0", default-features = false, features = ["ureq"] }
 pretty_env_logger = "0.5.0"
-openssl = { version = "0.10.73", features = ["vendored"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }
 bip39 = { version = "2.2.0", features = ["rand"] }
 dirs = "6.0.0"
