@@ -153,7 +153,7 @@ pub async fn execute_new_order(
         payment_method,
     ));
     table.add_row(create_emoji_field_row(
-        "📊 ",
+        "📈 ",
         "Premium (%)",
         &premium.to_string(),
     ));
@@ -172,6 +172,8 @@ pub async fn execute_new_order(
         "Target",
         &ctx.mostro_pubkey.to_string(),
     ));
+    println!("{}", table);
+    println!("\n💡 Sending new order to Mostro...\n");
 
     // Serialize the message
     let message_json = message

@@ -635,8 +635,6 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 println!("═══════════════════════════════════════");
                 println!("📋 Order ID: {}", order_id);
                 println!("✅ Hold invoice payment accepted successfully!");
-                println!("💰 Bitcoin has been released to the buyer");
-                println!("🎊 Trade completed successfully!");
                 Ok(())
             } else {
                 println!(
@@ -881,7 +879,7 @@ pub async fn print_direct_messages(
         // From label: show 🧌 Mostro if matches provided pubkey
         let from_label = if let Some(pk) = mostro_pubkey {
             if *sender_pubkey == pk {
-                format!("🧌 {}", sender_pubkey.to_string())
+                format!("🧌 {}", sender_pubkey)
             } else {
                 sender_pubkey.to_string()
             }

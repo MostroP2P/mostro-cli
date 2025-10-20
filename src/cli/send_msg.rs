@@ -3,7 +3,10 @@ use crate::db::{Order, User};
 use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
-use crate::util::{print_dm_events, send_dm, wait_for_dm};
+use crate::parser::{dms::print_commands_results, parse_dm_events};
+use crate::util::{
+    create_filter, print_dm_events, send_dm, wait_for_dm, ListKind, FETCH_EVENTS_TIMEOUT,
+};
 
 use anyhow::Result;
 use mostro_core::prelude::*;
@@ -75,6 +78,10 @@ pub async fn execute_send_msg(
     // Create request id
     let request_id = Uuid::new_v4().as_u128() as u64;
 
+    // Clone values before they're moved into the message
+    let requested_action_clone = requested_action.clone();
+    let payload_clone = payload.clone();
+
     // Create and send the message
     let message = Message::new_order(order_id, Some(request_id), None, requested_action, payload);
 
@@ -105,6 +112,37 @@ pub async fn execute_send_msg(
 
             // Parse the incoming DM
             print_dm_events(recv_event, request_id, ctx, Some(&trade_keys)).await?;
+
+            // For release actions, check if we need to wait for additional messages (new order creation)
+            if requested_action_clone == Action::Release {
+                // Check if this was a range order that might generate a new order
+                if let Some(Payload::NextTrade(_, index)) = &payload_clone {
+                    // Get the correct keys for decoding the child order message
+                    let next_trade_key = User::get_trade_keys(&ctx.pool, *index as i64).await?;
+                    // Fake timestamp for giftwraps
+                    let subscription = create_filter(
+                        ListKind::DirectMessagesUser,
+                        next_trade_key.public_key,
+                        None,
+                    )?;
+
+                    // Wait for potential new order message from Mostro
+                    let events = ctx
+                        .client
+                        .fetch_events(subscription, FETCH_EVENTS_TIMEOUT)
+                        .await?;
+                    let messages = parse_dm_events(events, &next_trade_key, Some(&2)).await;
+                    if !messages.is_empty() {
+                        for (message, _, _) in messages {
+                            let message_kind = message.get_inner_message_kind();
+                            if message_kind.action == Action::NewOrder {
+                                print_commands_results(message_kind, ctx).await?;
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(())

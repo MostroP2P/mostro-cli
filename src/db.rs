@@ -184,11 +184,6 @@ impl User {
         .execute(pool)
         .await?;
 
-        println!(
-            "User with i0 pubkey {} updated in the database.",
-            self.i0_pubkey
-        );
-
         Ok(())
     }
 

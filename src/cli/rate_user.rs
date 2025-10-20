@@ -32,7 +32,7 @@ fn get_user_rate(rating: &u8, order_id: &Uuid) -> Result<Payload> {
 
 pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> Result<()> {
     // Check boundaries
-    let rating_content = get_user_rate(rating, &order_id)?;
+    let rating_content = get_user_rate(rating, order_id)?;
 
     // Get the trade keys
     let trade_keys =
