@@ -84,7 +84,7 @@ pub async fn execute_new_order(
     );
 
     // Create new order for mostro
-    let order_content = Payload::Order(small_order.clone());
+    let order_content = Payload::Order(small_order.clone(), None);
 
     // Print order preview
     let ord_preview = print_order_preview(order_content.clone())

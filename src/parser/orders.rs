@@ -76,7 +76,7 @@ pub fn parse_orders_events(
 
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let single_order = match ord {
-        Payload::Order(o) => o,
+        Payload::Order(o, _) => o,
         _ => return Err("Error".to_string()),
     };
 

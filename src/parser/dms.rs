@@ -87,7 +87,7 @@ fn format_payload_details(payload: &Payload, action: &Action) -> String {
             format!("⚡ Lightning Invoice:\n{}", inv)
         }
         Payload::Dispute(id, _) => format!("⚖️ Dispute ID: {}", id),
-        Payload::Order(o) if *action == Action::NewOrder => format!(
+        Payload::Order(o, _) if *action == Action::NewOrder => format!(
             "🆕 New Order: {} {} sats ({})",
             o.id.as_ref()
                 .map(|x| x.to_string())
@@ -95,7 +95,7 @@ fn format_payload_details(payload: &Payload, action: &Action) -> String {
             o.amount,
             o.fiat_code
         ),
-        Payload::Order(o) => {
+        Payload::Order(o, _) => {
             // Pretty format order details
             let status_emoji = match o.status.as_ref().unwrap_or(&Status::Pending) {
                 Status::Pending => "⏳",
@@ -381,7 +381,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
     // Do the logic for the message response
     match message.action {
         Action::NewOrder => {
-            if let Some(Payload::Order(order)) = message.payload.as_ref() {
+            if let Some(Payload::Order(order, _)) = message.payload.as_ref() {
                 if let Some(req_id) = message.request_id {
                     if let Err(e) = save_order(
                         order.clone(),
@@ -430,7 +430,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         // this is the case where the buyer adds an invoice to a takesell order
         Action::AddInvoice => {
-            if let Some(Payload::Order(order)) = &message.payload {
+            if let Some(Payload::Order(order, _)) = &message.payload {
                 handle_add_invoice_display(order);
 
                 if let Some(req_id) = message.request_id {
