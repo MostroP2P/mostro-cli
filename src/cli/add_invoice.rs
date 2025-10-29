@@ -46,10 +46,15 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     // Check invoice string
     let ln_addr = LightningAddress::from_str(invoice);
     let payload = if ln_addr.is_ok() {
-        Some(Payload::PaymentRequest(None, invoice.to_string(), None))
+        Some(Payload::PaymentRequest(
+            None,
+            invoice.to_string(),
+            None,
+            None,
+        ))
     } else {
         match is_valid_invoice(invoice) {
-            Ok(i) => Some(Payload::PaymentRequest(None, i.to_string(), None)),
+            Ok(i) => Some(Payload::PaymentRequest(None, i.to_string(), None, None)),
             Err(e) => {
                 return Err(anyhow::anyhow!("Invalid invoice: {}", e));
             }

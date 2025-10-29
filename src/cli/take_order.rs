@@ -22,20 +22,20 @@ fn create_take_order_payload(
         Action::TakeSell => Ok(Some(match invoice {
             Some(inv) => {
                 let initial_payload = match LightningAddress::from_str(inv) {
-                    Ok(_) => Payload::PaymentRequest(None, inv.to_string(), None),
+                    Ok(_) => Payload::PaymentRequest(None, inv.to_string(), None, None),
                     Err(_) => match is_valid_invoice(inv) {
-                        Ok(i) => Payload::PaymentRequest(None, i.to_string(), None),
+                        Ok(i) => Payload::PaymentRequest(None, i.to_string(), None, None),
                         Err(e) => {
                             println!("{}", e);
-                            Payload::PaymentRequest(None, inv.to_string(), None)
+                            Payload::PaymentRequest(None, inv.to_string(), None, None)
                         }
                     },
                 };
 
                 match amount {
                     Some(amt) => match initial_payload {
-                        Payload::PaymentRequest(a, b, _) => {
-                            Payload::PaymentRequest(a, b, Some(amt as i64))
+                        Payload::PaymentRequest(a, b, _, _) => {
+                            Payload::PaymentRequest(a, b, Some(amt as i64), None)
                         }
                         payload => payload,
                     },

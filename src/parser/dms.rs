@@ -48,10 +48,18 @@ fn handle_new_order_display(order: &mostro_core::order::SmallOrder) {
 }
 
 /// Handle add invoice display
-fn handle_add_invoice_display(order: &mostro_core::order::SmallOrder) {
+fn handle_add_invoice_display(
+    order: &mostro_core::order::SmallOrder,
+    reputation: &Option<UserInfo>,
+) {
     print_section_header("⚡ Add Lightning Invoice");
     if let Some(order_id) = order.id {
         println!("📋 Order ID: {}", order_id);
+    }
+    if let Some(reputation) = reputation {
+        println!("👤 Rating: {}", reputation.rating);
+        println!("👤 Reviews: {}", reputation.reviews);
+        println!("👤 Operating Days: {}", reputation.operating_days);
     }
     print_required_amount(order.amount);
     println!("💡 Please add a lightning invoice with the exact amount above");
@@ -59,7 +67,11 @@ fn handle_add_invoice_display(order: &mostro_core::order::SmallOrder) {
 }
 
 /// Handle pay invoice display
-fn handle_pay_invoice_display(order: &Option<mostro_core::order::SmallOrder>, invoice: &str) {
+fn handle_pay_invoice_display(
+    order: &Option<mostro_core::order::SmallOrder>,
+    invoice: &str,
+    reputation: &Option<UserInfo>,
+) {
     print_section_header("💳 Payment Invoice Received");
     if let Some(order) = order {
         if let Some(order_id) = order.id {
@@ -68,6 +80,11 @@ fn handle_pay_invoice_display(order: &Option<mostro_core::order::SmallOrder>, in
         print_amount_info(order.amount);
         print_fiat_code(&order.fiat_code);
         println!("💵 Fiat Amount: {}", order.fiat_amount);
+    }
+    if let Some(reputation) = reputation {
+        println!("👤 Rating: {}", reputation.rating);
+        println!("👤 Reviews: {}", reputation.reviews);
+        println!("👤 Operating Days: {}", reputation.operating_days);
     }
     println!();
     println!("⚡ LIGHTNING INVOICE TO PAY:");
@@ -82,9 +99,30 @@ fn handle_pay_invoice_display(order: &Option<mostro_core::order::SmallOrder>, in
 fn format_payload_details(payload: &Payload, action: &Action) -> String {
     match payload {
         Payload::TextMessage(t) => format!("✉️ {}", t),
-        Payload::PaymentRequest(_, inv, _) => {
-            // For invoices, show the full invoice without truncation
-            format!("⚡ Lightning Invoice:\n{}", inv)
+        Payload::PaymentRequest(_, inv, _, reputation) => {
+            // For invoices, show the full invoice and, if available, nicely formatted reputation details
+            if let Some(reputation) = reputation {
+                let rating_emoji = if reputation.rating >= 4.0 {
+                    "⭐"
+                } else if reputation.rating >= 3.0 {
+                    "🔶"
+                } else if reputation.rating >= 2.0 {
+                    "🔸"
+                } else {
+                    "🔻"
+                };
+
+                format!(
+                    "⚡ Lightning Invoice:\n{}\n\n{} Rating: {:.1}/5.0\n📊 Reviews: {}\n📅 Operating Days: {}",
+                    inv,
+                    rating_emoji,
+                    reputation.rating,
+                    reputation.reviews,
+                    reputation.operating_days
+                )
+            } else {
+                format!("⚡ Lightning Invoice:\n{}", inv)
+            }
         }
         Payload::Dispute(id, _) => format!("⚖️ Dispute ID: {}", id),
         Payload::Order(o, _) if *action == Action::NewOrder => format!(
@@ -95,8 +133,8 @@ fn format_payload_details(payload: &Payload, action: &Action) -> String {
             o.amount,
             o.fiat_code
         ),
-        Payload::Order(o, _) => {
-            // Pretty format order details
+        Payload::Order(o, Some(reputation)) => {
+            // Pretty format order details with reputation
             let status_emoji = match o.status.as_ref().unwrap_or(&Status::Pending) {
                 Status::Pending => "⏳",
                 Status::Active => "✅",
@@ -120,8 +158,18 @@ fn format_payload_details(payload: &Payload, action: &Action) -> String {
                 mostro_core::order::Kind::Sell => "📉",
             };
 
+            let rating_emoji = if reputation.rating >= 4.0 {
+                "⭐"
+            } else if reputation.rating >= 3.0 {
+                "🔶"
+            } else if reputation.rating >= 2.0 {
+                "🔸"
+            } else {
+                "🔻"
+            };
+
             format!(
-                "📋 Order: {} {} sats ({})\n{} Status: {:?}\n{} Kind: {:?}",
+                "📋 Order: {} {} sats ({})\n{} Status: {:?}\n{} Kind: {:?}\n{} Rating: {} ({} reviews)\n📅 Operating Days: {}",
                 o.id.as_ref()
                     .map(|x| x.to_string())
                     .unwrap_or_else(|| "N/A".to_string()),
@@ -130,7 +178,11 @@ fn format_payload_details(payload: &Payload, action: &Action) -> String {
                 status_emoji,
                 o.status.as_ref().unwrap_or(&Status::Pending),
                 kind_emoji,
-                o.kind.as_ref().unwrap_or(&mostro_core::order::Kind::Sell)
+                o.kind.as_ref().unwrap_or(&mostro_core::order::Kind::Sell),
+                rating_emoji,
+                reputation.rating,
+                reputation.reviews,
+                reputation.operating_days
             )
         }
         Payload::Peer(peer) => {
@@ -430,8 +482,8 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         // this is the case where the buyer adds an invoice to a takesell order
         Action::AddInvoice => {
-            if let Some(Payload::Order(order, _)) = &message.payload {
-                handle_add_invoice_display(order);
+            if let Some(Payload::Order(order, reputation)) = &message.payload {
+                handle_add_invoice_display(order, reputation);
 
                 if let Some(req_id) = message.request_id {
                     // Save the order
@@ -457,8 +509,8 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         // this is the case where the buyer pays the invoice coming from a takebuy
         Action::PayInvoice => {
-            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
-                handle_pay_invoice_display(order, invoice);
+            if let Some(Payload::PaymentRequest(order, invoice, _, reputation)) = &message.payload {
+                handle_pay_invoice_display(order, invoice, reputation);
 
                 if let Some(order) = order {
                     if let Some(req_id) = message.request_id {
