@@ -59,6 +59,12 @@ tag = true
 sign-commit = true
 # (Default: false) Sign the release tag with GPG?
 sign-tag = true
+# Generate CHANGELOG.md before creating the release tag (only during actual release, not dry-run)
+pre-release-hook = [
+  "sh",
+  "-c",
+  "rm -f CHANGELOG.md && GITHUB_TOKEN=\"${GITHUB_TOKEN:-}\" git cliff --unreleased --github-repo MostroP2P/mostro-cli -o CHANGELOG.md --tag {{version}} && if [ \"$DRY_RUN\" = \"true\" ]; then echo \"DRY RUN: Skip add/commit\"; else (git diff --quiet CHANGELOG.md || git add CHANGELOG.md && git commit -m \"Update CHANGELOG for version {{version}}\"); fi",
+]
 
 [dev-dependencies]
 tokio-test = "0.4"
