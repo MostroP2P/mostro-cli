@@ -12,11 +12,6 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     let mut table = create_standard_table();
     table.set_header(create_field_value_header());
     table.add_row(create_emoji_field_row(
-        "🔑 ",
-        "Admin Keys",
-        &ctx.context_keys.public_key().to_hex(),
-    ));
-    table.add_row(create_emoji_field_row(
         "🎯 ",
         "Recipient",
         &receiver.to_string(),
@@ -25,12 +20,17 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     println!("{table}");
     println!("💡 Sending admin gift wrap message...\n");
 
-    send_admin_gift_wrap_dm(&ctx.client, &ctx.context_keys, &receiver, message).await?;
-
-    println!(
-        "✅ Admin gift wrap message sent successfully to {}",
-        receiver
-    );
+    if let Some(context_keys) = &ctx.context_keys {
+        send_admin_gift_wrap_dm(&ctx.client, context_keys, &receiver, message).await?;
+        println!(
+            "✅ Admin gift wrap message sent successfully to {}",
+            receiver
+        );
+    } else {
+        return Err(anyhow::anyhow!(
+            "Admin keys not found. Please set the NSEC_PRIVKEY environment variable"
+        ));
+    }
 
     Ok(())
 }

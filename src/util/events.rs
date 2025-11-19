@@ -87,19 +87,25 @@ pub async fn fetch_events_list(
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(list_kind, ctx.context_keys.public_key(), None)?;
-            let fetched_events = ctx
-                .client
-                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
-                .await?;
-            let direct_messages_mostro =
-                parse_dm_events(fetched_events, &ctx.context_keys, since).await;
-            Ok(direct_messages_mostro
-                .into_iter()
-                .map(|(message, timestamp, sender_pubkey)| {
-                    Event::MessageTuple(Box::new((message, timestamp, sender_pubkey)))
-                })
-                .collect())
+            if let Some(context_keys) = &ctx.context_keys {
+                let filters = create_filter(list_kind, context_keys.public_key(), None)?;
+                let fetched_events = ctx
+                    .client
+                    .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                    .await?;
+                let direct_messages_mostro =
+                    parse_dm_events(fetched_events, context_keys, since).await;
+                Ok(direct_messages_mostro
+                    .into_iter()
+                    .map(|(message, timestamp, sender_pubkey)| {
+                        Event::MessageTuple(Box::new((message, timestamp, sender_pubkey)))
+                    })
+                    .collect())
+            } else {
+                Err(anyhow::anyhow!(
+                    "Admin keys not found. Please set the NSEC_PRIVKEY environment variable"
+                ))
+            }
         }
         ListKind::PrivateDirectMessagesUser => {
             let mut direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();

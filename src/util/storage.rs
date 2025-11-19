@@ -46,7 +46,7 @@ pub async fn run_simple_order_msg(
 pub async fn admin_send_dm(ctx: &Context, msg: String) -> Result<()> {
     super::messaging::send_dm(
         &ctx.client,
-        Some(&ctx.context_keys),
+        ctx.context_keys.as_ref(),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         msg,

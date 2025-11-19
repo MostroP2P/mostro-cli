@@ -63,8 +63,6 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin PubKey: {}", ctx.context_keys.public_key);
-
     admin_send_dm(ctx, take_dispute_message).await?;
 
     println!("✅ Dispute canceled successfully!");
@@ -95,7 +93,6 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
     admin_send_dm(ctx, take_dispute_message).await?;
 
     println!("✅ Dispute settled successfully!");
@@ -130,12 +127,10 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
-
     // Send the dispute message and wait for response
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.context_keys),
+        ctx.context_keys.as_ref(),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
@@ -144,10 +139,18 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     );
 
     // Wait for incoming DM response
-    let recv_event = wait_for_dm(ctx, Some(&ctx.context_keys), sent_message).await?;
+    let recv_event = wait_for_dm(ctx, ctx.context_keys.as_ref(), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.context_keys, None).await;
+    let messages = if let Some(context_keys) = &ctx.context_keys {
+        parse_dm_events(recv_event, context_keys, None).await
+    } else {
+        return Err(anyhow::anyhow!(
+            "Admin keys not found. Please set the NSEC_PRIVKEY environment variable"
+        ));
+    };
+
+    // Check if the response is from the correct sender
     if let Some((message, _, sender_pubkey)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
         if *sender_pubkey != ctx.mostro_pubkey {

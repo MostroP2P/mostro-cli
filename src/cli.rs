@@ -54,7 +54,7 @@ pub struct Context {
     pub trade_keys: Keys,
     pub trade_index: i64,
     pub pool: SqlitePool,
-    pub context_keys: Keys,
+    pub context_keys: Option<Keys>,
     pub mostro_pubkey: PublicKey,
 }
 
@@ -392,10 +392,10 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
     // Load private key of user or admin - must be present in .env file
-    let context_keys = std::env::var("NSEC_PRIVKEY")
-        .map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set: {}", e))?
-        .parse::<Keys>()
-        .map_err(|e| anyhow::anyhow!("Failed to get context keys: {}", e))?;
+    let context_keys = match std::env::var("NSEC_PRIVKEY") {
+        Ok(key) => Some(Keys::parse(&key)?),
+        Err(_) => None,
+    };
 
     // Resolve Mostro pubkey from env (required for all flows)
     let mostro_pubkey = PublicKey::from_str(
