@@ -395,10 +395,10 @@ async fn init_context(cli: &Cli) -> Result<Context> {
     // For regular user commands, this will be None
     let context_keys = if is_admin_command(&cli.command) {
         Some(
-            std::env::var("NSEC_PRIVKEY")
-                .map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set (required for admin commands): {}", e))?
+            std::env::var("ADMIN_NSEC")
+                .map_err(|e| anyhow::anyhow!("ADMIN_NSEC not set (required for admin commands): {}", e))?
                 .parse::<Keys>()
-                .map_err(|e| anyhow::anyhow!("Failed to parse NSEC_PRIVKEY: {}", e))?,
+                .map_err(|e| anyhow::anyhow!("Failed to parse ADMIN_NSEC: {}", e))?,
         )
     } else {
         None

@@ -45,7 +45,7 @@ pub async fn run_simple_order_msg(
 
 pub async fn admin_send_dm(ctx: &Context, msg: String) -> Result<()> {
     let admin_keys = ctx.context_keys.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
     super::messaging::send_dm(
         &ctx.client,
         Some(admin_keys),

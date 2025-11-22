@@ -8,7 +8,7 @@ use nostr_sdk::prelude::*;
 
 pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &str) -> Result<()> {
     let admin_keys = ctx.context_keys.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
 
     println!("👑 Admin Direct Message");
     println!("═══════════════════════════════════════");

@@ -88,7 +88,7 @@ pub async fn fetch_events_list(
         }
         ListKind::DirectMessagesAdmin => {
             let admin_keys = ctx.context_keys.as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+                .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
             let filters = create_filter(list_kind, admin_keys.public_key(), None)?;
             let fetched_events = ctx
                 .client
