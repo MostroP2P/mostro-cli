@@ -22,6 +22,11 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
     ));
     println!("{table}");
     println!("💡 Adding new solver to Mostro...\n");
+
+    let admin_keys = ctx.context_keys.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
+    println!("🔑 Admin Keys: {}", admin_keys.public_key);
+
     // Create takebuy message
     let take_dispute_message = Message::new_dispute(
         Some(Uuid::new_v4()),
