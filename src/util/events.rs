@@ -87,13 +87,15 @@ pub async fn fetch_events_list(
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let filters = create_filter(list_kind, ctx.context_keys.public_key(), None)?;
+            let admin_keys = ctx.context_keys.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+            let filters = create_filter(list_kind, admin_keys.public_key(), None)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
             let direct_messages_mostro =
-                parse_dm_events(fetched_events, &ctx.context_keys, since).await;
+                parse_dm_events(fetched_events, admin_keys, since).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|(message, timestamp, sender_pubkey)| {

@@ -54,7 +54,7 @@ pub struct Context {
     pub trade_keys: Keys,
     pub trade_index: i64,
     pub pool: SqlitePool,
-    pub context_keys: Keys,
+    pub context_keys: Option<Keys>,
     pub mostro_pubkey: PublicKey,
 }
 
@@ -391,11 +391,18 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
-    // Load private key of user or admin - must be present in .env file
-    let context_keys = std::env::var("NSEC_PRIVKEY")
-        .map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set: {}", e))?
-        .parse::<Keys>()
-        .map_err(|e| anyhow::anyhow!("Failed to get context keys: {}", e))?;
+    // Load private key of admin - only required for admin commands
+    // For regular user commands, this will be None
+    let context_keys = if is_admin_command(&cli.command) {
+        Some(
+            std::env::var("NSEC_PRIVKEY")
+                .map_err(|e| anyhow::anyhow!("NSEC_PRIVKEY not set (required for admin commands): {}", e))?
+                .parse::<Keys>()
+                .map_err(|e| anyhow::anyhow!("Failed to parse NSEC_PRIVKEY: {}", e))?,
+        )
+    } else {
+        None
+    };
 
     // Resolve Mostro pubkey from env (required for all flows)
     let mostro_pubkey = PublicKey::from_str(
@@ -415,6 +422,19 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         context_keys,
         mostro_pubkey,
     })
+}
+
+fn is_admin_command(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
+        Some(Commands::AdmCancel { .. })
+            | Some(Commands::AdmSettle { .. })
+            | Some(Commands::AdmListDisputes { .. })
+            | Some(Commands::AdmAddSolver { .. })
+            | Some(Commands::AdmTakeDispute { .. })
+            | Some(Commands::AdmSendDm { .. })
+            | Some(Commands::GetAdminDm { .. })
+    )
 }
 
 impl Commands {

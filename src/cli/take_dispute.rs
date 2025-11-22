@@ -63,7 +63,9 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin PubKey: {}", ctx.context_keys.public_key);
+    let admin_keys = ctx.context_keys.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+    println!("🔑 Admin PubKey: {}", admin_keys.public_key);
 
     admin_send_dm(ctx, take_dispute_message).await?;
 
@@ -95,7 +97,9 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
+    let admin_keys = ctx.context_keys.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+    println!("🔑 Admin Keys: {}", admin_keys.public_key);
     admin_send_dm(ctx, take_dispute_message).await?;
 
     println!("✅ Dispute settled successfully!");
@@ -130,12 +134,14 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
+    let admin_keys = ctx.context_keys.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. NSEC_PRIVKEY must be set for admin commands."))?;
+    println!("🔑 Admin Keys: {}", admin_keys.public_key);
 
     // Send the dispute message and wait for response
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.context_keys),
+        Some(admin_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
@@ -144,10 +150,10 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     );
 
     // Wait for incoming DM response
-    let recv_event = wait_for_dm(ctx, Some(&ctx.context_keys), sent_message).await?;
+    let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.context_keys, None).await;
+    let messages = parse_dm_events(recv_event, admin_keys, None).await;
     if let Some((message, _, sender_pubkey)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
         if *sender_pubkey != ctx.mostro_pubkey {
