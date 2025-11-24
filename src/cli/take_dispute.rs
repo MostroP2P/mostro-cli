@@ -1,6 +1,6 @@
+use crate::util::messaging::get_admin_keys;
 use anyhow::Result;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
 use crate::{
@@ -9,19 +9,6 @@ use crate::{
     parser::{dms::print_commands_results, parse_dm_events},
     util::{admin_send_dm, send_dm, wait_for_dm},
 };
-
-/// Helper function to retrieve and validate admin keys from context
-fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
-    let admin_keys = ctx.context_keys.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
-    
-    // Only log admin public key in verbose mode
-    if std::env::var("RUST_LOG").is_ok() {
-        println!("🔑 Admin Keys: {}", admin_keys.public_key);
-    }
-    
-    Ok(admin_keys)
-}
 
 pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()> {
     println!("👑 Admin Add Solver");

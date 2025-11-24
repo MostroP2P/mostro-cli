@@ -2,13 +2,14 @@ use crate::cli::Context;
 use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
+use crate::util::messaging::get_admin_keys;
 use crate::util::send_admin_gift_wrap_dm;
 use anyhow::Result;
 use nostr_sdk::prelude::*;
 
 pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &str) -> Result<()> {
-    let admin_keys = ctx.context_keys.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
+    // Get admin keys
+    let admin_keys = get_admin_keys(ctx)?;
 
     println!("👑 Admin Direct Message");
     println!("═══════════════════════════════════════");

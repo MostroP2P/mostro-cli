@@ -51,7 +51,7 @@ Commands:
   dispute            Start a dispute
   admcancel          Cancel an order (only admin)
   admsettle          Settle a seller's hold invoice (only admin)
-  admlistdisputes    Requests open disputes from Mostro pubkey
+  listdisputes       Requests open disputes from Mostro pubkey
   admaddsolver       Add a new dispute's solver (only admin)
   admtakedispute     Admin or solver take a Pending dispute (only admin)
   admsenddm          Send gift wrapped direct message to a user (only admin)

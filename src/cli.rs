@@ -267,7 +267,7 @@ pub enum Commands {
         order_id: Uuid,
     },
     /// Requests open disputes from Mostro pubkey
-    AdmListDisputes {},
+    ListDisputes {},
     /// Add a new dispute's solver (only admin)
     AdmAddSolver {
         /// npubkey
@@ -396,7 +396,9 @@ async fn init_context(cli: &Cli) -> Result<Context> {
     let context_keys = if is_admin_command(&cli.command) {
         Some(
             std::env::var("ADMIN_NSEC")
-                .map_err(|e| anyhow::anyhow!("ADMIN_NSEC not set (required for admin commands): {}", e))?
+                .map_err(|e| {
+                    anyhow::anyhow!("ADMIN_NSEC not set (required for admin commands): {}", e)
+                })?
                 .parse::<Keys>()
                 .map_err(|e| anyhow::anyhow!("Failed to parse ADMIN_NSEC: {}", e))?,
         )
@@ -429,7 +431,6 @@ fn is_admin_command(command: &Option<Commands>) -> bool {
         command,
         Some(Commands::AdmCancel { .. })
             | Some(Commands::AdmSettle { .. })
-            | Some(Commands::AdmListDisputes { .. })
             | Some(Commands::AdmAddSolver { .. })
             | Some(Commands::AdmTakeDispute { .. })
             | Some(Commands::AdmSendDm { .. })
@@ -530,7 +531,7 @@ impl Commands {
             }
 
             // Admin commands
-            Commands::AdmListDisputes {} => execute_list_disputes(ctx).await,
+            Commands::ListDisputes {} => execute_list_disputes(ctx).await,
             Commands::AdmAddSolver { npubkey } => execute_admin_add_solver(npubkey, ctx).await,
             Commands::AdmSettle { order_id } => execute_admin_settle_dispute(order_id, ctx).await,
             Commands::AdmCancel { order_id } => execute_admin_cancel_dispute(order_id, ctx).await,

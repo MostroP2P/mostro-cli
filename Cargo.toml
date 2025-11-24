@@ -51,7 +51,7 @@ dirs = "6.0.0"
 
 [package.metadata.release]
 # (Default: true) Set to false to prevent automatically running `cargo publish`.
-publish = true
+publish = false
 # (Default: true) Set to false to prevent automatically pushing commits and tags to the Git remote.
 push = true
 # (Default: true) Run `cargo test` before release? Highly recommended.
@@ -66,7 +66,7 @@ sign-tag = true
 pre-release-hook = [
   "sh",
   "-c",
-  "set -e; rm -f CHANGELOG.md; GITHUB_TOKEN=\"${GITHUB_TOKEN:-}\" git cliff --unreleased --github-repo MostroP2P/mostro-cli -o CHANGELOG.md --tag {{version}}; if [ \"$DRY_RUN\" = \"true\" ]; then echo \"DRY RUN: Skip add/commit\"; else git add -A; if ! git diff --staged --quiet; then git commit -m \"chore(release): prepare for {{version}}\"; fi; fi",
+  "cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && if [ -n \"${GITHUB_TOKEN:-}\" ]; then GITHUB_TOKEN=\"$GITHUB_TOKEN\" git cliff --unreleased --github-repo MostroP2P/mostro-cli -o CHANGELOG.md --tag {{version}}; else git cliff --unreleased -o CHANGELOG.md --tag {{version}}; fi && if [ \"$DRY_RUN\" != \"true\" ]; then git diff --quiet CHANGELOG.md || git add CHANGELOG.md && git commit -m \"Update CHANGELOG for version {{version}}\"; else echo \"DRY RUN: Skip git add and commit\"; fi",
 ]
 
 [dev-dependencies]

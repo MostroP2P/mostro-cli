@@ -7,6 +7,8 @@ use uuid::Uuid;
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::{Commands, Context};
 use crate::db::{Order, User};
+use crate::util::messaging::get_admin_keys;
+use crate::util::send_dm;
 
 pub async fn save_order(
     order: SmallOrder,
@@ -44,9 +46,10 @@ pub async fn run_simple_order_msg(
 }
 
 pub async fn admin_send_dm(ctx: &Context, msg: String) -> Result<()> {
-    let admin_keys = ctx.context_keys.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
-    super::messaging::send_dm(
+    // Get admin keys
+    let admin_keys = get_admin_keys(ctx)?;
+    // Send DM
+    send_dm(
         &ctx.client,
         Some(admin_keys),
         &ctx.trade_keys,

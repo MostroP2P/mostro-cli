@@ -23,7 +23,7 @@ async fn create_test_context() -> anyhow::Result<Context> {
         trade_keys,
         trade_index: 0,
         pool,
-        context_keys,
+        context_keys: Some(context_keys),
         mostro_pubkey,
     })
 }
@@ -45,7 +45,13 @@ async fn test_context_fields_are_valid() {
     assert!(!ctx.identity_keys.public_key().to_hex().is_empty());
     assert!(!ctx.identity_keys.public_key().to_hex().is_empty());
     assert!(!ctx.trade_keys.public_key().to_hex().is_empty());
-    assert!(!ctx.context_keys.public_key().to_hex().is_empty());
+    assert!(!ctx
+        .context_keys
+        .as_ref()
+        .unwrap()
+        .public_key()
+        .to_hex()
+        .is_empty());
     assert!(!ctx.mostro_pubkey.to_hex().is_empty());
     assert!(!ctx.pool.is_closed());
 }

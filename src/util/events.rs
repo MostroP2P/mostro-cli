@@ -4,6 +4,7 @@ use nostr_sdk::prelude::*;
 
 use crate::db::User;
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
+use crate::util::messaging::get_admin_keys;
 
 pub const FETCH_EVENTS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const FAKE_SINCE: i64 = 2880;
@@ -87,15 +88,15 @@ pub async fn fetch_events_list(
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
         }
         ListKind::DirectMessagesAdmin => {
-            let admin_keys = ctx.context_keys.as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
+            // Get admin keys
+            let admin_keys = get_admin_keys(ctx)?;
+            // Create filter
             let filters = create_filter(list_kind, admin_keys.public_key(), None)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
-            let direct_messages_mostro =
-                parse_dm_events(fetched_events, admin_keys, since).await;
+            let direct_messages_mostro = parse_dm_events(fetched_events, admin_keys, since).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|(message, timestamp, sender_pubkey)| {

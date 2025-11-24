@@ -7,9 +7,24 @@ use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 
+use crate::cli::Context;
 use crate::parser::dms::print_commands_results;
 use crate::parser::parse_dm_events;
 use crate::util::types::MessageType;
+
+/// Helper function to retrieve and validate admin keys from context
+pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
+    let admin_keys = ctx.context_keys.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands.")
+    })?;
+
+    // Only log admin public key in verbose mode
+    if std::env::var("RUST_LOG").is_ok() {
+        println!("🔑 Admin Keys: {}", admin_keys.public_key);
+    }
+
+    Ok(admin_keys)
+}
 
 pub async fn send_admin_gift_wrap_dm(
     client: &Client,
