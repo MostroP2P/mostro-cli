@@ -7,6 +7,9 @@ use anyhow::Result;
 use nostr_sdk::prelude::*;
 
 pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &str) -> Result<()> {
+    let admin_keys = ctx.context_keys.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
+
     println!("👑 Admin Direct Message");
     println!("═══════════════════════════════════════");
     let mut table = create_standard_table();
@@ -14,7 +17,7 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     table.add_row(create_emoji_field_row(
         "🔑 ",
         "Admin Keys",
-        &ctx.context_keys.public_key().to_hex(),
+        &admin_keys.public_key().to_hex(),
     ));
     table.add_row(create_emoji_field_row(
         "🎯 ",
@@ -25,7 +28,7 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     println!("{table}");
     println!("💡 Sending admin gift wrap message...\n");
 
-    send_admin_gift_wrap_dm(&ctx.client, &ctx.context_keys, &receiver, message).await?;
+    send_admin_gift_wrap_dm(&ctx.client, admin_keys, &receiver, message).await?;
 
     println!(
         "✅ Admin gift wrap message sent successfully to {}",

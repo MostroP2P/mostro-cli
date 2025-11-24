@@ -1,5 +1,6 @@
 use anyhow::Result;
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
 use crate::{
@@ -8,6 +9,19 @@ use crate::{
     parser::{dms::print_commands_results, parse_dm_events},
     util::{admin_send_dm, send_dm, wait_for_dm},
 };
+
+/// Helper function to retrieve and validate admin keys from context
+fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
+    let admin_keys = ctx.context_keys.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Admin keys not available. ADMIN_NSEC must be set for admin commands."))?;
+    
+    // Only log admin public key in verbose mode
+    if std::env::var("RUST_LOG").is_ok() {
+        println!("🔑 Admin Keys: {}", admin_keys.public_key);
+    }
+    
+    Ok(admin_keys)
+}
 
 pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()> {
     println!("👑 Admin Add Solver");
@@ -22,6 +36,9 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
     ));
     println!("{table}");
     println!("💡 Adding new solver to Mostro...\n");
+
+    let _admin_keys = get_admin_keys(ctx)?;
+
     // Create takebuy message
     let take_dispute_message = Message::new_dispute(
         Some(Uuid::new_v4()),
@@ -57,13 +74,14 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
     ));
     println!("{table}");
     println!("💡 Canceling dispute...\n");
+
+    let _admin_keys = get_admin_keys(ctx)?;
+
     // Create takebuy message
     let take_dispute_message =
         Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, None)
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
-
-    println!("🔑 Admin PubKey: {}", ctx.context_keys.public_key);
 
     admin_send_dm(ctx, take_dispute_message).await?;
 
@@ -89,13 +107,14 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
     ));
     println!("{table}");
     println!("💡 Settling dispute...\n");
+
+    let _admin_keys = get_admin_keys(ctx)?;
+
     // Create takebuy message
     let take_dispute_message =
         Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, None)
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
-
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
     admin_send_dm(ctx, take_dispute_message).await?;
 
     println!("✅ Dispute settled successfully!");
@@ -119,6 +138,9 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     ));
     println!("{table}");
     println!("💡 Taking dispute...\n");
+
+    let admin_keys = get_admin_keys(ctx)?;
+
     // Create takebuy message
     let take_dispute_message = Message::new_dispute(
         Some(*dispute_id),
@@ -130,12 +152,10 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    println!("🔑 Admin Keys: {}", ctx.context_keys.public_key);
-
     // Send the dispute message and wait for response
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.context_keys),
+        Some(admin_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
@@ -144,10 +164,10 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     );
 
     // Wait for incoming DM response
-    let recv_event = wait_for_dm(ctx, Some(&ctx.context_keys), sent_message).await?;
+    let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.context_keys, None).await;
+    let messages = parse_dm_events(recv_event, admin_keys, None).await;
     if let Some((message, _, sender_pubkey)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
         if *sender_pubkey != ctx.mostro_pubkey {
