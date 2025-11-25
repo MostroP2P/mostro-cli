@@ -1,11 +1,11 @@
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
-use std::env::var;
 use log::info;
 use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
+use std::env::var;
 
 use crate::cli::Context;
 use crate::parser::dms::print_commands_results;

@@ -31,10 +31,8 @@ Or downloading and compiling it by yourself:
 ```bash
 git clone https://github.com/MostroP2P/mostro-cli.git
 cd mostro-cli
-# Edit .env-sample and set MOSTRO_PUBKEY, RELAYS, and POW
-# For admin commands, also set ADMIN_NSEC
-source .env-sample
-cargo run
+cargo build --release
+# The binary will be created on target/release/mostro-cli
 ```
 
 ## Usage
@@ -82,6 +80,8 @@ $ mostro-cli -m npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0 
 # You can set the env vars to avoid the -m, -n and -r flags
 $ export MOSTRO_PUBKEY=npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0
 $ export RELAYS='wss://relay.mostro.network,wss://relay.damus.io'
+# if the Mostro require proof of work of 10 for example
+$ export POW=10
 $ mostro-cli listorders
 
 # Create a new buy order
@@ -92,6 +92,8 @@ $ mostro-cli cancel -o eb5740f6-e584-46c5-953a-29bc3eb818f0
 
 # Create a new sell range order with Proof or work difficulty of 10
 $ mostro-cli neworder -p 10 -k sell -c ars -f 1000-10000 -m "face to face"
+
+# For admin commands, also set ADMIN_NSEC (this private key is different from the mnemonic in database we use to trade)
 ```
 
 ## Progress Overview
