@@ -1,5 +1,5 @@
 use anyhow::Result;
-use dotenvy::var;
+use std::env::var;
 use nostr_sdk::prelude::*;
 
 pub async fn connect_nostr() -> Result<Client> {

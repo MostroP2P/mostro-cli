@@ -36,7 +36,6 @@ uuid = { version = "1.18.1", features = [
   "macro-diagnostics",
   "serde",
 ] }
-dotenvy = "0.15.6"
 lightning-invoice = { version = "0.33.2", features = ["std"] }
 reqwest = { version = "0.12.23", default-features = false, features = [
   "json",

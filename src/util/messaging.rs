@@ -1,7 +1,7 @@
 use anyhow::{Error, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
-use dotenvy::var;
+use std::env::var;
 use log::info;
 use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
