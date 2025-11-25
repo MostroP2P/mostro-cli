@@ -1,6 +1,6 @@
 use anyhow::Result;
-use dotenvy::var;
 use nostr_sdk::prelude::*;
+use std::env::var;
 
 pub async fn connect_nostr() -> Result<Client> {
     let my_keys = Keys::generate();

@@ -1666,7 +1666,6 @@ dependencies = [
  "clap",
  "comfy-table",
  "dirs",
- "dotenvy",
  "futures",
  "lightning-invoice",
  "lnurl-rs",
