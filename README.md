@@ -7,7 +7,6 @@ Very simple command line interface that show all new replaceable events from [Mo
 ## Requirements
 
 0. You need Rust version 1.64 or higher to compile.
-1. You will need a lightning network node
 
 ## Install dependencies
 
