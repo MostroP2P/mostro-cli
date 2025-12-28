@@ -903,16 +903,6 @@ pub fn load_fiat_values() -> FiatList {
         "emoji": "",
         "name_plural": "Mauritian rupees"
       },
-      "MWK": {
-        "symbol": "MWK",
-        "name": "Malawi Kwacha",
-        "symbol_native": "MWK",
-        "decimal_digits": 2,
-        "rounding": 0,
-        "code": "MWK",
-        "emoji": "",
-        "name_plural": "Malawian Kwacha"
-      },
       "MXN": {
         "symbol": "MX$",
         "name": "Peso mexicano",
