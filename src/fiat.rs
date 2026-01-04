@@ -59,7 +59,7 @@ pub fn check_currency_ticker(currency: String) -> Option<String> {
     selectedcurrency
 }
 
-pub fn load_fiat_values() -> FiatList {
+pub fn load_fiat_values() -> Result<FiatList> {
     let fiat_names = r#"
     {
       "AED": {
@@ -903,15 +903,15 @@ pub fn load_fiat_values() -> FiatList {
         "emoji": "",
         "name_plural": "Mauritian rupees"
       },
-      "MWK": {
+       "MWK": {
         "symbol": "MWK",
-        "name": "Malawi Kwacha",
-        "symbol_native": "MWK",
+        "name": "Malawian Kwacha",
+        "symbol_native": "MK",
         "decimal_digits": 2,
         "rounding": 0,
-        "code": "MWK",
-        "emoji": "",
-        "name_plural": "Malawian Kwacha"
+        "code": "MWK,
+        "emoji": "mw",
+        "name_plural": "Malawian kwachas"
       },
       "MXN": {
         "symbol": "MX$",
@@ -1465,12 +1465,15 @@ pub fn load_fiat_values() -> FiatList {
 
     // Parse fiat names
     let fiat_json = serde_json::from_str(fiat_names).map_err(|e| anyhow::anyhow!("Failed to parse fiat names: {}", e))?;
+
     let mut fiatlist = FiatList::new();
+
     for elem in fiat_json.iter() {
         fiatlist.push((elem.0.to_string(), elem.1.name.clone()));
+        }
         
     //Return list
     fiatlist.sort_by(|a, b| a.0.cmp(&b.0));
 
-    fiatlist
+    ok(fiatlist)
 }
