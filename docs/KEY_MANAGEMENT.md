@@ -8,7 +8,7 @@ Mostro CLI uses **hierarchical deterministic (HD) keys** following the BIP-32/44
 
 ## Key Hierarchy
 
-```
+```text
 Master Seed (BIP-39 mnemonic - 12 words)
     │
     └─ m/44'/1237'/38383'/0/
@@ -34,6 +34,7 @@ Master Seed (BIP-39 mnemonic - 12 words)
 **Purpose**: Represents the user's persistent identity.
 
 **Characteristics**:
+
 - **Permanent**: Never changes, created once at initialization.
 - **Used for**: Signing messages to prove authenticity to Mostro.
 - **Not used as**: Event author (for privacy).
@@ -44,8 +45,9 @@ Master Seed (BIP-39 mnemonic - 12 words)
 **Purpose**: Ephemeral keys used for each individual trade to maintain privacy.
 
 **Characteristics**:
+
 - **Ephemeral**: New key for each trade.
-- **Used for**: 
+- **Used for**:
   - Authoring Nostr events (as the sender).
   - Receiving encrypted messages.
   - Trade-specific communications.
@@ -58,7 +60,7 @@ Master Seed (BIP-39 mnemonic - 12 words)
 
 Without trade keys, all orders would be linked to one identity:
 
-```
+```text
 ❌ Without trade keys (bad for privacy):
 Order #1 → User's Identity Key (npub1abc...)
 Order #2 → User's Identity Key (npub1abc...)
@@ -69,7 +71,7 @@ Result: Anyone can see all orders from same user!
 
 With trade keys, each order appears independent:
 
-```
+```text
 ✅ With trade keys (good for privacy):
 Order #1 → Trade Key #1 (npub1xyz...) + signed by identity
 Order #2 → Trade Key #2 (npub1def...) + signed by identity
@@ -81,6 +83,7 @@ Result: Orders appear unrelated! Privacy maintained.
 ### Authenticity Through Signing
 
 The identity key signs messages to prove they're from the real user. Mostro can verify:
+
 1. ✅ Message came from a legitimate user (signature verification).
 2. ✅ User's reputation/history (identity-based).
 3. ✅ Each trade maintains privacy (separate trade keys).
