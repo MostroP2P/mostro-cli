@@ -138,7 +138,7 @@ pub struct User {
 impl User {
     pub async fn new(mnemonic: String, pool: &SqlitePool) -> Result<Self> {
         let mut user = User::default();
-        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
+        let account = NOSTR_ORDER_EVENT_KIND as u32;
         let i0_keys =
             Keys::from_mnemonic_advanced(&mnemonic, None, Some(account), Some(0), Some(0))?;
         user.i0_pubkey = i0_keys.public_key().to_string();
@@ -216,7 +216,7 @@ impl User {
 
     pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys> {
         let user = User::get(pool).await?;
-        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
+        let account = NOSTR_ORDER_EVENT_KIND as u32;
         let keys =
             Keys::from_mnemonic_advanced(&user.mnemonic, None, Some(account), Some(0), Some(0))?;
 
@@ -235,7 +235,7 @@ impl User {
             return Err(anyhow::anyhow!("Trade index cannot be negative"));
         }
         let user = User::get(pool).await?;
-        let account = NOSTR_REPLACEABLE_EVENT_KIND as u32;
+        let account = NOSTR_ORDER_EVENT_KIND as u32;
         let keys = Keys::from_mnemonic_advanced(
             &user.mnemonic,
             None,
