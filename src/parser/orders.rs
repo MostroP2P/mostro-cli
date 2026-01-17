@@ -214,6 +214,9 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 Cell::new("💳 Payment Method")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
+                Cell::new("📊 Premium %")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(CellAlignment::Center),
                 Cell::new("📅 Created")
                     .add_attribute(Attribute::Bold)
                     .set_alignment(CellAlignment::Center),
@@ -270,6 +273,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
                 },
                 Cell::new(single_order.payment_method.to_string())
                     .set_alignment(CellAlignment::Center),
+                Cell::new(single_order.premium.to_string()).set_alignment(CellAlignment::Center),
                 Cell::new(
                     date.map(|d| d.format("%Y-%m-%d %H:%M").to_string())
                         .unwrap_or_else(|| "Invalid date".to_string()),
