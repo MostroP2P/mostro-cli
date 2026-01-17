@@ -70,7 +70,7 @@ pub async fn get_trade_keys(pool: &SqlitePool, index: i64) -> Result<Keys> {
 ### DO ✅
 
 - **Use unique keys**: Always use `get_next_trade_keys()` for new orders.
-- **Sign with identity**: Prove authenticity while maintaining sender privacy.
+- **Sign with identity**: Prove authenticity via NIP-59 seal (encrypted, never publicly revealed) while maintaining sender privacy.
 - **Update indices**: Ensure `last_trade_index` is updated after successful creation.
 
 ### DON'T ❌
