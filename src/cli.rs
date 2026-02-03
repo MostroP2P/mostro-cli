@@ -22,7 +22,9 @@ use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::dm_to_user::execute_dm_to_user;
 use crate::cli::get_dm::execute_get_dm;
 use crate::cli::get_dm_user::execute_get_dm_user;
-use crate::cli::last_trade_index::execute_last_trade_index;
+use crate::cli::last_trade_index::{
+    execute_last_trade_index, execute_last_trade_index_private_key,
+};
 use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
 use crate::cli::new_order::execute_new_order;
@@ -200,9 +202,9 @@ pub enum Commands {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
-        /// Message to send
-        #[arg(short, long)]
-        message: String,
+        /// Message to send (spaces allowed; use quotes or multiple -m/--message)
+        #[arg(short, long, num_args = 1..)]
+        message: Vec<String>,
     },
     /// Send gift wrapped direct message to a user
     DmToUser {
@@ -212,9 +214,9 @@ pub enum Commands {
         /// Order id to get ephemeral keys
         #[arg(short, long)]
         order_id: Uuid,
-        /// Message to send
-        #[arg(short, long)]
-        message: String,
+        /// Message to send (spaces allowed; use quotes or multiple -m/--message)
+        #[arg(short, long, num_args = 1..)]
+        message: Vec<String>,
     },
     /// Send fiat sent message to confirm payment to other user
     FiatSent {
@@ -282,9 +284,9 @@ pub enum Commands {
         /// Pubkey of the recipient
         #[arg(short, long)]
         pubkey: String,
-        /// Message to send
-        #[arg(short, long)]
-        message: String,
+        /// Message to send (spaces allowed; use quotes or multiple -m/--message)
+        #[arg(short, long, num_args = 1..)]
+        message: Vec<String>,
     },
     /// Get the conversation key for direct messaging with a user
     ConversationKey {
@@ -294,6 +296,8 @@ pub enum Commands {
     },
     /// Get last trade index of user
     GetLastTradeIndex {},
+    /// Get private key of last trade index public key
+    GetLastTradePrivkey {},
     /// Request detailed information for specific orders
     OrdersInfo {
         /// Order IDs to request information for
@@ -460,28 +464,34 @@ impl Commands {
             Commands::GetLastTradeIndex {} => {
                 execute_last_trade_index(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
             }
+            Commands::GetLastTradePrivkey {} => execute_last_trade_index_private_key(ctx).await,
             // DM commands with pubkey parsing
             Commands::SendDm {
                 pubkey,
                 order_id,
                 message,
-            } => execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, message).await,
+            } => {
+                let msg = message.join(" ");
+                execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, &msg).await
+            }
             Commands::DmToUser {
                 pubkey,
                 order_id,
                 message,
             } => {
+                let msg = message.join(" ");
                 execute_dm_to_user(
                     PublicKey::from_str(pubkey)?,
                     &ctx.client,
                     order_id,
-                    message,
+                    &msg,
                     &ctx.pool,
                 )
                 .await
             }
             Commands::AdmSendDm { pubkey, message } => {
-                execute_adm_send_dm(PublicKey::from_str(pubkey)?, ctx, message).await
+                let msg = message.join(" ");
+                execute_adm_send_dm(PublicKey::from_str(pubkey)?, ctx, &msg).await
             }
             Commands::ConversationKey { pubkey } => {
                 execute_conversation_key(&ctx.trade_keys, PublicKey::from_str(pubkey)?).await

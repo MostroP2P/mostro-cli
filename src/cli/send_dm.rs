@@ -55,7 +55,7 @@ pub async fn execute_send_dm(
 
     send_dm(
         &ctx.client,
-        None,
+        Some(&trade_keys),
         &trade_keys,
         &receiver,
         message,

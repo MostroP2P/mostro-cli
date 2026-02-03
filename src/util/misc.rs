@@ -10,7 +10,7 @@ pub fn uppercase_first(s: &str) -> String {
 
 pub fn get_mcli_path() -> String {
     let home_dir = dirs::home_dir().expect("Couldn't get home directory");
-    let mcli_path = format!("{}/.mcli", home_dir.display());
+    let mcli_path = format!("{}/.mcliUserA", home_dir.display());
     if !Path::new(&mcli_path).exists() {
         match fs::create_dir(&mcli_path) {
             Ok(_) => println!("Directory {} created.", mcli_path),
