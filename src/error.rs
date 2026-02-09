@@ -14,11 +14,21 @@ impl std::error::Error for MostroError {}
 impl fmt::Display for MostroError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MostroError::ParsingInvoiceError => write!(f, "Incorrect invoice"),
-            MostroError::ParsingNumberError => write!(f, "Error parsing the number"),
-            MostroError::InvoiceExpiredError => write!(f, "Invoice has expired"),
-            MostroError::MinExpirationTimeError => write!(f, "Minimal expiration time on invoice"),
-            MostroError::MinAmountError => write!(f, "Minimal payment amount"),
+            MostroError::ParsingInvoiceError => {
+                write!(f, "Failed to parse Lightning invoice: invalid format or checksum")
+            }
+            MostroError::ParsingNumberError => {
+                write!(f, "Failed to parse numeric value: expected valid integer")
+            }
+            MostroError::InvoiceExpiredError => {
+                write!(f, "Lightning invoice has expired and cannot be used")
+            }
+            MostroError::MinExpirationTimeError => {
+                write!(f, "Invoice expiration time is below the minimum required duration")
+            }
+            MostroError::MinAmountError => {
+                write!(f, "Payment amount is below the minimum required value")
+            }
         }
     }
 }
