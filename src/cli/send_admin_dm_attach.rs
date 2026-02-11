@@ -2,6 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use bitcoin_hashes::sha256::Hash as Sha256Hash;
+use bitcoin_hashes::Hash;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use nostr_sdk::prelude::*;
@@ -38,7 +42,7 @@ fn derive_shared_key(trade_keys: &Keys, admin_pubkey: &PublicKey) -> [u8; 32] {
         .xonly()
         .expect("failed to get x-only public key for admin");
     let secp_pk = SecpPublicKey::from_x_only_public_key(xonly, Parity::Even);
-    let mut point_bytes = shared_secret_point(&secp_pk, &sk).as_slice().to_vec();
+    let mut point_bytes = shared_secret_point(&secp_pk, sk).as_slice().to_vec();
     point_bytes.resize(32, 0);
     point_bytes
         .try_into()
@@ -78,39 +82,113 @@ fn encrypt_blob(shared_key: [u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, Stri
     Ok((blob, nonce_hex))
 }
 
-async fn upload_to_blossom(encrypted_blob: Vec<u8>) -> Result<String> {
+/// Upload encrypted blob to a Blossom server.
+/// Blossom BUD-01 requires kind 24242 with: content (human-readable), tags ["t","upload"],
+/// ["expiration", "<future unix ts>"], ["x", "<sha256 hex>"].
+async fn upload_to_blossom(trade_keys: &Keys, encrypted_blob: Vec<u8>) -> Result<String> {
     use reqwest::StatusCode;
 
     let client = reqwest::Client::new();
+    let payload_hash = Sha256Hash::hash(&encrypted_blob);
+    let payload_hex = payload_hash.to_string();
+
+    // Expiration: 1 hour from now (BUD-01 requires expiration in the future)
+    let expiration = Timestamp::from(Timestamp::now().as_u64() + 3600);
 
     for server in BLOSSOM_SERVERS {
-        let url = format!("{}/upload", server.trim_end_matches('/'));
-        let res = client
-            .put(&url)
-            .header("Content-Type", "application/octet-stream")
-            .body(encrypted_blob.clone())
-            .send()
-            .await;
+        let url_str = format!("{}/upload", server.trim_end_matches('/'));
+        let upload_url = match Url::parse(&url_str) {
+            Ok(u) => u,
+            Err(e) => {
+                eprintln!("Blossom invalid URL {url_str}: {e}");
+                continue;
+            }
+        };
 
-        match res {
-            Ok(resp) if resp.status() == StatusCode::OK => {
-                let body = resp
-                    .text()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("failed to read blossom response: {e}"))?;
-                if body.trim().starts_with("blossom://") {
-                    return Ok(body.trim().to_string());
+        let normalized_url_str = upload_url.as_str();
+
+        // BUD-01: kind 24242, content human-readable, tags: t=upload, expiration, x=sha256
+        let tags = [
+            Tag::hashtag("upload"), // ["t", "upload"]
+            Tag::expiration(expiration),
+            Tag::custom(TagKind::x(), [payload_hex.clone()]),
+        ];
+        let event = match EventBuilder::new(Kind::BlossomAuth, "Upload Blob")
+            .tags(tags)
+            .sign_with_keys(trade_keys)
+        {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("Blossom auth event build failed for {server}: {e}");
+                continue;
+            }
+        };
+        let auth_header = format!("Nostr {}", BASE64.encode(event.as_json()));
+
+        // Many Blossom servers reject application/octet-stream. Try application/zip first, then image/png.
+        let content_types = ["application/zip", "image/png"];
+        let mut last_status = None;
+        let mut last_error_body = String::new();
+
+        for content_type in content_types {
+            let res = client
+                .put(normalized_url_str)
+                .header("Content-Type", content_type)
+                .header("Authorization", &auth_header)
+                .body(encrypted_blob.clone())
+                .send()
+                .await;
+
+            match res {
+                Ok(resp) if resp.status() == StatusCode::OK => {
+                    let body = resp
+                        .text()
+                        .await
+                        .map_err(|e| anyhow::anyhow!("failed to read blossom response: {e}"))?;
+                    let body = body.trim();
+                    // BUD-02: server may return JSON blob descriptor with "url" field
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+                        if let Some(url) = v.get("url").and_then(|u| u.as_str()) {
+                            return Ok(url.to_string());
+                        }
+                    }
+                    if body.starts_with("blossom://") {
+                        return Ok(body.to_string());
+                    }
+                    last_status = Some(StatusCode::OK);
+                    last_error_body = body.to_string();
+                    break;
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    last_status = Some(status);
+                    last_error_body = resp.text().await.unwrap_or_default();
+                    // If rejected for content type, try next; otherwise report and break
+                    if status != StatusCode::UNSUPPORTED_MEDIA_TYPE
+                        && status != StatusCode::BAD_REQUEST
+                    {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    last_status = None;
+                    last_error_body = e.to_string();
+                    break;
                 }
             }
-            Ok(resp) => {
-                eprintln!(
-                    "Blossom upload failed on {server} with status {}",
-                    resp.status()
-                );
+        }
+
+        if let Some(status) = last_status {
+            let status_text = status.canonical_reason().unwrap_or("Unknown");
+            eprintln!(
+                "Blossom upload failed on {server} with status {} {}",
+                status, status_text
+            );
+            if !last_error_body.is_empty() && last_error_body.len() < 500 {
+                eprintln!("  Response body: {}", last_error_body);
             }
-            Err(e) => {
-                eprintln!("Blossom upload error on {server}: {e}");
-            }
+        } else {
+            eprintln!("Blossom upload error on {server}: {}", last_error_body);
         }
     }
 
@@ -185,7 +263,7 @@ pub async fn execute_send_admin_dm_attach(
     let shared_key = derive_shared_key(&trade_keys, &receiver);
     let (encrypted_blob, nonce_hex) = encrypt_blob(shared_key, &file_bytes)?;
     let encrypted_size = encrypted_blob.len();
-    let blossom_url = upload_to_blossom(encrypted_blob).await?;
+    let blossom_url = upload_to_blossom(&trade_keys, encrypted_blob).await?;
 
     let filename = file_path
         .file_name()
