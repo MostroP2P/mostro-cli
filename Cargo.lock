@@ -1662,6 +1662,8 @@ version = "0.14.5"
 dependencies = [
  "anyhow",
  "bip39",
+ "bitcoin",
+ "chacha20poly1305",
  "chrono",
  "clap",
  "comfy-table",
@@ -1673,6 +1675,7 @@ dependencies = [
  "mostro-core",
  "nostr-sdk",
  "pretty_env_logger",
+ "rand_core 0.6.4",
  "reqwest",
  "rstest",
  "serde",

@@ -47,6 +47,9 @@ pretty_env_logger = "0.5.0"
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }
 bip39 = { version = "2.2.0", features = ["rand"] }
 dirs = "6.0.0"
+chacha20poly1305 = "0.10.1"
+rand_core = "0.6.4"
+bitcoin = "0.32.2"
 
 [package.metadata.release]
 # (Default: true) Set to false to prevent automatically running `cargo publish`.

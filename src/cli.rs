@@ -11,6 +11,7 @@ pub mod new_order;
 pub mod orders_info;
 pub mod rate_user;
 pub mod restore;
+pub mod send_admin_dm_attach;
 pub mod send_dm;
 pub mod send_msg;
 pub mod take_dispute;
@@ -31,6 +32,7 @@ use crate::cli::new_order::execute_new_order;
 use crate::cli::orders_info::execute_orders_info;
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
+use crate::cli::send_admin_dm_attach::execute_send_admin_dm_attach;
 use crate::cli::send_dm::execute_send_dm;
 use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_order::execute_take_order;
@@ -288,6 +290,18 @@ pub enum Commands {
         #[arg(short, long, num_args = 1..)]
         message: Vec<String>,
     },
+    /// Send admin DM with encrypted attachment to a Blossom server
+    SendAdminDmAttach {
+        /// Pubkey of the admin recipient
+        #[arg(short, long)]
+        pubkey: String,
+        /// Order id to derive the correct trade key
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Path to file to encrypt and upload
+        #[arg(short, long)]
+        file: std::path::PathBuf,
+    },
     /// Get the conversation key for direct messaging with a user
     ConversationKey {
         /// Pubkey of the counterpart
@@ -492,6 +506,14 @@ impl Commands {
             Commands::AdmSendDm { pubkey, message } => {
                 let msg = message.join(" ");
                 execute_adm_send_dm(PublicKey::from_str(pubkey)?, ctx, &msg).await
+            }
+            Commands::SendAdminDmAttach {
+                pubkey,
+                order_id,
+                file,
+            } => {
+                execute_send_admin_dm_attach(PublicKey::from_str(pubkey)?, ctx, order_id, file)
+                    .await
             }
             Commands::ConversationKey { pubkey } => {
                 execute_conversation_key(&ctx.trade_keys, PublicKey::from_str(pubkey)?).await
