@@ -20,7 +20,7 @@ pub async fn execute_list_orders(
     // Default kind is none
     let mut kind_checked: Option<mostro_core::order::Kind> = None;
 
-    // New check against strings
+    // Parse and validate status from CLI string
     if let Some(s) = status {
         status_checked = Some(
             Status::from_str(s)
@@ -34,7 +34,7 @@ pub async fn execute_list_orders(
     if let Some(status) = &status_checked {
         print_key_value("📊", "Status Filter", &format!("{:?}", status));
     }
-    // New check against strings for kind
+    // Parse and validate kind from CLI string
     if let Some(k) = kind {
         kind_checked = Some(
             mostro_core::order::Kind::from_str(k)

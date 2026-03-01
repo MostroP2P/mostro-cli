@@ -542,6 +542,26 @@ impl Order {
         Ok(trade_keys)
     }
 
+    /// Return distinct pairs of (trade_keys, counterparty_pubkey) for orders where both are set.
+    pub async fn get_all_trade_and_counterparty_keys(
+        pool: &SqlitePool,
+    ) -> Result<Vec<(String, String)>> {
+        let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT DISTINCT trade_keys, counterparty_pubkey FROM orders \
+             WHERE trade_keys IS NOT NULL AND counterparty_pubkey IS NOT NULL",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(tk, cp)| match (tk, cp) {
+                (Some(tk), Some(cp)) => Some((tk, cp)),
+                _ => None,
+            })
+            .collect())
+    }
+
     pub async fn delete_by_id(pool: &SqlitePool, id: &str) -> Result<bool> {
         let rows_affected = sqlx::query(
             r#"

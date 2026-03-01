@@ -18,6 +18,8 @@ use crate::db::Order;
 use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
+use crate::util::messaging::derive_shared_key_bytes;
+use crate::util::send_admin_chat_message_via_shared_key;
 
 const MAX_FILE_SIZE_BYTES: u64 = 25 * 1024 * 1024;
 
@@ -32,22 +34,6 @@ const BLOSSOM_SERVERS: &[&str] = &[
     "https://nosto.re",
     "https://blossom.poster.place",
 ];
-
-fn derive_shared_key(trade_keys: &Keys, admin_pubkey: &PublicKey) -> [u8; 32] {
-    use bitcoin::secp256k1::ecdh::shared_secret_point;
-    use bitcoin::secp256k1::{Parity, PublicKey as SecpPublicKey};
-
-    let sk = trade_keys.secret_key();
-    let xonly = admin_pubkey
-        .xonly()
-        .expect("failed to get x-only public key for admin");
-    let secp_pk = SecpPublicKey::from_x_only_public_key(xonly, Parity::Even);
-    let mut point_bytes = shared_secret_point(&secp_pk, sk).as_slice().to_vec();
-    point_bytes.resize(32, 0);
-    point_bytes
-        .try_into()
-        .expect("shared secret point must be at least 32 bytes")
-}
 
 fn encrypt_blob(shared_key: [u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, String)> {
     let key = Key::from_slice(&shared_key);
@@ -260,7 +246,7 @@ pub async fn execute_send_admin_dm_attach(
     println!("{table}");
     println!("💡 Encrypting file and uploading to Blossom...\n");
 
-    let shared_key = derive_shared_key(&trade_keys, &receiver);
+    let shared_key = derive_shared_key_bytes(&trade_keys, &receiver)?;
     let (encrypted_blob, nonce_hex) = encrypt_blob(shared_key, &file_bytes)?;
     let encrypted_size = encrypted_blob.len();
     let blossom_url = upload_to_blossom(&trade_keys, encrypted_blob).await?;
@@ -313,21 +299,13 @@ pub async fn execute_send_admin_dm_attach(
     let content = serde_json::to_string(&payload_json)
         .map_err(|e| anyhow::anyhow!("failed to serialize attachment payload: {e}"))?;
 
-    let pow: u8 = std::env::var("POW")
-        .unwrap_or_else(|_| "0".to_string())
-        .parse()
-        .unwrap_or(0);
-
-    let rumor = EventBuilder::text_note(content)
-        .pow(pow)
-        .build(trade_keys.public_key());
-
-    let event = EventBuilder::gift_wrap(&trade_keys, &receiver, rumor, Tags::new()).await?;
-
-    ctx.client
-        .send_event(&event)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to send gift wrap event: {e}"))?;
+    send_admin_chat_message_via_shared_key(
+        &ctx.client,
+        &trade_keys,
+        &Keys::new(SecretKey::from_slice(&shared_key)?),
+        &content,
+    )
+    .await?;
 
     println!("✅ Encrypted attachment sent successfully to admin!");
 

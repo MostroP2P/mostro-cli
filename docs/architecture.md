@@ -31,12 +31,12 @@ This document describes the internal structure of `mostro-cli`, how major module
 - **`src/util/mod.rs`**
   - Organizes utility modules:
     - `events`: event filtering and retrieval from Nostr.
-    - `messaging`: higher-level DM helpers (gift-wrapped messages, admin keys, etc.).
+    - `messaging`: higher-level DM helpers (gift-wrapped messages, admin keys, **shared-key derivation and custom wraps**).
     - `misc`: small helpers such as `get_mcli_path` and string utilities.
     - `net`: Nostr network connection setup.
     - `storage`: thin storage helpers for orders and DMs.
     - `types`: small shared enums/wrappers.
-  - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, etc.) so other modules can import from `crate::util` directly.
+  - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, **`derive_shared_keys`, `derive_shared_key_hex`, `keys_from_shared_hex`, `send_admin_chat_message_via_shared_key`**, etc.) so other modules can import from `crate::util` directly.
 
 - **`src/util/storage.rs`**
   - `save_order(order, trade_keys, request_id, trade_index, pool)`:
@@ -68,7 +68,7 @@ This document describes the internal structure of `mostro-cli`, how major module
       - Handles creation (`User::new`), loading (`User::get`), updating (`save`), and key derivation helpers (identity keys and per-trade keys using `nip06`).
     - `Order`:
       - Represents cached orders with fields mapped to the `orders` table.
-      - Provides `new`, `insert_db`, `update_db`, fluent setters, `save`, `save_new_id`, `get_by_id`, `get_all_trade_keys`, and `delete_by_id`.
+      - Provides `new`, `insert_db`, `update_db`, fluent setters, `save`, `save_new_id`, `get_by_id`, `get_all_trade_keys`, **`get_all_trade_and_counterparty_keys`** (distinct `(trade_keys, counterparty_pubkey)` pairs for orders where both are set), and `delete_by_id`.
   - See `database.md` for schema details.
 
 ### Parsers and protocol types
@@ -81,6 +81,10 @@ This document describes the internal structure of `mostro-cli`, how major module
     - `dms.rs`: parsing direct messages.
     - `common.rs`: shared parsing helpers.
     - `mod.rs`: module glue.
+
+- **Shared-key custom wraps** (`src/util/messaging.rs`):
+  - **Sending**: `derive_shared_keys(local_keys, counterparty_pubkey)` yields a `Keys` whose public key is used as the NIP-59 gift-wrap recipient; inner content is a signed text note encrypted with NIP-44 to that pubkey. Used by `dmtouser` and `sendadmindmattach`.
+  - **Receiving**: `unwrap_giftwrap_with_shared_key(shared_keys, event)` decrypts with NIP-44 and returns `(content, timestamp, sender_pubkey)`; `fetch_gift_wraps_for_shared_key(client, shared_keys)` fetches Kind::GiftWrap events with `#p` = shared key pubkey and unwraps them. Use when implementing flows that read shared-key DMs.
 
 ### Lightning integration
 

@@ -110,10 +110,10 @@ All commands are part of the `Commands` enum and are dispatched via `Commands::r
   - **Handler**: `execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, &msg)` in `src/cli/send_dm.rs`.
 
 - **`dmtouser`**
-  - **Description**: Send a gift-wrapped direct message to a user.
+  - **Description**: Send a direct message to a user via a **shared-key custom wrap**. Derives an ECDH shared key from the order’s trade keys and the recipient pubkey; the message is sent as a NIP-59 gift wrap addressed to the shared key’s public key (NIP-44 encrypted), so both sides can decrypt.
   - **Args**:
     - `--pubkey <NPUB/HEX>`: Recipient pubkey.
-    - `--order-id <UUID>`: Order id to derive ephemeral keys.
+    - `--order-id <UUID>`: Order id to derive trade keys and shared key.
     - `--message <STRING>...`: Message parts; joined with spaces.
   - **Handler**: `execute_dm_to_user(PublicKey::from_str(pubkey)?, &ctx.client, order_id, &msg, &ctx.pool)` in `src/cli/dm_to_user.rs`.
 

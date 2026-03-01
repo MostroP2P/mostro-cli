@@ -43,7 +43,7 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     ));
     println!("{table}");
     println!("💡 Sending lightning invoice to Mostro...\n");
-    // Check invoice string
+    // Parse invoice (Lightning address or BOLT11) and build payload
     let ln_addr = LightningAddress::from_str(invoice);
     let payload = if ln_addr.is_ok() {
         Some(Payload::PaymentRequest(None, invoice.to_string(), None))

@@ -26,7 +26,7 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
 
     let _admin_keys = get_admin_keys(ctx)?;
 
-    // Create takebuy message
+    // Build admin dispute message
     let take_dispute_message = Message::new_dispute(
         Some(Uuid::new_v4()),
         None,
@@ -64,7 +64,7 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 
     let _admin_keys = get_admin_keys(ctx)?;
 
-    // Create takebuy message
+    // Build admin dispute message
     let take_dispute_message =
         Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, None)
             .as_json()
@@ -97,7 +97,7 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 
     let _admin_keys = get_admin_keys(ctx)?;
 
-    // Create takebuy message
+    // Build admin dispute message
     let take_dispute_message =
         Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, None)
             .as_json()
@@ -128,7 +128,7 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
 
     let admin_keys = get_admin_keys(ctx)?;
 
-    // Create takebuy message
+    // Build admin dispute message
     let take_dispute_message = Message::new_dispute(
         Some(*dispute_id),
         None,

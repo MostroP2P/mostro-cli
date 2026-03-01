@@ -57,7 +57,7 @@ pub async fn execute_new_order(
     };
 
     // Get the type of neworder
-    // if both tuple field are valid than it's a range order
+    // If both tuple fields are set, treat as a range order
     // otherwise use just fiat amount value as before
     let amt = if fiat_amount.1.is_some() {
         (0, Some(fiat_amount.0), fiat_amount.1)
@@ -118,7 +118,7 @@ pub async fn execute_new_order(
         Some(order_content),
     );
 
-    // Send dm to receiver pubkey
+    // Print summary and send DM to Mostro
     println!("🆕 Create New Order");
     println!("═══════════════════════════════════════");
 

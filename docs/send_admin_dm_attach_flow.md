@@ -320,115 +320,30 @@ Blossom protocol details:
 
 The function ultimately returns a **public URL** (`blossom_url`) pointing to the encrypted blob.
 
-### 5. DM payload and gift wrap to admin
+### 5. DM payload and shared-key custom wrap to admin
 
-Once the encrypted blob is uploaded and we have `blossom_url`, the DM payload is built:
+Once the encrypted blob is uploaded and we have `blossom_url`, the DM payload is built as JSON (`type`, `blossom_url`, `nonce`, `mime_type`, sizes, `filename`). This content is then sent using **shared-key custom wrap** (same pattern as `dmtouser`):
 
-```268:311:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/cli/send_admin_dm_attach.rs
-let filename = file_path
-    .file_name()
-    .and_then(|s| s.to_str())
-    .unwrap_or("attachment.bin")
-    .to_string();
+- **Shared key**: The same ECDH shared key used for file encryption (trade keys + admin pubkey) is turned into a `Keys` via `Keys::new(SecretKey::from_slice(&shared_key)?)`.
+- **Send**: `send_admin_chat_message_via_shared_key(&ctx.client, &trade_keys, &shared_keys, &content)` in `src/util/messaging.rs`:
+  - Builds an inner text-note event (sender = trade keys), signs it, encrypts it with NIP-44 to the **shared key’s public key**, and wraps it in a NIP-59 GiftWrap event tagged with that pubkey (`#p`).
+  - Both the sender (trade keys) and the admin (who can derive the same shared key) can later fetch and decrypt the event by filtering GiftWrap by the shared key pubkey and using `unwrap_giftwrap_with_shared_key`.
 
-// Best-effort MIME type detection based on the file extension.
-let mime_type = file_path
-    .extension()
-    .and_then(|ext| ext.to_str())
-    .map(|ext| ext.to_ascii_lowercase())
-    .map(|ext| match ext.as_str() {
-        "txt" => "text/plain",
-        "md" => "text/markdown",
-        "json" => "application/json",
-        "csv" => "text/csv",
-        "jpg" | "jpeg" => "image/jpeg",
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "pdf" => "application/pdf",
-        "zip" => "application/zip",
-        "tar" => "application/x-tar",
-        "gz" | "tgz" => "application/gzip",
-        "mp3" => "audio/mpeg",
-        "mp4" => "video/mp4",
-        "mov" => "video/quicktime",
-        _ => "application/octet-stream",
-    })
-    .unwrap_or("application/octet-stream")
-    .to_string();
-
-let payload_json = serde_json::json!({
-    "type": "file_encrypted",
-    "blossom_url": blossom_url,
-    "nonce": nonce_hex,
-    "mime_type": mime_type,
-    "original_size": file_bytes.len(),
-    "filename": filename,
-    "encrypted_size": encrypted_size,
-    "file_type": "document",
-});
-
-let content = serde_json::to_string(&payload_json)
-    .map_err(|e| anyhow::anyhow!("failed to serialize attachment payload: {e}"))?;
-```
-
-This JSON is the **Mostro DM payload** describing the encrypted attachment:
-
-- `type = "file_encrypted"` – payload kind.
-- `blossom_url` – where the admin can fetch the encrypted blob.
-- `nonce` – hex nonce for ChaCha20‑Poly1305.
-- `mime_type` – hint about original file type.
-- `original_size` / `encrypted_size` – size bookkeeping.
-- `filename` – original filename.
-
-#### 5.1 Gift‑wrapped DM event
-
-```316:331:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/cli/send_admin_dm_attach.rs
-let pow: u8 = std::env::var("POW")
-    .unwrap_or_else(|_| "0".to_string())
-    .parse()
-    .unwrap_or(0);
-
-let rumor = EventBuilder::text_note(content)
-    .pow(pow)
-    .build(trade_keys.public_key());
-
-let event = EventBuilder::gift_wrap(&trade_keys, &receiver, rumor, Tags::new()).await?;
-
-ctx.client
-    .send_event(&event)
-    .await
-    .map_err(|e| anyhow::anyhow!("failed to send gift wrap event: {e}"))?;
-
-println!("✅ Encrypted attachment sent successfully to admin!");
-```
-
-- **Rumor event** (inner):
-  - `kind`: `TextNote`
-  - `content`: the `payload_json` string above.
-  - `pubkey`: `trade_keys.public_key()` (per‑order trade identity).
-  - Optional POW from `POW` env var.
-
-- **Outer GiftWrap event** (NIP‑59):
-  - Created via `EventBuilder::gift_wrap(&trade_keys, &receiver, rumor, Tags::new())`.
-  - **Signer / sender**: `trade_keys` (per‑order).
-  - **Recipient**: `receiver` (admin / solver Nostr pubkey).
-  - **Tags**: currently empty (no extra expiration here; optional).
-
-- **Relaying**:
-  - Final event is sent with `ctx.client.send_event(&event).await`.
-  - `ctx.client` is connected to configured Nostr relays via `RELAYS` env var.
+So the attachment metadata is not sent as a plain NIP-59 gift wrap to the admin pubkey; it is sent to the **shared key’s public key**, enabling symmetric decryption for both parties. Relaying is via `ctx.client.send_event(&event)`.
 
 ### 6. Keys and protocols summary
 
 - **Keys**:
   - `trade_keys` (per‑order):
     - Used for:
-      - ECDH shared secret with admin pubkey for file encryption.
-      - Nostr DM identity for the rumor + giftwrap.
-      - (Indirectly) for signing Blossom auth event (kind 24242).
+      - ECDH shared secret with admin pubkey (for file encryption and for the shared-key DM).
+      - Nostr identity for the inner text note and for signing the outer NIP‑59 wrap.
+      - Signing the Blossom auth event (kind 24242).
+  - **Shared key** (ECDH from trade_keys + admin pubkey):
+    - Same 32-byte secret used for ChaCha20‑Poly1305 file encryption.
+    - Wrapped as `Keys` and used as the **recipient** of the DM: the NIP-59 GiftWrap is addressed to the shared key’s public key, and the inner content is NIP-44 encrypted to it, so both sender and admin can derive the key and decrypt.
   - `receiver`:
-    - Admin / solver Nostr pubkey; DM destination for the final NIP‑59 GiftWrap.
+    - Admin / solver Nostr pubkey; used to derive the shared key and as the human-facing destination (the actual Nostr event recipient is the shared key pubkey).
 
 - **Protocols**:
   - **ChaCha20‑Poly1305**:
@@ -441,16 +356,15 @@ println!("✅ Encrypted attachment sent successfully to admin!");
     - JSON with attachment metadata:
       - `type`, `blossom_url`, `nonce`, `mime_type`, sizes, `filename`.
   - **Nostr**:
-    - NIP‑13: optional POW on the rumor text note.
-    - NIP‑40: optional expiration (not used on the DM here).
-    - NIP‑59: GiftWrap envelope:
-      - Wraps the text‑note rumor for the admin’s pubkey.
+    - NIP‑13: optional POW on the inner text note.
+    - NIP‑44: encryption of the inner event to the shared key’s public key.
+    - NIP‑59: GiftWrap envelope addressed to the **shared key pubkey** (not directly to the admin), so both parties that know the ECDH secret can fetch and decrypt.
 
 End‑to‑end, `sendadmindmattach`:
 
-1. Derives a shared ECDH key between trade and admin.
-2. Encrypts the file with ChaCha20‑Poly1305.
+1. Derives a shared ECDH key between trade keys and admin pubkey.
+2. Encrypts the file with ChaCha20‑Poly1305 using that key.
 3. Authenticates to Blossom with a kind‑24242 auth event (BUD‑01) and uploads the encrypted blob (BUD‑02).
-4. Builds a Mostro DM payload with Blossom URL + crypto metadata.
-5. Sends a NIP‑59 gift‑wrapped text note from the trade keys to the admin pubkey with that payload as content.
+4. Builds a Mostro DM payload JSON with Blossom URL and crypto metadata.
+5. Sends a **shared-key custom wrap** (NIP-44 inner content, NIP-59 GiftWrap addressed to the shared key’s public key) via `send_admin_chat_message_via_shared_key`, so both the sender and the admin can decrypt the attachment metadata and fetch the blob.
 

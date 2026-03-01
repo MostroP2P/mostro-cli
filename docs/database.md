@@ -77,6 +77,8 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
       - Loads a single order (and returns an error if no ID is present).
     - `get_all_trade_keys(pool)`:
       - Returns distinct non-null `trade_keys` for all orders.
+    - `get_all_trade_and_counterparty_keys(pool)`:
+      - Returns distinct `(trade_keys, counterparty_pubkey)` pairs for orders where both columns are non-null; useful for deriving per-order shared keys when fetching or sending shared-key DMs.
     - `delete_by_id(pool, id)`:
       - Deletes an order row.
 

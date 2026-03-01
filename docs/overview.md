@@ -7,7 +7,7 @@ The CLI is heavily inspired by the Mostro backend documentation (`mostro/docs` i
 ### High-level responsibilities
 
 - **Order lifecycle**: create, take, cancel, dispute, and settle orders using `mostro_core` types and the Mostro protocol.
-- **Direct messaging**: send and receive Nostr DMs between users, admins, and solvers, including gift-wrapped messages and encrypted attachments.
+- **Direct messaging**: send and receive Nostr DMs between users, admins, and solvers, including gift-wrapped messages, shared-key custom wraps (ECDH-derived key, NIP-44 inside NIP-59) for `dmtouser` and admin attachment DMs, and encrypted attachments.
 - **Local persistence**: keep a local cache of orders and a deterministic identity in a SQLite database (`mcli.db`) under the CLI data directory.
 - **Admin / solver tooling**: expose admin-only and solver-only flows (e.g. taking disputes, adding solvers, admin DMs) when run with the proper keys.
 
