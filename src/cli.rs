@@ -181,6 +181,12 @@ pub enum Commands {
     },
     /// Get direct messages sent to any trade keys
     GetDmUser {
+        /// Pubkey of the user to get direct messages from
+        #[arg(short, long)]
+        pubkey: String,
+        /// Order id to get the trade keys from
+        #[arg(short, long)]
+        order_id: Uuid,
         /// Since time of the messages in minutes
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
@@ -565,7 +571,11 @@ impl Commands {
             Commands::GetDm { since, from_user } => {
                 execute_get_dm(since, false, from_user, ctx).await
             }
-            Commands::GetDmUser { since } => execute_get_dm_user(since, ctx).await,
+            Commands::GetDmUser {
+                pubkey,
+                order_id,
+                since,
+            } => execute_get_dm_user(PublicKey::from_str(pubkey)?, *order_id, since, ctx).await,
             Commands::GetAdminDm { since, from_user } => {
                 execute_get_dm(since, true, from_user, ctx).await
             }

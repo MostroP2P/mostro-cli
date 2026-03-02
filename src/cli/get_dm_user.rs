@@ -3,142 +3,102 @@ use crate::db::Order;
 use crate::parser::common::{
     print_info_line, print_key_value, print_no_data_message, print_section_header,
 };
-use crate::parser::dms::print_direct_messages;
 use crate::util::messaging::{derive_shared_key_bytes, fetch_gift_wraps_for_shared_key};
-use crate::util::{fetch_events_list, Event, ListKind};
 use anyhow::Result;
-use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use uuid::Uuid;
 
-pub async fn execute_get_dm_user(since: &i64, ctx: &Context) -> Result<()> {
-    // Get all trade keys from orders
-    let mut trade_keys_hex = Order::get_all_trade_keys(&ctx.pool).await?;
-
-    // Include Mostro pubkey so we also fetch messages addressed to Mostro
-    let admin_pubkey_hex = ctx.mostro_pubkey.to_hex();
-    if !trade_keys_hex.iter().any(|k| k == &admin_pubkey_hex) {
-        trade_keys_hex.push(admin_pubkey_hex);
-    }
-    // De-duplicate any repeated keys coming from DB/admin
-    trade_keys_hex.sort();
-    trade_keys_hex.dedup();
-
-    // Check if the trade keys are empty
-    if trade_keys_hex.is_empty() {
-        print_no_data_message("No trade keys found in orders");
-        return Ok(());
-    }
-
+/// Fetch user-to-user chat messages over a shared conversation key.
+///
+/// CLI parameters:
+/// - `pubkey`: counterparty pubkey
+/// - `order_id`: order used to look up the trade keys
+/// - `since`: minutes back in time to include
+pub async fn execute_get_dm_user(
+    pubkey: PublicKey,
+    order_id: Uuid,
+    since: &i64,
+    ctx: &Context,
+) -> Result<()> {
     print_section_header("📨 Fetch User Direct Messages");
-    print_key_value(
-        "🔍",
-        "Searching for DMs in trade keys",
-        &format!("{}", trade_keys_hex.len()),
-    );
+    print_key_value("👥", "Counterparty", &pubkey.to_string());
+    print_key_value("📋", "Order ID", &order_id.to_string());
     print_key_value("⏰", "Since", &format!("{} minutes ago", since));
-    print_info_line("💡", "Fetching direct messages...");
+    print_info_line("💡", "Fetching shared-key chat messages...");
     println!();
 
-    let direct_messages = fetch_events_list(
-        ListKind::DirectMessagesUser,
-        None,
-        None,
-        None,
-        ctx,
-        Some(since),
-    )
-    .await?;
+    // 1. Get the order and its trade keys
+    let order = Order::get_by_id(&ctx.pool, &order_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load order {order_id}: {e}"))?;
 
-    // Extract (Message, u64, PublicKey) tuples from Event::MessageTuple variants (classic DMs)
-    let mut dm_events: Vec<(Message, u64, PublicKey)> = Vec::new();
-    for event in direct_messages {
-        if let Event::MessageTuple(tuple) = event {
-            dm_events.push(*tuple);
-        }
+    let trade_keys_str = order
+        .trade_keys
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Missing trade keys for order {order_id}"))?;
+    let trade_keys =
+        Keys::parse(&trade_keys_str).map_err(|e| anyhow::anyhow!("Invalid trade keys: {e}"))?;
+
+    // 2. Derive the shared conversation key (trade private key + counterparty pubkey)
+    let shared_key_bytes = derive_shared_key_bytes(&trade_keys, &pubkey).map_err(|e| {
+        log::warn!(
+            "get_dm_user: could not derive shared key (trade + counterparty): {}",
+            e
+        );
+        anyhow::anyhow!("Could not derive shared key for chat with counterparty")
+    })?;
+
+    let shared_keys = SecretKey::from_slice(&shared_key_bytes)
+        .map(Keys::new)
+        .map_err(|e| anyhow::anyhow!("Could not build Keys from shared key: {e}"))?;
+
+    // 3. Fetch all gift wraps addressed to this shared key and decrypt them
+    let mut messages = fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?;
+
+    // 4. Apply "since" filter (minutes back from now)
+    if *since > 0 {
+        let cutoff_ts = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::minutes(*since))
+            .unwrap()
+            .timestamp();
+        messages.retain(|(_, ts, _)| (*ts as i64) >= cutoff_ts);
     }
 
-    // Also fetch and decrypt shared-key custom wraps (shared key = trade_keys + identity_keys)
-    let trade_keys_hex_list = Order::get_all_trade_keys(&ctx.pool).await?;
-    let identity_pubkey = ctx.identity_keys.public_key();
-    for trade_hex in trade_keys_hex_list {
-        let trade_keys = match Keys::parse(&trade_hex) {
-            Ok(k) => k,
-            Err(e) => {
-                log::warn!("get_dm_user: could not parse trade_keys: {}", e);
-                continue;
-            }
-        };
-        let shared_key = match derive_shared_key_bytes(&trade_keys, &identity_pubkey) {
-            Ok(b) => b,
-            Err(e) => {
-                log::warn!(
-                    "get_dm_user: could not derive shared key (trade + identity): {}",
-                    e
-                );
-                continue;
-            }
-        };
-        let shared_keys = match SecretKey::from_slice(&shared_key) {
-            Ok(sk) => Keys::new(sk),
-            Err(e) => {
-                log::warn!("get_dm_user: could not build Keys from shared key: {}", e);
-                continue;
-            }
-        };
-        let shared_msgs = match fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await {
-            Ok(m) => m,
-            Err(e) => {
-                log::warn!(
-                    "get_dm_user: failed to fetch gift wraps for shared key: {}",
-                    e
-                );
-                continue;
-            }
-        };
-        for (content, ts, sender_pubkey) in shared_msgs {
-            let parsed: (Message, Option<String>) = match serde_json::from_str(&content) {
-                Ok(m) => m,
-                Err(e) => {
-                    log::warn!("get_dm_user: could not parse shared-key DM content: {}", e);
-                    continue;
-                }
-            };
-            dm_events.push((parsed.0, ts as u64, sender_pubkey));
-        }
+    // 5. Keep only messages sent by the counterparty (not our own side)
+    messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey);
 
-        // Also fetch shared-key wraps for (trade_keys + mostro_pubkey) so we see admin replies
-        // (send_admin_dm_attach uses that derivation when we send to admin; admin uses same key to reply)
-        let shared_key_admin = match derive_shared_key_bytes(&trade_keys, &ctx.mostro_pubkey) {
-            Ok(b) => b,
-            Err(e) => {
-                log::warn!(
-                    "get_dm_user: could not derive shared key (trade + mostro): {}",
-                    e
-                );
-                continue;
-            }
-        };
-        let shared_keys_admin = match SecretKey::from_slice(&shared_key_admin) {
-            Ok(sk) => Keys::new(sk),
-            Err(e) => {
-                log::warn!("get_dm_user: could not build Keys from shared key (admin): {}", e);
-                continue;
-            }
-        };
-        if let Ok(admin_msgs) = fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys_admin).await {
-            for (content, ts, sender_pubkey) in admin_msgs {
-                if let Ok((parsed, _)) = serde_json::from_str::<(Message, Option<String>)>(&content) {
-                    dm_events.push((parsed, ts as u64, sender_pubkey));
-                }
-            }
-        }
-    }
-
-    if dm_events.is_empty() {
-        print_no_data_message("You don't have any direct messages in your trade keys");
+    if messages.is_empty() {
+        print_no_data_message("📭 No chat messages found for this shared conversation key.");
         return Ok(());
     }
 
-    print_direct_messages(&dm_events, Some(ctx.mostro_pubkey)).await?;
+    // 6. Pretty-print the messages
+    println!("");
+    print_section_header("💬 Shared-Key Chat Messages");
+
+    for (idx, (content, ts, sender_pk)) in messages.iter().enumerate() {
+        let date = match chrono::DateTime::from_timestamp(*ts as i64, 0) {
+            Some(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            None => "Invalid timestamp".to_string(),
+        };
+
+        // Mark messages from the counterparty vs our own future messages (if any)
+        let from_label = if *sender_pk == pubkey {
+            format!("👤 Counterparty ({sender_pk})")
+        } else {
+            format!("🧑 You ({sender_pk})")
+        };
+
+        println!("📄 Message {}:", idx + 1);
+        println!("─────────────────────────────────────");
+        println!("⏰ Time: {}", date);
+        println!("📨 From: {}", from_label);
+        println!("📝 Content:");
+        for line in content.lines() {
+            println!("   {}", line);
+        }
+        println!();
+    }
+
     Ok(())
 }

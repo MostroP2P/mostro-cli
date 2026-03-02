@@ -76,13 +76,13 @@ pub fn derive_shared_key_bytes(local_keys: &Keys, other_pubkey: &PublicKey) -> R
 /// Build a NIP-59 gift wrap event to a recipient pubkey (e.g. shared key pubkey).
 /// Rumor content is Mostro protocol format: JSON of (Message, Option<String>).
 async fn build_custom_wrap_event(
-    sender: &Keys,
+    sender_keys: &Keys,
     recipient_pubkey: &PublicKey,
     message: &str,
 ) -> Result<Event> {
     let inner_message = EventBuilder::text_note(message)
-        .build(sender.public_key())
-        .sign(sender)
+        .build(sender_keys.public_key())
+        .sign(sender_keys)
         .await?;
 
     // Ephemeral key for the custom wrap
@@ -120,7 +120,7 @@ async fn build_custom_wrap_event(
 /// (who derive the same shared key) can fetch and decrypt the event.
 pub async fn send_admin_chat_message_via_shared_key(
     client: &Client,
-    admin_keys: &Keys,
+    sender_keys: &Keys,
     shared_keys: &Keys,
     content: &str,
 ) -> Result<()> {
@@ -129,7 +129,7 @@ pub async fn send_admin_chat_message_via_shared_key(
         return Err(anyhow::anyhow!("Cannot send empty chat message"));
     }
     let recipient_pubkey = shared_keys.public_key();
-    let event = build_custom_wrap_event(admin_keys, &recipient_pubkey, content).await?;
+    let event = build_custom_wrap_event(sender_keys, &recipient_pubkey, content).await?;
     client.send_event(&event).await?;
     Ok(())
 }
