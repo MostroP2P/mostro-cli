@@ -48,7 +48,7 @@ pub async fn execute_dm_to_user(
     // Send as shared-key custom wrap so both parties can decrypt via the shared key
     send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await?;
 
-    print_success_message("Gift wrap message sent successfully!");
+    print_success_message("Shared-key custom wrap message sent successfully!");
 
     Ok(())
 }

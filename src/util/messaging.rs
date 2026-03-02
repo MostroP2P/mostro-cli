@@ -99,11 +99,11 @@ async fn build_custom_wrap_event(
     // Build tags for the wrapper event, the recipient pubkey is the shared key pubkey
     let tag = Tag::public_key(*recipient_pubkey);
 
-    // Reuse POW behaviour from existing DM helpers
+    // Reuse POW behaviour from existing DM helpers, but fail on invalid values
     let pow: u8 = var("POW")
         .unwrap_or_else(|_| "0".to_string())
         .parse()
-        .unwrap_or(0);
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
 
     // Build the wrapped event
     let wrapped_event = EventBuilder::new(nostr_sdk::Kind::GiftWrap, encrypted_content)
@@ -230,7 +230,7 @@ async fn send_gift_wrap_dm_internal(
     let pow: u8 = var("POW")
         .unwrap_or_else(|_| "0".to_string())
         .parse()
-        .unwrap_or(0);
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
 
     let dm_message = Message::new_dm(
         None,

@@ -30,7 +30,7 @@ The shared `Context` (`src/cli.rs`) contains:
 
 File: `src/cli/send_dm.rs`
 
-```12:69:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/cli/send_dm.rs
+```rust
 pub async fn execute_send_dm(
     receiver: PublicKey,
     ctx: &Context,
@@ -56,7 +56,7 @@ Step‑by‑step:
 2. **Mostro protocol payload**:
    - Constructs a Mostro‑core `Message`:
 
-     ```35:42:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/cli/send_dm.rs
+     ```rust
      let message = Message::new_dm(
          None,
          None,
@@ -75,7 +75,7 @@ Step‑by‑step:
 
 3. **Resolve trade keys for this order**:
 
-   ```44:53:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/cli/send_dm.rs
+   ```rust
    let trade_keys =
        if let Ok(order_to_vote) = Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
            match order_to_vote.trade_keys.as_ref() {
@@ -97,7 +97,7 @@ Step‑by‑step:
 
 4. **Delegate to `util::send_dm`**:
 
-   ```56:64:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/cli/send_dm.rs
+   ```rust
    send_dm(
        &ctx.client,
        Some(&trade_keys),
@@ -122,7 +122,7 @@ Step‑by‑step:
 
 File: `src/util/messaging.rs`
 
-```201:253:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/util/messaging.rs
+```rust
 pub async fn send_dm(
     client: &Client,
     identity_keys: Option<&Keys>,
@@ -187,7 +187,7 @@ Key points:
 
 - **Message type decision**:
 
-  ```129:134:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/util/messaging.rs
+  ```rust
   fn determine_message_type(to_user: bool, private: bool) -> MessageType {
       match (to_user, private) {
           (true, _) => MessageType::PrivateDirectMessage,
@@ -206,7 +206,7 @@ Key points:
 
 For `MessageType::SignedGiftWrap` we use `create_gift_wrap_event(..., signed = true)`:
 
-```162:199:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/util/messaging.rs
+```rust
 async fn create_gift_wrap_event(
     trade_keys: &Keys,
     identity_keys: Option<&Keys>,
@@ -271,7 +271,7 @@ Protocol behaviour:
 - **Relaying**:
   - The final event is sent via:
 
-    ```251:252:/home/pinballwizard/rust_prj/mostro_p2p/mostro-cli/src/util/messaging.rs
+    ```rust
     client.send_event(&event).await?;
     ```
 

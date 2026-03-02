@@ -5,12 +5,11 @@ use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
-use bitcoin_hashes::Hash;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use nostr_sdk::prelude::*;
-use rand_core::OsRng;
-use rand_core::RngCore;
+use rand::rngs::OsRng;
+use rand::RngCore;
 use uuid::Uuid;
 
 use crate::cli::Context;
@@ -76,7 +75,11 @@ async fn upload_to_blossom(trade_keys: &Keys, encrypted_blob: Vec<u8>) -> Result
 
     let client = reqwest::Client::new();
     let payload_hash = Sha256Hash::hash(&encrypted_blob);
-    let payload_hex = payload_hash.to_string();
+    let payload_hex = payload_hash
+        .to_byte_array()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
 
     // Expiration: 1 hour from now (BUD-01 requires expiration in the future)
     let expiration = Timestamp::from(Timestamp::now().as_u64() + 3600);

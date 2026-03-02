@@ -169,15 +169,15 @@ All commands are part of the `Commands` enum and are dispatched via `Commands::r
 ### Admin / solver dispute management
 
 - **`admcancel`** *(admin only)*
-  - **Description**: Cancel an order / dispute as admin.
+  - **Description**: Cancel a dispute.
   - **Args**:
-    - `--order-id <UUID>`: Order identifier.
+    - `--dispute-id <UUID>`: Dispute identifier.
   - **Handler**: `execute_admin_cancel_dispute(order_id, ctx)` in `src/cli/take_dispute.rs`.
 
 - **`admsettle`** *(admin only)*
-  - **Description**: Settle a seller's hold invoice.
+  - **Description**: Settle a dispute.
   - **Args**:
-    - `--order-id <UUID>`: Order identifier.
+    - `--dispute-id <UUID>`: Dispute identifier.
   - **Handler**: `execute_admin_settle_dispute(order_id, ctx)` in `src/cli/take_dispute.rs`.
 
 - **`admaddsolver`** *(admin only)*
