@@ -61,7 +61,7 @@ pub async fn execute_get_dm_user(
             .checked_sub_signed(chrono::Duration::minutes(*since))
             .unwrap()
             .timestamp();
-        messages.retain(|(_, ts, _)| (*ts as i64) >= cutoff_ts);
+        messages.retain(|(_, ts, _)| (*ts) >= cutoff_ts);
     }
 
     // 5. Keep only messages sent by the counterparty (not our own side)
@@ -73,11 +73,10 @@ pub async fn execute_get_dm_user(
     }
 
     // 6. Pretty-print the messages
-    println!("");
     print_section_header("💬 Shared-Key Chat Messages");
 
     for (idx, (content, ts, sender_pk)) in messages.iter().enumerate() {
-        let date = match chrono::DateTime::from_timestamp(*ts as i64, 0) {
+        let date = match chrono::DateTime::from_timestamp(*ts, 0) {
             Some(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
             None => "Invalid timestamp".to_string(),
         };
