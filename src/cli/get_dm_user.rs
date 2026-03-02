@@ -52,19 +52,34 @@ pub async fn execute_get_dm_user(
         .map(Keys::new)
         .map_err(|e| anyhow::anyhow!("Could not build Keys from shared key: {e}"))?;
 
-    // 3. Fetch all gift wraps addressed to this shared key and decrypt them
+    // 3. Enforce the 7-day lookback window used by fetch_gift_wraps_for_shared_key
+    let max_minutes: i64 = 7 * 24 * 60;
+    if *since > max_minutes {
+        return Err(anyhow::anyhow!(
+            "Lookback window is limited to 7 days ({} minutes); requested {} minutes",
+            max_minutes,
+            since
+        ));
+    }
+
+    // 4. Fetch all gift wraps addressed to this shared key and decrypt them
     let mut messages = fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?;
 
-    // 4. Apply "since" filter (minutes back from now)
+    // 5. Apply "since" filter (minutes back from now)
     if *since > 0 {
         let cutoff_ts = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::minutes(*since))
-            .unwrap()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid 'since' value {}; could not compute cutoff timestamp",
+                    since
+                )
+            })?
             .timestamp();
         messages.retain(|(_, ts, _)| (*ts) >= cutoff_ts);
     }
 
-    // 5. Keep only messages sent by the counterparty (not our own side)
+    // 6. Keep only messages sent by the counterparty (not our own side)
     messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey);
 
     if messages.is_empty() {
@@ -72,7 +87,7 @@ pub async fn execute_get_dm_user(
         return Ok(());
     }
 
-    // 6. Pretty-print the messages
+    // 7. Pretty-print the messages
     print_section_header("💬 Shared-Key Chat Messages");
 
     for (idx, (content, ts, sender_pk)) in messages.iter().enumerate() {
@@ -81,12 +96,8 @@ pub async fn execute_get_dm_user(
             None => "Invalid timestamp".to_string(),
         };
 
-        // Mark messages from the counterparty vs our own future messages (if any)
-        let from_label = if *sender_pk == pubkey {
-            format!("👤 Counterparty ({sender_pk})")
-        } else {
-            format!("🧑 You ({sender_pk})")
-        };
+        // Messages are already filtered to only those from the counterparty.
+        let from_label = format!("👤 Counterparty ({sender_pk})");
 
         println!("📄 Message {}:", idx + 1);
         println!("─────────────────────────────────────");
