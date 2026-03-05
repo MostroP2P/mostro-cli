@@ -80,7 +80,7 @@ pub async fn execute_take_order(
     }
     if let Some(amt) = amount {
         let amount_label = match &action {
-            Action::TakeBuy => "Fiat Amount",
+            Action::TakeBuy | Action::TakeSell => "Fiat Amount",
             _ => "Amount (sats)",
         };
         table.add_row(create_emoji_field_row(
