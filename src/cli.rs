@@ -145,7 +145,7 @@ pub enum Commands {
         /// Invoice string
         #[arg(short, long)]
         invoice: Option<String>,
-        /// Amount of fiat to buy
+        /// Amount of fiat to pay (someone is selling sats, you are buying)
         #[arg(short, long)]
         amount: Option<u32>,
     },
@@ -154,7 +154,7 @@ pub enum Commands {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
-        /// Amount of fiat to sell
+        /// Amount of fiat to receive (someone is buying sats, you are selling)
         #[arg(short, long)]
         amount: Option<u32>,
     },
