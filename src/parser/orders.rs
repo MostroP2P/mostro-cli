@@ -286,6 +286,11 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
 
     table.add_rows(rows);
 
+    // Set minimum width on Order ID column (index 1) to prevent UUID truncation
+    if let Some(col) = table.column_mut(1) {
+        col.set_constraint(ColumnConstraint::Absolute(Width::Fixed(38)));
+    }
+
     Ok(table.to_string())
 }
 
