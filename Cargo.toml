@@ -20,32 +20,32 @@ name = "mostro-cli"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.99"
-clap = { version = "4.5.46", features = ["derive"] }
+anyhow = "1.0.100"
+clap = { version = "4.5.54", features = ["derive"] }
 nostr-sdk = { version = "0.43.0", features = ["nip06", "nip44", "nip59"] }
-serde = "1.0.219"
-serde_json = "1.0.143"
-tokio = { version = "1.47.1", features = ["full"] }
-comfy-table = "7.2.1"
-chrono = "0.4.42"
-log = "0.4.28"
+serde = "1.0.228"
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["full"] }
+comfy-table = "7.2.2"
+chrono = "0.4.43"
+log = "0.4.29"
 futures = "0.3"
-uuid = { version = "1.18.1", features = [
+uuid = { version = "1.19.0", features = [
   "v4",
   "fast-rng",
   "macro-diagnostics",
   "serde",
 ] }
-lightning-invoice = { version = "0.33.2", features = ["std"] }
+lightning-invoice = { version = "0.34.0", features = ["std"] }
 reqwest = { version = "0.12.23", default-features = false, features = [
   "json",
   "rustls-tls",
 ] }
-mostro-core = "0.6.56"
+mostro-core = "0.7.0"
 lnurl-rs = { version = "0.9.0", default-features = false, features = ["ureq"] }
 pretty_env_logger = "0.5.0"
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }
-bip39 = { version = "2.2.0", features = ["rand"] }
+bip39 = { version = "2.2.2", features = ["rand"] }
 dirs = "6.0.0"
 
 [package.metadata.release]
