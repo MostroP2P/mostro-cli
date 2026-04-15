@@ -65,11 +65,12 @@ async fn send_gift_wrap_dm_internal(
 
     let content = serde_json::to_string(&(dm_message, None::<String>))?;
 
-    let rumor = EventBuilder::text_note(content)
-        .pow(pow)
-        .build(sender_keys.public_key());
-
-    let event = EventBuilder::gift_wrap(sender_keys, receiver_pubkey, rumor, Tags::new()).await?;
+    let rumor = EventBuilder::text_note(content).build(sender_keys.public_key());
+    let seal: Event = EventBuilder::seal(sender_keys, receiver_pubkey, rumor)
+        .await?
+        .sign(sender_keys)
+        .await?;
+    let event = gift_wrap_from_seal_with_pow(receiver_pubkey, &seal, Tags::new(), pow)?;
 
     let sender_type = if is_admin { "admin" } else { "user" };
     info!(
@@ -159,6 +160,47 @@ async fn create_private_dm_event(
     )
 }
 
+/// Builds the published NIP-59 **Gift Wrap** (kind 1059) from a signed **Seal** event.
+///
+/// Rust-nostr’s `EventBuilder::gift_wrap` seals and wraps but does not apply NIP-13 PoW to the
+/// outer Gift Wrap; Mostro may require that difficulty on the relay-visible event. This helper
+/// mirrors the SDK’s seal→wrap steps: reject non-seal inputs, encrypt the seal JSON to `receiver`
+/// with NIP-44 using an **ephemeral** key pair, attach `p` and optional tags, set
+/// [`nip59::RANGE_RANDOM_TIMESTAMP_TWEAK`]-style `created_at`, mine with [`EventBuilder::pow`],
+/// then sign the wrap with the ephemeral keys.
+fn gift_wrap_from_seal_with_pow(
+    receiver: &PublicKey,
+    seal: &Event,
+    extra_tags: impl IntoIterator<Item = Tag>,
+    pow: u8,
+) -> Result<Event> {
+    if seal.kind != nostr_sdk::Kind::Seal {
+        return Err(anyhow::anyhow!(
+            "Expected Seal (kind {}), got kind {}",
+            nostr_sdk::Kind::Seal.as_u16(),
+            seal.kind.as_u16(),
+        ));
+    }
+
+    let ephem = Keys::generate();
+    let content = nip44::encrypt(
+        ephem.secret_key(),
+        receiver,
+        seal.as_json(),
+        nip44::Version::default(),
+    )?;
+
+    let mut tags: Vec<Tag> = extra_tags.into_iter().collect();
+    tags.push(Tag::public_key(*receiver));
+
+    EventBuilder::new(nostr_sdk::Kind::GiftWrap, content)
+        .tags(tags)
+        .custom_created_at(Timestamp::tweaked(nip59::RANGE_RANDOM_TIMESTAMP_TWEAK))
+        .pow(pow)
+        .sign_with_keys(&ephem)
+        .map_err(|e| anyhow::anyhow!("Failed to sign gift wrap: {e}"))
+}
+
 async fn create_gift_wrap_event(
     trade_keys: &Keys,
     identity_keys: Option<&Keys>,
@@ -183,9 +225,7 @@ async fn create_gift_wrap_event(
             .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
     };
 
-    let rumor = EventBuilder::text_note(content)
-        .pow(pow)
-        .build(trade_keys.public_key());
+    let rumor = EventBuilder::text_note(content).build(trade_keys.public_key());
 
     let tags = create_expiration_tags(expiration);
 
@@ -195,7 +235,12 @@ async fn create_gift_wrap_event(
         trade_keys
     };
 
-    Ok(EventBuilder::gift_wrap(signer_keys, receiver_pubkey, rumor, tags).await?)
+    let seal: Event = EventBuilder::seal(signer_keys, receiver_pubkey, rumor)
+        .await?
+        .sign(signer_keys)
+        .await?;
+
+    gift_wrap_from_seal_with_pow(receiver_pubkey, &seal, tags, pow)
 }
 
 pub async fn send_dm(
@@ -284,4 +329,70 @@ pub async fn print_dm_events(
         return Err(anyhow::anyhow!("No response received from Mostro"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leading_zero_bits_in_hex(hex: &str) -> u32 {
+        let mut bits = 0_u32;
+        for ch in hex.chars() {
+            let nibble = ch.to_digit(16).expect("event id must be hex");
+            if nibble == 0 {
+                bits += 4;
+            } else {
+                bits += nibble.leading_zeros() - 28;
+                break;
+            }
+        }
+        bits
+    }
+
+    fn event_meets_pow(event: &Event, difficulty: u8) -> bool {
+        let id_hex = event.id.to_string();
+        leading_zero_bits_in_hex(&id_hex) >= difficulty.into()
+    }
+
+    #[test]
+    fn gift_wrap_from_seal_with_pow_builds_gift_wrap_kind() -> Result<()> {
+        let receiver = Keys::generate().public_key();
+        let seal = EventBuilder::new(nostr_sdk::Kind::Seal, "sealed payload")
+            .sign_with_keys(&Keys::generate())?;
+
+        let event = gift_wrap_from_seal_with_pow(&receiver, &seal, Tags::new(), 0)?;
+
+        assert_eq!(event.kind, nostr_sdk::Kind::GiftWrap);
+        Ok(())
+    }
+
+    #[test]
+    fn gift_wrap_from_seal_with_pow_meets_requested_difficulty() -> Result<()> {
+        let receiver = Keys::generate().public_key();
+        let seal = EventBuilder::new(nostr_sdk::Kind::Seal, "sealed payload")
+            .sign_with_keys(&Keys::generate())?;
+        let pow = 8;
+
+        let event = gift_wrap_from_seal_with_pow(&receiver, &seal, Tags::new(), pow)?;
+
+        assert!(
+            event_meets_pow(&event, pow),
+            "gift wrap id does not satisfy PoW"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gift_wrap_from_seal_with_pow_rejects_non_seal() {
+        let receiver = Keys::generate().public_key();
+        let non_seal = EventBuilder::new(nostr_sdk::Kind::TextNote, "not a seal")
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+
+        let err = gift_wrap_from_seal_with_pow(&receiver, &non_seal, Tags::new(), 0).unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("kind"),
+            "unexpected error: {err}"
+        );
+    }
 }
