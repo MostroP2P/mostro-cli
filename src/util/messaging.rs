@@ -65,11 +65,12 @@ async fn send_gift_wrap_dm_internal(
 
     let content = serde_json::to_string(&(dm_message, None::<String>))?;
 
-    let rumor = EventBuilder::text_note(content)
-        .pow(pow)
-        .build(sender_keys.public_key());
-
-    let event = EventBuilder::gift_wrap(sender_keys, receiver_pubkey, rumor, Tags::new()).await?;
+    let rumor = EventBuilder::text_note(content).build(sender_keys.public_key());
+    let seal: Event = EventBuilder::seal(sender_keys, receiver_pubkey, rumor)
+        .await?
+        .sign(sender_keys)
+        .await?;
+    let event = gift_wrap_from_seal_with_pow(receiver_pubkey, &seal, Tags::new(), pow)?;
 
     let sender_type = if is_admin { "admin" } else { "user" };
     info!(
