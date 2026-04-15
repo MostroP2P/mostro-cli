@@ -10,6 +10,7 @@ use std::env::var;
 use crate::cli::Context;
 use crate::parser::dms::print_commands_results;
 use crate::parser::parse_dm_events;
+use crate::util::events::FETCH_EVENTS_TIMEOUT;
 use crate::util::types::MessageType;
 
 /// Helper function to retrieve and validate admin keys from context
@@ -24,6 +25,181 @@ pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
     }
 
     Ok(admin_keys)
+}
+
+/// Derive shared ECDH keys from a local keypair and a counterparty public key.
+pub fn derive_shared_keys(
+    admin_keys: Option<&Keys>,
+    counterparty_pubkey: Option<&PublicKey>,
+) -> Option<Keys> {
+    let admin = admin_keys?;
+    let cp_pk = counterparty_pubkey?;
+    let shared_bytes = nostr_sdk::util::generate_shared_key(admin.secret_key(), cp_pk).ok()?;
+    let sk = nostr_sdk::SecretKey::from_slice(&shared_bytes).ok()?;
+    Some(Keys::new(sk))
+}
+
+/// Convenience wrapper: derive a shared key and return its secret as a hex string.
+pub fn derive_shared_key_hex(
+    admin_keys: Option<&Keys>,
+    counterparty_pubkey_str: Option<&str>,
+) -> Option<String> {
+    let cp_pk = counterparty_pubkey_str.and_then(|s| PublicKey::parse(s).ok());
+    let keys = derive_shared_keys(admin_keys, cp_pk.as_ref())?;
+    Some(keys.secret_key().to_secret_hex())
+}
+
+/// Rebuild a `Keys` from a stored shared-key hex string.
+pub fn keys_from_shared_hex(hex: &str) -> Option<Keys> {
+    nostr_sdk::Keys::parse(hex).ok()
+}
+
+/// Derive shared secret bytes (ECDH) using the same algorithm as send_admin_dm_attach.
+/// Used so the receive path can decrypt DMs sent via that flow. Returns 32 bytes suitable
+/// for ChaCha20-Poly1305 or for building Keys via Keys::new(SecretKey::from_slice(&bytes)).
+pub fn derive_shared_key_bytes(local_keys: &Keys, other_pubkey: &PublicKey) -> Result<[u8; 32]> {
+    use bitcoin::secp256k1::ecdh::shared_secret_point;
+    use bitcoin::secp256k1::{Parity, PublicKey as SecpPublicKey};
+
+    let sk = local_keys.secret_key();
+    let xonly = other_pubkey
+        .xonly()
+        .map_err(|_| anyhow::anyhow!("failed to get x-only public key"))?;
+    let secp_pk = SecpPublicKey::from_x_only_public_key(xonly, Parity::Even);
+    let mut point_bytes = shared_secret_point(&secp_pk, sk).as_slice().to_vec();
+    point_bytes.resize(32, 0);
+    point_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("shared secret point must be at least 32 bytes"))
+}
+
+/// Build a NIP-59 gift wrap event to a recipient pubkey (e.g. shared key pubkey).
+/// Rumor content is Mostro protocol format: JSON of (Message, Option<String>).
+async fn build_custom_wrap_event(
+    sender_keys: &Keys,
+    recipient_pubkey: &PublicKey,
+    message: &str,
+) -> Result<Event> {
+    let inner_message = EventBuilder::text_note(message)
+        .build(sender_keys.public_key())
+        .sign(sender_keys)
+        .await?;
+
+    // Ephemeral key for the custom wrap
+    let ephem_key = Keys::generate();
+
+    // Encrypt the inner message with the ephemeral key using NIP-44
+    let encrypted_content = nip44::encrypt(
+        ephem_key.secret_key(),
+        recipient_pubkey,
+        inner_message.as_json(),
+        nip44::Version::V2,
+    )?;
+
+    // Build tags for the wrapper event, the recipient pubkey is the shared key pubkey
+    let tag = Tag::public_key(*recipient_pubkey);
+
+    // Reuse POW behaviour from existing DM helpers, but fail on invalid values
+    let pow: u8 = var("POW")
+        .unwrap_or_else(|_| "0".to_string())
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
+
+    // Build the wrapped event
+    let wrapped_event = EventBuilder::new(nostr_sdk::Kind::GiftWrap, encrypted_content)
+        .tag(tag)
+        .custom_created_at(Timestamp::tweaked(nip59::RANGE_RANDOM_TIMESTAMP_TWEAK))
+        .pow(pow)
+        .sign_with_keys(&ephem_key)?;
+
+    Ok(wrapped_event)
+}
+
+/// Send a chat message via a per-dispute shared key (ECDH-derived).
+/// The gift wrap is addressed to the shared key's public key so both parties
+/// (who derive the same shared key) can fetch and decrypt the event.
+pub async fn send_admin_chat_message_via_shared_key(
+    client: &Client,
+    sender_keys: &Keys,
+    shared_keys: &Keys,
+    content: &str,
+) -> Result<()> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Err(anyhow::anyhow!("Cannot send empty chat message"));
+    }
+    let recipient_pubkey = shared_keys.public_key();
+    let event = build_custom_wrap_event(sender_keys, &recipient_pubkey, content).await?;
+    client.send_event(&event).await?;
+    Ok(())
+}
+
+/// Unwrap a custom Mostro P2P giftwrap addressed to a shared key.
+/// Decrypts with the shared key using NIP-44 and returns (content, timestamp, sender_pubkey).
+pub async fn unwrap_giftwrap_with_shared_key(
+    shared_keys: &Keys,
+    event: &Event,
+) -> Result<(String, i64, PublicKey)> {
+    let decrypted = nip44::decrypt(shared_keys.secret_key(), &event.pubkey, &event.content)
+        .map_err(|e| anyhow::anyhow!("Failed to decrypt gift wrap with shared key: {e}"))?;
+
+    let inner_event = Event::from_json(&decrypted)
+        .map_err(|e| anyhow::anyhow!("Invalid inner chat event: {e}"))?;
+
+    inner_event
+        .verify()
+        .map_err(|e| anyhow::anyhow!("Invalid inner chat event signature: {e}"))?;
+
+    Ok((
+        inner_event.content,
+        inner_event.created_at.as_u64() as i64,
+        inner_event.pubkey,
+    ))
+}
+
+/// Fetch gift wrap events addressed to a specific shared key's public key,
+/// decrypt each with the shared key, and return (content, timestamp, sender_pubkey).
+pub async fn fetch_gift_wraps_for_shared_key(
+    client: &Client,
+    shared_keys: &Keys,
+) -> Result<Vec<(String, i64, PublicKey)>> {
+    let now = Timestamp::now().as_u64();
+    let seven_days_secs: u64 = 7 * 24 * 60 * 60;
+    let wide_since = now.saturating_sub(seven_days_secs);
+
+    let shared_pubkey = shared_keys.public_key();
+    let filter = Filter::new()
+        .kind(nostr_sdk::Kind::GiftWrap)
+        .pubkey(shared_pubkey)
+        .since(Timestamp::from(wide_since))
+        .limit(100);
+
+    let events = client
+        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to fetch chat events for shared key: {e}"))?;
+
+    let mut messages = Vec::new();
+    for wrapped in events.iter() {
+        let to_shared = wrapped.tags.public_keys().any(|pk| *pk == shared_pubkey);
+        if !to_shared {
+            continue;
+        }
+        match unwrap_giftwrap_with_shared_key(shared_keys, wrapped).await {
+            Ok((content, ts, sender_pubkey)) => {
+                messages.push((content, ts, sender_pubkey));
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to unwrap gift wrap for shared key {}: {}",
+                    wrapped.id,
+                    e
+                );
+            }
+        }
+    }
+    messages.sort_by_key(|(_, ts, _)| *ts);
+    Ok(messages)
 }
 
 pub async fn send_admin_gift_wrap_dm(
@@ -54,7 +230,7 @@ async fn send_gift_wrap_dm_internal(
     let pow: u8 = var("POW")
         .unwrap_or_else(|_| "0".to_string())
         .parse()
-        .unwrap_or(0);
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
 
     let dm_message = Message::new_dm(
         None,

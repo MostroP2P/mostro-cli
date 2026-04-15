@@ -34,7 +34,7 @@ pub async fn execute_last_trade_index(
         false,
     );
 
-    // Log the sent message
+    // Print request summary
     print_section_header("🔢 Last Trade Index Request");
     print_key_value("👤", "User", &identity_keys.public_key().to_string());
     print_key_value("🎯", "Target", &mostro_key.to_string());

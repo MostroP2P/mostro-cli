@@ -22,7 +22,7 @@ pub async fn execute_get_dm(
     print_key_value("💡", "Action", "Fetching direct messages...");
     println!();
 
-    // Get the list kind
+    // Determine DM list to fetch (admin/user and from-user flag)
     let list_kind = match (admin, from_user) {
         (true, true) => ListKind::PrivateDirectMessagesUser,
         (true, false) => ListKind::DirectMessagesAdmin,

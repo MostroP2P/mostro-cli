@@ -12,7 +12,7 @@ use crate::{
     util::{print_dm_events, send_dm, wait_for_dm},
 };
 
-// Get the user rate
+/// Build rating payload for the given score and order id.
 fn get_user_rate(rating: &u8, order_id: &Uuid) -> Result<Payload> {
     if let Some(rating) = RATING_BOUNDARIES.iter().find(|r| r == &rating) {
         print_section_header("⭐ Rate User");
@@ -72,7 +72,7 @@ pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> R
     let recv_event = wait_for_dm(ctx, Some(&trade_keys), sent_message).await?;
 
     // Parse the incoming DM
-    // use a fake request id
+    // Use a fake request id
     let fake_request_id = Uuid::new_v4().as_u128() as u64;
     print_dm_events(recv_event, fake_request_id, ctx, Some(&trade_keys)).await?;
 
