@@ -175,7 +175,11 @@ fn gift_wrap_from_seal_with_pow(
     pow: u8,
 ) -> Result<Event> {
     if seal.kind != nostr_sdk::Kind::Seal {
-        return Err(anyhow::anyhow!("Invalid kind"));
+        return Err(anyhow::anyhow!(
+            "Expected Seal (kind {}), got kind {}",
+            nostr_sdk::Kind::Seal.as_u16(),
+            seal.kind.as_u16(),
+        ));
     }
 
     let ephem = Keys::generate();
@@ -325,4 +329,70 @@ pub async fn print_dm_events(
         return Err(anyhow::anyhow!("No response received from Mostro"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leading_zero_bits_in_hex(hex: &str) -> u32 {
+        let mut bits = 0_u32;
+        for ch in hex.chars() {
+            let nibble = ch.to_digit(16).expect("event id must be hex");
+            if nibble == 0 {
+                bits += 4;
+            } else {
+                bits += nibble.leading_zeros() - 28;
+                break;
+            }
+        }
+        bits
+    }
+
+    fn event_meets_pow(event: &Event, difficulty: u8) -> bool {
+        let id_hex = event.id.to_string();
+        leading_zero_bits_in_hex(&id_hex) >= difficulty.into()
+    }
+
+    #[test]
+    fn gift_wrap_from_seal_with_pow_builds_gift_wrap_kind() -> Result<()> {
+        let receiver = Keys::generate().public_key();
+        let seal = EventBuilder::new(nostr_sdk::Kind::Seal, "sealed payload")
+            .sign_with_keys(&Keys::generate())?;
+
+        let event = gift_wrap_from_seal_with_pow(&receiver, &seal, Tags::new(), 0)?;
+
+        assert_eq!(event.kind, nostr_sdk::Kind::GiftWrap);
+        Ok(())
+    }
+
+    #[test]
+    fn gift_wrap_from_seal_with_pow_meets_requested_difficulty() -> Result<()> {
+        let receiver = Keys::generate().public_key();
+        let seal = EventBuilder::new(nostr_sdk::Kind::Seal, "sealed payload")
+            .sign_with_keys(&Keys::generate())?;
+        let pow = 8;
+
+        let event = gift_wrap_from_seal_with_pow(&receiver, &seal, Tags::new(), pow)?;
+
+        assert!(
+            event_meets_pow(&event, pow),
+            "gift wrap id does not satisfy PoW"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gift_wrap_from_seal_with_pow_rejects_non_seal() {
+        let receiver = Keys::generate().public_key();
+        let non_seal = EventBuilder::new(nostr_sdk::Kind::TextNote, "not a seal")
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+
+        let err = gift_wrap_from_seal_with_pow(&receiver, &non_seal, Tags::new(), 0).unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("kind"),
+            "unexpected error: {err}"
+        );
+    }
 }
