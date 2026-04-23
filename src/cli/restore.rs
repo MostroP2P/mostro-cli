@@ -19,10 +19,13 @@ pub async fn execute_restore(
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Send the restore message to Mostro server
+    // Restore is account-scoped: Mostro indexes users by their identity
+    // pubkey, so the whole exchange (send, wait, decrypt) runs on
+    // `identity_keys` — an unregistered trade key would look like an
+    // unknown user and recovery would silently return nothing.
     let sent_message = send_dm(
         &ctx.client,
-        &ctx.trade_keys,
+        identity_keys,
         &mostro_key,
         message_json,
         None,
@@ -48,10 +51,10 @@ pub async fn execute_restore(
     println!("⏳ Recovering pending orders and disputes...\n");
 
     // Wait for incoming DM
-    let recv_event = wait_for_dm(ctx, Some(&ctx.trade_keys), sent_message).await?;
+    let recv_event = wait_for_dm(ctx, Some(identity_keys), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, &ctx.trade_keys, None).await;
+    let messages = parse_dm_events(recv_event, identity_keys, None).await;
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.action == Action::RestoreSession {
