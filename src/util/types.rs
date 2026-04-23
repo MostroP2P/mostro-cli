@@ -16,10 +16,3 @@ pub enum ListKind {
     DirectMessagesAdmin,
     PrivateDirectMessagesUser,
 }
-
-#[derive(Debug, Clone, Copy)]
-pub(super) enum MessageType {
-    PrivateDirectMessage,
-    PrivateGiftWrap,
-    SignedGiftWrap,
-}

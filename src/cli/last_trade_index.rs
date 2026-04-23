@@ -26,7 +26,6 @@ pub async fn execute_last_trade_index(
     // Send the last trade index message to Mostro server
     let sent_message = send_dm(
         &ctx.client,
-        Some(identity_keys),
         &ctx.trade_keys,
         &mostro_key,
         message_json,

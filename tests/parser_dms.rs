@@ -198,6 +198,8 @@ async fn print_dms_with_restore_session_payload() {
         order_id: uuid::Uuid::new_v4(),
         trade_index: 1,
         status: "initiated".to_string(),
+        initiator: None,
+        solver_pubkey: None,
     };
     let restore_payload = Payload::RestoreData(RestoreSessionInfo {
         restore_orders: vec![order_info],
@@ -224,6 +226,69 @@ async fn parse_dm_with_time_filter() {
     let since = 1700000000i64;
     let out = parse_dm_events(events, &keys, Some(&since)).await;
     assert!(out.is_empty());
+}
+
+// End-to-end check that parse_dm_events accepts gift wraps produced by the
+// centralized `wrap_message` pipeline. This is the receive-side counterpart
+// of the wiring tests in src/util/messaging.rs and protects against a future
+// drift between how we publish DMs and how we decode them.
+#[tokio::test]
+async fn parse_dm_events_accepts_wrap_message_output() {
+    let sender_trade_keys = Keys::generate();
+    let receiver_keys = Keys::generate();
+
+    let inner = Message::new_order(
+        None,
+        Some(123),
+        Some(1),
+        Action::NewOrder,
+        Some(Payload::TextMessage("hello".to_string())),
+    );
+    let wrapped = wrap_message(
+        &inner,
+        &sender_trade_keys,
+        receiver_keys.public_key(),
+        WrapOptions::default(),
+    )
+    .await
+    .expect("wrap");
+
+    let mut events = Events::new(&Filter::new());
+    events.insert(wrapped);
+
+    let parsed = parse_dm_events(events, &receiver_keys, None).await;
+    assert_eq!(parsed.len(), 1);
+    let (message, _, sender) = &parsed[0];
+    assert_eq!(sender, &sender_trade_keys.public_key());
+    assert_eq!(
+        message.as_json().unwrap(),
+        inner.as_json().unwrap(),
+        "inner message must roundtrip byte-for-byte",
+    );
+}
+
+// Gift wraps addressed to somebody else must be silently skipped, not
+// treated as protocol violations.
+#[tokio::test]
+async fn parse_dm_events_skips_events_for_other_keys() {
+    let sender = Keys::generate();
+    let intended_recipient = Keys::generate();
+    let eavesdropper = Keys::generate();
+
+    let wrapped = wrap_message(
+        &Message::new_order(None, Some(1), Some(1), Action::NewOrder, None),
+        &sender,
+        intended_recipient.public_key(),
+        WrapOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let mut events = Events::new(&Filter::new());
+    events.insert(wrapped);
+
+    let parsed = parse_dm_events(events, &eavesdropper, None).await;
+    assert!(parsed.is_empty());
 }
 
 #[tokio::test]

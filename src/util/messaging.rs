@@ -1,7 +1,6 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use base64::engine::general_purpose;
 use base64::Engine;
-use log::info;
 use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
@@ -11,7 +10,6 @@ use crate::cli::Context;
 use crate::parser::dms::print_commands_results;
 use crate::parser::parse_dm_events;
 use crate::util::events::FETCH_EVENTS_TIMEOUT;
-use crate::util::types::MessageType;
 
 /// Helper function to retrieve and validate admin keys from context
 pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
@@ -152,7 +150,7 @@ pub async fn unwrap_giftwrap_with_shared_key(
 
     Ok((
         inner_event.content,
-        inner_event.created_at.as_u64() as i64,
+        inner_event.created_at.as_secs() as i64,
         inner_event.pubkey,
     ))
 }
@@ -163,7 +161,7 @@ pub async fn fetch_gift_wraps_for_shared_key(
     client: &Client,
     shared_keys: &Keys,
 ) -> Result<Vec<(String, i64, PublicKey)>> {
-    let now = Timestamp::now().as_u64();
+    let now = Timestamp::now().as_secs();
     let seven_days_secs: u64 = 7 * 24 * 60 * 60;
     let wide_since = now.saturating_sub(seven_days_secs);
 
@@ -202,60 +200,44 @@ pub async fn fetch_gift_wraps_for_shared_key(
     Ok(messages)
 }
 
-pub async fn send_admin_gift_wrap_dm(
+/// Internal: wrap a Mostro `Message` via [`wrap_message`] and publish it.
+async fn publish_gift_wrap(
     client: &Client,
-    admin_keys: &Keys,
+    signer_keys: &Keys,
     receiver_pubkey: &PublicKey,
-    message: &str,
+    message: &Message,
+    opts: WrapOptions,
 ) -> Result<()> {
-    send_gift_wrap_dm_internal(client, admin_keys, receiver_pubkey, message, true).await
+    let event = wrap_message(message, signer_keys, *receiver_pubkey, opts)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to wrap message: {e}"))?;
+    client.send_event(&event).await?;
+    Ok(())
 }
 
-pub async fn send_gift_wrap_dm(
+/// Send a plain-text DM wrapped as a NIP-59 Gift Wrap using `signer_keys`.
+///
+/// The wrap uses `signed = false` so the inner rumor carries `(Message, None)`,
+/// matching the behavior of the deleted `send_gift_wrap_dm_internal` helper.
+pub async fn send_plain_text_dm(
     client: &Client,
-    trade_keys: &Keys,
+    signer_keys: &Keys,
     receiver_pubkey: &PublicKey,
-    message: &str,
+    text: &str,
 ) -> Result<()> {
-    send_gift_wrap_dm_internal(client, trade_keys, receiver_pubkey, message, false).await
-}
-
-async fn send_gift_wrap_dm_internal(
-    client: &Client,
-    sender_keys: &Keys,
-    receiver_pubkey: &PublicKey,
-    message: &str,
-    is_admin: bool,
-) -> Result<()> {
-    let pow: u8 = var("POW")
-        .unwrap_or_else(|_| "0".to_string())
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
-
+    let pow = parse_pow_env()?;
     let dm_message = Message::new_dm(
         None,
         None,
         Action::SendDm,
-        Some(Payload::TextMessage(message.to_string())),
+        Some(Payload::TextMessage(text.to_string())),
     );
-
-    let content = serde_json::to_string(&(dm_message, None::<String>))?;
-
-    let rumor = EventBuilder::text_note(content).build(sender_keys.public_key());
-    let seal: Event = EventBuilder::seal(sender_keys, receiver_pubkey, rumor)
-        .await?
-        .sign(sender_keys)
-        .await?;
-    let event = gift_wrap_from_seal_with_pow(receiver_pubkey, &seal, Tags::new(), pow)?;
-
-    let sender_type = if is_admin { "admin" } else { "user" };
-    info!(
-        "Sending {} gift wrap event to {}",
-        sender_type, receiver_pubkey
-    );
-    client.send_event(&event).await?;
-
-    Ok(())
+    let opts = WrapOptions {
+        pow,
+        expiration: None,
+        signed: false,
+    };
+    publish_gift_wrap(client, signer_keys, receiver_pubkey, &dm_message, opts).await
 }
 
 pub async fn wait_for_dm<F>(
@@ -303,20 +285,18 @@ where
     Ok(events)
 }
 
-fn determine_message_type(to_user: bool, private: bool) -> MessageType {
-    match (to_user, private) {
-        (true, _) => MessageType::PrivateDirectMessage,
-        (false, true) => MessageType::PrivateGiftWrap,
-        (false, false) => MessageType::SignedGiftWrap,
-    }
+fn parse_pow_env() -> Result<u8> {
+    var("POW")
+        .unwrap_or_else(|_| "0".to_string())
+        .parse::<u8>()
+        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))
 }
 
-fn create_expiration_tags(expiration: Option<Timestamp>) -> Tags {
-    let mut tags: Vec<Tag> = Vec::with_capacity(1 + usize::from(expiration.is_some()));
-    if let Some(timestamp) = expiration {
-        tags.push(Tag::expiration(timestamp));
-    }
-    Tags::from_list(tags)
+fn parse_secret_env() -> Result<bool> {
+    var("SECRET")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .map_err(|e| anyhow::anyhow!("Failed to parse SECRET: {}", e))
 }
 
 async fn create_private_dm_event(
@@ -336,141 +316,43 @@ async fn create_private_dm_event(
     )
 }
 
-/// Builds the published NIP-59 **Gift Wrap** (kind 1059) from a signed **Seal** event.
+/// Send a Mostro protocol message to `receiver_pubkey`.
 ///
-/// Rust-nostr’s `EventBuilder::gift_wrap` seals and wraps but does not apply NIP-13 PoW to the
-/// outer Gift Wrap; Mostro may require that difficulty on the relay-visible event. This helper
-/// mirrors the SDK’s seal→wrap steps: reject non-seal inputs, encrypt the seal JSON to `receiver`
-/// with NIP-44 using an **ephemeral** key pair, attach `p` and optional tags, set
-/// [`nip59::RANGE_RANDOM_TIMESTAMP_TWEAK`]-style `created_at`, mine with [`EventBuilder::pow`],
-/// then sign the wrap with the ephemeral keys.
-fn gift_wrap_from_seal_with_pow(
-    receiver: &PublicKey,
-    seal: &Event,
-    extra_tags: impl IntoIterator<Item = Tag>,
-    pow: u8,
-) -> Result<Event> {
-    if seal.kind != nostr_sdk::Kind::Seal {
-        return Err(anyhow::anyhow!(
-            "Expected Seal (kind {}), got kind {}",
-            nostr_sdk::Kind::Seal.as_u16(),
-            seal.kind.as_u16(),
-        ));
-    }
-
-    let ephem = Keys::generate();
-    let content = nip44::encrypt(
-        ephem.secret_key(),
-        receiver,
-        seal.as_json(),
-        nip44::Version::default(),
-    )?;
-
-    let mut tags: Vec<Tag> = extra_tags.into_iter().collect();
-    tags.push(Tag::public_key(*receiver));
-
-    EventBuilder::new(nostr_sdk::Kind::GiftWrap, content)
-        .tags(tags)
-        .custom_created_at(Timestamp::tweaked(nip59::RANGE_RANDOM_TIMESTAMP_TWEAK))
-        .pow(pow)
-        .sign_with_keys(&ephem)
-        .map_err(|e| anyhow::anyhow!("Failed to sign gift wrap: {e}"))
-}
-
-async fn create_gift_wrap_event(
-    trade_keys: &Keys,
-    identity_keys: Option<&Keys>,
-    receiver_pubkey: &PublicKey,
-    payload: String,
-    pow: u8,
-    expiration: Option<Timestamp>,
-    signed: bool,
-) -> Result<nostr_sdk::Event> {
-    let message = Message::from_json(&payload)
-        .map_err(|e| anyhow::anyhow!("Failed to deserialize message: {e}"))?;
-
-    let content = if signed {
-        let _identity_keys = identity_keys
-            .ok_or_else(|| Error::msg("identity_keys required for signed messages"))?;
-        let sig = Message::sign(payload, trade_keys);
-        serde_json::to_string(&(message, sig))
-            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
-    } else {
-        let content: (Message, Option<Signature>) = (message, None);
-        serde_json::to_string(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
-    };
-
-    let rumor = EventBuilder::text_note(content).build(trade_keys.public_key());
-
-    let tags = create_expiration_tags(expiration);
-
-    let signer_keys = if signed {
-        identity_keys.ok_or_else(|| Error::msg("identity_keys required for signed messages"))?
-    } else {
-        trade_keys
-    };
-
-    let seal: Event = EventBuilder::seal(signer_keys, receiver_pubkey, rumor)
-        .await?
-        .sign(signer_keys)
-        .await?;
-
-    gift_wrap_from_seal_with_pow(receiver_pubkey, &seal, tags, pow)
-}
-
+/// * `signer_keys` drives the whole NIP-59 pipeline: it authors the inner
+///   rumor, signs the seal, and (when `signed` is true) produces the inner
+///   tuple signature. Pass admin keys for admin flows and per-order trade
+///   keys for user flows.
+/// * `to_user` routes the message as a NIP-17 `PrivateDirectMessage`
+///   (kind 14) instead of a gift wrap.
+/// * Respects `POW` (mined on the outer wrap / DM) and `SECRET` (when true
+///   the inner tuple is unsigned). Gift wraps go through
+///   [`mostro_core::prelude::wrap_message`].
 pub async fn send_dm(
     client: &Client,
-    identity_keys: Option<&Keys>,
-    trade_keys: &Keys,
+    signer_keys: &Keys,
     receiver_pubkey: &PublicKey,
     payload: String,
     expiration: Option<Timestamp>,
     to_user: bool,
 ) -> Result<()> {
-    let pow: u8 = var("POW")
-        .unwrap_or('0'.to_string())
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
-    let private = var("SECRET")
-        .unwrap_or("false".to_string())
-        .parse::<bool>()
-        .map_err(|e| anyhow::anyhow!("Failed to parse SECRET: {}", e))?;
+    let pow = parse_pow_env()?;
 
-    let message_type = determine_message_type(to_user, private);
+    if to_user {
+        let event = create_private_dm_event(signer_keys, receiver_pubkey, payload, pow).await?;
+        client.send_event(&event).await?;
+        return Ok(());
+    }
 
-    let event = match message_type {
-        MessageType::PrivateDirectMessage => {
-            create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?
-        }
-        MessageType::PrivateGiftWrap => {
-            create_gift_wrap_event(
-                trade_keys,
-                identity_keys,
-                receiver_pubkey,
-                payload,
-                pow,
-                expiration,
-                false,
-            )
-            .await?
-        }
-        MessageType::SignedGiftWrap => {
-            create_gift_wrap_event(
-                trade_keys,
-                identity_keys,
-                receiver_pubkey,
-                payload,
-                pow,
-                expiration,
-                true,
-            )
-            .await?
-        }
+    let message = Message::from_json(&payload)
+        .map_err(|e| anyhow::anyhow!("Failed to deserialize message: {e}"))?;
+    let private = parse_secret_env()?;
+    let opts = WrapOptions {
+        pow,
+        expiration,
+        signed: !private,
     };
 
-    client.send_event(&event).await?;
-    Ok(())
+    publish_gift_wrap(client, signer_keys, receiver_pubkey, &message, opts).await
 }
 
 pub async fn print_dm_events(
@@ -481,29 +363,22 @@ pub async fn print_dm_events(
 ) -> Result<()> {
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     let messages = parse_dm_events(recv_event, trade_keys, None).await;
-    if let Some((message, _, _)) = messages.first() {
-        let message = message.get_inner_message_kind();
-        match message.request_id {
-            Some(id) => {
-                if request_id == id {
-                    print_commands_results(message, ctx).await?;
-                }
-            }
-            None if message.action == Action::RateReceived
-                || message.action == Action::NewOrder =>
-            {
-                print_commands_results(message, ctx).await?;
-            }
-            None => {
-                return Err(anyhow::anyhow!(
-                    "Received response with mismatched request_id. Expected: {}, Got: Null",
-                    request_id,
-                ));
-            }
-        }
-    } else {
-        return Err(anyhow::anyhow!("No response received from Mostro"));
+    let (message, _, _) = messages
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
+    let inner = message.get_inner_message_kind();
+
+    match validate_response(message, Some(request_id)) {
+        Ok(()) => {}
+        // `mostro_core::nip59::validate_response` intentionally leaves
+        // `NewOrder` out of the unsolicited-push allow-list. Preserve the
+        // CLI's legacy tolerance so a child order published after a range
+        // trade (no `request_id`) still gets printed.
+        Err(_) if inner.request_id.is_none() && inner.action == Action::NewOrder => {}
+        Err(e) => return Err(anyhow::anyhow!("Unexpected response from Mostro: {e}")),
     }
+
+    print_commands_results(inner, ctx).await?;
     Ok(())
 }
 
@@ -530,45 +405,112 @@ mod tests {
         leading_zero_bits_in_hex(&id_hex) >= difficulty.into()
     }
 
-    #[test]
-    fn gift_wrap_from_seal_with_pow_builds_gift_wrap_kind() -> Result<()> {
-        let receiver = Keys::generate().public_key();
-        let seal = EventBuilder::new(nostr_sdk::Kind::Seal, "sealed payload")
-            .sign_with_keys(&Keys::generate())?;
+    fn sample_protocol_message(request_id: Option<u64>) -> Message {
+        Message::new_order(
+            None,
+            request_id,
+            Some(1),
+            Action::NewOrder,
+            Some(Payload::TextMessage("hi".to_string())),
+        )
+    }
 
-        let event = gift_wrap_from_seal_with_pow(&receiver, &seal, Tags::new(), 0)?;
+    // Cryptographic correctness of wrap_message / unwrap_message lives in
+    // mostro-core. These tests only exercise the CLI wiring: that the
+    // Message we hand to send_dm survives a wrap→unwrap roundtrip and that
+    // our WrapOptions knobs (signed, pow) reach the outer event.
+
+    #[tokio::test]
+    async fn send_dm_gift_wrap_roundtrips_via_unwrap_message() {
+        let trade_keys = Keys::generate();
+        let mostro_keys = Keys::generate();
+        let message = sample_protocol_message(Some(42));
+
+        let event = wrap_message(
+            &message,
+            &trade_keys,
+            mostro_keys.public_key(),
+            WrapOptions::default(),
+        )
+        .await
+        .expect("wrap");
 
         assert_eq!(event.kind, nostr_sdk::Kind::GiftWrap);
-        Ok(())
+
+        let unwrapped = unwrap_message(&event, &mostro_keys)
+            .await
+            .expect("unwrap result")
+            .expect("addressed to mostro_keys");
+
+        assert_eq!(unwrapped.sender, trade_keys.public_key());
+        assert_eq!(
+            unwrapped.message.as_json().unwrap(),
+            message.as_json().unwrap()
+        );
+        assert!(
+            unwrapped.signature.is_some(),
+            "default WrapOptions has signed=true",
+        );
     }
 
-    #[test]
-    fn gift_wrap_from_seal_with_pow_meets_requested_difficulty() -> Result<()> {
-        let receiver = Keys::generate().public_key();
-        let seal = EventBuilder::new(nostr_sdk::Kind::Seal, "sealed payload")
-            .sign_with_keys(&Keys::generate())?;
-        let pow = 8;
+    #[tokio::test]
+    async fn secret_env_semantics_drop_inner_signature() {
+        let trade_keys = Keys::generate();
+        let mostro_keys = Keys::generate();
 
-        let event = gift_wrap_from_seal_with_pow(&receiver, &seal, Tags::new(), pow)?;
+        let event = wrap_message(
+            &sample_protocol_message(Some(1)),
+            &trade_keys,
+            mostro_keys.public_key(),
+            WrapOptions {
+                signed: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("wrap");
 
-        assert!(
-            event_meets_pow(&event, pow),
-            "gift wrap id does not satisfy PoW"
-        );
-        Ok(())
+        let unwrapped = unwrap_message(&event, &mostro_keys).await.unwrap().unwrap();
+        assert!(unwrapped.signature.is_none());
     }
 
-    #[test]
-    fn gift_wrap_from_seal_with_pow_rejects_non_seal() {
-        let receiver = Keys::generate().public_key();
-        let non_seal = EventBuilder::new(nostr_sdk::Kind::TextNote, "not a seal")
-            .sign_with_keys(&Keys::generate())
-            .unwrap();
+    #[tokio::test]
+    async fn wrap_message_respects_pow_option() {
+        let trade_keys = Keys::generate();
+        let mostro_keys = Keys::generate();
+        let pow = 4;
 
-        let err = gift_wrap_from_seal_with_pow(&receiver, &non_seal, Tags::new(), 0).unwrap_err();
-        assert!(
-            err.to_string().to_lowercase().contains("kind"),
-            "unexpected error: {err}"
-        );
+        let event = wrap_message(
+            &sample_protocol_message(None),
+            &trade_keys,
+            mostro_keys.public_key(),
+            WrapOptions {
+                pow,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("wrap");
+
+        assert!(event_meets_pow(&event, pow), "PoW not met");
+    }
+
+    #[tokio::test]
+    async fn wrong_keys_yield_none_on_unwrap() {
+        let trade_keys = Keys::generate();
+        let mostro_keys = Keys::generate();
+        let stranger = Keys::generate();
+
+        let event = wrap_message(
+            &sample_protocol_message(Some(1)),
+            &trade_keys,
+            mostro_keys.public_key(),
+            WrapOptions::default(),
+        )
+        .await
+        .unwrap();
+
+        let result = unwrap_message(&event, &stranger).await.expect("no error");
+        assert!(result.is_none());
     }
 }

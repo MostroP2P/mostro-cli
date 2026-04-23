@@ -82,7 +82,7 @@ async fn upload_to_blossom(trade_keys: &Keys, encrypted_blob: Vec<u8>) -> Result
         .collect::<String>();
 
     // Expiration: 1 hour from now (BUD-01 requires expiration in the future)
-    let expiration = Timestamp::from(Timestamp::now().as_u64() + 3600);
+    let expiration = Timestamp::from_secs(Timestamp::now().as_secs() + 3600);
 
     for server in BLOSSOM_SERVERS {
         let url_str = format!("{}/upload", server.trim_end_matches('/'));

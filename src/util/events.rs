@@ -30,7 +30,7 @@ fn create_seven_days_filter(letter: Alphabet, value: String, pubkey: PublicKey) 
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(letter), value)
-        .kind(nostr_sdk::Kind::Custom(NOSTR_REPLACEABLE_EVENT_KIND)))
+        .kind(nostr_sdk::Kind::Custom(NOSTR_ORDER_EVENT_KIND)))
 }
 
 pub fn create_filter(

@@ -45,7 +45,7 @@ pub fn parse_orders_events(
             continue;
         }
         // Set created at
-        order.created_at = Some(event.created_at.as_u64() as i64);
+        order.created_at = Some(event.created_at.as_secs() as i64);
         // Update latest order by id
         latest_by_id
             .entry(order_id)

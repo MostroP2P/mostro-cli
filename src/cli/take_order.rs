@@ -124,7 +124,6 @@ pub async fn execute_take_order(
     // This is so we can wait for the gift wrap event in the main thread
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         message_json,

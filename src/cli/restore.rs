@@ -22,7 +22,6 @@ pub async fn execute_restore(
     // Send the restore message to Mostro server
     let sent_message = send_dm(
         &ctx.client,
-        Some(identity_keys),
         &ctx.trade_keys,
         &mostro_key,
         message_json,
