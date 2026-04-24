@@ -99,7 +99,6 @@ pub async fn execute_send_msg(
             // Send DM
             let sent_message = send_dm(
                 &ctx.client,
-                Some(&ctx.identity_keys),
                 &trade_keys,
                 &ctx.mostro_pubkey,
                 message_json,

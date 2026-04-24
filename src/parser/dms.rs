@@ -756,35 +756,14 @@ pub async fn parse_dm_events(
         }
 
         let (created_at, message, sender) = match dm.kind {
-            nostr_sdk::Kind::GiftWrap => {
-                let unwrapped_gift = match nip59::extract_rumor(pubkey, dm).await {
-                    Ok(u) => u,
-                    Err(e) => {
-                        eprintln!(
-                            "Warning: Could not decrypt gift wrap (event {}): {}",
-                            dm.id, e
-                        );
-                        continue;
-                    }
-                };
-                let (message, _): (Message, Option<String>) =
-                    match serde_json::from_str(&unwrapped_gift.rumor.content) {
-                        Ok(msg) => msg,
-                        Err(e) => {
-                            eprintln!(
-                                "Warning: Could not parse message content (event {}): {}",
-                                dm.id, e
-                            );
-                            continue;
-                        }
-                    };
-
-                (
-                    unwrapped_gift.rumor.created_at,
-                    message,
-                    unwrapped_gift.sender,
-                )
-            }
+            nostr_sdk::Kind::GiftWrap => match unwrap_message(dm, pubkey).await {
+                Ok(Some(u)) => (u.created_at, u.message, u.sender),
+                Ok(None) => continue, // outer NIP-44 failed → not addressed to us
+                Err(e) => {
+                    eprintln!("Warning: could not unwrap gift wrap (event {}): {e}", dm.id);
+                    continue;
+                }
+            },
             nostr_sdk::Kind::PrivateDirectMessage => {
                 let ck = if let Ok(ck) = ConversationKey::derive(pubkey.secret_key(), &dm.pubkey) {
                     ck
@@ -828,11 +807,11 @@ pub async fn parse_dm_events(
                 .unwrap()
                 .timestamp() as u64;
 
-            if created_at.as_u64() < since_time {
+            if created_at.as_secs() < since_time {
                 continue;
             }
         }
-        direct_messages.push((message, created_at.as_u64(), sender));
+        direct_messages.push((message, created_at.as_secs(), sender));
     }
     direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
     direct_messages

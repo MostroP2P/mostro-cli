@@ -20,7 +20,7 @@ pub fn parse_dispute_events(events: Events) -> Vec<Dispute> {
         if let Ok(mut dispute) = dispute_from_tags(event.tags) {
             info!("Found Dispute id : {:?}", dispute.id);
             // Get created at field from Nostr event
-            dispute.created_at = event.created_at.as_u64() as i64;
+            dispute.created_at = event.created_at.as_secs() as i64;
             disputes_list.push(dispute.clone());
         }
     }

@@ -48,11 +48,11 @@ pub async fn run_simple_order_msg(
 pub async fn admin_send_dm(ctx: &Context, msg: String) -> Result<()> {
     // Get admin keys
     let admin_keys = get_admin_keys(ctx)?;
-    // Send DM
+    // Admin identity binds via the rumor author / inner tuple signature
+    // produced by `wrap_message`, so the admin keys are the sole signer.
     send_dm(
         &ctx.client,
-        Some(admin_keys),
-        &ctx.trade_keys,
+        admin_keys,
         &ctx.mostro_pubkey,
         msg,
         None,

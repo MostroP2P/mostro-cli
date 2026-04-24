@@ -139,11 +139,11 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Send the dispute message and wait for response
+    // Send the dispute message and wait for response. Admin identity
+    // binds via the rumor/seal/inner-signature produced from `admin_keys`.
     let sent_message = send_dm(
         &ctx.client,
-        Some(admin_keys),
-        &ctx.trade_keys,
+        admin_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,
         None,

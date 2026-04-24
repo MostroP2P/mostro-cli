@@ -53,16 +53,7 @@ pub async fn execute_send_dm(
             return Err(anyhow::anyhow!("order {} not found", order_id));
         };
 
-    send_dm(
-        &ctx.client,
-        Some(&trade_keys),
-        &trade_keys,
-        &receiver,
-        message,
-        None,
-        false,
-    )
-    .await?;
+    send_dm(&ctx.client, &trade_keys, &receiver, message, None, false).await?;
 
     println!("✅ Direct message sent successfully!");
 

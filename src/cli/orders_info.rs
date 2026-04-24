@@ -44,7 +44,6 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     // Send the DM
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
         &ctx.trade_keys,
         &ctx.mostro_pubkey,
         message_json,

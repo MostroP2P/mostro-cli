@@ -75,7 +75,6 @@ pub async fn execute_add_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) 
     // Send the DM
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
         &order_trade_keys,
         &ctx.mostro_pubkey,
         message_json,

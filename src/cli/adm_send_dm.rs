@@ -3,7 +3,7 @@ use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
 use crate::util::messaging::get_admin_keys;
-use crate::util::send_admin_gift_wrap_dm;
+use crate::util::send_plain_text_dm;
 use anyhow::Result;
 use nostr_sdk::prelude::*;
 
@@ -29,7 +29,7 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     println!("{table}");
     println!("💡 Sending admin gift wrap message...\n");
 
-    send_admin_gift_wrap_dm(&ctx.client, admin_keys, &receiver, message).await?;
+    send_plain_text_dm(&ctx.client, admin_keys, &receiver, message).await?;
 
     println!(
         "✅ Admin gift wrap message sent successfully to {}",

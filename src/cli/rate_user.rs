@@ -60,7 +60,6 @@ pub async fn execute_rate_user(order_id: &Uuid, rating: &u8, ctx: &Context) -> R
 
     let sent_message = send_dm(
         &ctx.client,
-        Some(&ctx.identity_keys),
         &trade_keys,
         &ctx.mostro_pubkey,
         rate_message,
