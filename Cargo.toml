@@ -46,7 +46,7 @@ reqwest = { version = "0.12.23", default-features = false, features = [
   "json",
   "rustls-tls",
 ] }
-mostro-core = "0.9.1"
+mostro-core = "0.10.0"
 lnurl-rs = { version = "0.9.0", default-features = false, features = ["ureq"] }
 pretty_env_logger = "0.5.0"
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }

@@ -201,27 +201,35 @@ pub async fn fetch_gift_wraps_for_shared_key(
 }
 
 /// Internal: wrap a Mostro `Message` via [`wrap_message`] and publish it.
+///
+/// Follows the mostro-core 0.10 dual-key split: `identity_keys` sign the
+/// seal (long-lived reputation binding), `trade_keys` author the rumor and
+/// produce the inner tuple signature. Pass the same `Keys` for both to
+/// opt into full-privacy mode.
 async fn publish_gift_wrap(
     client: &Client,
-    signer_keys: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     message: &Message,
     opts: WrapOptions,
 ) -> Result<()> {
-    let event = wrap_message(message, signer_keys, *receiver_pubkey, opts)
+    let event = wrap_message(message, identity_keys, trade_keys, *receiver_pubkey, opts)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to wrap message: {e}"))?;
     client.send_event(&event).await?;
     Ok(())
 }
 
-/// Send a plain-text DM wrapped as a NIP-59 Gift Wrap using `signer_keys`.
+/// Send a plain-text DM wrapped as a NIP-59 Gift Wrap.
 ///
-/// The wrap uses `signed = false` so the inner rumor carries `(Message, None)`,
-/// matching the behavior of the deleted `send_gift_wrap_dm_internal` helper.
+/// The wrap uses `signed = false` so the inner rumor carries `(Message, None)`.
+/// `identity_keys` sign the seal and `trade_keys` author the rumor; admin
+/// flows that do not rotate trade keys should pass the admin keys for both.
 pub async fn send_plain_text_dm(
     client: &Client,
-    signer_keys: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     text: &str,
 ) -> Result<()> {
@@ -237,7 +245,15 @@ pub async fn send_plain_text_dm(
         expiration: None,
         signed: false,
     };
-    publish_gift_wrap(client, signer_keys, receiver_pubkey, &dm_message, opts).await
+    publish_gift_wrap(
+        client,
+        identity_keys,
+        trade_keys,
+        receiver_pubkey,
+        &dm_message,
+        opts,
+    )
+    .await
 }
 
 pub async fn wait_for_dm<F>(
@@ -318,18 +334,28 @@ async fn create_private_dm_event(
 
 /// Send a Mostro protocol message to `receiver_pubkey`.
 ///
-/// * `signer_keys` drives the whole NIP-59 pipeline: it authors the inner
-///   rumor, signs the seal, and (when `signed` is true) produces the inner
-///   tuple signature. Pass admin keys for admin flows and per-order trade
-///   keys for user flows.
-/// * `to_user` routes the message as a NIP-17 `PrivateDirectMessage`
-///   (kind 14) instead of a gift wrap.
-/// * Respects `POW` (mined on the outer wrap / DM) and `SECRET` (when true
-///   the inner tuple is unsigned). Gift wraps go through
-///   [`mostro_core::prelude::wrap_message`].
+/// mostro-core 0.10 splits the NIP-59 pipeline across two keys:
+///
+/// * `identity_keys` sign the seal (kind 13). Long-lived per user — the
+///   key the Mostro node uses to attach reputation. Admin flows pass the
+///   admin keys here; identity-scoped requests (restore, last trade index)
+///   pass the account's identity keys.
+/// * `trade_keys` author the rumor (kind 1) and produce the inner tuple
+///   signature when `signed = true`. Rotated per order for user flows,
+///   equal to `identity_keys` for full-privacy mode and for flows that
+///   don't bind to a specific trade (admin, restore, last trade index).
+///
+/// For NIP-17 `PrivateDirectMessage` traffic (`to_user = true`), kind 14
+/// is signed directly by `trade_keys` — identity is irrelevant because
+/// there is no seal.
+///
+/// Respects the `POW` and `SECRET` env vars: PoW is mined on the outer
+/// wrap (or kind-14 event), and `SECRET=true` flips the inner tuple to
+/// unsigned. Gift wraps go through [`mostro_core::prelude::wrap_message`].
 pub async fn send_dm(
     client: &Client,
-    signer_keys: &Keys,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     payload: String,
     expiration: Option<Timestamp>,
@@ -338,7 +364,7 @@ pub async fn send_dm(
     let pow = parse_pow_env()?;
 
     if to_user {
-        let event = create_private_dm_event(signer_keys, receiver_pubkey, payload, pow).await?;
+        let event = create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?;
         client.send_event(&event).await?;
         return Ok(());
     }
@@ -352,7 +378,15 @@ pub async fn send_dm(
         signed: !private,
     };
 
-    publish_gift_wrap(client, signer_keys, receiver_pubkey, &message, opts).await
+    publish_gift_wrap(
+        client,
+        identity_keys,
+        trade_keys,
+        receiver_pubkey,
+        &message,
+        opts,
+    )
+    .await
 }
 
 pub async fn print_dm_events(
@@ -422,12 +456,14 @@ mod tests {
 
     #[tokio::test]
     async fn send_dm_gift_wrap_roundtrips_via_unwrap_message() {
+        let identity_keys = Keys::generate();
         let trade_keys = Keys::generate();
         let mostro_keys = Keys::generate();
         let message = sample_protocol_message(Some(42));
 
         let event = wrap_message(
             &message,
+            &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
             WrapOptions::default(),
@@ -443,6 +479,7 @@ mod tests {
             .expect("addressed to mostro_keys");
 
         assert_eq!(unwrapped.sender, trade_keys.public_key());
+        assert_eq!(unwrapped.identity, identity_keys.public_key());
         assert_eq!(
             unwrapped.message.as_json().unwrap(),
             message.as_json().unwrap()
@@ -454,12 +491,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn full_privacy_mode_identity_equals_trade() {
+        let trade_keys = Keys::generate();
+        let mostro_keys = Keys::generate();
+        let message = sample_protocol_message(Some(7));
+
+        let event = wrap_message(
+            &message,
+            &trade_keys,
+            &trade_keys,
+            mostro_keys.public_key(),
+            WrapOptions::default(),
+        )
+        .await
+        .expect("wrap");
+
+        let unwrapped = unwrap_message(&event, &mostro_keys).await.unwrap().unwrap();
+        assert_eq!(unwrapped.sender, trade_keys.public_key());
+        assert_eq!(unwrapped.identity, unwrapped.sender);
+    }
+
+    #[tokio::test]
     async fn secret_env_semantics_drop_inner_signature() {
+        let identity_keys = Keys::generate();
         let trade_keys = Keys::generate();
         let mostro_keys = Keys::generate();
 
         let event = wrap_message(
             &sample_protocol_message(Some(1)),
+            &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
             WrapOptions {
@@ -476,12 +536,14 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_message_respects_pow_option() {
+        let identity_keys = Keys::generate();
         let trade_keys = Keys::generate();
         let mostro_keys = Keys::generate();
         let pow = 4;
 
         let event = wrap_message(
             &sample_protocol_message(None),
+            &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
             WrapOptions {
@@ -497,12 +559,14 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_keys_yield_none_on_unwrap() {
+        let identity_keys = Keys::generate();
         let trade_keys = Keys::generate();
         let mostro_keys = Keys::generate();
         let stranger = Keys::generate();
 
         let event = wrap_message(
             &sample_protocol_message(Some(1)),
+            &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
             WrapOptions::default(),

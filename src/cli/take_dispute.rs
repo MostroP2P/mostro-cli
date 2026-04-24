@@ -141,8 +141,11 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
 
     // Send the dispute message and wait for response. Admin identity
     // binds via the rumor/seal/inner-signature produced from `admin_keys`.
+    // The admin role doesn't rotate trade keys, so the same key signs both
+    // the seal and the rumor (full-privacy-style wrap).
     let sent_message = send_dm(
         &ctx.client,
+        admin_keys,
         admin_keys,
         &ctx.mostro_pubkey,
         take_dispute_message,

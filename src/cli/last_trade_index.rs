@@ -24,11 +24,12 @@ pub async fn execute_last_trade_index(
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
     // LastTradeIndex is account-scoped: the answer depends on which user
-    // is asking, and Mostro looks that up by the sender pubkey. Sign with
-    // `identity_keys` so the request resolves to the account, not to a
-    // (possibly unregistered) trade key.
+    // is asking, and Mostro looks that up by the sender pubkey. Sign both
+    // seal and rumor with `identity_keys` so the request resolves to the
+    // account, not to a (possibly unregistered) trade key.
     let sent_message = send_dm(
         &ctx.client,
+        identity_keys,
         identity_keys,
         &mostro_key,
         message_json,

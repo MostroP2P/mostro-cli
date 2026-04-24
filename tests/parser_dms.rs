@@ -234,6 +234,7 @@ async fn parse_dm_with_time_filter() {
 // drift between how we publish DMs and how we decode them.
 #[tokio::test]
 async fn parse_dm_events_accepts_wrap_message_output() {
+    let sender_identity_keys = Keys::generate();
     let sender_trade_keys = Keys::generate();
     let receiver_keys = Keys::generate();
 
@@ -246,6 +247,7 @@ async fn parse_dm_events_accepts_wrap_message_output() {
     );
     let wrapped = wrap_message(
         &inner,
+        &sender_identity_keys,
         &sender_trade_keys,
         receiver_keys.public_key(),
         WrapOptions::default(),
@@ -271,13 +273,15 @@ async fn parse_dm_events_accepts_wrap_message_output() {
 // treated as protocol violations.
 #[tokio::test]
 async fn parse_dm_events_skips_events_for_other_keys() {
-    let sender = Keys::generate();
+    let sender_identity = Keys::generate();
+    let sender_trade = Keys::generate();
     let intended_recipient = Keys::generate();
     let eavesdropper = Keys::generate();
 
     let wrapped = wrap_message(
         &Message::new_order(None, Some(1), Some(1), Action::NewOrder, None),
-        &sender,
+        &sender_identity,
+        &sender_trade,
         intended_recipient.public_key(),
         WrapOptions::default(),
     )

@@ -22,9 +22,12 @@ pub async fn execute_restore(
     // Restore is account-scoped: Mostro indexes users by their identity
     // pubkey, so the whole exchange (send, wait, decrypt) runs on
     // `identity_keys` — an unregistered trade key would look like an
-    // unknown user and recovery would silently return nothing.
+    // unknown user and recovery would silently return nothing. With the
+    // mostro-core 0.10 dual-key split we pass `identity_keys` as both
+    // the seal signer and the rumor author.
     let sent_message = send_dm(
         &ctx.client,
+        identity_keys,
         identity_keys,
         &mostro_key,
         message_json,
