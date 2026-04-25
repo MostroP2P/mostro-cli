@@ -30,13 +30,7 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     // Orders info is account-scoped — Mostro indexes users by their identity
     // pubkey, so the message carries no trade_index and the whole exchange
     // (send, wait, decrypt) runs on `identity_keys`.
-    let message = Message::new_order(
-        None,
-        Some(request_id),
-        None,
-        Action::Orders,
-        Some(payload),
-    );
+    let message = Message::new_order(None, Some(request_id), None, Action::Orders, Some(payload));
 
     // Serialize the message
     let message_json = message
@@ -58,8 +52,7 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     let recv_event = wait_for_dm(ctx, Some(&ctx.identity_keys), sent_message).await?;
 
     // Parse the incoming DM and handle the response
-    let messages =
-        crate::parser::dms::parse_dm_events(recv_event, &ctx.identity_keys, None).await;
+    let messages = crate::parser::dms::parse_dm_events(recv_event, &ctx.identity_keys, None).await;
     if let Some((message, _, _)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
 
