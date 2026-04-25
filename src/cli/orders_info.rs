@@ -27,14 +27,10 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     // Create payload with the order IDs
     let payload = Payload::Ids(order_ids.to_vec());
 
-    // Create message using the proper Message structure
-    let message = Message::new_order(
-        None,
-        Some(request_id),
-        Some(ctx.trade_index),
-        Action::Orders,
-        Some(payload),
-    );
+    // Orders info is account-scoped — Mostro indexes users by their identity
+    // pubkey, so the message carries no trade_index and the whole exchange
+    // (send, wait, decrypt) runs on `identity_keys`.
+    let message = Message::new_order(None, Some(request_id), None, Action::Orders, Some(payload));
 
     // Serialize the message
     let message_json = message
@@ -44,7 +40,8 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     // Send the DM
     let sent_message = send_dm(
         &ctx.client,
-        &ctx.trade_keys,
+        &ctx.identity_keys,
+        &ctx.identity_keys,
         &ctx.mostro_pubkey,
         message_json,
         None,
@@ -52,10 +49,10 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     );
 
     // Wait for the DM response from mostro
-    let recv_event = wait_for_dm(ctx, None, sent_message).await?;
+    let recv_event = wait_for_dm(ctx, Some(&ctx.identity_keys), sent_message).await?;
 
     // Parse the incoming DM and handle the response
-    let messages = crate::parser::dms::parse_dm_events(recv_event, &ctx.trade_keys, None).await;
+    let messages = crate::parser::dms::parse_dm_events(recv_event, &ctx.identity_keys, None).await;
     if let Some((message, _, _)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
 

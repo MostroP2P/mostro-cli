@@ -29,7 +29,7 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     println!("{table}");
     println!("💡 Sending admin gift wrap message...\n");
 
-    send_plain_text_dm(&ctx.client, admin_keys, &receiver, message).await?;
+    send_plain_text_dm(&ctx.client, admin_keys, admin_keys, &receiver, message).await?;
 
     println!(
         "✅ Admin gift wrap message sent successfully to {}",
