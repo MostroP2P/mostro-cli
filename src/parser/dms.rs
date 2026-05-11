@@ -78,6 +78,26 @@ fn handle_pay_invoice_display(order: &Option<mostro_core::order::SmallOrder>, in
     println!();
 }
 
+fn handle_pay_bond_invoice_display(order: &Option<mostro_core::order::SmallOrder>, invoice: &str) {
+    print_section_header("🪙 Anti-Abuse Bond Invoice");
+    if let Some(order) = order {
+        if let Some(order_id) = order.id {
+            println!("📋 Order ID: {}", order_id);
+        }
+        print_amount_info(order.amount);
+        print_fiat_code(&order.fiat_code);
+        println!("💵 Fiat Amount: {}", order.fiat_amount);
+    }
+    println!();
+    println!("⚡ LIGHTNING BOND INVOICE TO PAY:");
+    println!("─────────────────────────────────────");
+    println!("{}", invoice);
+    println!("─────────────────────────────────────");
+    println!("💡 Pay this hold invoice to lock your taker bond.");
+    println!("💡 The trade hold invoice will arrive next.");
+    println!();
+}
+
 /// Format payload details for DM table display
 fn format_payload_details(payload: &Payload, action: &Action) -> String {
     match payload {
@@ -113,6 +133,7 @@ fn format_payload_details(payload: &Payload, action: &Action) -> String {
                 Status::Expired => "⏰",
                 Status::SettledHoldInvoice => "💰",
                 Status::InProgress => "🔄",
+                Status::WaitingTakerBond => "🪙",
             };
 
             let kind_emoji = match o.kind.as_ref().unwrap_or(&mostro_core::order::Kind::Sell) {
@@ -486,6 +507,36 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
             }
             Ok(())
         }
+        // mostro-core 0.11: anti-abuse bond invoice sent right after a takebuy/takesell.
+        Action::PayBondInvoice => {
+            let (order, invoice) = match &message.payload {
+                Some(Payload::PaymentRequest(order, invoice, _)) => (order, invoice),
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "PayBondInvoice expected Payload::PaymentRequest, got: {:?}",
+                        other
+                    ));
+                }
+            };
+            handle_pay_bond_invoice_display(order, invoice);
+            let order = order.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("PayBondInvoice payload is missing the SmallOrder")
+            })?;
+            let req_id = message
+                .request_id
+                .ok_or_else(|| anyhow::anyhow!("No request id found in message"))?;
+            save_order(
+                order.clone(),
+                &ctx.trade_keys,
+                req_id,
+                ctx.trade_index,
+                &ctx.pool,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to save order: {}", e))?;
+            print_success_message("Order saved successfully!");
+            Ok(())
+        }
         Action::CantDo => {
             println!("❌ Action Cannot Be Completed");
             println!("═══════════════════════════════════════");
@@ -844,6 +895,7 @@ pub async fn print_direct_messages(
         let action_icon = match inner.action {
             Action::NewOrder => "🆕",
             Action::AddInvoice | Action::PayInvoice => "⚡",
+            Action::PayBondInvoice => "🪙",
             Action::FiatSent | Action::FiatSentOk => "💸",
             Action::Release | Action::Released => "🔓",
             Action::Cancel | Action::Canceled => "🚫",
