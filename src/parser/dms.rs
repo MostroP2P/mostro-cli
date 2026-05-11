@@ -509,29 +509,32 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
         }
         // mostro-core 0.11: anti-abuse bond invoice sent right after a takebuy/takesell.
         Action::PayBondInvoice => {
-            if let Some(Payload::PaymentRequest(order, invoice, _)) = &message.payload {
-                handle_pay_bond_invoice_display(order, invoice);
-
-                if let Some(order) = order {
-                    if let Some(req_id) = message.request_id {
-                        if let Err(e) = save_order(
-                            order.clone(),
-                            &ctx.trade_keys,
-                            req_id,
-                            ctx.trade_index,
-                            &ctx.pool,
-                        )
-                        .await
-                        {
-                            println!("❌ Failed to save order: {}", e);
-                            return Err(anyhow::anyhow!("Failed to save order: {}", e));
-                        }
-                        print_success_message("Order saved successfully!");
-                    } else {
-                        return Err(anyhow::anyhow!("No request id found in message"));
-                    }
+            let (order, invoice) = match &message.payload {
+                Some(Payload::PaymentRequest(order, invoice, _)) => (order, invoice),
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "PayBondInvoice expected Payload::PaymentRequest, got: {:?}",
+                        other
+                    ));
                 }
-            }
+            };
+            handle_pay_bond_invoice_display(order, invoice);
+            let order = order.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("PayBondInvoice payload is missing the SmallOrder")
+            })?;
+            let req_id = message
+                .request_id
+                .ok_or_else(|| anyhow::anyhow!("No request id found in message"))?;
+            save_order(
+                order.clone(),
+                &ctx.trade_keys,
+                req_id,
+                ctx.trade_index,
+                &ctx.pool,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to save order: {}", e))?;
+            print_success_message("Order saved successfully!");
             Ok(())
         }
         Action::CantDo => {
