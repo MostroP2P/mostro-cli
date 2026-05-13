@@ -44,7 +44,12 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
     Ok(())
 }
 
-pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()> {
+pub async fn execute_admin_cancel_dispute(
+    dispute_id: &Uuid,
+    slash_seller: bool,
+    slash_buyer: bool,
+    ctx: &Context,
+) -> Result<()> {
     println!("👑 Admin Cancel Dispute");
     println!("═══════════════════════════════════════");
     let mut table = create_standard_table();
@@ -54,6 +59,12 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
         "Dispute ID",
         &dispute_id.to_string(),
     ));
+    if slash_seller {
+        table.add_row(create_emoji_field_row("⚔️  ", "Slash", "seller bond"));
+    }
+    if slash_buyer {
+        table.add_row(create_emoji_field_row("⚔️  ", "Slash", "buyer bond"));
+    }
     table.add_row(create_emoji_field_row(
         "🎯 ",
         "Mostro PubKey",
@@ -64,9 +75,18 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 
     let _admin_keys = get_admin_keys(ctx)?;
 
+    let payload = if slash_seller || slash_buyer {
+        Some(Payload::BondResolution(BondResolution {
+            slash_seller,
+            slash_buyer,
+        }))
+    } else {
+        None
+    };
+
     // Build admin dispute message
     let take_dispute_message =
-        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, None)
+        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, payload)
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
@@ -77,7 +97,12 @@ pub async fn execute_admin_cancel_dispute(dispute_id: &Uuid, ctx: &Context) -> R
     Ok(())
 }
 
-pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()> {
+pub async fn execute_admin_settle_dispute(
+    dispute_id: &Uuid,
+    slash_seller: bool,
+    slash_buyer: bool,
+    ctx: &Context,
+) -> Result<()> {
     println!("👑 Admin Settle Dispute");
     println!("═══════════════════════════════════════");
     let mut table = create_standard_table();
@@ -87,6 +112,12 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
         "Dispute ID",
         &dispute_id.to_string(),
     ));
+    if slash_seller {
+        table.add_row(create_emoji_field_row("⚔️  ", "Slash", "seller bond"));
+    }
+    if slash_buyer {
+        table.add_row(create_emoji_field_row("⚔️  ", "Slash", "buyer bond"));
+    }
     table.add_row(create_emoji_field_row(
         "🎯 ",
         "Mostro PubKey",
@@ -97,9 +128,18 @@ pub async fn execute_admin_settle_dispute(dispute_id: &Uuid, ctx: &Context) -> R
 
     let _admin_keys = get_admin_keys(ctx)?;
 
+    let payload = if slash_seller || slash_buyer {
+        Some(Payload::BondResolution(BondResolution {
+            slash_seller,
+            slash_buyer,
+        }))
+    } else {
+        None
+    };
+
     // Build admin dispute message
     let take_dispute_message =
-        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, None)
+        Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, payload)
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
     admin_send_dm(ctx, take_dispute_message).await?;
