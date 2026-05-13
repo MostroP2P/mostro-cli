@@ -266,12 +266,24 @@ pub enum Commands {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
+        /// Slash the seller's bond (anti-abuse-bond Phase 2)
+        #[arg(long, default_value_t = false)]
+        slash_seller: bool,
+        /// Slash the buyer's bond (anti-abuse-bond Phase 2)
+        #[arg(long, default_value_t = false)]
+        slash_buyer: bool,
     },
     /// Settle a seller's hold invoice (only admin)
     AdmSettle {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
+        /// Slash the seller's bond (anti-abuse-bond Phase 2)
+        #[arg(long, default_value_t = false)]
+        slash_seller: bool,
+        /// Slash the buyer's bond (anti-abuse-bond Phase 2)
+        #[arg(long, default_value_t = false)]
+        slash_buyer: bool,
     },
     /// Requests open disputes from Mostro pubkey
     ListDisputes {},
@@ -583,8 +595,16 @@ impl Commands {
             // Admin commands
             Commands::ListDisputes {} => execute_list_disputes(ctx).await,
             Commands::AdmAddSolver { npubkey } => execute_admin_add_solver(npubkey, ctx).await,
-            Commands::AdmSettle { order_id } => execute_admin_settle_dispute(order_id, ctx).await,
-            Commands::AdmCancel { order_id } => execute_admin_cancel_dispute(order_id, ctx).await,
+            Commands::AdmSettle {
+                order_id,
+                slash_seller,
+                slash_buyer,
+            } => execute_admin_settle_dispute(order_id, *slash_seller, *slash_buyer, ctx).await,
+            Commands::AdmCancel {
+                order_id,
+                slash_seller,
+                slash_buyer,
+            } => execute_admin_cancel_dispute(order_id, *slash_seller, *slash_buyer, ctx).await,
             Commands::AdmTakeDispute { dispute_id } => execute_take_dispute(dispute_id, ctx).await,
 
             // Simple commands
