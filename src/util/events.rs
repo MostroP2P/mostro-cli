@@ -19,7 +19,12 @@ fn create_fake_timestamp() -> Result<Timestamp> {
     Ok(Timestamp::from(fake_since_time))
 }
 
-fn create_seven_days_filter(letter: Alphabet, value: String, pubkey: PublicKey) -> Result<Filter> {
+fn create_seven_days_filter(
+    letter: Alphabet,
+    value: String,
+    pubkey: PublicKey,
+    event_kind: u16,
+) -> Result<Filter> {
     let since_time = chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::days(7))
         .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
@@ -30,7 +35,7 @@ fn create_seven_days_filter(letter: Alphabet, value: String, pubkey: PublicKey) 
         .limit(50)
         .since(timestamp)
         .custom_tag(SingleLetterTag::lowercase(letter), value)
-        .kind(nostr_sdk::Kind::Custom(NOSTR_ORDER_EVENT_KIND)))
+        .kind(nostr_sdk::Kind::Custom(event_kind)))
 }
 
 pub fn create_filter(
@@ -39,8 +44,18 @@ pub fn create_filter(
     since: Option<&i64>,
 ) -> Result<Filter> {
     match list_kind {
-        ListKind::Orders => create_seven_days_filter(Alphabet::Z, "order".to_string(), pubkey),
-        ListKind::Disputes => create_seven_days_filter(Alphabet::Z, "dispute".to_string(), pubkey),
+        ListKind::Orders => create_seven_days_filter(
+            Alphabet::Z,
+            "order".to_string(),
+            pubkey,
+            NOSTR_ORDER_EVENT_KIND,
+        ),
+        ListKind::Disputes => create_seven_days_filter(
+            Alphabet::Z,
+            "dispute".to_string(),
+            pubkey,
+            NOSTR_DISPUTE_EVENT_KIND,
+        ),
         ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
             let fake_timestamp = create_fake_timestamp()?;
             Ok(Filter::new()
