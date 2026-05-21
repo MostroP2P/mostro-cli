@@ -1,0 +1,106 @@
+use crate::parser::common::{
+    create_emoji_field_row, create_field_value_header, create_standard_table,
+};
+use crate::util::{print_dm_events, send_dm, wait_for_dm, WaitForDmTimeout};
+use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
+use anyhow::Result;
+use mostro_core::prelude::*;
+use nostr_sdk::prelude::*;
+use uuid::Uuid;
+
+/// Reply to a Mostro `add-bond-invoice` request: the non-slashed counterparty
+/// provides a bolt11 sized at their share of a slashed bond.
+///
+/// This is the inbound `add-bond-invoice` request's dual — Mostro asks for a
+/// bolt11 (carried as [`Payload::BondPayoutRequest`]) and we answer with the
+/// invoice in the standard [`Payload::PaymentRequest`] shape, signed with the
+/// order's trade key. See the protocol's "Bond payout invoice" action.
+pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) -> Result<()> {
+    // Get order from order id
+    let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
+    // Get trade keys of specific order (the non-slashed counterparty side)
+    let trade_keys = order
+        .trade_keys
+        .clone()
+        .ok_or(anyhow::anyhow!("Missing trade keys"))?;
+
+    let order_trade_keys = Keys::parse(&trade_keys)?;
+
+    println!("🪙 Add Bond Payout Invoice");
+    println!("═══════════════════════════════════════");
+
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row(
+        "📋 ",
+        "Order ID",
+        &order_id.to_string(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🔑 ",
+        "Trade Keys",
+        &order_trade_keys.public_key().to_hex(),
+    ));
+    table.add_row(create_emoji_field_row(
+        "🎯 ",
+        "Target",
+        &ctx.mostro_pubkey.to_string(),
+    ));
+    println!("{table}");
+    println!("💡 Sending bond payout invoice to Mostro...\n");
+    // The bond payout reply must be a bolt11 sized at the counterparty share.
+    // Lightning Addresses are not accepted here (the protocol's "Bond payout
+    // invoice" reply is a bolt11): validate locally so a bad input fails fast
+    // instead of bouncing back as a `cant-do` / `invalid-invoice` from Mostro.
+    let invoice = is_valid_invoice(invoice)
+        .map_err(|e| anyhow::anyhow!("Invalid invoice: {}", e))?
+        .to_string();
+    let payload = Payload::PaymentRequest(None, invoice, None);
+
+    // Create request id
+    let request_id = Uuid::new_v4().as_u128() as u64;
+    // Create AddBondInvoice reply message
+    let add_bond_invoice_message = Message::new_order(
+        Some(*order_id),
+        Some(request_id),
+        None,
+        Action::AddBondInvoice,
+        Some(payload),
+    );
+
+    // Serialize the message
+    let message_json = add_bond_invoice_message
+        .as_json()
+        .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
+
+    // Send the DM
+    let sent_message = send_dm(
+        &ctx.client,
+        &ctx.identity_keys,
+        &order_trade_keys,
+        &ctx.mostro_pubkey,
+        message_json,
+        None,
+        false,
+    );
+
+    // Wait for a possible reply. On success Mostro pays the invoice from its
+    // wallet without acknowledging over Nostr, so a *timeout* here is the happy
+    // path; Mostro only answers with `cant-do` on failure (late reply, wrong
+    // sender, bad invoice, etc.). Any other error (subscribe/sign/transport)
+    // means the reply may never have been sent — surface it instead of
+    // misreporting it as success.
+    match wait_for_dm(ctx, Some(&order_trade_keys), sent_message).await {
+        Ok(recv_event) => {
+            print_dm_events(recv_event, request_id, ctx, Some(&order_trade_keys)).await?;
+        }
+        Err(e) if e.downcast_ref::<WaitForDmTimeout>().is_some() => {
+            println!("✅ Bond payout invoice submitted to Mostro.");
+            println!("💡 Mostro will pay it from its wallet; no further confirmation is sent.");
+            println!("💡 Run `get-dm` to check for a `cant-do` response in case of an error.");
+        }
+        Err(e) => return Err(e),
+    }
+
+    Ok(())
+}

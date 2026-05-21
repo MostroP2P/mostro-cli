@@ -256,6 +256,25 @@ pub async fn send_plain_text_dm(
     .await
 }
 
+/// Distinguishable error returned by [`wait_for_dm`] when no reply arrives
+/// within [`FETCH_EVENTS_TIMEOUT`].
+///
+/// Most callers `?`-propagate it like any other error, but flows where "no
+/// reply" is the happy path (e.g. `add-bond-invoice`, where Mostro pays the
+/// invoice without acking over Nostr) can detect it via
+/// `downcast_ref::<WaitForDmTimeout>()` and avoid misreporting genuine
+/// subscribe/send/transport failures as success.
+#[derive(Debug)]
+pub struct WaitForDmTimeout;
+
+impl std::fmt::Display for WaitForDmTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Timeout waiting for DM or gift wrap event")
+    }
+}
+
+impl std::error::Error for WaitForDmTimeout {}
+
 pub async fn wait_for_dm<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
@@ -278,23 +297,25 @@ where
     sent_message.await?;
 
     // Wait for the DM or gift wrap event
-    let event = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
+    let waited = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
             match notifications.recv().await {
-                Ok(notification) => match notification {
-                    RelayPoolNotification::Event { event, .. } => {
-                        return Ok(*event);
-                    }
-                    _ => continue,
-                },
+                Ok(RelayPoolNotification::Event { event, .. }) => return Ok(*event),
+                Ok(_) => continue,
                 Err(e) => {
                     return Err(anyhow::anyhow!("Error receiving notification: {:?}", e));
                 }
             }
         }
     })
-    .await?
-    .map_err(|_| anyhow::anyhow!("Timeout waiting for DM or gift wrap event"))?;
+    .await;
+
+    // Keep a genuine timeout (the only "no reply" outcome) distinguishable from
+    // a notification-channel error so callers can treat them differently.
+    let event = match waited {
+        Ok(inner) => inner?,
+        Err(_elapsed) => return Err(WaitForDmTimeout.into()),
+    };
 
     let mut events = Events::default();
     events.insert(event);
