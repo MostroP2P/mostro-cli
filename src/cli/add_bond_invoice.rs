@@ -4,10 +4,8 @@ use crate::parser::common::{
 use crate::util::{print_dm_events, send_dm, wait_for_dm, WaitForDmTimeout};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
-use lnurl::lightning_address::LightningAddress;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use std::str::FromStr;
 use uuid::Uuid;
 
 /// Reply to a Mostro `add-bond-invoice` request: the non-slashed counterparty
@@ -50,18 +48,14 @@ pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Cont
     ));
     println!("{table}");
     println!("💡 Sending bond payout invoice to Mostro...\n");
-    // Parse invoice (Lightning address or BOLT11) and build payload
-    let ln_addr = LightningAddress::from_str(invoice);
-    let payload = if ln_addr.is_ok() {
-        Payload::PaymentRequest(None, invoice.to_string(), None)
-    } else {
-        match is_valid_invoice(invoice) {
-            Ok(i) => Payload::PaymentRequest(None, i.to_string(), None),
-            Err(e) => {
-                return Err(anyhow::anyhow!("Invalid invoice: {}", e));
-            }
-        }
-    };
+    // The bond payout reply must be a bolt11 sized at the counterparty share.
+    // Lightning Addresses are not accepted here (the protocol's "Bond payout
+    // invoice" reply is a bolt11): validate locally so a bad input fails fast
+    // instead of bouncing back as a `cant-do` / `invalid-invoice` from Mostro.
+    let invoice = is_valid_invoice(invoice)
+        .map_err(|e| anyhow::anyhow!("Invalid invoice: {}", e))?
+        .to_string();
+    let payload = Payload::PaymentRequest(None, invoice, None);
 
     // Create request id
     let request_id = Uuid::new_v4().as_u128() as u64;

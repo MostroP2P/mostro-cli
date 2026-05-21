@@ -94,8 +94,7 @@ pub fn create_filter(
 pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i64> {
     let filter = Filter::new()
         .author(ctx.mostro_pubkey)
-        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND))
-        .limit(1);
+        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
 
     let events = ctx
         .client
@@ -103,7 +102,11 @@ pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i
         .await
         .ok()?;
 
-    let event = events.first()?;
+    // kind-38385 is replaceable, but pick the newest revision by `created_at`
+    // explicitly: a lagging relay (or several relays at once) can still surface
+    // an older copy, and a stale claim window would render the wrong, very
+    // user-facing forfeit deadline.
+    let event = events.iter().max_by_key(|e| e.created_at)?;
     for tag in event.tags.iter() {
         let slice = tag.as_slice();
         if slice.first().map(String::as_str) == Some("bond_payout_claim_window_days") {
