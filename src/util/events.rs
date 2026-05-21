@@ -83,6 +83,36 @@ pub fn create_filter(
     }
 }
 
+/// Fetch the Mostro instance's kind-38385 info event and read the
+/// `bond_payout_claim_window_days` tag.
+///
+/// Returns `None` when the node publishes no info event, the tag is absent
+/// (older daemon or bonds disabled), or the value can't be parsed. Used to
+/// render the forfeit deadline for an `add-bond-invoice` request locally, per
+/// the protocol's "Bond payout invoice" / "Other events" docs. Best-effort:
+/// any relay error degrades to `None` rather than failing the caller.
+pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i64> {
+    let filter = Filter::new()
+        .author(ctx.mostro_pubkey)
+        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND))
+        .limit(1);
+
+    let events = ctx
+        .client
+        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .await
+        .ok()?;
+
+    let event = events.first()?;
+    for tag in event.tags.iter() {
+        let slice = tag.as_slice();
+        if slice.first().map(String::as_str) == Some("bond_payout_claim_window_days") {
+            return slice.get(1).and_then(|v| v.parse::<i64>().ok());
+        }
+    }
+    None
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_events_list(
     list_kind: ListKind,

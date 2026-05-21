@@ -18,7 +18,7 @@ use crate::{
         print_payment_method, print_premium, print_required_amount, print_section_header,
         print_success_message, print_trade_index,
     },
-    util::save_order,
+    util::{fetch_bond_claim_window_days, save_order},
 };
 use serde_json;
 
@@ -98,14 +98,80 @@ fn handle_pay_bond_invoice_display(order: &Option<mostro_core::order::SmallOrder
     println!();
 }
 
+/// Render the forfeit deadline of a bond payout request.
+///
+/// The protocol mandates computing it from the on-wire `slashed_at` anchor
+/// (never the local receive time):
+/// `deadline = slashed_at + bond_payout_claim_window_days * 86_400`. The claim
+/// window comes from the node's kind-38385 info event and may be unavailable.
+fn format_bond_forfeit_deadline(slashed_at: i64, claim_window_days: Option<i64>) -> String {
+    let slashed = format_timestamp(slashed_at);
+    match claim_window_days {
+        Some(days) => {
+            let deadline_ts = slashed_at.saturating_add(days.saturating_mul(86_400));
+            format!(
+                "Slashed at {} — forfeit deadline {} ({} day claim window)",
+                slashed,
+                format_timestamp(deadline_ts),
+                days
+            )
+        }
+        None => format!(
+            "Slashed at {} — claim window unknown (Mostro info event unavailable)",
+            slashed
+        ),
+    }
+}
+
+/// Display an inbound `add-bond-invoice` request (Mostro → non-slashed
+/// counterparty): the order context plus the locally-rendered forfeit deadline.
+fn handle_add_bond_invoice_request_display(
+    req: &BondPayoutRequest,
+    claim_window_days: Option<i64>,
+) {
+    print_section_header("🪙 Bond Payout Invoice Requested");
+    if let Some(order_id) = req.order.id {
+        println!("📋 Order ID: {}", order_id);
+    }
+    print_required_amount(req.order.amount);
+    print_fiat_code(&req.order.fiat_code);
+    println!("💵 Fiat Amount: {}", req.order.fiat_amount);
+    print_payment_method(&req.order.payment_method);
+    println!(
+        "⏰ {}",
+        format_bond_forfeit_deadline(req.slashed_at, claim_window_days)
+    );
+    println!();
+    println!("💡 A bond on this trade was slashed; you can claim your share.");
+    println!("💡 Reply before the deadline with a Lightning invoice for the amount above:");
+    println!(
+        "   mostro-cli addbondinvoice --orderid {} --invoice <bolt11>",
+        req.order
+            .id
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "<order-id>".to_string())
+    );
+    println!();
+}
+
 /// Format payload details for DM table display
-fn format_payload_details(payload: &Payload, action: &Action) -> String {
+fn format_payload_details(
+    payload: &Payload,
+    action: &Action,
+    claim_window_days: Option<i64>,
+) -> String {
     match payload {
         Payload::TextMessage(t) => format!("✉️ {}", t),
         Payload::PaymentRequest(_, inv, _) => {
             // For invoices, show the full invoice without truncation
             format!("⚡ Lightning Invoice:\n{}", inv)
         }
+        Payload::BondPayoutRequest(req) => format!(
+            "🪙 Bond payout request: {} sats ({})\n⏰ {}",
+            req.order.amount,
+            req.order.fiat_code,
+            format_bond_forfeit_deadline(req.slashed_at, claim_window_days)
+        ),
         Payload::Dispute(id, _) => format!("⚖️ Dispute ID: {}", id),
         Payload::Order(o) if *action == Action::NewOrder => format!(
             "🆕 New Order: {} {} sats ({})",
@@ -537,6 +603,20 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
             print_success_message("Order saved successfully!");
             Ok(())
         }
+        // mostro-core 0.11.3: bond payout invoice request sent to the
+        // non-slashed counterparty after a bond is slashed. Reply with
+        // `add-bond-invoice` carrying a bolt11 for your share.
+        Action::AddBondInvoice => match &message.payload {
+            Some(Payload::BondPayoutRequest(req)) => {
+                let claim_window_days = fetch_bond_claim_window_days(ctx).await;
+                handle_add_bond_invoice_request_display(req, claim_window_days);
+                Ok(())
+            }
+            other => Err(anyhow::anyhow!(
+                "AddBondInvoice expected Payload::BondPayoutRequest, got: {:?}",
+                other
+            )),
+        },
         Action::CantDo => {
             println!("❌ Action Cannot Be Completed");
             println!("═══════════════════════════════════════");
@@ -871,6 +951,7 @@ pub async fn parse_dm_events(
 pub async fn print_direct_messages(
     dm: &[(Message, u64, PublicKey)],
     mostro_pubkey: Option<PublicKey>,
+    claim_window_days: Option<i64>,
 ) -> Result<()> {
     if dm.is_empty() {
         println!();
@@ -896,6 +977,7 @@ pub async fn print_direct_messages(
             Action::NewOrder => "🆕",
             Action::AddInvoice | Action::PayInvoice => "⚡",
             Action::PayBondInvoice => "🪙",
+            Action::AddBondInvoice => "💰",
             Action::FiatSent | Action::FiatSentOk => "💸",
             Action::Release | Action::Released => "🔓",
             Action::Cancel | Action::Canceled => "🚫",
@@ -927,7 +1009,7 @@ pub async fn print_direct_messages(
 
         // Print details with proper formatting
         if let Some(payload) = &inner.payload {
-            let details = format_payload_details(payload, &inner.action);
+            let details = format_payload_details(payload, &inner.action, claim_window_days);
             println!("📝 Details:");
             for line in details.lines() {
                 println!("   {}", line);

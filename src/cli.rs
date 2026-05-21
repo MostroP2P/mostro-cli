@@ -1,3 +1,4 @@
+pub mod add_bond_invoice;
 pub mod add_invoice;
 pub mod adm_send_dm;
 pub mod conversation_key;
@@ -17,6 +18,7 @@ pub mod send_msg;
 pub mod take_dispute;
 pub mod take_order;
 
+use crate::cli::add_bond_invoice::execute_add_bond_invoice;
 use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
@@ -162,6 +164,15 @@ pub enum Commands {
     },
     /// Buyer add a new invoice to receive the payment
     AddInvoice {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Invoice string
+        #[arg(short, long)]
+        invoice: String,
+    },
+    /// Reply to a bond payout request with an invoice for your share of a slashed bond
+    AddBondInvoice {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
@@ -576,6 +587,9 @@ impl Commands {
             }
             Commands::AddInvoice { order_id, invoice } => {
                 execute_add_invoice(order_id, invoice, ctx).await
+            }
+            Commands::AddBondInvoice { order_id, invoice } => {
+                execute_add_bond_invoice(order_id, invoice, ctx).await
             }
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 

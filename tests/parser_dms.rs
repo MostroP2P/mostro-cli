@@ -13,7 +13,7 @@ async fn parse_dm_empty() {
 #[tokio::test]
 async fn print_dms_empty() {
     let msgs: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -21,7 +21,7 @@ async fn print_dms_empty() {
 async fn print_dms_with_mostro_pubkey() {
     let mostro_key = Keys::generate();
     let msgs: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let res = print_direct_messages(&msgs, Some(mostro_key.public_key())).await;
+    let res = print_direct_messages(&msgs, Some(mostro_key.public_key()), None).await;
     assert!(res.is_ok());
 }
 
@@ -38,7 +38,7 @@ async fn print_dms_with_single_message() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -50,7 +50,7 @@ async fn print_dms_with_text_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -69,7 +69,7 @@ async fn print_dms_with_payment_request() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -98,7 +98,7 @@ async fn print_dms_with_multiple_messages() {
         msgs.push((message, timestamp, sender_keys.public_key()));
     }
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -117,7 +117,7 @@ async fn print_dms_with_dispute_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -152,7 +152,7 @@ async fn print_dms_with_orders_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -181,7 +181,7 @@ async fn print_dms_distinguishes_mostro() {
         (msg2, 1700000060u64, sender_keys.public_key()),
     ];
 
-    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key())).await;
+    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), None).await;
     assert!(res.is_ok());
 }
 
@@ -215,7 +215,7 @@ async fn print_dms_with_restore_session_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -304,7 +304,7 @@ async fn print_dms_with_long_details_truncation() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -322,7 +322,7 @@ async fn print_dms_with_rating_action() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -357,7 +357,48 @@ async fn print_dms_with_add_invoice_action() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn print_dms_with_bond_payout_request() {
+    let mostro_keys = Keys::generate();
+    let order = SmallOrder {
+        id: Some(uuid::Uuid::new_v4()),
+        kind: Some(mostro_core::order::Kind::Sell),
+        status: None,
+        amount: 500,
+        fiat_code: "VES".to_string(),
+        fiat_amount: 100,
+        payment_method: "face to face".to_string(),
+        premium: 1,
+        buyer_trade_pubkey: None,
+        seller_trade_pubkey: None,
+        buyer_invoice: None,
+        created_at: None,
+        expires_at: None,
+        min_amount: None,
+        max_amount: None,
+    };
+    let payload = Payload::BondPayoutRequest(BondPayoutRequest {
+        order,
+        slashed_at: 1_734_000_000,
+    });
+    let message = Message::new_order(
+        Some(uuid::Uuid::new_v4()),
+        Some(12345),
+        Some(1),
+        Action::AddBondInvoice,
+        Some(payload),
+    );
+    let msgs = vec![(message, 1_734_000_000u64, mostro_keys.public_key())];
+
+    // With a known claim window the forfeit deadline is rendered locally; with
+    // an unknown window it degrades gracefully. Both must succeed.
+    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), Some(15)).await;
+    assert!(res.is_ok());
+    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), None).await;
     assert!(res.is_ok());
 }
 
@@ -374,6 +415,6 @@ async fn print_dms_with_invalid_timestamp() {
     let timestamp = 0u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None).await;
+    let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());
 }

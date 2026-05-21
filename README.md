@@ -453,6 +453,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `cancel -o <id>` — cancel a pending order or cooperatively cancel later.
 - `rate -o <id> -r <1-5>` — rate counterpart.
 - `dispute -o <id>` — open a dispute.
+- `addbondinvoice -o <id> -i <invoice>` — reply to a bond payout request with an invoice for your share of a slashed bond.
 
 ### Messaging
 - `getdm [--since <min>] [--from-user]` — fetch recent DMs.
