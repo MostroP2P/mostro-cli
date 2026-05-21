@@ -1,7 +1,7 @@
 use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
-use crate::util::{print_dm_events, send_dm, wait_for_dm};
+use crate::util::{print_dm_events, send_dm, wait_for_dm, WaitForDmTimeout};
 use crate::{cli::Context, db::Order, lightning::is_valid_invoice};
 use anyhow::Result;
 use lnurl::lightning_address::LightningAddress;
@@ -53,10 +53,10 @@ pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Cont
     // Parse invoice (Lightning address or BOLT11) and build payload
     let ln_addr = LightningAddress::from_str(invoice);
     let payload = if ln_addr.is_ok() {
-        Some(Payload::PaymentRequest(None, invoice.to_string(), None))
+        Payload::PaymentRequest(None, invoice.to_string(), None)
     } else {
         match is_valid_invoice(invoice) {
-            Ok(i) => Some(Payload::PaymentRequest(None, i.to_string(), None)),
+            Ok(i) => Payload::PaymentRequest(None, i.to_string(), None),
             Err(e) => {
                 return Err(anyhow::anyhow!("Invalid invoice: {}", e));
             }
@@ -71,7 +71,7 @@ pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Cont
         Some(request_id),
         None,
         Action::AddBondInvoice,
-        payload,
+        Some(payload),
     );
 
     // Serialize the message
@@ -91,18 +91,21 @@ pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Cont
     );
 
     // Wait for a possible reply. On success Mostro pays the invoice from its
-    // wallet without acknowledging over Nostr, so a timeout here is the happy
+    // wallet without acknowledging over Nostr, so a *timeout* here is the happy
     // path; Mostro only answers with `cant-do` on failure (late reply, wrong
-    // sender, bad invoice, etc.).
+    // sender, bad invoice, etc.). Any other error (subscribe/sign/transport)
+    // means the reply may never have been sent — surface it instead of
+    // misreporting it as success.
     match wait_for_dm(ctx, Some(&order_trade_keys), sent_message).await {
         Ok(recv_event) => {
             print_dm_events(recv_event, request_id, ctx, Some(&order_trade_keys)).await?;
         }
-        Err(_) => {
+        Err(e) if e.downcast_ref::<WaitForDmTimeout>().is_some() => {
             println!("✅ Bond payout invoice submitted to Mostro.");
             println!("💡 Mostro will pay it from its wallet; no further confirmation is sent.");
             println!("💡 Run `get-dm` to check for a `cant-do` response in case of an error.");
         }
+        Err(e) => return Err(e),
     }
 
     Ok(())
