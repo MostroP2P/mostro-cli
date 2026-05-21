@@ -145,7 +145,7 @@ fn handle_add_bond_invoice_request_display(
     println!("💡 A bond on this trade was slashed; you can claim your share.");
     println!("💡 Reply before the deadline with a Lightning invoice for the amount above:");
     println!(
-        "   mostro-cli addbondinvoice --orderid {} --invoice <bolt11>",
+        "   mostro-cli addbondinvoice -o {} -i <bolt11>",
         req.order
             .id
             .map(|x| x.to_string())
