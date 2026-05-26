@@ -653,6 +653,9 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                     println!("📊 Please use a valid currency");
                     Err(anyhow::anyhow!("Invalid currency"))
                 }
+                Some(Payload::CantDo(Some(CantDoReason::NotFound))) => Err(anyhow::anyhow!(
+                    "Resource not found. Verify the order or dispute id exists."
+                )),
                 _ => {
                     println!("❓ Unknown Error");
                     println!("💡 An unknown error occurred");
