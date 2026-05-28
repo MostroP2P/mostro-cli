@@ -170,6 +170,26 @@ Add an `&Context` parameter? Look at the signature today —
 passed. We just need to grant the helper access to `ctx.client` and
 `ctx.mostro_pubkey` (already does).
 
+#### 4.3.1 Notification leak from the concurrent probe
+
+`client.notifications()` is a **global** broadcast: every event seen by
+any active subscription or fetch lands on the same channel
+(`nostr-relay-pool::relay::inner::send_notification`). The spawned PoW
+probe issues its own subscription for kind‑38385 events to read the
+required difficulty — those info events show up on the same broadcast
+the wait loop is consuming. Without an application‑side filter, the
+loop returns the info event as the "first event" and short‑circuits the
+wait before mostrod has even had a chance to (silently) drop the
+request, surfacing further downstream as `"No response received from
+Mostro"`.
+
+Fix: the notification loop mirrors the subscription filter explicitly —
+only `Kind::GiftWrap` events whose `p` tags contain `trade_keys.public_key()`
+escape the loop. Anything else (kind‑38385 info, replaceable
+status events, gift wraps for other trade keys) is dropped on the floor
+so the wait properly reaches its timeout, where the PoW probe result
+escalates to `PowRequirementUnmet`.
+
 ### 4.4 `add_bond_invoice` interplay
 
 `add_bond_invoice` treats `WaitForDmTimeout` as the happy path (Mostro pays
