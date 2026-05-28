@@ -317,11 +317,12 @@ where
     F: std::future::Future<Output = Result<()>> + Send,
 {
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
+    let trade_pubkey = trade_keys.public_key();
     let mut notifications = ctx.client.notifications();
     let opts =
         SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
     let subscription = Filter::new()
-        .pubkey(trade_keys.public_key())
+        .pubkey(trade_pubkey)
         .kind(nostr_sdk::Kind::GiftWrap)
         .limit(0);
     ctx.client.subscribe(subscription, Some(opts)).await?;
@@ -340,11 +341,27 @@ where
         ctx.mostro_pubkey,
     ));
 
-    // Wait for the DM or gift wrap event
+    // Wait for the DM or gift wrap event.
+    //
+    // `client.notifications()` is the **global** broadcast for every event
+    // any active subscription / fetch sees — including the kind-38385 info
+    // event coming back from the spawned PoW probe above. Without an
+    // application-side filter, that info event would race ahead of the real
+    // reply and short-circuit the wait, surfacing as "No response received
+    // from Mostro" further downstream. So mirror the subscription filter
+    // here and only accept GiftWraps tagged to our trade key.
     let waited = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
             match notifications.recv().await {
-                Ok(RelayPoolNotification::Event { event, .. }) => return Ok(*event),
+                Ok(RelayPoolNotification::Event { event, .. }) => {
+                    if event.kind != nostr_sdk::Kind::GiftWrap {
+                        continue;
+                    }
+                    if !event.tags.public_keys().any(|pk| *pk == trade_pubkey) {
+                        continue;
+                    }
+                    return Ok(*event);
+                }
                 Ok(_) => continue,
                 Err(e) => {
                     return Err(anyhow::anyhow!("Error receiving notification: {:?}", e));
