@@ -144,9 +144,24 @@ pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i
 /// Used by [`crate::util::messaging::wait_for_dm`] to distinguish a real
 /// timeout from a silent PoW rejection — see `docs/pow_error_handling.md`.
 pub async fn fetch_required_pow(ctx: &crate::cli::Context) -> Option<u8> {
-    fetch_info_tag(ctx, "pow")
+    fetch_required_pow_with(ctx.client.clone(), ctx.mostro_pubkey).await
+}
+
+/// Owned-args variant of [`fetch_required_pow`], suitable for `tokio::spawn`.
+///
+/// `wait_for_dm` kicks the probe off concurrently with the DM wait so the
+/// answer is already in hand by the time the wait times out (zero added
+/// latency in the timeout path, instead of a sequential second fetch).
+pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
+    let filter = Filter::new()
+        .author(mostro_pubkey)
+        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
+    let events = client
+        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
         .await
-        .and_then(|v| v.parse::<u8>().ok())
+        .ok()?;
+    let event = events.iter().max_by_key(|e| e.created_at)?;
+    read_info_tag_from_event(event, "pow").and_then(|v| v.parse::<u8>().ok())
 }
 
 #[allow(clippy::too_many_arguments)]

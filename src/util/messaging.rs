@@ -329,6 +329,17 @@ where
     // Send message here after opening notifications to avoid missing messages.
     sent_message.await?;
 
+    // Kick off the PoW probe concurrently with the DM wait. By running the
+    // kind-38385 lookup alongside the 15s `FETCH_EVENTS_TIMEOUT` instead of
+    // *after* it, the timeout branch doesn't pay a second sequential
+    // `fetch_events` round-trip — by then the probe has typically already
+    // returned. `JoinHandle` lets us `abort()` the probe cheaply on the happy
+    // path (DM arrives in time) without leaking the task.
+    let pow_probe = tokio::spawn(super::events::fetch_required_pow_with(
+        ctx.client.clone(),
+        ctx.mostro_pubkey,
+    ));
+
     // Wait for the DM or gift wrap event
     let waited = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
@@ -346,22 +357,23 @@ where
     // Keep a genuine timeout (the only "no reply" outcome) distinguishable from
     // a notification-channel error so callers can treat them differently.
     let event = match waited {
-        Ok(inner) => inner?,
+        Ok(inner) => {
+            // Happy path: DM arrived. Cancel the probe; the answer is no
+            // longer needed and we don't want a stray relay request lingering.
+            pow_probe.abort();
+            inner?
+        }
         Err(_elapsed) => {
             // mostrod silently drops events whose outer GiftWrap doesn't meet
             // its NIP-13 PoW requirement (relay accepts → daemon discards →
-            // no reply ever comes). Before declaring this a generic timeout,
-            // ask the daemon's kind-38385 info event whether that's actually
-            // the cause we're hiding behind "no reply".
-            //
-            // The probe is bounded by `POW_PROBE_TIMEOUT` instead of the full
-            // `FETCH_EVENTS_TIMEOUT` so a slow/unreachable relay can't double
-            // the user-visible wait. If the probe doesn't return in time, fall
-            // through to the generic timeout error rather than hanging.
-            let probe =
-                tokio::time::timeout(POW_PROBE_TIMEOUT, super::events::fetch_required_pow(ctx))
-                    .await;
-            if let Ok(Some(required)) = probe {
+            // no reply ever comes). The probe has already been running for
+            // `FETCH_EVENTS_TIMEOUT` alongside the wait, so it is almost
+            // certainly done. Cap the await with `POW_PROBE_TIMEOUT` as a
+            // safety net so a pathological relay can't keep us hanging — if
+            // the probe isn't back by then, fall through to the generic
+            // timeout error instead of waiting any longer.
+            let probe_result = tokio::time::timeout(POW_PROBE_TIMEOUT, pow_probe).await;
+            if let Ok(Ok(Some(required))) = probe_result {
                 let configured = parse_pow_env().unwrap_or(0);
                 if required > configured {
                     return Err(PowRequirementUnmet {

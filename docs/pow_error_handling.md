@@ -122,20 +122,31 @@ through (`add_invoice`, `take_order`, `take_dispute`, `send_msg`, `new_order`,
 `rate_user`, `orders_info`, `restore`, `last_trade_index`, `add_bond_invoice`).
 Centralizing the fix here covers every command in one place.
 
-Postflight check (chosen — see Alternatives below):
+Concurrent probe (chosen — see Alternatives below):
 
 ```rust
+// Kick off the PoW probe alongside the DM wait so its answer is in hand
+// the moment the wait times out. The probe is cheap to start and cheap to
+// cancel via JoinHandle::abort() on the happy path.
+let pow_probe = tokio::spawn(fetch_required_pow_with(
+    ctx.client.clone(),
+    ctx.mostro_pubkey,
+));
+
+let waited = tokio::time::timeout(FETCH_EVENTS_TIMEOUT, /* notification loop */).await;
+
 let event = match waited {
-    Ok(inner) => inner?,
+    Ok(inner) => {
+        pow_probe.abort();
+        inner?
+    }
     Err(_elapsed) => {
-        // Before declaring this a generic timeout, check whether the daemon
-        // advertises a PoW requirement we didn't meet — that's the real
-        // cause "deadline has elapsed" was hiding. Bounded by
-        // POW_PROBE_TIMEOUT so a slow/unreachable relay can't double the
-        // user-visible wait; if the probe doesn't return in time we fall
-        // through to the generic timeout error instead of hanging.
-        let probe = tokio::time::timeout(POW_PROBE_TIMEOUT, fetch_required_pow(ctx)).await;
-        if let Ok(Some(required)) = probe {
+        // Probe has been running for FETCH_EVENTS_TIMEOUT alongside the
+        // wait; it should already be done. POW_PROBE_TIMEOUT is a safety
+        // net for pathological relays — if the answer isn't in by then,
+        // fall through to the generic timeout error.
+        let probe_result = tokio::time::timeout(POW_PROBE_TIMEOUT, pow_probe).await;
+        if let Ok(Ok(Some(required))) = probe_result {
             let configured = parse_pow_env().unwrap_or(0);
             if required > configured {
                 return Err(PowRequirementUnmet { required, configured }.into());
@@ -146,9 +157,13 @@ let event = match waited {
 };
 ```
 
-`POW_PROBE_TIMEOUT` is a small constant (currently 3 s) — well below
-`FETCH_EVENTS_TIMEOUT` (15 s). Worst-case user-visible wait stays at one
-`FETCH_EVENTS_TIMEOUT` plus the probe budget instead of doubling.
+The probe lives in `events::fetch_required_pow_with(client, mostro_pubkey)`
+— an owned-args sibling of `fetch_required_pow(ctx)`, used so the spawned
+future is `'static`. The 3 s `POW_PROBE_TIMEOUT` is now a safety net rather
+than the typical wait: in the common timeout case the probe is already
+resolved when we look at it, so the user-visible wait stays at
+`FETCH_EVENTS_TIMEOUT` (15 s) plus ~0 s, instead of doubling to 30 s as the
+naive sequential version would.
 
 Add an `&Context` parameter? Look at the signature today —
 `wait_for_dm(ctx, order_trade_keys, sent_message)` — `ctx` is already
