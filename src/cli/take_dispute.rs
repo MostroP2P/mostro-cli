@@ -73,7 +73,7 @@ pub async fn execute_admin_cancel_dispute(
     println!("{table}");
     println!("💡 Canceling dispute...\n");
 
-    let _admin_keys = get_admin_keys(ctx)?;
+    let admin_keys = get_admin_keys(ctx)?;
 
     let payload = if slash_seller || slash_buyer {
         Some(Payload::BondResolution(BondResolution {
@@ -84,17 +84,56 @@ pub async fn execute_admin_cancel_dispute(
         None
     };
 
-    // Build admin dispute message
-    let take_dispute_message =
+    let admin_cancel_message =
         Message::new_dispute(Some(*dispute_id), None, None, Action::AdminCancel, payload)
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    admin_send_dm(ctx, take_dispute_message).await?;
+    // Send the message and await Mostro's reply so the success message is
+    // only printed when the cancel actually went through. Admin identity
+    // binds via the seal/rumor signers — the admin role doesn't rotate
+    // trade keys, so `admin_keys` signs both layers.
+    let sent_message = send_dm(
+        &ctx.client,
+        admin_keys,
+        admin_keys,
+        &ctx.mostro_pubkey,
+        admin_cancel_message,
+        None,
+        false,
+    );
 
-    println!("✅ Dispute canceled successfully!");
+    let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to receive response from Mostro for AdminCancel: {e}. \
+                 The operation may not have completed; verify the order id exists and check backend logs."
+            )
+        })?;
 
-    Ok(())
+    let messages = parse_dm_events(recv_event, admin_keys, None).await;
+    let (message, _, sender_pubkey) = messages
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
+
+    if *sender_pubkey != ctx.mostro_pubkey {
+        return Err(anyhow::anyhow!("Received response from wrong sender"));
+    }
+
+    let message_kind = message.get_inner_message_kind();
+    if message_kind.action == Action::AdminCanceled {
+        println!("✅ Dispute canceled successfully!");
+        Ok(())
+    } else if message_kind.action == Action::CantDo {
+        print_commands_results(message_kind, ctx).await
+    } else {
+        Err(anyhow::anyhow!(
+            "Received response with mismatched action. Expected: {:?}, Got: {:?}",
+            Action::AdminCanceled,
+            message_kind.action
+        ))
+    }
 }
 
 pub async fn execute_admin_settle_dispute(
@@ -126,7 +165,7 @@ pub async fn execute_admin_settle_dispute(
     println!("{table}");
     println!("💡 Settling dispute...\n");
 
-    let _admin_keys = get_admin_keys(ctx)?;
+    let admin_keys = get_admin_keys(ctx)?;
 
     let payload = if slash_seller || slash_buyer {
         Some(Payload::BondResolution(BondResolution {
@@ -137,15 +176,56 @@ pub async fn execute_admin_settle_dispute(
         None
     };
 
-    // Build admin dispute message
-    let take_dispute_message =
+    let admin_settle_message =
         Message::new_dispute(Some(*dispute_id), None, None, Action::AdminSettle, payload)
             .as_json()
             .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
-    admin_send_dm(ctx, take_dispute_message).await?;
 
-    println!("✅ Dispute settled successfully!");
-    Ok(())
+    // Send the message and await Mostro's reply so the success message is
+    // only printed when the settle actually went through. Admin identity
+    // binds via the seal/rumor signers — the admin role doesn't rotate
+    // trade keys, so `admin_keys` signs both layers.
+    let sent_message = send_dm(
+        &ctx.client,
+        admin_keys,
+        admin_keys,
+        &ctx.mostro_pubkey,
+        admin_settle_message,
+        None,
+        false,
+    );
+
+    let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to receive response from Mostro for AdminSettle: {e}. \
+                 The operation may not have completed; verify the order id exists and check backend logs."
+            )
+        })?;
+
+    let messages = parse_dm_events(recv_event, admin_keys, None).await;
+    let (message, _, sender_pubkey) = messages
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
+
+    if *sender_pubkey != ctx.mostro_pubkey {
+        return Err(anyhow::anyhow!("Received response from wrong sender"));
+    }
+
+    let message_kind = message.get_inner_message_kind();
+    if message_kind.action == Action::AdminSettled {
+        println!("✅ Dispute settled successfully!");
+        Ok(())
+    } else if message_kind.action == Action::CantDo {
+        print_commands_results(message_kind, ctx).await
+    } else {
+        Err(anyhow::anyhow!(
+            "Received response with mismatched action. Expected: {:?}, Got: {:?}",
+            Action::AdminSettled,
+            message_kind.action
+        ))
+    }
 }
 
 pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()> {
