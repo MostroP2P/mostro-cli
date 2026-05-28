@@ -256,6 +256,12 @@ pub async fn send_plain_text_dm(
     .await
 }
 
+/// Upper bound on the post-timeout PoW probe inside [`wait_for_dm`]. Kept
+/// well below `FETCH_EVENTS_TIMEOUT` so a slow/unreachable relay can't
+/// double the user-visible wait — if the kind-38385 info event isn't back
+/// within this budget we fall through to [`WaitForDmTimeout`] instead.
+const POW_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// Distinguishable error returned by [`wait_for_dm`] when no reply arrives
 /// within [`FETCH_EVENTS_TIMEOUT`].
 ///
@@ -274,6 +280,33 @@ impl std::fmt::Display for WaitForDmTimeout {
 }
 
 impl std::error::Error for WaitForDmTimeout {}
+
+/// Returned by [`wait_for_dm`] when the wait timed out *and* the Mostro
+/// instance's kind-38385 info event advertises a NIP-13 PoW difficulty
+/// strictly above what the client sent. Lets callers (and tests)
+/// distinguish a silent PoW rejection — the daemon dropped the event after
+/// the relay accepted it — from a generic timeout.
+///
+/// See `docs/pow_error_handling.md` for the design rationale.
+#[derive(Debug)]
+pub struct PowRequirementUnmet {
+    pub required: u8,
+    pub configured: u8,
+}
+
+impl std::fmt::Display for PowRequirementUnmet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "This Mostro instance requires NIP-13 proof of work of {} bits, \
+             but the client sent the event with {} bits. \
+             Re-run with `--pow {}` or set `POW={}` and try again.",
+            self.required, self.configured, self.required, self.required
+        )
+    }
+}
+
+impl std::error::Error for PowRequirementUnmet {}
 
 pub async fn wait_for_dm<F>(
     ctx: &crate::cli::Context,
@@ -296,6 +329,17 @@ where
     // Send message here after opening notifications to avoid missing messages.
     sent_message.await?;
 
+    // Kick off the PoW probe concurrently with the DM wait. By running the
+    // kind-38385 lookup alongside the 15s `FETCH_EVENTS_TIMEOUT` instead of
+    // *after* it, the timeout branch doesn't pay a second sequential
+    // `fetch_events` round-trip — by then the probe has typically already
+    // returned. `JoinHandle` lets us `abort()` the probe cheaply on the happy
+    // path (DM arrives in time) without leaking the task.
+    let pow_probe = tokio::spawn(super::events::fetch_required_pow_with(
+        ctx.client.clone(),
+        ctx.mostro_pubkey,
+    ));
+
     // Wait for the DM or gift wrap event
     let waited = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
@@ -313,8 +357,34 @@ where
     // Keep a genuine timeout (the only "no reply" outcome) distinguishable from
     // a notification-channel error so callers can treat them differently.
     let event = match waited {
-        Ok(inner) => inner?,
-        Err(_elapsed) => return Err(WaitForDmTimeout.into()),
+        Ok(inner) => {
+            // Happy path: DM arrived. Cancel the probe; the answer is no
+            // longer needed and we don't want a stray relay request lingering.
+            pow_probe.abort();
+            inner?
+        }
+        Err(_elapsed) => {
+            // mostrod silently drops events whose outer GiftWrap doesn't meet
+            // its NIP-13 PoW requirement (relay accepts → daemon discards →
+            // no reply ever comes). The probe has already been running for
+            // `FETCH_EVENTS_TIMEOUT` alongside the wait, so it is almost
+            // certainly done. Cap the await with `POW_PROBE_TIMEOUT` as a
+            // safety net so a pathological relay can't keep us hanging — if
+            // the probe isn't back by then, fall through to the generic
+            // timeout error instead of waiting any longer.
+            let probe_result = tokio::time::timeout(POW_PROBE_TIMEOUT, pow_probe).await;
+            if let Ok(Ok(Some(required))) = probe_result {
+                let configured = parse_pow_env().unwrap_or(0);
+                if required > configured {
+                    return Err(PowRequirementUnmet {
+                        required,
+                        configured,
+                    }
+                    .into());
+                }
+            }
+            return Err(WaitForDmTimeout.into());
+        }
     };
 
     let mut events = Events::default();
@@ -440,6 +510,42 @@ pub async fn print_dm_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pow_requirement_unmet_display_mentions_required_and_configured() {
+        let rendered = PowRequirementUnmet {
+            required: 12,
+            configured: 4,
+        }
+        .to_string();
+        assert!(
+            rendered.contains("12") && rendered.contains("4"),
+            "message should surface both PoW values, got: {rendered}",
+        );
+        assert!(
+            rendered.contains("proof of work"),
+            "message should call out PoW explicitly, got: {rendered}",
+        );
+        assert!(
+            rendered.contains("--pow") && rendered.contains("POW="),
+            "message should hint at both the CLI flag and env var, got: {rendered}",
+        );
+    }
+
+    #[test]
+    fn pow_requirement_unmet_is_downcastable_through_anyhow() {
+        // The add-bond-invoice flow only catches WaitForDmTimeout via
+        // downcast_ref::<WaitForDmTimeout>(). Verify our new error stays
+        // distinct so PoW failures don't get misreported as a successful
+        // bond-invoice submission.
+        let err: anyhow::Error = PowRequirementUnmet {
+            required: 8,
+            configured: 0,
+        }
+        .into();
+        assert!(err.downcast_ref::<PowRequirementUnmet>().is_some());
+        assert!(err.downcast_ref::<WaitForDmTimeout>().is_none());
+    }
 
     fn leading_zero_bits_in_hex(hex: &str) -> u32 {
         let mut bits = 0_u32;
