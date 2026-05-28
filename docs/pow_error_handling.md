@@ -130,8 +130,12 @@ let event = match waited {
     Err(_elapsed) => {
         // Before declaring this a generic timeout, check whether the daemon
         // advertises a PoW requirement we didn't meet — that's the real
-        // cause "deadline has elapsed" was hiding.
-        if let Some(required) = fetch_required_pow(ctx).await {
+        // cause "deadline has elapsed" was hiding. Bounded by
+        // POW_PROBE_TIMEOUT so a slow/unreachable relay can't double the
+        // user-visible wait; if the probe doesn't return in time we fall
+        // through to the generic timeout error instead of hanging.
+        let probe = tokio::time::timeout(POW_PROBE_TIMEOUT, fetch_required_pow(ctx)).await;
+        if let Ok(Some(required)) = probe {
             let configured = parse_pow_env().unwrap_or(0);
             if required > configured {
                 return Err(PowRequirementUnmet { required, configured }.into());
@@ -141,6 +145,10 @@ let event = match waited {
     }
 };
 ```
+
+`POW_PROBE_TIMEOUT` is a small constant (currently 3 s) — well below
+`FETCH_EVENTS_TIMEOUT` (15 s). Worst-case user-visible wait stays at one
+`FETCH_EVENTS_TIMEOUT` plus the probe budget instead of doubling.
 
 Add an `&Context` parameter? Look at the signature today —
 `wait_for_dm(ctx, order_trade_keys, sent_message)` — `ctx` is already

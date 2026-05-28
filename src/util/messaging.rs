@@ -256,6 +256,12 @@ pub async fn send_plain_text_dm(
     .await
 }
 
+/// Upper bound on the post-timeout PoW probe inside [`wait_for_dm`]. Kept
+/// well below `FETCH_EVENTS_TIMEOUT` so a slow/unreachable relay can't
+/// double the user-visible wait — if the kind-38385 info event isn't back
+/// within this budget we fall through to [`WaitForDmTimeout`] instead.
+const POW_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// Distinguishable error returned by [`wait_for_dm`] when no reply arrives
 /// within [`FETCH_EVENTS_TIMEOUT`].
 ///
@@ -347,7 +353,15 @@ where
             // no reply ever comes). Before declaring this a generic timeout,
             // ask the daemon's kind-38385 info event whether that's actually
             // the cause we're hiding behind "no reply".
-            if let Some(required) = super::events::fetch_required_pow(ctx).await {
+            //
+            // The probe is bounded by `POW_PROBE_TIMEOUT` instead of the full
+            // `FETCH_EVENTS_TIMEOUT` so a slow/unreachable relay can't double
+            // the user-visible wait. If the probe doesn't return in time, fall
+            // through to the generic timeout error rather than hanging.
+            let probe =
+                tokio::time::timeout(POW_PROBE_TIMEOUT, super::events::fetch_required_pow(ctx))
+                    .await;
+            if let Ok(Some(required)) = probe {
                 let configured = parse_pow_env().unwrap_or(0);
                 if required > configured {
                     return Err(PowRequirementUnmet {
