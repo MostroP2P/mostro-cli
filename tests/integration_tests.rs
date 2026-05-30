@@ -25,6 +25,7 @@ async fn create_test_context() -> anyhow::Result<Context> {
         pool,
         context_keys: Some(context_keys),
         mostro_pubkey,
+        mint_url: None,
     })
 }
 

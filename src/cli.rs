@@ -59,6 +59,7 @@ pub struct Context {
     pub pool: SqlitePool,
     pub context_keys: Option<Keys>,
     pub mostro_pubkey: PublicKey,
+    pub mint_url: Option<String>,
 }
 
 #[derive(Parser)]
@@ -92,6 +93,9 @@ pub struct Cli {
     pub pow: Option<String>,
     #[arg(short, long)]
     pub secret: bool,
+    /// Cashu mint URL for escrow operations (or set MINT_URL env var)
+    #[arg(long)]
+    pub mint_url: Option<String>,
 }
 
 #[derive(Subcommand, Clone)]
@@ -371,6 +375,10 @@ fn get_env_var(cli: &Cli) {
     if cli.secret {
         set_var("SECRET", "true");
     }
+
+    if let Some(ref mint_url) = cli.mint_url {
+        set_var("MINT_URL", mint_url.clone());
+    }
 }
 
 // Check range with two values value
@@ -470,6 +478,11 @@ async fn init_context(cli: &Cli) -> Result<Context> {
     // Connect to Nostr relays
     let client = util::connect_nostr().await?;
 
+    let mint_url = cli
+        .mint_url
+        .clone()
+        .or_else(|| std::env::var("MINT_URL").ok());
+
     Ok(Context {
         client,
         identity_keys,
@@ -478,6 +491,7 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         pool,
         context_keys,
         mostro_pubkey,
+        mint_url,
     })
 }
 

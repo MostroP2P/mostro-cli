@@ -40,13 +40,24 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
               buyer_invoice TEXT,
               request_id INTEGER,
               created_at INTEGER,
-              expires_at INTEGER
+              expires_at INTEGER,
+              cashu_mint_url TEXT,
+              cashu_escrow_token TEXT,
+              cashu_escrow_locked_at INTEGER
           );
           CREATE TABLE IF NOT EXISTS users (
               i0_pubkey char(64) PRIMARY KEY,
               mnemonic TEXT,
               last_trade_index INTEGER,
               created_at INTEGER
+          );
+          CREATE TABLE IF NOT EXISTS cashu_signatures (
+              order_id TEXT NOT NULL,
+              pubkey TEXT NOT NULL,
+              proof_secret TEXT NOT NULL,
+              signature TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              PRIMARY KEY (order_id, proof_secret)
           );
           "#,
         )
@@ -67,6 +78,8 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
 
         // Migration: Drop buyer_token and seller_token columns if they exist
         migrate_remove_token_columns(&pool).await?;
+        // Migration: Add Cashu escrow columns and signatures table
+        migrate_add_cashu_columns(&pool).await?;
     }
 
     Ok(pool)
@@ -122,6 +135,41 @@ async fn migrate_remove_token_columns(pool: &SqlitePool) -> Result<()> {
     if buyer_token_exists == 0 && seller_token_exists == 0 {
         println!("No legacy token columns found - database is up to date");
     }
+
+    Ok(())
+}
+
+async fn migrate_add_cashu_columns(pool: &SqlitePool) -> Result<()> {
+    let col_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'cashu_mint_url'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if col_exists == 0 {
+        sqlx::query("ALTER TABLE orders ADD COLUMN cashu_mint_url TEXT")
+            .execute(pool)
+            .await?;
+        sqlx::query("ALTER TABLE orders ADD COLUMN cashu_escrow_token TEXT")
+            .execute(pool)
+            .await?;
+        sqlx::query("ALTER TABLE orders ADD COLUMN cashu_escrow_locked_at INTEGER")
+            .execute(pool)
+            .await?;
+    }
+
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS cashu_signatures (
+            order_id TEXT NOT NULL,
+            pubkey TEXT NOT NULL,
+            proof_secret TEXT NOT NULL,
+            signature TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (order_id, proof_secret)
+        )"#,
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -267,6 +315,9 @@ pub struct Order {
     pub request_id: Option<i64>,
     pub created_at: Option<i64>,
     pub expires_at: Option<i64>,
+    pub cashu_mint_url: Option<String>,
+    pub cashu_escrow_token: Option<String>,
+    pub cashu_escrow_locked_at: Option<i64>,
 }
 
 impl Order {
@@ -299,6 +350,9 @@ impl Order {
             request_id,
             created_at: Some(chrono::Utc::now().timestamp()),
             expires_at: None,
+            cashu_mint_url: None,
+            cashu_escrow_token: None,
+            cashu_escrow_locked_at: None,
         };
 
         // Try insert; if id already exists, perform an update instead
@@ -562,6 +616,36 @@ impl Order {
             .collect())
     }
 
+    pub async fn save_cashu_escrow(
+        pool: &SqlitePool,
+        order_id: &str,
+        mint_url: &str,
+        token: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE orders SET cashu_mint_url = ?, cashu_escrow_token = ? WHERE id = ?",
+        )
+        .bind(mint_url)
+        .bind(token)
+        .bind(order_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_cashu_escrow_locked_at(
+        pool: &SqlitePool,
+        order_id: &str,
+        locked_at: i64,
+    ) -> Result<()> {
+        sqlx::query("UPDATE orders SET cashu_escrow_locked_at = ? WHERE id = ?")
+            .bind(locked_at)
+            .bind(order_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn delete_by_id(pool: &SqlitePool, id: &str) -> Result<bool> {
         let rows_affected = sqlx::query(
             r#"
@@ -575,5 +659,45 @@ impl Order {
         .rows_affected();
 
         Ok(rows_affected > 0)
+    }
+}
+
+#[derive(Debug, Default, Clone, sqlx::FromRow)]
+pub struct CashuSignature {
+    pub order_id: String,
+    pub pubkey: String,
+    pub proof_secret: String,
+    pub signature: String,
+    pub created_at: i64,
+}
+
+impl CashuSignature {
+    pub async fn save(pool: &SqlitePool, sig: &CashuSignature) -> Result<()> {
+        sqlx::query(
+            r#"INSERT OR REPLACE INTO cashu_signatures
+               (order_id, pubkey, proof_secret, signature, created_at)
+               VALUES (?, ?, ?, ?, ?)"#,
+        )
+        .bind(&sig.order_id)
+        .bind(&sig.pubkey)
+        .bind(&sig.proof_secret)
+        .bind(&sig.signature)
+        .bind(sig.created_at)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_by_order_id(
+        pool: &SqlitePool,
+        order_id: &str,
+    ) -> Result<Vec<CashuSignature>> {
+        let sigs = sqlx::query_as::<_, CashuSignature>(
+            "SELECT * FROM cashu_signatures WHERE order_id = ? ORDER BY created_at ASC",
+        )
+        .bind(order_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(sigs)
     }
 }
