@@ -2,7 +2,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use cdk::nuts::{Conditions, CurrencyUnit, Proof, PublicKey, SecretKey, SigFlag, SpendingConditions};
+use cdk::nuts::{
+    Conditions, CurrencyUnit, P2PKWitness, Proof, PublicKey, SecretKey, SigFlag,
+    SpendingConditions, Token, Witness,
+};
 use cdk::wallet::{ReceiveOptions, SendOptions, Wallet};
 use cdk::Amount;
 use cdk_redb::WalletRedbDatabase;
@@ -126,8 +129,58 @@ impl CashuWallet {
         Ok(())
     }
 
+    /// Sign every proof in a serialized Cashu token with the given secret key.
+    ///
+    /// Each proof's NUT-11 P2PK witness receives one additional Schnorr signature.
+    /// Existing witness signatures (e.g. from a co-signer) are preserved.
+    /// Returns the re-serialized token string.
+    pub fn sign_token(token_str: &str, secret_key: SecretKey) -> Result<String> {
+        let mut token: Token = token_str
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Failed to parse token: {:?}", e))?;
+
+        match &mut token {
+            Token::TokenV3(v3) => {
+                for t in &mut v3.token {
+                    for proof in &mut t.proofs {
+                        sign_proof_witness(&mut proof.witness, &proof.secret, &secret_key)?;
+                    }
+                }
+            }
+            Token::TokenV4(v4) => {
+                for t in &mut v4.token {
+                    for proof in &mut t.proofs {
+                        sign_proof_witness(&mut proof.witness, &proof.secret, &secret_key)?;
+                    }
+                }
+            }
+        }
+
+        Ok(token.to_string())
+    }
+
     pub async fn total_balance(&self) -> Result<u64> {
         let bal = self.inner.total_balance().await?;
         Ok(u64::from(bal))
     }
+}
+
+fn sign_proof_witness(
+    witness: &mut Option<Witness>,
+    secret: &cdk::secret::Secret,
+    sk: &SecretKey,
+) -> Result<()> {
+    let sig = sk
+        .sign(&secret.to_bytes())
+        .map_err(|e| anyhow::anyhow!("Failed to sign proof: {:?}", e))?;
+    let sig_str = sig.to_string();
+    match witness.as_mut() {
+        Some(w) => w.add_signatures(vec![sig_str]),
+        None => {
+            let mut p2pk_w = Witness::P2PKWitness(P2PKWitness::default());
+            p2pk_w.add_signatures(vec![sig_str]);
+            *witness = Some(p2pk_w);
+        }
+    }
+    Ok(())
 }

@@ -1,6 +1,8 @@
 pub mod add_bond_invoice;
 pub mod add_cashu_escrow;
 pub mod add_invoice;
+pub mod claim_cashu_escrow;
+pub mod release_cashu_escrow;
 pub mod adm_send_dm;
 pub mod conversation_key;
 pub mod dm_to_user;
@@ -22,6 +24,8 @@ pub mod take_order;
 use crate::cli::add_bond_invoice::execute_add_bond_invoice;
 use crate::cli::add_cashu_escrow::execute_add_cashu_escrow;
 use crate::cli::add_invoice::execute_add_invoice;
+use crate::cli::claim_cashu_escrow::execute_claim_cashu_escrow;
+use crate::cli::release_cashu_escrow::execute_release_cashu_escrow;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::dm_to_user::execute_dm_to_user;
@@ -365,6 +369,24 @@ pub enum Commands {
         #[arg(short, long)]
         buyer_pubkey: String,
     },
+    /// Sign and send the locked Cashu token to the buyer (seller release flow)
+    ReleaseCashuEscrow {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Buyer's Nostr pubkey (hex or npub)
+        #[arg(short, long)]
+        buyer_pubkey: String,
+    },
+    /// Receive and redeem the Cashu escrow token sent by the seller (buyer flow)
+    ClaimCashuEscrow {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Seller's Nostr pubkey (hex or npub)
+        #[arg(short, long)]
+        seller_pubkey: String,
+    },
 }
 
 fn get_env_var(cli: &Cli) {
@@ -659,6 +681,14 @@ impl Commands {
                 amount,
                 buyer_pubkey,
             } => execute_add_cashu_escrow(order_id, *amount, buyer_pubkey, ctx).await,
+            Commands::ReleaseCashuEscrow {
+                order_id,
+                buyer_pubkey,
+            } => execute_release_cashu_escrow(order_id, buyer_pubkey, ctx).await,
+            Commands::ClaimCashuEscrow {
+                order_id,
+                seller_pubkey,
+            } => execute_claim_cashu_escrow(order_id, seller_pubkey, ctx).await,
         }
     }
 }
