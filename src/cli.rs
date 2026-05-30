@@ -1,8 +1,11 @@
 pub mod add_bond_invoice;
 pub mod add_cashu_escrow;
 pub mod add_invoice;
+pub mod approve_cashu_cancel;
 pub mod claim_cashu_escrow;
+pub mod reclaim_cashu_escrow;
 pub mod release_cashu_escrow;
+pub mod request_cashu_cancel;
 pub mod adm_send_dm;
 pub mod conversation_key;
 pub mod dm_to_user;
@@ -24,8 +27,11 @@ pub mod take_order;
 use crate::cli::add_bond_invoice::execute_add_bond_invoice;
 use crate::cli::add_cashu_escrow::execute_add_cashu_escrow;
 use crate::cli::add_invoice::execute_add_invoice;
+use crate::cli::approve_cashu_cancel::execute_approve_cashu_cancel;
 use crate::cli::claim_cashu_escrow::execute_claim_cashu_escrow;
+use crate::cli::reclaim_cashu_escrow::execute_reclaim_cashu_escrow;
 use crate::cli::release_cashu_escrow::execute_release_cashu_escrow;
+use crate::cli::request_cashu_cancel::execute_request_cashu_cancel;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::dm_to_user::execute_dm_to_user;
@@ -387,6 +393,33 @@ pub enum Commands {
         #[arg(short, long)]
         seller_pubkey: String,
     },
+    /// Send the locked Cashu escrow token to the buyer to request cooperative cancel (seller flow)
+    RequestCashuCancel {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Buyer's Nostr pubkey (hex or npub)
+        #[arg(short, long)]
+        buyer_pubkey: String,
+    },
+    /// Sign the cancel token received from seller and return it (buyer flow)
+    ApproveCashuCancel {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Seller's Nostr pubkey (hex or npub)
+        #[arg(short, long)]
+        seller_pubkey: String,
+    },
+    /// Fetch buyer-signed cancel token and redeem escrow back to seller wallet (seller flow)
+    ReclaimCashuEscrow {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Buyer's Nostr pubkey (hex or npub)
+        #[arg(short, long)]
+        buyer_pubkey: String,
+    },
 }
 
 fn get_env_var(cli: &Cli) {
@@ -689,6 +722,18 @@ impl Commands {
                 order_id,
                 seller_pubkey,
             } => execute_claim_cashu_escrow(order_id, seller_pubkey, ctx).await,
+            Commands::RequestCashuCancel {
+                order_id,
+                buyer_pubkey,
+            } => execute_request_cashu_cancel(order_id, buyer_pubkey, ctx).await,
+            Commands::ApproveCashuCancel {
+                order_id,
+                seller_pubkey,
+            } => execute_approve_cashu_cancel(order_id, seller_pubkey, ctx).await,
+            Commands::ReclaimCashuEscrow {
+                order_id,
+                buyer_pubkey,
+            } => execute_reclaim_cashu_escrow(order_id, buyer_pubkey, ctx).await,
         }
     }
 }
