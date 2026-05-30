@@ -256,6 +256,33 @@ fn format_payload_details(
                 )
             }
         }
+        Payload::CashuLockProof(proof) => {
+            let token_preview = if proof.token.len() > 40 {
+                format!("{}...", &proof.token[..40])
+            } else {
+                proof.token.clone()
+            };
+            let buyer_preview = &proof.buyer_pubkey[..proof.buyer_pubkey.len().min(16)];
+            let seller_preview = &proof.seller_pubkey[..proof.seller_pubkey.len().min(16)];
+            format!(
+                "🔐 Cashu Escrow Lock\nToken: {}\nMint: {}\nBuyer key: {}...\nSeller key: {}...",
+                token_preview, proof.mint_url, buyer_preview, seller_preview
+            )
+        }
+        Payload::CashuSignatures(sigs) => {
+            let first = sigs
+                .first()
+                .map(|s| {
+                    let secret_preview = if s.secret.len() > 20 {
+                        format!("{}...", &s.secret[..20])
+                    } else {
+                        s.secret.clone()
+                    };
+                    format!(" (first secret: {})", secret_preview)
+                })
+                .unwrap_or_default();
+            format!("🖊 Cashu P_M Signatures: {} proof(s){}", sigs.len(), first)
+        }
         _ => {
             // For other payloads, try to pretty-print as JSON
             match serde_json::to_string_pretty(payload) {
@@ -656,6 +683,26 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Some(Payload::CantDo(Some(CantDoReason::NotFound))) => Err(anyhow::anyhow!(
                     "Resource not found. Verify the order or dispute id exists."
                 )),
+                Some(Payload::CantDo(Some(CantDoReason::InvalidCashuToken))) => {
+                    println!("🔐 Invalid Cashu Token");
+                    println!("💡 The submitted Cashu token is malformed or cannot be verified");
+                    Err(anyhow::anyhow!("Invalid Cashu token."))
+                }
+                Some(Payload::CantDo(Some(CantDoReason::CashuMintUnavailable))) => {
+                    println!("🏦 Cashu Mint Unavailable");
+                    println!("💡 The configured Cashu mint could not be reached");
+                    Err(anyhow::anyhow!("Cashu mint unavailable."))
+                }
+                Some(Payload::CantDo(Some(CantDoReason::CashuEscrowNotLocked))) => {
+                    println!("🔓 Cashu Escrow Not Locked");
+                    println!("💡 The requested action requires a locked Cashu escrow");
+                    Err(anyhow::anyhow!("Cashu escrow is not locked."))
+                }
+                Some(Payload::CantDo(Some(CantDoReason::CashuSignatureMissing))) => {
+                    println!("✍️  Cashu Signature Missing");
+                    println!("💡 A required Cashu signature is missing from the request");
+                    Err(anyhow::anyhow!("Cashu signature missing."))
+                }
                 _ => {
                     println!("❓ Unknown Error");
                     println!("💡 An unknown error occurred");
@@ -871,6 +918,47 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Err(anyhow::anyhow!("No restore data payload found in message"))
             }
         }
+        Action::AddCashuEscrow => {
+            if let Some(order_id) = &message.id {
+                println!("🔐 Cashu Escrow Submitted");
+                println!("═══════════════════════════════════════");
+                println!("📋 Order ID: {}", order_id);
+                println!("✅ Locked Cashu token sent to Mostro for validation.");
+                println!("⏳ Waiting for escrow confirmation...");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("No order id found in message"))
+            }
+        }
+        Action::CashuEscrowLocked => {
+            if let Some(order_id) = &message.id {
+                println!("🔒 Cashu Escrow Locked");
+                println!("═══════════════════════════════════════");
+                println!("📋 Order ID: {}", order_id);
+                println!("✅ Token validated and locked by Mostro.");
+                println!("💡 You may now send fiat to the counterparty.");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("No order id found in message"))
+            }
+        }
+        Action::CashuPmSignature => {
+            println!("🖊 Cashu Arbitrator Signatures Received");
+            println!("═══════════════════════════════════════");
+            if let Some(order_id) = &message.id {
+                println!("📋 Order ID: {}", order_id);
+            }
+            if let Some(Payload::CashuSignatures(sigs)) = &message.payload {
+                println!("🔑 Received {} P_M signature(s).", sigs.len());
+                println!("💡 Combine these with your trade key to redeem the escrow.");
+            } else {
+                println!(
+                    "⚠️  Warning: Expected CashuSignatures payload but got: {:?}",
+                    message.payload
+                );
+            }
+            Ok(())
+        }
         _ => Err(anyhow::anyhow!("Unknown action: {:?}", message.action)),
     }
 }
@@ -989,6 +1077,9 @@ pub async fn print_direct_messages(
             Action::Orders => "📋",
             Action::LastTradeIndex => "🔢",
             Action::SendDm => "💬",
+            Action::AddCashuEscrow => "🔐",
+            Action::CashuEscrowLocked => "🔒",
+            Action::CashuPmSignature => "🖊",
             _ => "🎯",
         };
 
