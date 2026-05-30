@@ -4,6 +4,7 @@ pub mod add_invoice;
 pub mod approve_cashu_cancel;
 pub mod claim_cashu_escrow;
 pub mod reclaim_cashu_escrow;
+pub mod redeem_cashu_dispute;
 pub mod release_cashu_escrow;
 pub mod request_cashu_cancel;
 pub mod adm_send_dm;
@@ -30,6 +31,7 @@ use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::approve_cashu_cancel::execute_approve_cashu_cancel;
 use crate::cli::claim_cashu_escrow::execute_claim_cashu_escrow;
 use crate::cli::reclaim_cashu_escrow::execute_reclaim_cashu_escrow;
+use crate::cli::redeem_cashu_dispute::execute_redeem_cashu_dispute;
 use crate::cli::release_cashu_escrow::execute_release_cashu_escrow;
 use crate::cli::request_cashu_cancel::execute_request_cashu_cancel;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
@@ -420,6 +422,15 @@ pub enum Commands {
         #[arg(short, long)]
         buyer_pubkey: String,
     },
+    /// Redeem a disputed Cashu escrow using Mostro's P_M signatures (winner flow)
+    RedeemCashuDispute {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Raw Cashu token (required for buyers who don't have it in the local DB)
+        #[arg(short, long)]
+        token: Option<String>,
+    },
 }
 
 fn get_env_var(cli: &Cli) {
@@ -734,6 +745,9 @@ impl Commands {
                 order_id,
                 buyer_pubkey,
             } => execute_reclaim_cashu_escrow(order_id, buyer_pubkey, ctx).await,
+            Commands::RedeemCashuDispute { order_id, token } => {
+                execute_redeem_cashu_dispute(order_id, token.as_deref(), ctx).await
+            }
         }
     }
 }

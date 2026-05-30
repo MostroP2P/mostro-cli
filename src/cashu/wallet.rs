@@ -159,9 +159,58 @@ impl CashuWallet {
         Ok(token.to_string())
     }
 
+    /// Inject pre-computed P_M signatures into a token's proof witnesses.
+    ///
+    /// `pm_sigs` is a slice of `(secret, sig_hex)` pairs: each entry carries
+    /// Mostro's Schnorr signature for the proof identified by `secret`.  The
+    /// secret string must match the proof's NUT-11 secret exactly as it appears
+    /// in the token, so the caller derives it from the `CashuProofSignature`
+    /// payload without any transformation.
+    pub fn inject_pm_signatures(token_str: &str, pm_sigs: &[(String, String)]) -> Result<String> {
+        let mut token: Token = token_str
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Failed to parse token: {:?}", e))?;
+
+        match &mut token {
+            Token::TokenV3(v3) => {
+                for t in &mut v3.token {
+                    for proof in &mut t.proofs {
+                        let secret_str = proof.secret.to_string();
+                        if let Some((_, sig)) = pm_sigs.iter().find(|(s, _)| *s == secret_str) {
+                            inject_sig_into_witness(&mut proof.witness, sig);
+                        }
+                    }
+                }
+            }
+            Token::TokenV4(v4) => {
+                for t in &mut v4.token {
+                    for proof in &mut t.proofs {
+                        let secret_str = proof.secret.to_string();
+                        if let Some((_, sig)) = pm_sigs.iter().find(|(s, _)| *s == secret_str) {
+                            inject_sig_into_witness(&mut proof.witness, sig);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(token.to_string())
+    }
+
     pub async fn total_balance(&self) -> Result<u64> {
         let bal = self.inner.total_balance().await?;
         Ok(u64::from(bal))
+    }
+}
+
+fn inject_sig_into_witness(witness: &mut Option<Witness>, sig_hex: &str) {
+    match witness.as_mut() {
+        Some(w) => w.add_signatures(vec![sig_hex.to_string()]),
+        None => {
+            let mut p2pk_w = Witness::P2PKWitness(P2PKWitness::default());
+            p2pk_w.add_signatures(vec![sig_hex.to_string()]);
+            *witness = Some(p2pk_w);
+        }
     }
 }
 
