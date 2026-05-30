@@ -1,4 +1,5 @@
 pub mod add_bond_invoice;
+pub mod add_cashu_escrow;
 pub mod add_invoice;
 pub mod adm_send_dm;
 pub mod conversation_key;
@@ -19,6 +20,7 @@ pub mod take_dispute;
 pub mod take_order;
 
 use crate::cli::add_bond_invoice::execute_add_bond_invoice;
+use crate::cli::add_cashu_escrow::execute_add_cashu_escrow;
 use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
@@ -351,6 +353,18 @@ pub enum Commands {
         #[arg(short, long)]
         order_ids: Vec<Uuid>,
     },
+    /// Lock a Cashu escrow token for a matched order (seller flow)
+    AddCashuEscrow {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Amount in satoshis to lock
+        #[arg(short, long)]
+        amount: u64,
+        /// Buyer's Nostr pubkey (hex or npub)
+        #[arg(short, long)]
+        buyer_pubkey: String,
+    },
 }
 
 fn get_env_var(cli: &Cli) {
@@ -640,6 +654,11 @@ impl Commands {
                 execute_restore(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
             }
             Commands::OrdersInfo { order_ids } => execute_orders_info(order_ids, ctx).await,
+            Commands::AddCashuEscrow {
+                order_id,
+                amount,
+                buyer_pubkey,
+            } => execute_add_cashu_escrow(order_id, *amount, buyer_pubkey, ctx).await,
         }
     }
 }
