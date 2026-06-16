@@ -5,6 +5,7 @@ use mostro_core::prelude::*;
 use nip44::v2::{encrypt_to_bytes, ConversationKey};
 use nostr_sdk::prelude::*;
 use std::env::var;
+use std::str::FromStr;
 
 use crate::cli::Context;
 use crate::parser::dms::print_commands_results;
@@ -200,23 +201,47 @@ pub async fn fetch_gift_wraps_for_shared_key(
     Ok(messages)
 }
 
-/// Internal: wrap a Mostro `Message` via [`wrap_message`] and publish it.
+/// Resolve the wire transport from the `TRANSPORT` env var (set from the
+/// `--transport` flag in `get_env_var`). Absent/empty ⇒ `gift-wrap`
+/// (protocol v1), so existing invocations are wire-identical. Mirrors how
+/// `POW` / `SECRET` are read here rather than threaded through every call
+/// site. See docs/TRANSPORT_V2_SPEC.md.
+pub fn parse_transport_env() -> Result<Transport> {
+    match var("TRANSPORT") {
+        Ok(s) if !s.trim().is_empty() => Transport::from_str(s.trim())
+            .map_err(|e| anyhow::anyhow!("Invalid TRANSPORT '{}': {e}", s.trim())),
+        _ => Ok(Transport::default()),
+    }
+}
+
+/// Internal: wrap a Mostro `Message` for the configured `transport` and
+/// publish it.
 ///
-/// Follows the mostro-core 0.10 dual-key split: `identity_keys` sign the
-/// seal (long-lived reputation binding), `trade_keys` author the rumor and
-/// produce the inner tuple signature. Pass the same `Keys` for both to
-/// opt into full-privacy mode.
-async fn publish_gift_wrap(
+/// Routes through mostro-core's [`wrap_message_with`], which dispatches to the
+/// protocol-v1 gift wrap (kind 1059) or the protocol-v2 NIP-44 direct event
+/// (kind 14) per `transport`. Follows the dual-key split: `identity_keys`
+/// sign the seal / identity proof (long-lived reputation binding),
+/// `trade_keys` author the event and produce the inner tuple signature. Pass
+/// the same `Keys` for both to opt into full-privacy mode.
+async fn publish_wrapped(
     client: &Client,
+    transport: Transport,
     identity_keys: &Keys,
     trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     message: &Message,
     opts: WrapOptions,
 ) -> Result<()> {
-    let event = wrap_message(message, identity_keys, trade_keys, *receiver_pubkey, opts)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to wrap message: {e}"))?;
+    let event = wrap_message_with(
+        transport,
+        message,
+        identity_keys,
+        trade_keys,
+        *receiver_pubkey,
+        opts,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to wrap message: {e}"))?;
     client.send_event(&event).await?;
     Ok(())
 }
@@ -245,8 +270,9 @@ pub async fn send_plain_text_dm(
         expiration: None,
         signed: false,
     };
-    publish_gift_wrap(
+    publish_wrapped(
         client,
+        parse_transport_env()?,
         identity_keys,
         trade_keys,
         receiver_pubkey,
@@ -318,13 +344,24 @@ where
 {
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     let trade_pubkey = trade_keys.public_key();
+    // Subscribe on the configured transport's event kind: 1059 (gift wrap,
+    // v1) or 14 (NIP-44 direct, v2). On v2, kind 14 is shared with NIP-17
+    // peer chat, so additionally pin the author to Mostro's key to keep the
+    // reply unambiguous (see docs/TRANSPORT_V2_SPEC.md §2).
+    let transport = parse_transport_env()?;
+    let accepted_kind = transport.event_kind();
+    let is_v2 = transport == Transport::Nip44Direct;
+    let mostro_pubkey = ctx.mostro_pubkey;
     let mut notifications = ctx.client.notifications();
     let opts =
         SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
-    let subscription = Filter::new()
+    let mut subscription = Filter::new()
         .pubkey(trade_pubkey)
-        .kind(nostr_sdk::Kind::GiftWrap)
+        .kind(accepted_kind)
         .limit(0);
+    if is_v2 {
+        subscription = subscription.author(mostro_pubkey);
+    }
     ctx.client.subscribe(subscription, Some(opts)).await?;
 
     // Send message here after opening notifications to avoid missing messages.
@@ -354,10 +391,15 @@ where
         loop {
             match notifications.recv().await {
                 Ok(RelayPoolNotification::Event { event, .. }) => {
-                    if event.kind != nostr_sdk::Kind::GiftWrap {
+                    if event.kind != accepted_kind {
                         continue;
                     }
                     if !event.tags.public_keys().any(|pk| *pk == trade_pubkey) {
+                        continue;
+                    }
+                    // v2: reject any kind-14 not authored by Mostro (e.g. an
+                    // unrelated NIP-17 peer chat tagged to this trade key).
+                    if is_v2 && event.pubkey != mostro_pubkey {
                         continue;
                     }
                     return Ok(*event);
@@ -486,8 +528,9 @@ pub async fn send_dm(
         signed: !private,
     };
 
-    publish_gift_wrap(
+    publish_wrapped(
         client,
+        parse_transport_env()?,
         identity_keys,
         trade_keys,
         receiver_pubkey,
@@ -504,7 +547,8 @@ pub async fn print_dm_events(
     order_trade_keys: Option<&Keys>,
 ) -> Result<()> {
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
-    let messages = parse_dm_events(recv_event, trade_keys, None).await;
+    // Mostro-protocol reply: unwrap via the transport-agnostic dispatcher.
+    let messages = parse_dm_events(recv_event, trade_keys, None, true).await;
     let (message, _, _) = messages
         .first()
         .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
@@ -597,6 +641,64 @@ mod tests {
     // mostro-core. These tests only exercise the CLI wiring: that the
     // Message we hand to send_dm survives a wrap→unwrap roundtrip and that
     // our WrapOptions knobs (signed, pow) reach the outer event.
+
+    #[test]
+    fn transport_from_str_maps_to_event_kind() {
+        // The CLI resolves `TRANSPORT` via Transport::from_str and subscribes
+        // on `event_kind()`. Lock down the mapping the receive/send paths rely
+        // on (docs/TRANSPORT_V2_SPEC.md §3).
+        let v1 = Transport::from_str("gift-wrap").expect("gift-wrap parses");
+        assert_eq!(v1, Transport::GiftWrap);
+        assert_eq!(v1.event_kind(), nostr_sdk::Kind::GiftWrap);
+
+        let v2 = Transport::from_str("nip44").expect("nip44 parses");
+        assert_eq!(v2, Transport::Nip44Direct);
+        assert_eq!(v2.event_kind(), nostr_sdk::Kind::PrivateDirectMessage);
+
+        assert_eq!(Transport::default(), Transport::GiftWrap);
+        assert!(Transport::from_str("bogus").is_err());
+    }
+
+    #[tokio::test]
+    async fn nip44_transport_roundtrips_via_unwrap_incoming() {
+        // The v2 send/receive wiring: wrap_message_with(Nip44Direct, …) must
+        // produce a kind-14 event that unwrap_incoming (used by
+        // parse_dm_events on the Mostro-protocol path) decodes back to the
+        // same message, authored by the trade key.
+        let identity_keys = Keys::generate();
+        let trade_keys = Keys::generate();
+        let mostro_keys = Keys::generate();
+        let message = sample_protocol_message(Some(99));
+
+        let event = wrap_message_with(
+            Transport::Nip44Direct,
+            &message,
+            &identity_keys,
+            &trade_keys,
+            mostro_keys.public_key(),
+            WrapOptions::default(),
+        )
+        .await
+        .expect("wrap v2");
+
+        assert_eq!(event.kind, nostr_sdk::Kind::PrivateDirectMessage);
+        assert_eq!(
+            event.pubkey,
+            trade_keys.public_key(),
+            "author is the trade key"
+        );
+
+        let unwrapped = unwrap_incoming(&event, &mostro_keys)
+            .await
+            .expect("unwrap result")
+            .expect("addressed to mostro_keys");
+        assert_eq!(unwrapped.sender, trade_keys.public_key());
+        assert_eq!(unwrapped.identity, identity_keys.public_key());
+        assert_eq!(
+            unwrapped.message.as_json().unwrap(),
+            message.as_json().unwrap()
+        );
+    }
 
     #[tokio::test]
     async fn send_dm_gift_wrap_roundtrips_via_unwrap_message() {

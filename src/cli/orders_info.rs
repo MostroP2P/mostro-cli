@@ -52,7 +52,8 @@ pub async fn execute_orders_info(order_ids: &[Uuid], ctx: &Context) -> Result<()
     let recv_event = wait_for_dm(ctx, Some(&ctx.identity_keys), sent_message).await?;
 
     // Parse the incoming DM and handle the response
-    let messages = crate::parser::dms::parse_dm_events(recv_event, &ctx.identity_keys, None).await;
+    let messages =
+        crate::parser::dms::parse_dm_events(recv_event, &ctx.identity_keys, None, true).await;
     if let Some((message, _, _)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
 

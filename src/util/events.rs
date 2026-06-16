@@ -192,7 +192,8 @@ pub async fn fetch_events_list(
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
                 .await?;
-            let direct_messages_mostro = parse_dm_events(fetched_events, admin_keys, since).await;
+            let direct_messages_mostro =
+                parse_dm_events(fetched_events, admin_keys, since, true).await;
             Ok(direct_messages_mostro
                 .into_iter()
                 .map(|(message, timestamp, sender_pubkey)| {
@@ -213,8 +214,10 @@ pub async fn fetch_events_list(
                     .client
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
+                // NIP-17 peer-to-peer chat (not Mostro-protocol): decode with
+                // the trade↔peer conversation key.
                 let direct_messages_for_trade_key =
-                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
+                    parse_dm_events(fetched_user_messages, &trade_key, since, false).await;
                 // Extend the direct messages
                 direct_messages.extend(direct_messages_for_trade_key);
             }
@@ -233,8 +236,9 @@ pub async fn fetch_events_list(
                     .client
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
+                // Mostro→user DMs (gift wrap, v1): Mostro-protocol messages.
                 let direct_messages_for_trade_key =
-                    parse_dm_events(fetched_user_messages, &trade_key, since).await;
+                    parse_dm_events(fetched_user_messages, &trade_key, since, true).await;
                 // Extend the direct messages
                 direct_messages.extend(direct_messages_for_trade_key);
             }

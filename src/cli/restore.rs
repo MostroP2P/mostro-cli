@@ -57,7 +57,7 @@ pub async fn execute_restore(
     let recv_event = wait_for_dm(ctx, Some(identity_keys), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, identity_keys, None).await;
+    let messages = parse_dm_events(recv_event, identity_keys, None, true).await;
     if let Some((message, _, _)) = messages.first() {
         let message = message.get_inner_message_kind();
         if message.action == Action::RestoreSession {
