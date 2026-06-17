@@ -112,7 +112,7 @@ pub async fn execute_admin_cancel_dispute(
             )
         })?;
 
-    let messages = parse_dm_events(recv_event, admin_keys, None).await;
+    let messages = parse_dm_events(recv_event, admin_keys, None, true).await;
     let (message, _, sender_pubkey) = messages
         .first()
         .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
@@ -204,7 +204,7 @@ pub async fn execute_admin_settle_dispute(
             )
         })?;
 
-    let messages = parse_dm_events(recv_event, admin_keys, None).await;
+    let messages = parse_dm_events(recv_event, admin_keys, None, true).await;
     let (message, _, sender_pubkey) = messages
         .first()
         .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
@@ -277,7 +277,7 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message).await?;
 
     // Parse the incoming DM
-    let messages = parse_dm_events(recv_event, admin_keys, None).await;
+    let messages = parse_dm_events(recv_event, admin_keys, None, true).await;
     if let Some((message, _, sender_pubkey)) = messages.first() {
         let message_kind = message.get_inner_message_kind();
         if *sender_pubkey != ctx.mostro_pubkey {

@@ -64,6 +64,7 @@ async fn test_filter_creation_integration() {
         mostro_client::util::ListKind::Orders,
         ctx.mostro_pubkey,
         None,
+        ctx.mostro_pubkey,
     )
     .unwrap();
 
@@ -74,4 +75,38 @@ async fn test_filter_creation_integration() {
         .as_ref()
         .unwrap()
         .contains(&ctx.mostro_pubkey));
+}
+
+// Phase 2: `create_filter` for the `DirectMessages*` kinds is transport-aware.
+// On v2 (nip44) it must select kind 14 AND pin `author = mostro_pubkey` (kind 14
+// is shared with NIP-17 peer chat, so the author pin is what disambiguates the
+// Mostro reply); on the default gift-wrap it stays kind 1059 with no author pin
+// (the outer event is signed by a throwaway key). The transport is read from the
+// `TRANSPORT` env var — no other test in this binary reads it, so set/remove here
+// is deterministic.
+#[test]
+fn direct_messages_filter_is_transport_aware() {
+    use mostro_client::util::{create_filter, ListKind};
+
+    let trade = Keys::generate().public_key();
+    let mostro = Keys::generate().public_key();
+
+    // v2: kind 14 + author pinned to Mostro.
+    std::env::set_var("TRANSPORT", "nip44");
+    let v2 = create_filter(ListKind::DirectMessagesUser, trade, None, mostro).unwrap();
+    std::env::remove_var("TRANSPORT");
+    assert!(v2
+        .kinds
+        .as_ref()
+        .unwrap()
+        .contains(&Kind::PrivateDirectMessage));
+    assert!(
+        v2.authors.as_ref().unwrap().contains(&mostro),
+        "v2 DM filter must pin author = mostro_pubkey"
+    );
+
+    // Default (gift-wrap): kind 1059, no author pin.
+    let v1 = create_filter(ListKind::DirectMessagesUser, trade, None, mostro).unwrap();
+    assert!(v1.kinds.as_ref().unwrap().contains(&Kind::GiftWrap));
+    assert!(v1.authors.is_none(), "v1 DM filter must not pin an author");
 }

@@ -120,10 +120,13 @@ pub async fn execute_send_msg(
                     // Get the correct keys for decoding the child order message
                     let next_trade_key = User::get_trade_keys(&ctx.pool, *index as i64).await?;
                     // Fake timestamp for giftwraps
+                    // Transport-aware so the v2 child-order event (kind 14,
+                    // authored by Mostro) is fetched too, not just gift wraps.
                     let subscription = create_filter(
                         ListKind::DirectMessagesUser,
                         next_trade_key.public_key,
                         None,
+                        ctx.mostro_pubkey,
                     )?;
 
                     // Wait for potential new order message from Mostro
@@ -131,7 +134,7 @@ pub async fn execute_send_msg(
                         .client
                         .fetch_events(subscription, FETCH_EVENTS_TIMEOUT)
                         .await?;
-                    let messages = parse_dm_events(events, &next_trade_key, Some(&2)).await;
+                    let messages = parse_dm_events(events, &next_trade_key, Some(&2), true).await;
                     if !messages.is_empty() {
                         for (message, _, _) in messages {
                             let message_kind = message.get_inner_message_kind();

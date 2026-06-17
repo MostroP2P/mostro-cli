@@ -6,7 +6,7 @@ use nostr_sdk::prelude::*;
 async fn parse_dm_empty() {
     let keys = Keys::generate();
     let events = Events::new(&Filter::new());
-    let out = parse_dm_events(events, &keys, None).await;
+    let out = parse_dm_events(events, &keys, None, true).await;
     assert!(out.is_empty());
 }
 
@@ -224,7 +224,7 @@ async fn parse_dm_with_time_filter() {
     let keys = Keys::generate();
     let events = Events::new(&Filter::new());
     let since = 1700000000i64;
-    let out = parse_dm_events(events, &keys, Some(&since)).await;
+    let out = parse_dm_events(events, &keys, Some(&since), true).await;
     assert!(out.is_empty());
 }
 
@@ -258,7 +258,7 @@ async fn parse_dm_events_accepts_wrap_message_output() {
     let mut events = Events::new(&Filter::new());
     events.insert(wrapped);
 
-    let parsed = parse_dm_events(events, &receiver_keys, None).await;
+    let parsed = parse_dm_events(events, &receiver_keys, None, true).await;
     assert_eq!(parsed.len(), 1);
     let (message, _, sender) = &parsed[0];
     assert_eq!(sender, &sender_trade_keys.public_key());
@@ -291,7 +291,7 @@ async fn parse_dm_events_skips_events_for_other_keys() {
     let mut events = Events::new(&Filter::new());
     events.insert(wrapped);
 
-    let parsed = parse_dm_events(events, &eavesdropper, None).await;
+    let parsed = parse_dm_events(events, &eavesdropper, None, true).await;
     assert!(parsed.is_empty());
 }
 

@@ -92,6 +92,11 @@ pub struct Cli {
     pub pow: Option<String>,
     #[arg(short, long)]
     pub secret: bool,
+    /// Wire transport to speak to the node: "gift-wrap" (protocol v1, default)
+    /// or "nip44" (protocol v2). Must match the node's `transport` setting
+    /// (advertised on its kind-38385 info event). See docs/TRANSPORT_V2_SPEC.md.
+    #[arg(short, long)]
+    pub transport: Option<String>,
 }
 
 #[derive(Subcommand, Clone)]
@@ -370,6 +375,10 @@ fn get_env_var(cli: &Cli) {
 
     if cli.secret {
         set_var("SECRET", "true");
+    }
+
+    if let Some(ref transport) = cli.transport {
+        set_var("TRANSPORT", transport.clone());
     }
 }
 

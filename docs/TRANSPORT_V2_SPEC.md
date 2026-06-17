@@ -1,6 +1,6 @@
 # mostro-cli — Transport v2 (NIP-44 Direct) client support
 
-**Status:** Phase 1 implemented · Phases 2–3 pending
+**Status:** Phases 1–2 implemented · Phase 3 pending
 **Daemon spec:** `MostroP2P/mostro` → `docs/TRANSPORT_V2_SPEC.md`
 **Issue:** [#626 — Messaging Transport Abstraction Layer](https://github.com/MostroP2P/mostro/issues/626)
 **Core:** `transport` module shipped in **mostro-core 0.13.0**
@@ -43,7 +43,8 @@ verification; the CLI only chooses which wrap/unwrap entry point to call.
 
 > **Note — kind 14 is overloaded.** The CLI already uses kind 14 for NIP-17
 > peer-to-peer chat (`SendDm` / `dm-to-user`). Protocol-v2 Mostro messages are
-> *also* kind 14 but use mostro-core's `wrap_message_nip44` layout and are
+> *also* kind 14 but use mostro-core's protocol-v2 layout (produced by the
+> `wrap_message_with(transport, …)` dispatcher the CLI calls) and are
 > authored by / addressed to Mostro. The two are disambiguated on receive by
 > author + `p` tag and by which conversation key decrypts (a non-matching
 > event yields `Ok(None)` from `unwrap_incoming`). Peer chat is out of scope
@@ -93,29 +94,51 @@ Acceptance: `cargo build`, `cargo test`, `cargo clippy --all-targets
 --all-features`, `cargo fmt --check` all clean; behaviour identical to before
 against a gift-wrap node.
 
-### Phase 2 — Transport selection (v2 capability) — PENDING
+### Phase 2 — Transport selection (v2 capability) — IMPLEMENTED
 
-Teach the CLI to send and receive on either transport, selected explicitly.
+Teaches the CLI to send and receive on either transport, selected explicitly.
 
-- **Config:** a `TRANSPORT` env var / `--transport <gift-wrap|nip44>` flag,
-  parsed into `Transport` (default `gift-wrap` — wire-identical to today).
-  Mirrors the daemon's `[mostro] transport` knob. Store it on `Context`.
-- **Send:** route the Mostro-protocol path of `send_dm` through
-  `wrap_message_with(ctx.transport, …)` instead of the hard-wired
-  `wrap_message`. The NIP-17 peer-chat path (`to_user`) is untouched.
-- **Receive:** replace the hard-coded `Kind::GiftWrap` filter in `wait_for_dm`
-  (and the notification-loop kind check) with `ctx.transport.event_kind()`.
-  For v2, additionally constrain the filter to `author = mostro_pubkey` so the
-  Mostro reply is not confused with NIP-17 peer chat on the same kind.
-- **Unwrap:** `parse_dm_events` calls `unwrap_incoming` instead of
-  `unwrap_message`, so it transparently handles whichever kind arrived.
-- **Blast radius:** the ~12 command call sites of `send_dm` thread
-  `ctx.transport` through; no per-command logic changes.
+- **Config:** a `--transport <gift-wrap|nip44>` flag (`-t`) that sets a
+  `TRANSPORT` env var, resolved via `messaging::parse_transport_env()` into
+  `Transport` (default `gift-wrap` — wire-identical to today). This mirrors how
+  `POW` / `SECRET` are already read from the environment rather than threaded
+  through every call site, so `send_dm`'s signature (and its ~14 callers) is
+  untouched. Mirrors the daemon's `[mostro] transport` knob.
+- **Send:** the Mostro-protocol path of `send_dm` / `send_plain_text_dm` goes
+  through a new `publish_wrapped` → `wrap_message_with(transport, …)`,
+  replacing the hard-wired `wrap_message`. The NIP-17 peer-chat path
+  (`to_user`) is untouched.
+- **Receive:** `wait_for_dm` subscribes on `transport.event_kind()` (and its
+  notification loop matches that kind). For v2 it additionally pins
+  `author = mostro_pubkey` so the Mostro reply is never confused with NIP-17
+  peer chat on the same kind 14.
+- **Unwrap:** `parse_dm_events` gains a `mostro_protocol: bool`; when `true` it
+  decodes via `unwrap_incoming` (dispatches on kind: 1059 / 14), when `false`
+  it keeps the NIP-17 peer-chat path. All Mostro-reply / Mostro→user-DM call
+  sites pass `true`; the one peer-chat listing call passes `false`.
 
-Acceptance: against a `transport = "nip44"` daemon, a full
-`new-order → take → add-invoice → fiat-sent → release` round-trips; against a
-gift-wrap daemon, behaviour is unchanged. This is the phase that lets us test
-the daemon's Phase 2 anti-spam gates.
+Tests: `Transport::from_str` → `event_kind` mapping, and a
+`wrap_message_with(Nip44Direct) → unwrap_incoming` roundtrip (kind 14, author =
+trade key, message round-trips). Full suite green; clippy + fmt clean.
+
+- **Listing / follow-up fetches:** `create_filter` for the `DirectMessages*`
+  kinds is transport-aware as well — it uses `transport.event_kind()` and pins
+  `author = mostro_pubkey` on v2 (new `mostro_pubkey` param). This covers both
+  the `get-dm` historical listing **and** the range-order child-order follow-up
+  fetched after a `release` (which a v2 node delivers as a kind-14 event
+  authored by Mostro), so the whole interactive path is fully v2.
+
+Acceptance: against a `transport = "nip44"` daemon, run the CLI with
+`--transport nip44` and a full `new-order → take → add-invoice → fiat-sent →
+release` round-trips; against a gift-wrap daemon (default), behaviour is
+unchanged. This is the phase that lets us test the daemon's Phase 2 anti-spam
+gates.
+
+> The daemon arms those anti-spam gates on the **event kind** (14 = NIP-44
+> direct), not on `Message.version`. So choosing `--transport nip44` is what
+> triggers them — not the fact that Phase 1 already bumped `Message.version`
+> to 2. Phase 1 (gift-wrap, kind 1059, `version = 2`) never hits the gate, so
+> its backward-compatibility is unaffected.
 
 ### Phase 3 — Capability auto-detection + docs/UX — PENDING
 
@@ -123,7 +146,12 @@ the daemon's Phase 2 anti-spam gates.
   (same fetch path as the existing `pow` probe) and, when `--transport` is not
   given, auto-select the matching transport — warning on a mismatch
   ("this node speaks v2; re-run with --transport nip44") instead of silently
-  timing out.
+  timing out. This `protocol_versions` probe is also the **backward-compat
+  guard** for the version-skew risk Phase 1 flagged: a pre-0.13 daemon (or a
+  misconfigured pairing) advertises no `protocol_versions` tag, so the CLI
+  treats it as v1/gift-wrap and warns rather than silently failing. Until this
+  lands, the explicit `--transport` flag is the only negotiation — an operator
+  pointing a 0.13 CLI at an older daemon must match transports manually.
 - Surface the active transport in verbose output.
 - Update `docs/architecture.md`, `docs/commands.md`, and the README.
 
