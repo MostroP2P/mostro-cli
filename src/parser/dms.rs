@@ -200,6 +200,7 @@ fn format_payload_details(
                 Status::SettledHoldInvoice => "💰",
                 Status::InProgress => "🔄",
                 Status::WaitingTakerBond => "🪙",
+                Status::WaitingMakerBond => "🪙",
             };
 
             let kind_emoji = match o.kind.as_ref().unwrap_or(&mostro_core::order::Kind::Sell) {
