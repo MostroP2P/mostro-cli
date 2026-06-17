@@ -1,6 +1,6 @@
 # mostro-cli — Transport v2 (NIP-44 Direct) client support
 
-**Status:** Phases 1–2 implemented · Phase 3 pending
+**Status:** Phases 1–3 implemented
 **Daemon spec:** `MostroP2P/mostro` → `docs/TRANSPORT_V2_SPEC.md`
 **Issue:** [#626 — Messaging Transport Abstraction Layer](https://github.com/MostroP2P/mostro/issues/626)
 **Core:** `transport` module shipped in **mostro-core 0.13.0**
@@ -17,7 +17,7 @@ transport).
 
 The daemon now speaks one of two wire transports per node, selected by its
 `[mostro] transport` setting and advertised on the kind-`38385` instance-info
-event via a `protocol_versions` tag (`"1"` or `"2"`). A v1-only client cannot
+event via a `protocol_version` tag (`"1"` or `"2"`). A v1-only client cannot
 talk to a `transport = "nip44"` node at all (it never sees kind-14 traffic and
 its gift wraps are ignored). To test and use v2 nodes, the CLI must:
 
@@ -140,27 +140,37 @@ gates.
 > to 2. Phase 1 (gift-wrap, kind 1059, `version = 2`) never hits the gate, so
 > its backward-compatibility is unaffected.
 
-### Phase 3 — Capability auto-detection + docs/UX — PENDING
+### Phase 3 — Capability auto-detection + docs/UX — IMPLEMENTED
 
-- Read the node's `protocol_versions` tag from its kind-`38385` info event
-  (same fetch path as the existing `pow` probe) and, when `--transport` is not
-  given, auto-select the matching transport — warning on a mismatch
-  ("this node speaks v2; re-run with --transport nip44") instead of silently
-  timing out. This `protocol_versions` probe is also the **backward-compat
-  guard** for the version-skew risk Phase 1 flagged: a pre-0.13 daemon (or a
-  misconfigured pairing) advertises no `protocol_versions` tag, so the CLI
-  treats it as v1/gift-wrap and warns rather than silently failing. Until this
-  lands, the explicit `--transport` flag is the only negotiation — an operator
-  pointing a 0.13 CLI at an older daemon must match transports manually.
-- Surface the active transport in verbose output.
-- Update `docs/architecture.md`, `docs/commands.md`, and the README.
+- **Auto-detection.** `events::fetch_protocol_version_with` reads the node's
+  `protocol_version` tag from its kind-38385 info event (short
+  `INFO_PROBE_TIMEOUT` so a node without one degrades fast). `init_context` →
+  `resolve_transport` runs it **once at startup** when `--transport` /
+  `TRANSPORT` is unset: `2` → set `TRANSPORT=nip44`, `1` / absent / unreachable
+  → leave it unset so the messaging layer defaults to gift-wrap. An explicit
+  `--transport` is authoritative and skips the probe entirely.
+- **Backward-compat guard.** Because a pre-v2 daemon publishes no
+  `protocol_version` tag, auto-detect leaves the CLI on gift-wrap (v1) rather
+  than silently mis-pairing — addressing the version-skew risk Phase 1 flagged.
+  An operator can still force either transport with `--transport`.
+- **Verbose surface.** `resolve_transport` logs the active transport and how it
+  was chosen (`explicit` / `auto-detected protocol vN` / default fallback) at
+  `info` (shown with `-v`).
+- **Docs.** `docs/commands.md` documents the global `--transport` flag and the
+  auto-detection; this spec is marked complete. (The `get-dm` listing and
+  range-order follow-up became transport-aware in Phase 2 via `create_filter`.)
+
+Tests: `protocol_version` tag read + parse (deterministic, offline). The
+auto-detect wiring is exercised end to end by the manual checks below (they
+depend on a live relay/node).
 
 ## 5. Testing notes
 
 - The daemon under test (`MostroP2P/mostro` PR #780) defaults to
   `transport = "gift-wrap"`; set `transport = "nip44"` in its `settings.toml`
   to exercise v2 + the anti-spam gate.
-- After Phase 2, run the CLI with `--transport nip44` (or `TRANSPORT=nip44`)
-  against that node.
+- Run the CLI with `--transport nip44` (or `TRANSPORT=nip44`) against that
+  node. As of Phase 3 you can also omit it: the CLI auto-detects the node's
+  transport from its `protocol_version` info tag at startup.
 - The daemon's first-contact PoW lane (`pow_first_contact`) is testable by
   combining `--transport nip44` with `--pow <bits>` on the CLI.

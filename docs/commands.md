@@ -4,6 +4,24 @@ This document lists all `mostro-cli` subcommands defined in `src/cli.rs`, their 
 
 All commands are part of the `Commands` enum and are dispatched via `Commands::run(&self, ctx: &Context)`.
 
+### Global options
+
+These flags apply to every subcommand (parsed on the top-level `Cli`; each also
+settable via the matching env var):
+
+- `-m, --mostropubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required.
+- `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
+- `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
+- `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
+- `-t, --transport <gift-wrap|nip44>` (`TRANSPORT`): wire transport to speak —
+  `gift-wrap` (protocol v1, kind 1059) or `nip44` (protocol v2, signed kind 14).
+  **Optional**: when omitted, the CLI auto-detects it at startup from the node's
+  `protocol_version` tag on its kind-38385 info event (a node that advertises
+  nothing — e.g. a pre-v2 daemon — is treated as `gift-wrap`). Pass the flag to
+  override auto-detection. Must match the node's `transport` setting. See
+  `docs/TRANSPORT_V2_SPEC.md`.
+- `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
+
 ### Orders
 
 - **`listorders`**

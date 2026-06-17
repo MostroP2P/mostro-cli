@@ -479,6 +479,12 @@ async fn init_context(cli: &Cli) -> Result<Context> {
     // Connect to Nostr relays
     let client = util::connect_nostr().await?;
 
+    // Resolve the wire transport once, at startup. An explicit
+    // `--transport`/`TRANSPORT` wins; otherwise auto-detect from the node's
+    // advertised `protocol_version` so the operator need not match it by hand
+    // (docs/TRANSPORT_V2_SPEC.md Phase 3).
+    resolve_transport(&client, mostro_pubkey).await;
+
     Ok(Context {
         client,
         identity_keys,
@@ -488,6 +494,42 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         context_keys,
         mostro_pubkey,
     })
+}
+
+/// Resolve the wire transport into the `TRANSPORT` env var the messaging layer
+/// reads (`parse_transport_env`). An explicit `--transport` / `TRANSPORT` is
+/// authoritative and skips the network probe; otherwise the node's advertised
+/// `protocol_version` tag (kind-38385 info event) selects it. A node that
+/// publishes nothing — a pre-v2 daemon, or an unreachable relay — leaves the
+/// var unset, so the messaging layer falls back to the gift-wrap default. This
+/// also guards against accidentally pairing a v2-capable CLI with an older
+/// daemon: absent the tag, the CLI stays on v1.
+async fn resolve_transport(client: &Client, mostro_pubkey: PublicKey) {
+    // Only an explicit, non-empty value is authoritative — mirror
+    // `parse_transport_env`, which treats empty/whitespace as unset and falls
+    // back to the default. Otherwise `TRANSPORT=""` (e.g. `--transport ""`)
+    // would skip auto-detection and leave the var empty, silently pairing a v2
+    // node to the gift-wrap default.
+    if let Ok(explicit) = std::env::var("TRANSPORT") {
+        if !explicit.trim().is_empty() {
+            log::info!("Transport: {explicit} (explicit)");
+            return;
+        }
+    }
+    match util::events::fetch_protocol_version_with(client.clone(), mostro_pubkey).await {
+        Some(2) => {
+            set_var("TRANSPORT", "nip44");
+            log::info!("Transport: nip44 (auto-detected protocol v2)");
+        }
+        Some(1) => log::info!("Transport: gift-wrap (auto-detected protocol v1)"),
+        Some(other) => {
+            log::warn!("Node advertised unknown protocol_version={other}; defaulting to gift-wrap")
+        }
+        None => log::info!(
+            "Could not detect node transport (no kind-38385 protocol_version tag); \
+             defaulting to gift-wrap"
+        ),
+    }
 }
 
 fn is_admin_command(command: &Option<Commands>) -> bool {
