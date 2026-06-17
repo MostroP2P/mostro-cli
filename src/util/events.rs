@@ -175,6 +175,30 @@ pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -
     read_info_tag_from_event(event, "pow").and_then(|v| v.parse::<u8>().ok())
 }
 
+/// Timeout for the startup transport-capability probe. Deliberately short: it
+/// runs before every command when `--transport`/`TRANSPORT` is unset, so a
+/// node that publishes no info event must degrade to the gift-wrap default
+/// quickly rather than blocking the command for the full
+/// [`FETCH_EVENTS_TIMEOUT`].
+pub const INFO_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Fetch the node's advertised protocol version from the kind-38385 info
+/// event's `protocol_versions` tag (`"1"` = gift wrap, `"2"` = NIP-44 direct;
+/// see the daemon's docs/TRANSPORT_V2_SPEC.md §4).
+///
+/// `None` when the node publishes no info event, the tag is absent (a pre-v2
+/// daemon), or the value is unparseable — every such case is treated by the
+/// caller as "assume v1/gift-wrap". Used by the CLI's startup auto-detection
+/// when the operator didn't pick a transport explicitly.
+pub async fn fetch_protocol_version_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
+    let filter = Filter::new()
+        .author(mostro_pubkey)
+        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
+    let events = client.fetch_events(filter, INFO_PROBE_TIMEOUT).await.ok()?;
+    let event = events.iter().max_by_key(|e| e.created_at)?;
+    read_info_tag_from_event(event, "protocol_versions").and_then(|v| v.trim().parse::<u8>().ok())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_events_list(
     list_kind: ListKind,
@@ -312,6 +336,34 @@ mod tests {
         let keys = Keys::generate();
         let event = make_info_event(&keys, vec![Tag::parse(["fee", "0.006"]).unwrap()]).await;
         assert_eq!(read_info_tag_from_event(&event, "pow"), None);
+    }
+
+    #[tokio::test]
+    async fn protocol_versions_tag_reads_and_parses() {
+        // Mirrors how `fetch_protocol_version_with` extracts the daemon's
+        // single-value `protocol_versions` tag ("1" = gift wrap, "2" = nip44)
+        // and parses it to the u8 the CLI's auto-detect maps to a Transport.
+        let keys = Keys::generate();
+        let event = make_info_event(
+            &keys,
+            vec![
+                pow_tag("0"),
+                Tag::parse(["protocol_versions", "2"]).unwrap(),
+            ],
+        )
+        .await;
+        assert_eq!(
+            read_info_tag_from_event(&event, "protocol_versions").as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            read_info_tag_from_event(&event, "protocol_versions")
+                .and_then(|v| v.trim().parse::<u8>().ok()),
+            Some(2)
+        );
+        // Absent tag (a pre-v2 daemon) → None → caller assumes gift-wrap.
+        let bare = make_info_event(&keys, vec![pow_tag("0")]).await;
+        assert_eq!(read_info_tag_from_event(&bare, "protocol_versions"), None);
     }
 
     #[tokio::test]
