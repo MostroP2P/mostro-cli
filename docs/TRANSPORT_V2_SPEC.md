@@ -43,7 +43,8 @@ verification; the CLI only chooses which wrap/unwrap entry point to call.
 
 > **Note — kind 14 is overloaded.** The CLI already uses kind 14 for NIP-17
 > peer-to-peer chat (`SendDm` / `dm-to-user`). Protocol-v2 Mostro messages are
-> *also* kind 14 but use mostro-core's `wrap_message_nip44` layout and are
+> *also* kind 14 but use mostro-core's protocol-v2 layout (produced by the
+> `wrap_message_with(transport, …)` dispatcher the CLI calls) and are
 > authored by / addressed to Mostro. The two are disambiguated on receive by
 > author + `p` tag and by which conversation key decrypts (a non-matching
 > event yields `Ok(None)` from `unwrap_incoming`). Peer chat is out of scope
@@ -132,6 +133,12 @@ release` round-trips; against a gift-wrap daemon (default), behaviour is
 unchanged. This is the phase that lets us test the daemon's Phase 2 anti-spam
 gates.
 
+> The daemon arms those anti-spam gates on the **event kind** (14 = NIP-44
+> direct), not on `Message.version`. So choosing `--transport nip44` is what
+> triggers them — not the fact that Phase 1 already bumped `Message.version`
+> to 2. Phase 1 (gift-wrap, kind 1059, `version = 2`) never hits the gate, so
+> its backward-compatibility is unaffected.
+
 ### Phase 3 — Capability auto-detection + docs/UX — PENDING
 
 - Make the `get-dm` historical-listing filter transport-aware
@@ -141,7 +148,12 @@ gates.
   (same fetch path as the existing `pow` probe) and, when `--transport` is not
   given, auto-select the matching transport — warning on a mismatch
   ("this node speaks v2; re-run with --transport nip44") instead of silently
-  timing out.
+  timing out. This `protocol_versions` probe is also the **backward-compat
+  guard** for the version-skew risk Phase 1 flagged: a pre-0.13 daemon (or a
+  misconfigured pairing) advertises no `protocol_versions` tag, so the CLI
+  treats it as v1/gift-wrap and warns rather than silently failing. Until this
+  lands, the explicit `--transport` flag is the only negotiation — an operator
+  pointing a 0.13 CLI at an older daemon must match transports manually.
 - Surface the active transport in verbose output.
 - Update `docs/architecture.md`, `docs/commands.md`, and the README.
 
