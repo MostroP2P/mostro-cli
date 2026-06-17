@@ -121,11 +121,12 @@ Tests: `Transport::from_str` → `event_kind` mapping, and a
 `wrap_message_with(Nip44Direct) → unwrap_incoming` roundtrip (kind 14, author =
 trade key, message round-trips). Full suite green; clippy + fmt clean.
 
-Known gap (deferred to Phase 3): the `get-dm` **historical listing** filter
-(`create_filter` for the `DirectMessages*` kinds) still hard-codes gift wrap,
-so listing past Mostro DMs on a v2 node returns nothing. The interactive
-request/response path (the one that exercises the daemon's anti-spam gate) is
-fully v2.
+- **Listing / follow-up fetches:** `create_filter` for the `DirectMessages*`
+  kinds is transport-aware as well — it uses `transport.event_kind()` and pins
+  `author = mostro_pubkey` on v2 (new `mostro_pubkey` param). This covers both
+  the `get-dm` historical listing **and** the range-order child-order follow-up
+  fetched after a `release` (which a v2 node delivers as a kind-14 event
+  authored by Mostro), so the whole interactive path is fully v2.
 
 Acceptance: against a `transport = "nip44"` daemon, run the CLI with
 `--transport nip44` and a full `new-order → take → add-invoice → fiat-sent →
@@ -141,9 +142,6 @@ gates.
 
 ### Phase 3 — Capability auto-detection + docs/UX — PENDING
 
-- Make the `get-dm` historical-listing filter transport-aware
-  (`create_filter` for the `DirectMessages*` kinds: kind 14 + `author =
-  mostro_pubkey` on v2), closing the Phase 2 known gap.
 - Read the node's `protocol_versions` tag from its kind-`38385` info event
   (same fetch path as the existing `pow` probe) and, when `--transport` is not
   given, auto-select the matching transport — warning on a mismatch

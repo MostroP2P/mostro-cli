@@ -42,6 +42,7 @@ pub fn create_filter(
     list_kind: ListKind,
     pubkey: PublicKey,
     since: Option<&i64>,
+    mostro_pubkey: PublicKey,
 ) -> Result<Filter> {
     match list_kind {
         ListKind::Orders => create_seven_days_filter(
@@ -58,10 +59,20 @@ pub fn create_filter(
         ),
         ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
             let fake_timestamp = create_fake_timestamp()?;
-            Ok(Filter::new()
-                .kind(nostr_sdk::Kind::GiftWrap)
+            // Mostro→user/admin DMs travel on the node's transport: gift wrap
+            // (v1, kind 1059) or NIP-44 direct (v2, kind 14). On v2 the reply
+            // is authored by Mostro's own key, so pin the author to keep it
+            // distinct from NIP-17 peer chat that shares kind 14
+            // (docs/TRANSPORT_V2_SPEC.md §2).
+            let transport = crate::util::messaging::parse_transport_env()?;
+            let mut filter = Filter::new()
+                .kind(transport.event_kind())
                 .pubkey(pubkey)
-                .since(fake_timestamp))
+                .since(fake_timestamp);
+            if transport == Transport::Nip44Direct {
+                filter = filter.author(mostro_pubkey);
+            }
+            Ok(filter)
         }
         ListKind::PrivateDirectMessagesUser => {
             let since = if let Some(mins) = since {
@@ -175,7 +186,7 @@ pub async fn fetch_events_list(
 ) -> Result<Vec<Event>> {
     match list_kind {
         ListKind::Orders => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None, ctx.mostro_pubkey)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
@@ -187,7 +198,8 @@ pub async fn fetch_events_list(
             // Get admin keys
             let admin_keys = get_admin_keys(ctx)?;
             // Create filter
-            let filters = create_filter(list_kind, admin_keys.public_key(), None)?;
+            let filters =
+                create_filter(list_kind, admin_keys.public_key(), None, ctx.mostro_pubkey)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
@@ -209,6 +221,7 @@ pub async fn fetch_events_list(
                     ListKind::PrivateDirectMessagesUser,
                     trade_key.public_key(),
                     None,
+                    ctx.mostro_pubkey,
                 )?;
                 let fetched_user_messages = ctx
                     .client
@@ -230,8 +243,12 @@ pub async fn fetch_events_list(
             let mut direct_messages: Vec<(Message, u64, PublicKey)> = Vec::new();
             for index in 1..=ctx.trade_index {
                 let trade_key = User::get_trade_keys(&ctx.pool, index).await?;
-                let filter =
-                    create_filter(ListKind::DirectMessagesUser, trade_key.public_key(), None)?;
+                let filter = create_filter(
+                    ListKind::DirectMessagesUser,
+                    trade_key.public_key(),
+                    None,
+                    ctx.mostro_pubkey,
+                )?;
                 let fetched_user_messages = ctx
                     .client
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
@@ -248,7 +265,7 @@ pub async fn fetch_events_list(
                 .collect())
         }
         ListKind::Disputes => {
-            let filters = create_filter(list_kind, ctx.mostro_pubkey, None)?;
+            let filters = create_filter(list_kind, ctx.mostro_pubkey, None, ctx.mostro_pubkey)?;
             let fetched_events = ctx
                 .client
                 .fetch_events(filters, FETCH_EVENTS_TIMEOUT)

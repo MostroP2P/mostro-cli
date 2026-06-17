@@ -64,6 +64,7 @@ async fn test_filter_creation_integration() {
         mostro_client::util::ListKind::Orders,
         ctx.mostro_pubkey,
         None,
+        ctx.mostro_pubkey,
     )
     .unwrap();
 
