@@ -183,7 +183,7 @@ pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -
 pub const INFO_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Fetch the node's advertised protocol version from the kind-38385 info
-/// event's `protocol_versions` tag (`"1"` = gift wrap, `"2"` = NIP-44 direct;
+/// event's `protocol_version` tag (`"1"` = gift wrap, `"2"` = NIP-44 direct;
 /// see the daemon's docs/TRANSPORT_V2_SPEC.md §4).
 ///
 /// `None` when the node publishes no info event, the tag is absent (a pre-v2
@@ -196,7 +196,7 @@ pub async fn fetch_protocol_version_with(client: Client, mostro_pubkey: PublicKe
         .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
     let events = client.fetch_events(filter, INFO_PROBE_TIMEOUT).await.ok()?;
     let event = events.iter().max_by_key(|e| e.created_at)?;
-    read_info_tag_from_event(event, "protocol_versions").and_then(|v| v.trim().parse::<u8>().ok())
+    read_info_tag_from_event(event, "protocol_version").and_then(|v| v.trim().parse::<u8>().ok())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -339,31 +339,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn protocol_versions_tag_reads_and_parses() {
+    async fn protocol_version_tag_reads_and_parses() {
         // Mirrors how `fetch_protocol_version_with` extracts the daemon's
-        // single-value `protocol_versions` tag ("1" = gift wrap, "2" = nip44)
+        // single-value `protocol_version` tag ("1" = gift wrap, "2" = nip44)
         // and parses it to the u8 the CLI's auto-detect maps to a Transport.
         let keys = Keys::generate();
         let event = make_info_event(
             &keys,
-            vec![
-                pow_tag("0"),
-                Tag::parse(["protocol_versions", "2"]).unwrap(),
-            ],
+            vec![pow_tag("0"), Tag::parse(["protocol_version", "2"]).unwrap()],
         )
         .await;
         assert_eq!(
-            read_info_tag_from_event(&event, "protocol_versions").as_deref(),
+            read_info_tag_from_event(&event, "protocol_version").as_deref(),
             Some("2")
         );
         assert_eq!(
-            read_info_tag_from_event(&event, "protocol_versions")
+            read_info_tag_from_event(&event, "protocol_version")
                 .and_then(|v| v.trim().parse::<u8>().ok()),
             Some(2)
         );
         // Absent tag (a pre-v2 daemon) → None → caller assumes gift-wrap.
         let bare = make_info_event(&keys, vec![pow_tag("0")]).await;
-        assert_eq!(read_info_tag_from_event(&bare, "protocol_versions"), None);
+        assert_eq!(read_info_tag_from_event(&bare, "protocol_version"), None);
     }
 
     #[tokio::test]

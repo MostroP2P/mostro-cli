@@ -481,7 +481,7 @@ async fn init_context(cli: &Cli) -> Result<Context> {
 
     // Resolve the wire transport once, at startup. An explicit
     // `--transport`/`TRANSPORT` wins; otherwise auto-detect from the node's
-    // advertised `protocol_versions` so the operator need not match it by hand
+    // advertised `protocol_version` so the operator need not match it by hand
     // (docs/TRANSPORT_V2_SPEC.md Phase 3).
     resolve_transport(&client, mostro_pubkey).await;
 
@@ -499,7 +499,7 @@ async fn init_context(cli: &Cli) -> Result<Context> {
 /// Resolve the wire transport into the `TRANSPORT` env var the messaging layer
 /// reads (`parse_transport_env`). An explicit `--transport` / `TRANSPORT` is
 /// authoritative and skips the network probe; otherwise the node's advertised
-/// `protocol_versions` tag (kind-38385 info event) selects it. A node that
+/// `protocol_version` tag (kind-38385 info event) selects it. A node that
 /// publishes nothing — a pre-v2 daemon, or an unreachable relay — leaves the
 /// var unset, so the messaging layer falls back to the gift-wrap default. This
 /// also guards against accidentally pairing a v2-capable CLI with an older
@@ -516,10 +516,10 @@ async fn resolve_transport(client: &Client, mostro_pubkey: PublicKey) {
         }
         Some(1) => log::info!("Transport: gift-wrap (auto-detected protocol v1)"),
         Some(other) => {
-            log::warn!("Node advertised unknown protocol_versions={other}; defaulting to gift-wrap")
+            log::warn!("Node advertised unknown protocol_version={other}; defaulting to gift-wrap")
         }
         None => log::info!(
-            "Could not detect node transport (no kind-38385 protocol_versions tag); \
+            "Could not detect node transport (no kind-38385 protocol_version tag); \
              defaulting to gift-wrap"
         ),
     }

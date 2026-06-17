@@ -17,7 +17,7 @@ transport).
 
 The daemon now speaks one of two wire transports per node, selected by its
 `[mostro] transport` setting and advertised on the kind-`38385` instance-info
-event via a `protocol_versions` tag (`"1"` or `"2"`). A v1-only client cannot
+event via a `protocol_version` tag (`"1"` or `"2"`). A v1-only client cannot
 talk to a `transport = "nip44"` node at all (it never sees kind-14 traffic and
 its gift wraps are ignored). To test and use v2 nodes, the CLI must:
 
@@ -143,14 +143,14 @@ gates.
 ### Phase 3 — Capability auto-detection + docs/UX — IMPLEMENTED
 
 - **Auto-detection.** `events::fetch_protocol_version_with` reads the node's
-  `protocol_versions` tag from its kind-38385 info event (short
+  `protocol_version` tag from its kind-38385 info event (short
   `INFO_PROBE_TIMEOUT` so a node without one degrades fast). `init_context` →
   `resolve_transport` runs it **once at startup** when `--transport` /
   `TRANSPORT` is unset: `2` → set `TRANSPORT=nip44`, `1` / absent / unreachable
   → leave it unset so the messaging layer defaults to gift-wrap. An explicit
   `--transport` is authoritative and skips the probe entirely.
 - **Backward-compat guard.** Because a pre-v2 daemon publishes no
-  `protocol_versions` tag, auto-detect leaves the CLI on gift-wrap (v1) rather
+  `protocol_version` tag, auto-detect leaves the CLI on gift-wrap (v1) rather
   than silently mis-pairing — addressing the version-skew risk Phase 1 flagged.
   An operator can still force either transport with `--transport`.
 - **Verbose surface.** `resolve_transport` logs the active transport and how it
@@ -160,7 +160,7 @@ gates.
   auto-detection; this spec is marked complete. (The `get-dm` listing and
   range-order follow-up became transport-aware in Phase 2 via `create_filter`.)
 
-Tests: `protocol_versions` tag read + parse (deterministic, offline). The
+Tests: `protocol_version` tag read + parse (deterministic, offline). The
 auto-detect wiring is exercised end to end by the manual checks below (they
 depend on a live relay/node).
 
@@ -171,6 +171,6 @@ depend on a live relay/node).
   to exercise v2 + the anti-spam gate.
 - Run the CLI with `--transport nip44` (or `TRANSPORT=nip44`) against that
   node. As of Phase 3 you can also omit it: the CLI auto-detects the node's
-  transport from its `protocol_versions` info tag at startup.
+  transport from its `protocol_version` info tag at startup.
 - The daemon's first-contact PoW lane (`pow_first_contact`) is testable by
   combining `--transport nip44` with `--pow <bits>` on the CLI.

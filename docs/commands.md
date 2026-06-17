@@ -16,7 +16,7 @@ settable via the matching env var):
 - `-t, --transport <gift-wrap|nip44>` (`TRANSPORT`): wire transport to speak —
   `gift-wrap` (protocol v1, kind 1059) or `nip44` (protocol v2, signed kind 14).
   **Optional**: when omitted, the CLI auto-detects it at startup from the node's
-  `protocol_versions` tag on its kind-38385 info event (a node that advertises
+  `protocol_version` tag on its kind-38385 info event (a node that advertises
   nothing — e.g. a pre-v2 daemon — is treated as `gift-wrap`). Pass the flag to
   override auto-detection. Must match the node's `transport` setting. See
   `docs/TRANSPORT_V2_SPEC.md`.
