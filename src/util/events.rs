@@ -253,7 +253,10 @@ pub async fn fetch_events_list(
                     .client
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
-                // Mostro→user DMs (gift wrap, v1): Mostro-protocol messages.
+                // Mostro→user DMs (Mostro-protocol): the filter above already
+                // selected the right kind per transport — gift wrap (v1) or
+                // kind-14 NIP-44 direct (v2) — and `unwrap_incoming` decodes
+                // whichever arrived.
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key, since, true).await;
                 // Extend the direct messages
