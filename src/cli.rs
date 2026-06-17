@@ -505,9 +505,16 @@ async fn init_context(cli: &Cli) -> Result<Context> {
 /// also guards against accidentally pairing a v2-capable CLI with an older
 /// daemon: absent the tag, the CLI stays on v1.
 async fn resolve_transport(client: &Client, mostro_pubkey: PublicKey) {
+    // Only an explicit, non-empty value is authoritative — mirror
+    // `parse_transport_env`, which treats empty/whitespace as unset and falls
+    // back to the default. Otherwise `TRANSPORT=""` (e.g. `--transport ""`)
+    // would skip auto-detection and leave the var empty, silently pairing a v2
+    // node to the gift-wrap default.
     if let Ok(explicit) = std::env::var("TRANSPORT") {
-        log::info!("Transport: {explicit} (explicit)");
-        return;
+        if !explicit.trim().is_empty() {
+            log::info!("Transport: {explicit} (explicit)");
+            return;
+        }
     }
     match util::events::fetch_protocol_version_with(client.clone(), mostro_pubkey).await {
         Some(2) => {
