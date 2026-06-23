@@ -69,14 +69,17 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
     } else {
         // Defensively re-tighten the permissions of a database that an older
         // version (or a permissive umask) may have left world-readable, so
-        // existing installs get hardened on the next run too. See issue #179.
+        // existing installs get hardened on the next run too. Fail closed: if we
+        // can't make the mnemonic DB owner-only, refuse to open it rather than
+        // keep using a potentially group/world-readable file. See issue #179.
         #[cfg(unix)]
-        if let Err(e) = crate::util::misc::set_mode(&mcli_db_path, 0o600) {
-            eprintln!(
-                "Warning: could not restrict permissions on {}: {}",
-                mcli_db_path, e
-            );
-        }
+        crate::util::misc::set_mode(&mcli_db_path, 0o600).map_err(|e| {
+            anyhow::anyhow!(
+                "could not restrict permissions on {}; refusing to open mnemonic DB: {}",
+                mcli_db_path,
+                e
+            )
+        })?;
 
         pool = SqlitePool::connect(&db_url).await?;
 
@@ -95,20 +98,19 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
 /// afterwards, which would leave a brief window where another local user could
 /// open it.
 fn create_private_db_file(path: &str) -> io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+
+    // The owner-only mode bit is Unix-specific; `create_new` (fail on existing)
+    // applies on every platform so a second create never truncates an existing
+    // database.
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(path)
-            .map(|_| ())
+        options.mode(0o600);
     }
-    #[cfg(not(unix))]
-    {
-        std::fs::File::create(path).map(|_| ())
-    }
+
+    options.open(path).map(|_| ())
 }
 
 async fn migrate_remove_token_columns(pool: &SqlitePool) -> Result<()> {

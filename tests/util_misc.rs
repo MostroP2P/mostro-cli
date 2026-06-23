@@ -145,3 +145,20 @@ fn test_ensure_private_dir_is_idempotent() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn test_ensure_private_dir_rejects_non_directory() {
+    let path = unique_temp_path("file");
+    let path_str = path.to_str().unwrap();
+
+    // A regular file already occupies the path: we must not chmod it and report
+    // success, since callers were promised a directory.
+    std::fs::write(&path, b"not a dir").unwrap();
+
+    assert!(
+        ensure_private_dir(path_str).is_err(),
+        "must fail when the path exists but is not a directory"
+    );
+
+    std::fs::remove_file(&path).ok();
+}

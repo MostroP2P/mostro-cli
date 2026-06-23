@@ -28,9 +28,19 @@ pub fn get_mcli_path() -> String {
 pub fn ensure_private_dir(path: &str) -> io::Result<()> {
     match create_dir_private(path) {
         Ok(()) => {}
-        // Another thread/process won the race, or the directory already existed.
+        // Another thread/process won the race, or the path already existed.
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(e),
+    }
+
+    // `AlreadyExists` only tells us *something* is there. If it's a regular file
+    // (or anything other than a directory) we must not chmod it and claim
+    // success — callers were promised a private directory.
+    if !std::fs::metadata(path)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} exists but is not a directory", path),
+        ));
     }
 
     #[cfg(unix)]
