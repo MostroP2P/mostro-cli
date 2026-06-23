@@ -440,25 +440,37 @@ fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
         })
 }
 
+/// Ensure `RELAYS` is configured (and non-empty) before we create any local
+/// state. `connect_nostr` reads this variable; validating it here means a
+/// command run without relays fails before the mnemonic database is created.
+/// `get_env_var` has already mirrored `--relays` into the env var by this point.
+fn resolve_relays() -> Result<String> {
+    match std::env::var("RELAYS") {
+        Ok(relays) if !relays.trim().is_empty() => Ok(relays),
+        _ => Err(anyhow::anyhow!(
+            "RELAYS not set.\n\
+             Provide it using one of the following methods:\n\
+             1) --relays <relay[,relay...]>\n\
+             2) export RELAYS=<relay[,relay...]>"
+        )),
+    }
+}
+
 async fn init_context(cli: &Cli) -> Result<Context> {
     // Get environment variables
     get_env_var(cli);
 
-    // Initialize database pool
-    let pool = connect().await?;
+    // Validate all required configuration *before* touching the local database.
+    // `connect()` creates `~/.mcli/mcli.db` and generates the mnemonic on first
+    // run, so a mistaken command with missing config must fail here, without
+    // ever writing that sensitive material to disk. See issue #179.
+    let mostro_pubkey = PublicKey::from_str(&resolve_mostro_pubkey(cli)?)?;
+    resolve_relays()?;
 
-    // Get identity keys
-    let identity_keys = User::get_identity_keys(&pool)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
-
-    // Get trade keys
-    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
-
-    // Load private key of admin - only required for admin commands
-    // For regular user commands, this will be None
+    // Load private key of admin - only required for admin commands.
+    // For regular user commands, this will be None. Validated up front so an
+    // admin command with a missing/invalid ADMIN_NSEC also fails before the
+    // database is created.
     let context_keys = if is_admin_command(&cli.command) {
         Some(
             std::env::var("ADMIN_NSEC")
@@ -472,9 +484,18 @@ async fn init_context(cli: &Cli) -> Result<Context> {
         None
     };
 
-    // Resolve Mostro pubkey from env (required for all flows)
+    // Initialize database pool (creates the DB and mnemonic on first run)
+    let pool = connect().await?;
 
-    let mostro_pubkey = PublicKey::from_str(&resolve_mostro_pubkey(cli)?)?;
+    // Get identity keys
+    let identity_keys = User::get_identity_keys(&pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get identity keys: {}", e))?;
+
+    // Get trade keys
+    let (trade_keys, trade_index) = User::get_next_trade_keys(&pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get trade keys: {}", e))?;
 
     // Connect to Nostr relays
     let client = util::connect_nostr().await?;

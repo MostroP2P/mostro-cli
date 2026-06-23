@@ -14,7 +14,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub async fn connect_nostr() -> Result<Client> {
     let my_keys = Keys::generate();
 
-    let relays = var("RELAYS").expect("RELAYS is not set");
+    let relays = var("RELAYS").map_err(|_| anyhow::anyhow!("RELAYS is not set"))?;
     let relays = relays.split(',').collect::<Vec<&str>>();
     let client = Client::new(my_keys);
     for r in relays.into_iter() {
