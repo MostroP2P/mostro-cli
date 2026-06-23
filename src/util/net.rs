@@ -14,8 +14,17 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub async fn connect_nostr() -> Result<Client> {
     let my_keys = Keys::generate();
 
-    let relays = var("RELAYS").expect("RELAYS is not set");
-    let relays = relays.split(',').collect::<Vec<&str>>();
+    let relays = var("RELAYS").map_err(|_| anyhow::anyhow!("RELAYS is not set"))?;
+    // Trim each entry and drop empty ones so stray whitespace or trailing commas
+    // (e.g. `RELAYS="wss://a, ,wss://b,"`) don't reach `add_relay` and fail.
+    let relays = relays
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .collect::<Vec<&str>>();
+    if relays.is_empty() {
+        return Err(anyhow::anyhow!("RELAYS is not set"));
+    }
     let client = Client::new(my_keys);
     for r in relays.into_iter() {
         client.add_relay(r).await?;

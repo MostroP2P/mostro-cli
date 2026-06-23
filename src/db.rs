@@ -6,7 +6,7 @@ use nostr_sdk::prelude::*;
 use sqlx::pool::Pool;
 use sqlx::Sqlite;
 use sqlx::SqlitePool;
-use std::fs::File;
+use std::io;
 use std::path::Path;
 
 pub async fn connect() -> Result<Pool<Sqlite>> {
@@ -15,7 +15,11 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
     let db_url = format!("sqlite://{}", mcli_db_path);
     let pool: Pool<Sqlite>;
     if !Path::exists(Path::new(&mcli_db_path)) {
-        if let Err(res) = File::create(&mcli_db_path) {
+        // Create the database file with owner-only permissions (0600 on Unix)
+        // *before* writing anything to it. This file stores the mnemonic that
+        // derives the user's identity and trade keys, so it must not be readable
+        // by other local users under a permissive umask. See issue #179.
+        if let Err(res) = create_private_db_file(&mcli_db_path) {
             println!("Error in creating db file: {}", res);
             return Err(res.into());
         }
@@ -63,6 +67,20 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
         let user = User::new(mnemonic, &pool).await?;
         println!("User created with pubkey: {}", user.i0_pubkey);
     } else {
+        // Defensively re-tighten the permissions of a database that an older
+        // version (or a permissive umask) may have left world-readable, so
+        // existing installs get hardened on the next run too. Fail closed: if we
+        // can't make the mnemonic DB owner-only, refuse to open it rather than
+        // keep using a potentially group/world-readable file. See issue #179.
+        #[cfg(unix)]
+        crate::util::misc::set_mode(&mcli_db_path, 0o600).map_err(|e| {
+            anyhow::anyhow!(
+                "could not restrict permissions on {}; refusing to open mnemonic DB: {}",
+                mcli_db_path,
+                e
+            )
+        })?;
+
         pool = SqlitePool::connect(&db_url).await?;
 
         // Migration: Drop buyer_token and seller_token columns if they exist
@@ -70,6 +88,29 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
     }
 
     Ok(pool)
+}
+
+/// Create the SQLite database file restricted to the owner (mode `0600` on
+/// Unix). On non-Unix platforms this falls back to a plain create.
+///
+/// Uses `create_new` so the file is created atomically with the right
+/// permissions instead of being created world-readable and tightened
+/// afterwards, which would leave a brief window where another local user could
+/// open it.
+fn create_private_db_file(path: &str) -> io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+
+    // The owner-only mode bit is Unix-specific; `create_new` (fail on existing)
+    // applies on every platform so a second create never truncates an existing
+    // database.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    options.open(path).map(|_| ())
 }
 
 async fn migrate_remove_token_columns(pool: &SqlitePool) -> Result<()> {
@@ -575,5 +616,60 @@ impl Order {
         .rows_affected();
 
         Ok(rows_affected > 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Unique, non-existent path inside the OS temp dir (no extra crates, no
+    /// forbidden `Date`/random APIs).
+    fn unique_temp_path(label: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "mcli-db-test-{}-{}-{}",
+            label,
+            std::process::id(),
+            n
+        ))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_create_private_db_file_is_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = unique_temp_path("perms");
+        let path_str = path.to_str().unwrap();
+
+        create_private_db_file(path_str).expect("should create db file");
+
+        assert!(path.is_file(), "db file should exist");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "mnemonic db must be readable only by the owner"
+        );
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_create_private_db_file_fails_if_exists() {
+        let path = unique_temp_path("exists");
+        let path_str = path.to_str().unwrap();
+
+        create_private_db_file(path_str).expect("first create should succeed");
+        // `create_new` semantics: a second create on the same path must error
+        // rather than truncate an existing (possibly populated) database.
+        assert!(
+            create_private_db_file(path_str).is_err(),
+            "creating over an existing db file must fail"
+        );
+
+        std::fs::remove_file(&path).ok();
     }
 }
