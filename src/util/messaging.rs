@@ -643,6 +643,9 @@ mod tests {
     // our WrapOptions knobs (signed, pow) reach the outer event.
 
     #[test]
+    // Transport::GiftWrap is deprecated upstream (mostro/#786) but the CLI
+    // keeps the v1 fallback until mostrod v0.19.0 removes the path.
+    #[allow(deprecated)]
     fn transport_from_str_maps_to_event_kind() {
         // The CLI resolves `TRANSPORT` via Transport::from_str and subscribes
         // on `event_kind()`. Lock down the mapping the receive/send paths rely
