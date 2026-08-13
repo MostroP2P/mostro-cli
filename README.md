@@ -76,6 +76,20 @@ mostro-cli --help
 
 This is the part most users skip, and then get confused about. Read it once and the rest of the CLI makes sense.
 
+### You do not bring your own `nsec`
+
+**There is nothing to set up.** `mostro-cli` generates and manages your Nostr keys for you on first run. You never paste an `nsec` for normal trading, and there is no key-generation step to perform beforehand (no `rana`, no `nostr-tool`, no wallet export).
+
+In particular, these variables are **not** read by the CLI and setting them does nothing:
+
+| Variable people try | Reality |
+|---|---|
+| `NSEC_PRIVKEY` | Obsolete. Removed when the CLI moved to mnemonic-derived keys (NIP-06). |
+| `MOSTROPUBKEY` | Wrong name — the variable is `MOSTRO_PUBKEY`, with an underscore. |
+| `PRIVKEY`, `NSEC` | Never existed. |
+
+The only key you ever supply by hand is `ADMIN_NSEC`, and only if you are a solver/admin — see [Admin / Solver usage](#admin--solver-usage).
+
 ### The mnemonic (your master backup)
 
 On first run, the CLI generates a **BIP39 12-word mnemonic** and stores it in a local SQLite database (`~/.mcli/mcli.db`, table `users`). This mnemonic is the seed for everything: lose it and you cannot recover orders or trade keys; share it and someone else can impersonate you.
@@ -102,7 +116,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ## Configuration
 
-`mostro-cli` reads its configuration from environment variables (or equivalent CLI flags). The Mostro pubkey and at least one relay are mandatory.
+`mostro-cli` reads its configuration from environment variables (or equivalent CLI flags). The Mostro pubkey and at least one relay are mandatory. **Your own keys are not part of the configuration** — see [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
 
 ### Required
 
@@ -117,6 +131,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 |---|---|---|
 | `POW` | `-p, --pow` | Proof-of-work difficulty (bits) required by the Mostro instance for incoming events. Set this if the daemon enforces PoW. |
 | `SECRET` | `--secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index from gift-wrap inner). |
+| `TRANSPORT` | `-t, --transport` | Wire transport: `gift-wrap` (protocol v1) or `nip44` (protocol v2). Leave unset to auto-detect from the instance's info event. |
 | `ADMIN_NSEC` | — | Admin/solver private key in `nsec1...` or hex format. Only read when an `adm*` command is invoked. |
 | `RUST_LOG` | `-v, --verbose` | Verbose logging. The `-v` flag sets `RUST_LOG=info` for you. |
 
@@ -138,6 +153,26 @@ mostro-cli listorders
 ```
 
 > Pubkeys above are illustrative — replace them with the actual Mostro instance and relays you want to trade on.
+
+### About `.env` files
+
+`mostro-cli` does **not** load a `.env` file automatically — there is no dotenv support in the binary, so dropping a `.env` next to the executable has no effect. Older guides (and some issue comments) suggest it; that advice is outdated.
+
+If you prefer keeping settings in a `.env`-style file, export them yourself before running the CLI:
+
+```bash
+# ~/.config/mostro/.env   (chmod 600)
+MOSTRO_PUBKEY=npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0
+RELAYS=wss://relay.mostro.network,wss://relay.damus.io
+POW=0
+```
+
+```bash
+set -a; source ~/.config/mostro/.env; set +a
+mostro-cli listorders
+```
+
+`set -a` marks every variable assigned by the file for export, so the CLI sees them; `set +a` turns that back off.
 
 ---
 
@@ -485,6 +520,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `--secret` — secret mode for inner event tuple.
+- `-t, --transport <gift-wrap|nip44>` — overrides `TRANSPORT` (auto-detected when unset).
 
 ---
 
@@ -503,6 +539,7 @@ Environment variables read by the CLI:
 | `RELAYS` | Required — Nostr relays. |
 | `POW` | Optional — proof-of-work bits. |
 | `SECRET` | Optional — `true` enables secret-mode inner tuple. |
+| `TRANSPORT` | Optional — `gift-wrap` or `nip44`; auto-detected when unset. |
 | `ADMIN_NSEC` | Optional — only used by admin commands. |
 | `RUST_LOG` | Optional — verbose logging level. |
 
@@ -516,7 +553,13 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 ## Troubleshooting / FAQ
 
-**`MOSTRO_PUBKEY not set`** — Export it or pass `-m <npub>`. Same for `RELAYS`.
+**`Failed to get context keys: Invalid secret key`** — You are setting `NSEC_PRIVKEY` (or another obsolete key variable). The CLI no longer accepts a user-supplied `nsec`: it derives its keys from a mnemonic it generates itself. `unset NSEC_PRIVKEY` and just set `MOSTRO_PUBKEY` and `RELAYS`. See [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
+
+**"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
+
+**`MOSTRO_PUBKEY not set`** — Export it or pass `-m <npub>`. Note the underscore: `MOSTROPUBKEY` (no underscore) is not read. Same for `RELAYS`.
+
+**My `.env` file is ignored** — It is not loaded automatically; the CLI has no dotenv support. Use `set -a; source .env; set +a` first — see [About `.env` files](#about-env-files).
 
 **`ADMIN_NSEC not set (required for admin commands)`** — Only admin subcommands need it. Export it in the same shell, or prefix the command: `ADMIN_NSEC=nsec1... mostro-cli admsettle ...`.
 
