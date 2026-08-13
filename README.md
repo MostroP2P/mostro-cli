@@ -553,11 +553,13 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 ## Troubleshooting / FAQ
 
-**`Failed to get context keys: Invalid secret key`** — You are setting `NSEC_PRIVKEY` (or another obsolete key variable). The CLI no longer accepts a user-supplied `nsec`: it derives its keys from a mnemonic it generates itself. `unset NSEC_PRIVKEY` and just set `MOSTRO_PUBKEY` and `RELAYS`. See [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
+**`Invalid secret key` / `Failed to parse ADMIN_NSEC`** — Only admin commands parse a key you supply, and the only one they read is `ADMIN_NSEC`; check it is a well-formed `nsec1...` or hex private key. Normal commands never parse a user-supplied key at all — they derive theirs from the mnemonic in `~/.mcli/mcli.db`, so for those you only need `MOSTRO_PUBKEY` and `RELAYS`. Older releases read an `NSEC_PRIVKEY` variable and failed this way when it was malformed; current versions ignore it entirely. See [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
 
 **"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
 
-**`MOSTRO_PUBKEY not set`** — Export it or pass `-m <npub>`. Note the underscore: `MOSTROPUBKEY` (no underscore) is not read. Same for `RELAYS`.
+**`MOSTRO_PUBKEY not set`** — Export it or pass `-m <npub>`. Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not.
+
+**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs) or pass `-r <relay[,relay...]>`.
 
 **My `.env` file is ignored** — It is not loaded automatically; the CLI has no dotenv support. Use `set -a; source .env; set +a` first — see [About `.env` files](#about-env-files).
 
