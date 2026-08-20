@@ -29,7 +29,8 @@ A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P
 
 ## Requirements
 
-- **Rust** 1.74 or higher (recommended — anything newer than 1.64 should compile).
+- **Rust 1.86 or higher.** That is the minimum the CI verifies a build against. Note that `rust-toolchain.toml` pins `1.89.0` as the development toolchain, so building from a clone with `rustup` installed will fetch 1.89 regardless; 1.86 is the floor for `cargo install mostro-cli`.
+- **A Mostro node to connect to** — its pubkey is mandatory configuration. See [Choosing a Mostro instance](#choosing-a-mostro-instance).
 - A **Lightning wallet** to pay/receive hold invoices and regular invoices.
 - Network access to public Nostr relays.
 
@@ -130,10 +131,22 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 | Variable | CLI flag | Description |
 |---|---|---|
 | `POW` | `-p, --pow` | Proof-of-work difficulty (bits) required by the Mostro instance for incoming events. Set this if the daemon enforces PoW. |
-| `SECRET` | `--secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index from gift-wrap inner). |
+| `SECRET` | `-s, --secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index from gift-wrap inner). |
 | `TRANSPORT` | `-t, --transport` | Wire transport: `gift-wrap` (protocol v1) or `nip44` (protocol v2). Leave unset to auto-detect from the instance's info event. |
 | `ADMIN_NSEC` | — | Admin/solver private key in `nsec1...` or hex format. Only read when an `adm*` command is invoked. |
-| `RUST_LOG` | `-v, --verbose` | Verbose logging. The `-v` flag sets `RUST_LOG=info` for you. |
+| `RUST_LOG` | `-v, --verbose` | **Not actually configurable.** The logger is initialised only when `-v` is passed, and `-v` overwrites `RUST_LOG` with `info` first. So `RUST_LOG` alone produces no output, and `RUST_LOG=debug -v` still logs at `info`. `-v` is the only available level. |
+
+### Choosing a Mostro instance
+
+`mostro-cli` is only a client: it does not ship with a default node, and this README deliberately does not hard-code one. Mostro is a federation of independently operated daemons — any given instance can go offline, change its pubkey, or stop serving your currency at any time, so a pubkey pasted here would eventually send you to a dead node.
+
+**Use the pubkey of the Mostro node you trust.** Ways to get one:
+
+- **Ask the operator.** If you already trade on a given instance (through a mobile client, a community, or a friend), ask for its `npub` and the relays it publishes to.
+- **Discover instances on Nostr.** Every running daemon publishes an addressable info event of **kind `38385`**, tagged with its `mostro_version`, `protocol_version`, `fee`, `pow` and `max_order_amount`. Querying a relay for that kind lists the instances it knows about, and the event's author pubkey is the value you need for `MOSTRO_PUBKEY`. Orders themselves are kind `38383` events authored by the same pubkey. Any Nostr client or CLI that can filter by kind will do.
+- **Run your own.** The daemon is open source: [github.com/MostroP2P/mostro](https://github.com/MostroP2P/mostro). Running it yourself is also the recommended way to test the whole flow (including on testnet) without touching a stranger's node — its config file holds the pubkey and relays you then feed to `mostro-cli`.
+
+Whichever you pick, `RELAYS` must include at least one relay that the instance actually publishes to, otherwise the CLI connects successfully and simply sees nothing.
 
 ### Suggested setup
 
@@ -141,9 +154,9 @@ Create a small env file you `source` before using the CLI:
 
 ```bash
 # ~/.config/mostro/env.sh   (chmod 600)
-export MOSTRO_PUBKEY="npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0"
-export RELAYS="wss://relay.mostro.network,wss://relay.damus.io"
-# export POW=10
+export MOSTRO_PUBKEY="<npub-of-your-mostro-node>"
+export RELAYS="wss://<relay-your-node-publishes-to>,wss://<another-relay>"
+# export POW=10                # only if the node enforces proof of work
 # export ADMIN_NSEC=nsec1...   # only if you're an admin/solver
 ```
 
@@ -152,7 +165,7 @@ source ~/.config/mostro/env.sh
 mostro-cli listorders
 ```
 
-> Pubkeys above are illustrative — replace them with the actual Mostro instance and relays you want to trade on.
+> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version` and `--help` are the only exceptions).
 
 ### About `.env` files
 
@@ -162,8 +175,8 @@ If you prefer keeping settings in a `.env`-style file, export them yourself befo
 
 ```bash
 # ~/.config/mostro/.env   (chmod 600)
-MOSTRO_PUBKEY=npub1ykvsmrmw2hk7jgxgy64zr8tfkx4nnjhq9eyfxdlg3caha3ph0skq6jr3z0
-RELAYS=wss://relay.mostro.network,wss://relay.damus.io
+MOSTRO_PUBKEY=<npub-of-your-mostro-node>
+RELAYS=wss://<relay-your-node-publishes-to>
 POW=0
 ```
 
@@ -178,6 +191,13 @@ mostro-cli listorders
 
 ## Quick start
 
+Export your configuration first — every command below fails immediately without it:
+
+```bash
+export MOSTRO_PUBKEY="<npub-of-your-mostro-node>"
+export RELAYS="wss://<relay-your-node-publishes-to>"
+```
+
 ```bash
 # 1. List open orders
 mostro-cli listorders
@@ -189,7 +209,7 @@ mostro-cli listorders -k buy -c ves -s pending
 # 3. Inspect details for specific orders
 mostro-cli ordersinfo -o <uuid-1> -o <uuid-2>
 
-# 4. Create your own order (sell 1000 ARS, range allowed)
+# 4. Create your own order (sell 1000-10000 ARS at market price)
 mostro-cli neworder -k sell -c ars -f 1000-10000 -m "face to face"
 
 # 5. Take someone else's sell order
@@ -202,12 +222,25 @@ mostro-cli getdm --since 60
 On the very first run you will see something like:
 
 ```
-Directory /home/user/.mcli created.
 Creating database file with orders table...
 User created with pubkey: <your i0_pubkey>
 ```
 
-Write down or back up the database / mnemonic before doing anything else.
+Write down or back up the mnemonic before doing anything else — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
+
+### The CLI does not stay connected — you poll
+
+This is the biggest difference from a mobile Mostro client. Each `mostro-cli` invocation connects to the relays, sends (or reads) what you asked for, prints the result and exits. It does **not** keep running to notify you when your counterpart acts.
+
+So a trade is driven by you re-running `getdm`:
+
+```bash
+mostro-cli getdm --since 60     # everything Mostro sent you in the last 60 minutes
+```
+
+Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
+
+Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` to `neworder` to request a different window.
 
 ---
 
@@ -380,7 +413,7 @@ You can be a regular user and a solver on the same machine; just keep both walle
    - `admaddsolver`, `admtakedispute`
    - `admsenddm`, `getadmindm`
 
-   For non-admin commands, `ADMIN_NSEC` is ignored.
+   For every other command, `ADMIN_NSEC` is ignored. Note that `sendadmindmattach` is **not** on this list despite its name: it signs with the trade key of the order you pass in, so it works without `ADMIN_NSEC` set.
 
 ### Admin commands
 
@@ -433,38 +466,70 @@ sqlite3 ~/.mcli/mcli.db "SELECT mnemonic FROM users;"
 
 Store the 12 words offline (paper, metal, encrypted vault). Do **not** commit them to git or put them in plain text on shared machines.
 
-### Restoring on a new machine
+### Moving to a new machine: copy the database
+
+**If you have trades in flight, copy `~/.mcli/mcli.db` to the new machine.** This is the only path that lets you *continue* those trades, because commands like `release`, `cancel`, `addinvoice` and `senddm` look the order up in the local `orders` table and fail without it. The file contains no funds — only your mnemonic and cached order metadata — but it does contain the mnemonic, so move it over a secure channel and keep the `0600` permissions.
+
+### Restoring from the mnemonic alone
+
+Use this when the database is gone. It recovers your **identity**, not your local order history — read the limitation at the end of this section before relying on it mid-trade.
+
+> **Let the CLI create the database — do not hand-craft it.** `mostro-cli` only creates its tables when `~/.mcli/mcli.db` does not yet exist. If you pre-create that file yourself with just a `users` table, the `orders` table is never created, `listorders` still appears to work, and the first command that touches an order fails with `no such table: orders`. Always run the CLI once first, then overwrite the mnemonic.
 
 1. Install `mostro-cli` on the new machine.
-2. **Before running any command**, create `~/.mcli/mcli.db` with your mnemonic pre-inserted, or stop after the first auto-init and manually overwrite the row in `users`. A simple way using sqlite3:
+
+2. **Configure the CLI first.** `MOSTRO_PUBKEY` and `RELAYS` are validated *before* the database is created, so without them the next step aborts and no database appears:
 
    ```bash
-   mkdir -p ~/.mcli
-   sqlite3 ~/.mcli/mcli.db <<'SQL'
-   CREATE TABLE IF NOT EXISTS users (
-     i0_pubkey char(64) PRIMARY KEY,
-     mnemonic TEXT,
-     last_trade_index INTEGER,
-     created_at INTEGER
-   );
-   SQL
-   # Then insert your mnemonic (replace the values):
-   sqlite3 ~/.mcli/mcli.db "INSERT INTO users (i0_pubkey, mnemonic, created_at) VALUES ('<your-i0_pubkey-hex>', '<your 12 words>', strftime('%s','now'));"
+   export MOSTRO_PUBKEY="<npub-of-your-mostro-node>"
+   export RELAYS="wss://<relay-your-node-publishes-to>"
    ```
 
-3. Run `mostro-cli restore`. This asks Mostro to resend the state of all your active orders and disputes so the new machine can rejoin the conversations.
+3. **Run any command once** so the CLI builds a complete, correctly-permissioned database. It will generate a throwaway mnemonic that you are about to replace:
 
-4. (Optional) sync the trade index:
+   ```bash
+   mostro-cli listorders
+   ```
+
+4. **Overwrite the mnemonic** with your backed-up 12 words and clear the trade index that belonged to the throwaway user.
+
+   Do not type the mnemonic as a command argument: it would land in your shell history and be visible to any local user running `ps`. Read it into a variable instead, with echo disabled, and let `sqlite3` take the statement on stdin:
+
+   ```bash
+   read -rs -p "mnemonic: " MNEMONIC && echo
+   sqlite3 ~/.mcli/mcli.db <<SQL
+   UPDATE users SET mnemonic = '$MNEMONIC', last_trade_index = NULL;
+   SQL
+   unset MNEMONIC
+   ```
+
+   The heredoc expands `$MNEMONIC` into `sqlite3`'s standard input, so the words never appear in `argv` or in history. BIP39 words are lowercase ASCII, so quoting is safe — but do check you pasted a mnemonic and not something containing a `'`.
+
+5. **Sync the trade index. This step is required, not optional:**
 
    ```bash
    mostro-cli getlasttradeindex
    ```
 
-> A friendlier `import-mnemonic` subcommand may land in the future. Until then, the manual flow above is the supported path.
+   Trade keys are derived from an incrementing index, and the daemon rejects an index it has already seen. A freshly restored database starts back at index 1, so without this sync your next order is refused. The command asks Mostro for your real last index and writes it back to the local database.
 
-### Backing up the whole DB
+6. **Ask Mostro what you have open:**
 
-If you also want to preserve cached order metadata and avoid re-fetching, copy `~/.mcli/mcli.db` to the new machine instead. The DB contains no funds — only Nostr keys and order metadata.
+   ```bash
+   mostro-cli restore
+   ```
+
+   This prints the identity pubkey it derived from your restored mnemonic, plus the ID, trade index and status of every active order and dispute Mostro holds for you.
+
+7. **(Cosmetic) realign `i0_pubkey`.** The `users` row still carries the throwaway identity in its primary key column. Nothing derives from it — every identity and trade key comes from the `mnemonic` column at runtime, and `User::save` matches on whatever value is stored, so the database stays self-consistent. If you want the column to reflect reality anyway, take the `User` pubkey that `restore` printed in the previous step:
+
+   ```bash
+   sqlite3 ~/.mcli/mcli.db "UPDATE users SET i0_pubkey = '<pubkey printed by restore>';"
+   ```
+
+> **Limitation: `restore` does not rebuild your local order cache.** It reports what Mostro knows, but it does not insert those orders into the local `orders` table. Commands that operate on a specific order — `release`, `cancel`, `fiatsent`, `addinvoice`, `rate`, `senddm` — read that table first and will fail on an order that is not in it. So a mnemonic-only restore gets your identity and your ratings back and lets you trade again from scratch, but it cannot resume a trade that was already in flight. For that, copy the database (see above).
+
+> A friendlier `import-mnemonic` subcommand may land in the future. Until then, the flow above is the supported path.
 
 ---
 
@@ -506,8 +571,10 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `admtakedispute -d <dispute-id>`
 - `admaddsolver -n <npub>`
 - `admsenddm -p <pubkey> -m <msg>`
-- `sendadmindmattach -p <pubkey> -o <id> -f <file>`
 - `getadmindm [--since <min>] [--from-user]`
+
+### Solver tooling (no `ADMIN_NSEC` needed)
+- `sendadmindmattach -p <pubkey> -o <id> -f <file>` — send an encrypted file attachment (uploaded to a Blossom server) over the order's trade key.
 
 ### Identity / recovery
 - `restore` — re-sync active orders and disputes from Mostro.
@@ -515,12 +582,19 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `getlasttradeprivkey` — show the private key for the last trade index (advanced).
 
 ### Global flags
-- `-v, --verbose` — enable info logging.
+
+> **These must come *before* the subcommand.** They are parsed on the top-level command, so `mostro-cli listorders -m <npub>` fails with `error: unexpected argument '-m' found`. Write `mostro-cli -m <npub> listorders` instead. This also avoids clashing with subcommand flags that reuse the same letters (`-m` is `--payment-method` on `neworder` and `--message` on `senddm`, `-p` is `--premium` on `neworder` and `--pubkey` on the DM commands).
+
+- `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostropubkey <npub>` — overrides `MOSTRO_PUBKEY`.
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
-- `--secret` — secret mode for inner event tuple.
+- `-s, --secret` — secret mode for inner event tuple.
 - `-t, --transport <gift-wrap|nip44>` — overrides `TRANSPORT` (auto-detected when unset).
+
+```bash
+mostro-cli -m <npub> -r wss://<relay> listorders -k sell -c usd
+```
 
 ---
 
@@ -541,7 +615,7 @@ Environment variables read by the CLI:
 | `SECRET` | Optional — `true` enables secret-mode inner tuple. |
 | `TRANSPORT` | Optional — `gift-wrap` or `nip44`; auto-detected when unset. |
 | `ADMIN_NSEC` | Optional — only used by admin commands. |
-| `RUST_LOG` | Optional — verbose logging level. |
+| `RUST_LOG` | Read but effectively not configurable — `-v` overwrites it with `info` and is the only thing that initialises the logger. |
 
 The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db` like a wallet seed file:
 
@@ -557,19 +631,36 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 **"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
 
-**`MOSTRO_PUBKEY not set`** — Export it or pass `-m <npub>`. Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not.
+**`MOSTRO_PUBKEY not set`** — Export it, or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> listorders`, not `mostro-cli listorders -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance).
 
-**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs) or pass `-r <relay[,relay...]>`.
+**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs) or pass `-r <relay[,relay...]>` before the subcommand.
+
+**`error: unexpected argument '-m' found`** (or `-r`, `-p`, `-t`, `-v`) — Global flags belong before the subcommand: `mostro-cli -m <npub> listorders`. Placed after it, clap parses them against the subcommand, which either rejects them or silently means something else. See [Global flags](#global-flags).
 
 **My `.env` file is ignored** — It is not loaded automatically; the CLI has no dotenv support. Use `set -a; source .env; set +a` first — see [About `.env` files](#about-env-files).
 
 **`ADMIN_NSEC not set (required for admin commands)`** — Only admin subcommands need it. Export it in the same shell, or prefix the command: `ADMIN_NSEC=nsec1... mostro-cli admsettle ...`.
 
-**`listorders` returns nothing** — Check `RELAYS` connectivity (`websocat wss://relay.mostro.network`), confirm `MOSTRO_PUBKEY` matches the instance you actually want to trade on, and try `--verbose` for relay logs.
+**`listorders` returns nothing** — Almost always a configuration problem rather than an empty orderbook. In order:
+
+1. **Is `MOSTRO_PUBKEY` a live instance?** A node that has been shut down, or a pubkey copied from an outdated guide, produces exactly this: a clean connection and zero orders. Confirm the pubkey with its operator, or look for its kind-`38385` info event on the relay — see [Choosing a Mostro instance](#choosing-a-mostro-instance).
+2. **Do your relays carry that instance?** The node only publishes to the relays it is configured with. A perfectly healthy relay that the node never writes to will show nothing.
+3. **Is the relay reachable?** Test with e.g. `websocat wss://<your-relay>`.
+4. **Are your filters too narrow?** `-k`, `-c` and `-s` combine; drop them and retry.
+
+Run with `-v` (before the subcommand) for relay-level logs.
 
 **Mostro rejects events / no reply** — The instance may require `POW`. Ask the operator what difficulty is enforced and export `POW=<bits>`.
 
-**Lost the database / changed machine** — See [Backup, recovery and multi-device](#backup-recovery-and-multi-device). Without the mnemonic, active orders/disputes cannot be recovered.
+**`no such table: orders`** — Your `~/.mcli/mcli.db` was created by something other than the CLI (usually by hand-crafting it while restoring a mnemonic). The CLI only creates its tables when that file does not exist, so a pre-made database is missing `orders`. Delete it and follow [Restoring from the mnemonic alone](#restoring-from-the-mnemonic-alone) — but back up the mnemonic first: `sqlite3 ~/.mcli/mcli.db "SELECT mnemonic FROM users;"`.
+
+**Mostro rejects my order after restoring on a new machine** — You very likely skipped the trade-index sync. Run `mostro-cli getlasttradeindex`; see [Restoring from the mnemonic alone](#restoring-from-the-mnemonic-alone).
+
+**Nothing happens / I'm waiting for my counterpart** — The CLI does not stay connected. Re-run `mostro-cli getdm --since <minutes>` to pull new messages; see [The CLI does not stay connected — you poll](#the-cli-does-not-stay-connected--you-poll).
+
+**Lost the database / changed machine** — See [Backup, recovery and multi-device](#backup-recovery-and-multi-device). Without the mnemonic you cannot recover anything; with the mnemonic you recover your identity but not in-flight trades (see below).
+
+**I restored my mnemonic but `release` / `addinvoice` / `senddm` says the order doesn't exist** — Expected. `mostro-cli restore` reports the orders Mostro holds for you, but it does not write them into the local `orders` table, and those commands look the order up there first. A mnemonic-only restore cannot resume a trade that was already in flight — copying `~/.mcli/mcli.db` is the only way to do that. See [Moving to a new machine: copy the database](#moving-to-a-new-machine-copy-the-database).
 
 **Multiple orders in flight** — Each gets its own derived trade key. The DB tracks them; just keep using order IDs.
 
