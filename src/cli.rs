@@ -435,7 +435,9 @@ fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
                 "MOSTRO_PUBKEY not set.\n\
              Provide it using one of the following methods:\n\
              1) --mostropubkey <npub>\n\
-             2) export MOSTRO_PUBKEY=<npub>"
+             2) export MOSTRO_PUBKEY=<npub>\n\
+             3) create ~/.config/mostro/env.sh with MOSTRO_PUBKEY and RELAYS, then source it\n\
+             (the config dir is not auto-created; see README Configuration)"
             )
         })
 }
