@@ -84,8 +84,8 @@ pub fn render_status(s: &GetMaintenanceStatusResponse) -> String {
     ));
     table.add_row(create_emoji_field_row(
         "💸 ",
-        "Unpaid dev fees",
-        &c.unpaid_dev_fees.to_string(),
+        "In-flight dev fees",
+        &c.inflight_dev_fees.to_string(),
     ));
     table.add_row(create_emoji_field_row(
         "🪢 ",

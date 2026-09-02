@@ -56,7 +56,7 @@ pub struct DrainCounters {
     #[prost(uint32, tag = "2")]
     pub inflight_payouts: u32,
     #[prost(uint32, tag = "3")]
-    pub unpaid_dev_fees: u32,
+    pub inflight_dev_fees: u32,
     #[prost(uint32, tag = "4")]
     pub open_bonds: u32,
     #[prost(uint32, tag = "5")]
@@ -275,7 +275,7 @@ mod tests {
             counters: Some(DrainCounters {
                 escrowed_orders: 2,
                 inflight_payouts: 1,
-                unpaid_dev_fees: 0,
+                inflight_dev_fees: 0,
                 open_bonds: 3,
                 pending_bond_payouts: 0,
                 pending_orders: 7,
