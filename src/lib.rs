@@ -4,4 +4,5 @@ pub mod error;
 pub mod lightning;
 pub mod nip33;
 pub mod parser;
+pub mod rpc;
 pub mod util;
