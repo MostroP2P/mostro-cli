@@ -35,6 +35,11 @@ pub struct CancelOrderRequest {
     pub order_id: String,
     #[prost(string, optional, tag = "2")]
     pub request_id: Option<String>,
+    /// Refuse anything that is not still `pending` / `waiting-taker-bond`
+    /// instead of falling through to the dispute-resolution cancel
+    /// (MostroP2P/mostro#944).
+    #[prost(bool, optional, tag = "3")]
+    pub pretrade_only: Option<bool>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -257,16 +262,18 @@ impl AdminRpcClient {
         .await
     }
 
-    /// `CancelOrder` from the daemon key. For a `pending` /
-    /// `waiting-taker-bond` order this is the operator cancel (bonds
-    /// released, maker notified); for a dispute the daemon has taken it is
-    /// the solver resolution.
-    pub async fn cancel_order(&mut self, order_id: &str) -> Result<CancelOrderResponse> {
+    /// `CancelOrder` from the daemon key, restricted to a still-pending
+    /// (`pending` / `waiting-taker-bond`) order: bonds released, maker
+    /// notified. `pretrade_only` makes the daemon refuse anything else —
+    /// in particular a dispute the daemon has taken, which the same RPC
+    /// would otherwise resolve as the solver (cancel escrow, refund seller).
+    pub async fn cancel_pending_order(&mut self, order_id: &str) -> Result<CancelOrderResponse> {
         self.unary(
             "CancelOrder",
             CancelOrderRequest {
                 order_id: order_id.to_owned(),
                 request_id: None,
+                pretrade_only: Some(true),
             },
         )
         .await
@@ -349,10 +356,12 @@ mod tests {
         let bytes = CancelOrderRequest {
             order_id: "ab".into(),
             request_id: None,
+            pretrade_only: Some(true),
         }
         .encode_to_vec();
-        // field 1 len-delimited = 0x0a 0x02 'a' 'b'; no field 2
-        assert_eq!(bytes, vec![0x0a, 0x02, b'a', b'b']);
+        // field 1 len-delimited = 0x0a 0x02 'a' 'b'; no field 2; field 3
+        // varint = 0x18 0x01
+        assert_eq!(bytes, vec![0x0a, 0x02, b'a', b'b', 0x18, 0x01]);
         let resp = CancelOrderResponse::decode(&[0x08, 0x00, 0x12, 0x01, b'e'][..]).unwrap();
         assert!(!resp.success);
         assert_eq!(resp.error_message.as_deref(), Some("e"));

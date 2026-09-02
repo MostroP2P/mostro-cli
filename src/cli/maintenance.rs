@@ -44,10 +44,12 @@ pub async fn execute_set_maintenance(enabled: bool, reason: Option<String>) -> R
 }
 
 /// Operator cancel of a pre-trade order through the daemon's `CancelOrder`
-/// gRPC. Unlike `admcancel` (Nostr, `ADMIN_NSEC`, disputes) this reaches
-/// the daemon-key path that accepts `pending` / `waiting-taker-bond`
-/// orders, releasing the maker's bond at once — the way to shorten the
-/// maintenance drain instead of waiting for `max_expiration_days`.
+/// gRPC with `pretrade_only` set. Unlike `admcancel` (Nostr, `ADMIN_NSEC`,
+/// disputes) this reaches the daemon-key path that accepts `pending` /
+/// `waiting-taker-bond` orders, releasing the maker's bond at once — the
+/// way to shorten the maintenance drain instead of waiting for
+/// `max_expiration_days`. The daemon refuses any other status (a dispute
+/// included), so a mistyped id can never resolve a trade.
 pub async fn execute_cancel_pending(order_id: uuid::Uuid) -> Result<()> {
     let config = RpcConfig::from_env();
     println!("👑 Admin Cancel Pending Order");
@@ -63,7 +65,7 @@ pub async fn execute_cancel_pending(order_id: uuid::Uuid) -> Result<()> {
     println!("{table}");
 
     let mut client = AdminRpcClient::connect(&config).await?;
-    let resp = client.cancel_order(&order_id.to_string()).await?;
+    let resp = client.cancel_pending_order(&order_id.to_string()).await?;
     if !resp.success {
         return Err(anyhow!(
             "daemon refused the cancel: {}",
