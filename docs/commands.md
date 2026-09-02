@@ -195,7 +195,7 @@ settable via the matching env var):
 - **`admcancelpending`** *(operator only, admin gRPC)*
   - **Description**: Cancel a still-`pending` / `waiting-taker-bond` order through the daemon's `CancelOrder` RPC; maker notified, bonds released. Needs `MOSTRO_RPC_URL` / `MOSTRO_RPC_TOKEN`, not `ADMIN_NSEC`.
   - **Args**:
-    - `--order-id <UUID>`: Order identifier.
+    - `-o, --orderid <UUID>`: Order identifier.
   - **Handler**: `execute_cancel_pending(order_id)` in `src/cli/maintenance.rs`.
 
 - **`admsettle`** *(admin only)*
