@@ -134,7 +134,7 @@ pub fn render_status(s: &GetMaintenanceStatusResponse) -> String {
     ));
     table.add_row(create_emoji_field_row(
         "🪢 ",
-        "Pending bond payouts",
+        "In-flight bond payouts",
         &c.pending_bond_payouts.to_string(),
     ));
     table.add_row(create_emoji_field_row(
