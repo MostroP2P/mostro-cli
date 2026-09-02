@@ -21,59 +21,46 @@ gpg: Good signature from "Arkanoider <github.913zc@simplelogin.com>" [ultimate]
 That will verify the signature of the manifest file, which ensures integrity and authenticity of the archive you've downloaded locally containing the binaries. Next, depending on your operating system, you should then re-compute the sha256 hash of the archive with `shasum -a 256 <filename>`, compare it with the corresponding one in the manifest file, and ensure they match exactly.
 
 
-## What's Changed in 0.16.0
+## What's Changed in 0.16.1
 
 ### 🚀 Features
 
 
-* Phase 3 — transport auto-detection + get-dm v2 + docs by [@grunch](https://github.com/grunch)
-* Phase 2 — protocol-v2 (NIP-44 direct) selection by [@grunch](https://github.com/grunch)
+* admsetmaintenance / admmaintenancestatus over the daemon admin gRPC by [@grunch](https://github.com/grunch)
 
 ### 🐛 Bug Fixes
 
 
-* address PR review feedback by [@grunch](https://github.com/grunch)
-* harden permissions for local mnemonic database by [@grunch](https://github.com/grunch)
-* treat empty TRANSPORT as unset in resolve_transport by [@grunch](https://github.com/grunch)
-* wait for relay connection before first request by [@grunch](https://github.com/grunch)
-* make DM-listing/follow-up fetches transport-aware (Codex review) by [@grunch](https://github.com/grunch)
-* add specific error message for NotFound CantDoReason by [@AndreaDiazCorreia](https://github.com/AndreaDiazCorreia)
-* wait for Mostro reply before showing success in admin cancel/settle by [@AndreaDiazCorreia](https://github.com/AndreaDiazCorreia)
-* filter wait_for_dm notifications so PoW detection actually fires by [@grunch](https://github.com/grunch)
-* run PoW probe concurrently with the DM wait by [@grunch](https://github.com/grunch)
-* bound the post-timeout PoW probe to avoid doubling latency by [@grunch](https://github.com/grunch)
-* surface explicit PoW rejection instead of generic timeout by [@grunch](https://github.com/grunch)
+* safe-to-switch needs maintenance ON, bounded timeouts, no cleartext token off-box by [@grunch](https://github.com/grunch)
 
 ### 💼 Other
 
 
-* feat(transport): Phase 3 — auto-detection + get-dm v2 + docs by [@grunch](https://github.com/grunch) in [#178](https://github.com/MostroP2P/mostro-cli/pull/178)
-* feat(transport): Phase 2 — protocol-v2 (NIP-44 direct) selection by [@grunch](https://github.com/grunch) in [#177](https://github.com/MostroP2P/mostro-cli/pull/177)
-* chore(deps): adopt mostro-core 0.13.0 (transport-v2 foundation) by [@grunch](https://github.com/grunch) in [#176](https://github.com/MostroP2P/mostro-cli/pull/176)
-* fix(admin-disputes): confirm Mostro reply before reporting settle/cancel success by [@grunch](https://github.com/grunch) in [#171](https://github.com/MostroP2P/mostro-cli/pull/171)
-* fix(pow): filter wait_for_dm notifications so PoW detection actually fires by [@grunch](https://github.com/grunch) in [#174](https://github.com/MostroP2P/mostro-cli/pull/174)
-* fix(pow): surface explicit PoW rejection instead of generic timeout by [@grunch](https://github.com/grunch) in [#173](https://github.com/MostroP2P/mostro-cli/pull/173)
-
-### 🚜 Refactor
-
-
-* rename info tag protocol_versions -> protocol_version by [@grunch](https://github.com/grunch)
+* feat: admsetmaintenance / admmaintenancestatus over the daemon admin gRPC by [@grunch](https://github.com/grunch) in [#190](https://github.com/MostroP2P/mostro-cli/pull/190)
+* docs(readme): fix instructions that block a first-time user by [@grunch](https://github.com/grunch) in [#186](https://github.com/MostroP2P/mostro-cli/pull/186)
+* docs(readme): clarify key setup and remove obsolete env var advice by [@grunch](https://github.com/grunch) in [#183](https://github.com/MostroP2P/mostro-cli/pull/183)
+* docs: add security policy by [@grunch](https://github.com/grunch) in [#182](https://github.com/MostroP2P/mostro-cli/pull/182)
+* chore: bump mostro-core to 0.14.1 by [@grunch](https://github.com/grunch) in [#181](https://github.com/MostroP2P/mostro-cli/pull/181)
 
 ### 📚 Documentation
 
 
-* clarify v2-aware DM comment + test create_filter author pin by [@grunch](https://github.com/grunch)
-* clarify v2 API name, kind-not-version gating, and compat guard by [@grunch](https://github.com/grunch)
+* address Codex and CodeRabbit review findings by [@grunch](https://github.com/grunch)
+* fix instructions that block a first-time user by [@grunch](https://github.com/grunch)
+* correct invalid-key FAQ and split RELAYS guidance by [@grunch](https://github.com/grunch)
+* clarify key setup and remove obsolete env var advice by [@grunch](https://github.com/grunch)
+* add security policy and vulnerability reporting guidelines by [@AndreaDiazCorreia](https://github.com/AndreaDiazCorreia)
 
-### 🛡️ Security
+### ⚙️ Miscellaneous Tasks
 
 
-* fix(security): harden permissions for local mnemonic database by [@grunch](https://github.com/grunch) in [#180](https://github.com/MostroP2P/mostro-cli/pull/180)
+* rename the dev-fee drain counter to inflight_dev_fees by [@grunch](https://github.com/grunch)
+* bump mostro-core to 0.14.1 by [@grunch](https://github.com/grunch)
 
 ## Contributors
-* [@grunch](https://github.com/grunch) made their contribution in [#180](https://github.com/MostroP2P/mostro-cli/pull/180)
+* [@grunch](https://github.com/grunch) made their contribution in [#190](https://github.com/MostroP2P/mostro-cli/pull/190)
 * [@AndreaDiazCorreia](https://github.com/AndreaDiazCorreia) made their contribution
 
-**Full Changelog**: https://github.com/MostroP2P/mostro-cli/compare/v0.15.3...0.16.0
+**Full Changelog**: https://github.com/MostroP2P/mostro-cli/compare/v0.16.0...0.16.1
 
 <!-- generated by git-cliff -->
