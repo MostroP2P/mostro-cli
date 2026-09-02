@@ -135,7 +135,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 | `TRANSPORT` | `-t, --transport` | Wire transport: `gift-wrap` (protocol v1) or `nip44` (protocol v2). Leave unset to auto-detect from the instance's info event. |
 | `ADMIN_NSEC` | — | Admin/solver private key in `nsec1...` or hex format. Only read when an `adm*` command is invoked. |
 | `MOSTRO_RPC_URL` | `http://127.0.0.1:50051` | `mostrod` admin gRPC endpoint (`[rpc]` in the daemon's settings). Only used by `admsetmaintenance` / `admmaintenancestatus`. |
-| `MOSTRO_RPC_TOKEN` | — | Bearer token for the admin gRPC, required when the daemon sets `[rpc].auth_token`. Only used by the two commands above. |
+| `MOSTRO_RPC_TOKEN` | — | Bearer token for the admin gRPC, required when the daemon sets `[rpc].auth_token`. Only used by the two commands above. Sent in cleartext only to a loopback URL (direct or through an SSH tunnel); any other `http://` host is refused, use `https://` via a TLS proxy instead. |
 | `RUST_LOG` | `-v, --verbose` | **Not actually configurable.** The logger is initialised only when `-v` is passed, and `-v` overwrites `RUST_LOG` with `info` first. So `RUST_LOG` alone produces no output, and `RUST_LOG=debug -v` still logs at `info`. `-v` is the only available level. |
 
 ### Choosing a Mostro instance

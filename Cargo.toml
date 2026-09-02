@@ -60,7 +60,7 @@ bitcoin_hashes = { version = "0.20.0", default-features = false }
 base64 = "0.22"
 # Admin gRPC (mostrod `[rpc]`): hand-written prost messages + tonic client,
 # no protoc / build.rs needed to `cargo install`.
-tonic = "0.14.2"
+tonic = { version = "0.14.2", features = ["tls-ring", "tls-native-roots"] }
 tonic-prost = "0.14.1"
 prost = "0.14.1"
 

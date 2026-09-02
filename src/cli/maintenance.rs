@@ -120,14 +120,29 @@ pub fn render_status(s: &GetMaintenanceStatusResponse) -> String {
         ));
     }
     out.push_str(&format!("{table}\n"));
-    if s.drained {
-        out.push_str("✅ Nothing is bound to the Lightning node: safe to stop mostrod and switch [lightning].\n");
-    } else {
-        out.push_str(
-            "⏳ Escrow is still bound to the Lightning node; keep it online and poll again.\n",
-        );
-    }
+    out.push_str(verdict(s));
+    out.push('\n');
     out
+}
+
+/// The operator-facing verdict. "Safe to switch" needs BOTH conditions: with
+/// the book open a drained daemon can take on new node-bound escrow the
+/// moment after the operator reads this line.
+fn verdict(s: &GetMaintenanceStatusResponse) -> &'static str {
+    match (s.enabled, s.drained) {
+        (true, true) => {
+            "✅ Maintenance mode is ON and nothing is bound to the Lightning node: safe to stop mostrod and switch [lightning]."
+        }
+        (true, false) => {
+            "⏳ Escrow is still bound to the Lightning node; keep it online and poll again."
+        }
+        (false, true) => {
+            "⚠️ Nothing is bound right now, but the book is OPEN: new escrow can arrive at any moment. Run `admsetmaintenance --enabled true` first, then poll again."
+        }
+        (false, false) => {
+            "⚠️ Escrow is bound to the Lightning node and the book is OPEN. Run `admsetmaintenance --enabled true` to stop new escrow, then poll until drained."
+        }
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +176,26 @@ mod tests {
 
         let out = render_status(&status(true));
         assert!(out.contains("safe to stop mostrod"));
+    }
+
+    /// "Safe to switch" must never be printed while the book is open.
+    #[test]
+    fn verdict_requires_maintenance_on_and_drained() {
+        let mut s = status(true);
+        assert!(verdict(&s).contains("safe to stop"));
+        s.enabled = false;
+        let v = verdict(&s);
+        assert!(!v.contains("safe to stop") && v.contains("OPEN") && v.contains("--enabled true"));
+        s.drained = false;
+        let v = verdict(&s);
+        assert!(!v.contains("safe to stop") && v.contains("--enabled true"));
+        s.enabled = true;
+        assert!(verdict(&s).contains("keep it online"));
+        let out = render_status(&GetMaintenanceStatusResponse::default());
+        assert!(
+            !out.contains("safe to stop"),
+            "default (OFF, drained) is not safe"
+        );
     }
 
     #[test]

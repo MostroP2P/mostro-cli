@@ -12,6 +12,7 @@
 //!   required when the daemon sets `[rpc].auth_token`)
 
 use anyhow::{anyhow, Context as _, Result};
+use std::time::Duration;
 use tonic::client::Grpc;
 use tonic::codegen::http::uri::PathAndQuery;
 use tonic::metadata::MetadataValue;
@@ -23,6 +24,10 @@ pub const RPC_TOKEN_ENV: &str = "MOSTRO_RPC_TOKEN";
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:50051";
 
 const SERVICE: &str = "mostro.admin.v1.AdminService";
+/// A black-holed `MOSTRO_RPC_URL` must fail fast, not hang until the OS gives up.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// A server that accepts the connection but never answers.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct SetMaintenanceModeRequest {
@@ -109,6 +114,40 @@ impl RpcConfig {
     }
 }
 
+/// Refuse to send a bearer token in cleartext anywhere but to the local
+/// machine. `mostrod` itself only serves plaintext gRPC and only accepts
+/// `SetMaintenanceMode` from loopback peers, so the supported shapes are a
+/// loopback URL (directly or through an SSH tunnel) or `https://` via a
+/// TLS-terminating proxy in front of the daemon.
+pub fn check_token_transport(url: &str, has_token: bool) -> Result<()> {
+    if !has_token {
+        return Ok(());
+    }
+    let uri: tonic::codegen::http::Uri = url
+        .parse()
+        .map_err(|e| anyhow!("invalid {RPC_URL_ENV}: {url}: {e}"))?;
+    let scheme = uri.scheme_str().unwrap_or("http");
+    if scheme == "https" {
+        return Ok(());
+    }
+    let host = uri.host().unwrap_or("");
+    let is_loopback = host == "localhost"
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false);
+    if is_loopback {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "refusing to send {RPC_TOKEN_ENV} in cleartext to {url}: use a loopback URL \
+             (e.g. an SSH tunnel to the daemon host) or an https:// endpoint"
+        ))
+    }
+}
+
 /// `authorization` header value for a configured token, or `None`.
 pub fn bearer_header(token: Option<&str>) -> Result<Option<MetadataValue<tonic::metadata::Ascii>>> {
     token
@@ -128,12 +167,33 @@ pub struct AdminRpcClient {
 
 impl AdminRpcClient {
     pub async fn connect(config: &RpcConfig) -> Result<Self> {
+        Self::connect_with_timeouts(config, CONNECT_TIMEOUT, REQUEST_TIMEOUT).await
+    }
+
+    pub async fn connect_with_timeouts(
+        config: &RpcConfig,
+        connect_timeout: Duration,
+        request_timeout: Duration,
+    ) -> Result<Self> {
+        check_token_transport(&config.url, config.token.is_some())?;
         let endpoint = Endpoint::from_shared(config.url.clone())
-            .with_context(|| format!("invalid {RPC_URL_ENV}: {}", config.url))?;
-        let channel = endpoint
-            .connect()
-            .await
-            .with_context(|| format!("cannot reach mostrod admin RPC at {}", config.url))?;
+            .with_context(|| format!("invalid {RPC_URL_ENV}: {}", config.url))?
+            .connect_timeout(connect_timeout)
+            .timeout(request_timeout);
+        let endpoint = if config.url.starts_with("https://") {
+            endpoint
+                .tls_config(tonic::transport::ClientTlsConfig::new().with_native_roots())
+                .context("cannot configure TLS for the admin RPC")?
+        } else {
+            endpoint
+        };
+        let channel = endpoint.connect().await.with_context(|| {
+            format!(
+                "cannot reach mostrod admin RPC at {} (connect timeout {}s)",
+                config.url,
+                connect_timeout.as_secs()
+            )
+        })?;
         Ok(Self {
             inner: Grpc::new(channel),
             auth: bearer_header(config.token.as_deref())?,
@@ -289,6 +349,50 @@ mod tests {
         assert_eq!(decoded, resp);
         // Tag 4 (counters) must be a length-delimited nested message.
         assert!(resp.encode_to_vec().contains(&0x22));
+    }
+
+    #[test]
+    fn token_transport_rule() {
+        // No token: anything goes.
+        assert!(check_token_transport("http://10.0.0.5:50051", false).is_ok());
+        // Token over cleartext to loopback (direct or tunnelled) is fine.
+        for url in [
+            "http://127.0.0.1:50051",
+            "http://localhost:50051",
+            "http://[::1]:50051",
+            "http://127.5.5.5:50051",
+        ] {
+            assert!(check_token_transport(url, true).is_ok(), "{url}");
+        }
+        // Token over TLS to anywhere is fine.
+        assert!(check_token_transport("https://mostro.example:443", true).is_ok());
+        // Token over cleartext to a remote host is refused.
+        for url in ["http://10.0.0.5:50051", "http://mostro.example:50051"] {
+            let err = check_token_transport(url, true).unwrap_err();
+            assert!(err.to_string().contains("cleartext"), "{url}: {err}");
+        }
+    }
+
+    /// A black-holed address must fail within the connect timeout, not hang.
+    #[tokio::test]
+    async fn connect_honours_the_connect_timeout() {
+        let config = RpcConfig::from_values(Some("http://10.255.255.1:50051".into()), None);
+        let started = std::time::Instant::now();
+        let result = AdminRpcClient::connect_with_timeouts(
+            &config,
+            Duration::from_millis(300),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        match result {
+            Err(e) => assert!(e.to_string().contains("connect timeout"), "{e}"),
+            Ok(_) => panic!("a black-holed address must not connect"),
+        }
     }
 
     #[test]
