@@ -30,6 +30,74 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, prost::Message)]
+pub struct CancelOrderRequest {
+    #[prost(string, tag = "1")]
+    pub order_id: String,
+    #[prost(string, optional, tag = "2")]
+    pub request_id: Option<String>,
+    /// Refuse anything that is not still `pending` / `waiting-taker-bond`
+    /// instead of falling through to the dispute-resolution cancel
+    /// (MostroP2P/mostro#944).
+    #[prost(bool, optional, tag = "3")]
+    pub pretrade_only: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct CancelOrderResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, optional, tag = "2")]
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct GetVersionRequest {}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct GetVersionResponse {
+    #[prost(string, tag = "1")]
+    pub version: String,
+}
+
+/// First `mostrod` release whose `CancelOrder` enforces
+/// `CancelOrderRequest.pretrade_only` (MostroP2P/mostro#944). An older
+/// daemon silently ignores the unknown field and would fall through to the
+/// dispute-resolution cancel, so `admcancelpending` refuses to run against
+/// it.
+pub const MIN_DAEMON_FOR_PRETRADE_ONLY: (u64, u64, u64) = (0, 18, 7);
+
+/// Parse `major.minor.patch` from a daemon version string, tolerating a
+/// leading `v` and any pre-release / build suffix (`0.19.0-rc.1+abc`).
+pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
+    let core = s.trim().trim_start_matches('v').split(['-', '+']).next()?;
+    let mut it = core.split('.').map(|p| p.parse::<u64>().ok());
+    let (a, b, c) = (it.next()??, it.next()??, it.next()??);
+    if it.next().is_some() {
+        return None;
+    }
+    Some((a, b, c))
+}
+
+/// Capability gate for `admcancelpending`: the daemon must be recent enough
+/// to enforce `pretrade_only`, otherwise the command is refused before any
+/// RPC that could touch an order.
+pub fn ensure_pretrade_only_enforced(daemon_version: &str) -> Result<()> {
+    let (a, b, c) = MIN_DAEMON_FOR_PRETRADE_ONLY;
+    match parse_version(daemon_version) {
+        Some(v) if v >= (a, b, c) => Ok(()),
+        Some(_) => Err(anyhow!(
+            "mostrod {daemon_version} does not enforce pretrade_only (needs >= {a}.{b}.{c}); \
+             refusing admcancelpending — on this daemon CancelOrder could resolve a dispute \
+             instead of refusing it. Upgrade mostrod."
+        )),
+        None => Err(anyhow!(
+            "cannot parse mostrod version {daemon_version:?}; refusing admcancelpending \
+             (needs >= {a}.{b}.{c} to enforce pretrade_only)"
+        )),
+    }
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct SetMaintenanceModeRequest {
     #[prost(bool, tag = "1")]
     pub enabled: bool,
@@ -241,6 +309,27 @@ impl AdminRpcClient {
         .await
     }
 
+    /// `CancelOrder` from the daemon key, restricted to a still-pending
+    /// (`pending` / `waiting-taker-bond`) order: bonds released, maker
+    /// notified. `pretrade_only` makes the daemon refuse anything else —
+    /// in particular a dispute the daemon has taken, which the same RPC
+    /// would otherwise resolve as the solver (cancel escrow, refund seller).
+    pub async fn cancel_pending_order(&mut self, order_id: &str) -> Result<CancelOrderResponse> {
+        self.unary(
+            "CancelOrder",
+            CancelOrderRequest {
+                order_id: order_id.to_owned(),
+                request_id: None,
+                pretrade_only: Some(true),
+            },
+        )
+        .await
+    }
+
+    pub async fn get_version(&mut self) -> Result<GetVersionResponse> {
+        self.unary("GetVersion", GetVersionRequest {}).await
+    }
+
     pub async fn get_maintenance_status(&mut self) -> Result<GetMaintenanceStatusResponse> {
         self.unary(
             "GetMaintenanceStatus",
@@ -310,6 +399,54 @@ mod tests {
         let h = bearer_header(Some("s3cret")).unwrap().unwrap();
         assert_eq!(h.to_str().unwrap(), "Bearer s3cret");
         assert!(bearer_header(Some("bad\nvalue")).is_err());
+    }
+
+    #[test]
+    fn parse_version_accepts_common_shapes() {
+        assert_eq!(parse_version("0.18.6"), Some((0, 18, 6)));
+        assert_eq!(parse_version("v0.19.0"), Some((0, 19, 0)));
+        assert_eq!(parse_version("0.19.0-rc.1+abc"), Some((0, 19, 0)));
+        assert_eq!(parse_version(" 1.2.3\n"), Some((1, 2, 3)));
+        assert_eq!(parse_version("0.18"), None);
+        assert_eq!(parse_version("0.18.6.1"), None);
+        assert_eq!(parse_version("garbage"), None);
+    }
+
+    /// The gate is what keeps `admcancelpending` off a daemon that would
+    /// silently fall through to the dispute cancel.
+    #[test]
+    fn pretrade_only_gate_refuses_old_or_unparseable_daemons() {
+        assert!(ensure_pretrade_only_enforced("0.18.7").is_ok());
+        assert!(ensure_pretrade_only_enforced("0.19.0").is_ok());
+        assert!(ensure_pretrade_only_enforced("1.0.0").is_ok());
+        let old = ensure_pretrade_only_enforced("0.18.6")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            old.contains("0.18.6") && old.contains("Upgrade mostrod"),
+            "{old}"
+        );
+        let bad = ensure_pretrade_only_enforced("dev")
+            .unwrap_err()
+            .to_string();
+        assert!(bad.contains("cannot parse"), "{bad}");
+    }
+
+    /// `CancelOrderRequest` field numbers match `proto/admin.proto`.
+    #[test]
+    fn cancel_request_encodes_with_proto_field_numbers() {
+        let bytes = CancelOrderRequest {
+            order_id: "ab".into(),
+            request_id: None,
+            pretrade_only: Some(true),
+        }
+        .encode_to_vec();
+        // field 1 len-delimited = 0x0a 0x02 'a' 'b'; no field 2; field 3
+        // varint = 0x18 0x01
+        assert_eq!(bytes, vec![0x0a, 0x02, b'a', b'b', 0x18, 0x01]);
+        let resp = CancelOrderResponse::decode(&[0x08, 0x00, 0x12, 0x01, b'e'][..]).unwrap();
+        assert!(!resp.success);
+        assert_eq!(resp.error_message.as_deref(), Some("e"));
     }
 
     /// Field numbers are the wire contract with `proto/admin.proto`; pin the

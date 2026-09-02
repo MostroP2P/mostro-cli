@@ -31,7 +31,9 @@ use crate::cli::last_trade_index::{
 };
 use crate::cli::list_disputes::execute_list_disputes;
 use crate::cli::list_orders::execute_list_orders;
-use crate::cli::maintenance::{execute_maintenance_status, execute_set_maintenance};
+use crate::cli::maintenance::{
+    execute_cancel_pending, execute_maintenance_status, execute_set_maintenance,
+};
 use crate::cli::new_order::execute_new_order;
 use crate::cli::orders_info::execute_orders_info;
 use crate::cli::rate_user::execute_rate_user;
@@ -320,6 +322,16 @@ pub enum Commands {
     /// Show the maintenance flag and what is still bound to the daemon's
     /// Lightning node; poll until `drained = true` before switching nodes
     AdmMaintenanceStatus {},
+    /// Cancel a still-pending (or waiting-taker-bond) order as the operator
+    /// over the admin gRPC: the maker is notified and every bond on it is
+    /// released at once. Shortens the maintenance drain. Only operator;
+    /// needs MOSTRO_RPC_URL / MOSTRO_RPC_TOKEN, not ADMIN_NSEC. Unlike
+    /// `admcancel` this is not a dispute resolution.
+    AdmCancelPending {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+    },
     /// Add a new dispute's solver (only admin)
     AdmAddSolver {
         /// npubkey
@@ -598,6 +610,9 @@ impl Commands {
                 Some(execute_set_maintenance(*enabled, reason.clone()).await)
             }
             Commands::AdmMaintenanceStatus {} => Some(execute_maintenance_status().await),
+            Commands::AdmCancelPending { order_id } => {
+                Some(execute_cancel_pending(*order_id).await)
+            }
             _ => None,
         }
     }
@@ -728,7 +743,9 @@ impl Commands {
                 slash_buyer,
             } => execute_admin_cancel_dispute(order_id, *slash_seller, *slash_buyer, ctx).await,
             Commands::AdmTakeDispute { dispute_id } => execute_take_dispute(dispute_id, ctx).await,
-            Commands::AdmSetMaintenance { .. } | Commands::AdmMaintenanceStatus {} => {
+            Commands::AdmSetMaintenance { .. }
+            | Commands::AdmMaintenanceStatus {}
+            | Commands::AdmCancelPending { .. } => {
                 unreachable!("handled by run_rpc before a Context is built")
             }
 

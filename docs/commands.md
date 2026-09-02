@@ -192,6 +192,13 @@ settable via the matching env var):
     - `--dispute-id <UUID>`: Dispute identifier.
   - **Handler**: `execute_admin_cancel_dispute(order_id, ctx)` in `src/cli/take_dispute.rs`.
 
+- **`admcancelpending`** *(operator only, admin gRPC)*
+  - **Description**: Cancel a still-`pending` / `waiting-taker-bond` order through the daemon's `CancelOrder` RPC with `pretrade_only` set (any other status, a dispute included, is refused); maker notified, bonds released. Needs `MOSTRO_RPC_URL`, plus `MOSTRO_RPC_TOKEN` only when the daemon configures `[rpc].auth_token`; not `ADMIN_NSEC`.
+  - **Requires**: `mostrod` ≥ 0.18.7 (the first release enforcing `pretrade_only`); the CLI calls `GetVersion` first and refuses older daemons.
+  - **Args**:
+    - `-o, --orderid <UUID>`: Order identifier.
+  - **Handler**: `execute_cancel_pending(order_id)` in `src/cli/maintenance.rs`.
+
 - **`admsettle`** *(admin only)*
   - **Description**: Settle a dispute.
   - **Args**:
