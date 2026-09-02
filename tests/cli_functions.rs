@@ -302,3 +302,74 @@ fn test_last_trade_index_message() {
     assert!(inner.id.is_none());
     assert!(inner.payload.is_none());
 }
+
+// ── admin maintenance-mode commands (gRPC, no Nostr context) ──────────────
+mod maintenance_commands {
+    use clap::Parser;
+    use mostro_client::cli::{Cli, Commands};
+
+    #[test]
+    fn admsetmaintenance_parses_explicit_bool_and_reason() {
+        let cli = Cli::try_parse_from([
+            "mostro-cli",
+            "admsetmaintenance",
+            "--enabled",
+            "true",
+            "--reason",
+            "LN node migration",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::AdmSetMaintenance { enabled, reason }) => {
+                assert!(enabled);
+                assert_eq!(reason.as_deref(), Some("LN node migration"));
+            }
+            _ => panic!("unexpected command"),
+        }
+
+        let cli = Cli::try_parse_from(["mostro-cli", "admsetmaintenance", "-e", "false"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::AdmSetMaintenance {
+                enabled: false,
+                reason: None
+            })
+        ));
+    }
+
+    #[test]
+    fn admsetmaintenance_requires_the_enabled_value() {
+        assert!(Cli::try_parse_from(["mostro-cli", "admsetmaintenance"]).is_err());
+        assert!(Cli::try_parse_from(["mostro-cli", "admsetmaintenance", "--enabled"]).is_err());
+        assert!(
+            Cli::try_parse_from(["mostro-cli", "admsetmaintenance", "--enabled", "yes"]).is_err()
+        );
+    }
+
+    #[test]
+    fn admmaintenancestatus_parses_without_arguments() {
+        let cli = Cli::try_parse_from(["mostro-cli", "admmaintenancestatus"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::AdmMaintenanceStatus {})
+        ));
+    }
+
+    /// The gRPC commands must be dispatched before any Nostr context (relays,
+    /// mnemonic, ADMIN_NSEC) is built; Nostr commands must not be.
+    #[tokio::test]
+    async fn rpc_commands_are_routed_before_the_nostr_context() {
+        let cli = Cli::try_parse_from(["mostro-cli", "listdisputes"]).unwrap();
+        assert!(cli.command.unwrap().run_rpc().await.is_none());
+
+        // Point at a closed port so the attempt fails fast instead of hanging.
+        std::env::set_var("MOSTRO_RPC_URL", "http://127.0.0.1:1");
+        let cli = Cli::try_parse_from(["mostro-cli", "admmaintenancestatus"]).unwrap();
+        let result = cli.command.unwrap().run_rpc().await;
+        let err = result.expect("rpc command must be handled").unwrap_err();
+        assert!(
+            err.to_string().contains("cannot reach mostrod admin RPC"),
+            "{err}"
+        );
+    }
+}
