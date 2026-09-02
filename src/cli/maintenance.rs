@@ -1,6 +1,7 @@
-//! `admsetmaintenance` / `admmaintenancestatus`: drive `mostrod`'s
-//! maintenance (drain) mode over the admin gRPC. These talk to the daemon
-//! directly, not over Nostr, so they need neither relays nor `ADMIN_NSEC`.
+//! `admsetmaintenance` / `admmaintenancestatus` / `admcancelpending`: drive
+//! `mostrod`'s maintenance (drain) mode over the admin gRPC. These talk to
+//! the daemon directly, not over Nostr, so they need neither relays nor
+//! `ADMIN_NSEC`.
 
 use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
@@ -40,6 +41,45 @@ pub async fn execute_set_maintenance(enabled: bool, reason: Option<String>) -> R
         println!("✅ Maintenance mode is OFF: the order book is open again.");
     }
     Ok(())
+}
+
+/// Operator cancel of a pre-trade order through the daemon's `CancelOrder`
+/// gRPC. Unlike `admcancel` (Nostr, `ADMIN_NSEC`, disputes) this reaches
+/// the daemon-key path that accepts `pending` / `waiting-taker-bond`
+/// orders, releasing the maker's bond at once — the way to shorten the
+/// maintenance drain instead of waiting for `max_expiration_days`.
+pub async fn execute_cancel_pending(order_id: uuid::Uuid) -> Result<()> {
+    let config = RpcConfig::from_env();
+    println!("👑 Admin Cancel Pending Order");
+    println!("═══════════════════════════════════════");
+    let mut table = create_standard_table();
+    table.set_header(create_field_value_header());
+    table.add_row(create_emoji_field_row("🔌 ", RPC_URL_ENV, &config.url));
+    table.add_row(create_emoji_field_row(
+        "📋 ",
+        "Order id",
+        &order_id.to_string(),
+    ));
+    println!("{table}");
+
+    let mut client = AdminRpcClient::connect(&config).await?;
+    let resp = client.cancel_order(&order_id.to_string()).await?;
+    if !resp.success {
+        return Err(anyhow!(
+            "daemon refused the cancel: {}",
+            resp.error_message.unwrap_or_else(|| "unknown error".into())
+        ));
+    }
+    println!("{}", cancel_pending_ok(order_id));
+    Ok(())
+}
+
+/// Pure success line, testable without a daemon.
+pub fn cancel_pending_ok(order_id: uuid::Uuid) -> String {
+    format!(
+        "✅ Order {order_id} cancelled by the operator: maker notified, bonds released.\n\
+         💡 Run `mostro-cli admmaintenancestatus` to watch open_bonds drop."
+    )
 }
 
 pub async fn execute_maintenance_status() -> Result<()> {
@@ -196,6 +236,14 @@ mod tests {
             !out.contains("safe to stop"),
             "default (OFF, drained) is not safe"
         );
+    }
+
+    #[test]
+    fn cancel_pending_ok_names_the_order_and_next_step() {
+        let id = uuid::Uuid::new_v4();
+        let out = cancel_pending_ok(id);
+        assert!(out.contains(&id.to_string()));
+        assert!(out.contains("admmaintenancestatus"));
     }
 
     #[test]

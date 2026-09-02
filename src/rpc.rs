@@ -30,6 +30,22 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, prost::Message)]
+pub struct CancelOrderRequest {
+    #[prost(string, tag = "1")]
+    pub order_id: String,
+    #[prost(string, optional, tag = "2")]
+    pub request_id: Option<String>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct CancelOrderResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, optional, tag = "2")]
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct SetMaintenanceModeRequest {
     #[prost(bool, tag = "1")]
     pub enabled: bool,
@@ -241,6 +257,21 @@ impl AdminRpcClient {
         .await
     }
 
+    /// `CancelOrder` from the daemon key. For a `pending` /
+    /// `waiting-taker-bond` order this is the operator cancel (bonds
+    /// released, maker notified); for a dispute the daemon has taken it is
+    /// the solver resolution.
+    pub async fn cancel_order(&mut self, order_id: &str) -> Result<CancelOrderResponse> {
+        self.unary(
+            "CancelOrder",
+            CancelOrderRequest {
+                order_id: order_id.to_owned(),
+                request_id: None,
+            },
+        )
+        .await
+    }
+
     pub async fn get_maintenance_status(&mut self) -> Result<GetMaintenanceStatusResponse> {
         self.unary(
             "GetMaintenanceStatus",
@@ -310,6 +341,21 @@ mod tests {
         let h = bearer_header(Some("s3cret")).unwrap().unwrap();
         assert_eq!(h.to_str().unwrap(), "Bearer s3cret");
         assert!(bearer_header(Some("bad\nvalue")).is_err());
+    }
+
+    /// `CancelOrderRequest` field numbers match `proto/admin.proto`.
+    #[test]
+    fn cancel_request_encodes_with_proto_field_numbers() {
+        let bytes = CancelOrderRequest {
+            order_id: "ab".into(),
+            request_id: None,
+        }
+        .encode_to_vec();
+        // field 1 len-delimited = 0x0a 0x02 'a' 'b'; no field 2
+        assert_eq!(bytes, vec![0x0a, 0x02, b'a', b'b']);
+        let resp = CancelOrderResponse::decode(&[0x08, 0x00, 0x12, 0x01, b'e'][..]).unwrap();
+        assert!(!resp.success);
+        assert_eq!(resp.error_message.as_deref(), Some("e"));
     }
 
     /// Field numbers are the wire contract with `proto/admin.proto`; pin the
