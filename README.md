@@ -599,7 +599,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 ### Operator (admin gRPC: `MOSTRO_RPC_URL` / `MOSTRO_RPC_TOKEN`, no `ADMIN_NSEC`)
 - `admsetmaintenance --enabled <true|false> [--reason <text>]`
 - `admmaintenancestatus`
-- `admcancelpending -o <id>` — cancel a still-pending order, releasing its bonds; the daemon refuses any other status.
+- `admcancelpending -o <id>` — cancel a still-pending order, releasing its bonds; the daemon refuses any other status. Needs `mostrod` ≥ 0.18.7 (checked via `GetVersion` first; older daemons are refused).
 
 ### Solver tooling (no `ADMIN_NSEC` needed)
 - `sendadmindmattach -p <pubkey> -o <id> -f <file>` — send an encrypted file attachment (uploaded to a Blossom server) over the order's trade key.

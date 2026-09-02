@@ -6,7 +6,10 @@
 use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
-use crate::rpc::{AdminRpcClient, GetMaintenanceStatusResponse, RpcConfig, RPC_URL_ENV};
+use crate::rpc::{
+    ensure_pretrade_only_enforced, AdminRpcClient, GetMaintenanceStatusResponse, RpcConfig,
+    RPC_URL_ENV,
+};
 use anyhow::{anyhow, Result};
 
 pub async fn execute_set_maintenance(enabled: bool, reason: Option<String>) -> Result<()> {
@@ -49,7 +52,9 @@ pub async fn execute_set_maintenance(enabled: bool, reason: Option<String>) -> R
 /// `waiting-taker-bond` orders, releasing the maker's bond at once — the
 /// way to shorten the maintenance drain instead of waiting for
 /// `max_expiration_days`. The daemon refuses any other status (a dispute
-/// included), so a mistyped id can never resolve a trade.
+/// included), so a mistyped id can never resolve a trade. Because an older
+/// daemon would silently ignore the flag, the daemon version is checked
+/// first (`ensure_pretrade_only_enforced`).
 pub async fn execute_cancel_pending(order_id: uuid::Uuid) -> Result<()> {
     let config = RpcConfig::from_env();
     println!("👑 Admin Cancel Pending Order");
@@ -65,6 +70,10 @@ pub async fn execute_cancel_pending(order_id: uuid::Uuid) -> Result<()> {
     println!("{table}");
 
     let mut client = AdminRpcClient::connect(&config).await?;
+    // Capability gate before anything that could touch an order: an older
+    // daemon ignores `pretrade_only` and would resolve a dispute instead.
+    let daemon = client.get_version().await?.version;
+    ensure_pretrade_only_enforced(&daemon)?;
     let resp = client.cancel_pending_order(&order_id.to_string()).await?;
     if !resp.success {
         return Err(anyhow!(
