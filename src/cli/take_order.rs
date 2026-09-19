@@ -80,8 +80,8 @@ pub async fn execute_take_order(
     }
     if let Some(amt) = amount {
         table.add_row(create_emoji_field_row(
-            "💰 ",
-            "Amount (sats)",
+            "💵 ",
+            "Fiat Amount",
             &amt.to_string(),
         ));
     }
