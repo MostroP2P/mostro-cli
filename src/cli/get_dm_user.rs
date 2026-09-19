@@ -4,7 +4,9 @@ use crate::parser::common::{
     print_info_line, print_key_value, print_no_data_message, print_section_header,
 };
 use crate::util::messaging::{derive_shared_key_bytes, fetch_gift_wraps_for_shared_key};
+use crate::util::FETCH_EVENTS_TIMEOUT;
 use anyhow::Result;
+use mostro_core::chat::{chat_filter, derive_chat_keys, unwrap_chat_message};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
@@ -62,8 +64,34 @@ pub async fn execute_get_dm_user(
         ));
     }
 
-    // 4. Fetch all gift wraps addressed to this shared key and decrypt them
-    let mut messages = fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?;
+    // 4a. Current envelope (protocol#52): kind 14 signed by K_sign, payload
+    // encrypted to K_conv. This is what the mobile app and Mostrix publish.
+    let mut messages: Vec<(String, i64, PublicKey)> = Vec::new();
+    match derive_chat_keys(&trade_keys, &pubkey) {
+        Ok((conv, sign)) => {
+            let sign_pubkey = sign.public_key();
+            let allowed_signers = [trade_keys.public_key(), pubkey];
+            let events = ctx
+                .client
+                .fetch_events(chat_filter(sign_pubkey), FETCH_EVENTS_TIMEOUT)
+                .await?;
+            let now = Timestamp::now();
+            for outer in events.iter() {
+                match unwrap_chat_message(&conv, &sign_pubkey, &allowed_signers, outer, now) {
+                    Ok(chat) => {
+                        messages.push((chat.content, chat.created_at.as_secs() as i64, chat.sender))
+                    }
+                    // Not addressed to us, replayed, or malformed: skip quietly.
+                    Err(e) => log::debug!("skipping chat event {}: {e}", outer.id),
+                }
+            }
+        }
+        Err(e) => log::warn!("could not derive chat keys: {e}"),
+    }
+
+    // 4b. Legacy gift-wrap envelope, so conversations started before the
+    // migration stay readable (mostro-core keeps this path for dual-read).
+    messages.extend(fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?);
 
     // 5. Apply "since" filter (minutes back from now)
     if *since > 0 {

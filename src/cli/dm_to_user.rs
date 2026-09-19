@@ -6,6 +6,7 @@ use crate::{
     util::{derive_shared_keys, send_admin_chat_message_via_shared_key},
 };
 use anyhow::Result;
+use mostro_core::chat::{derive_chat_keys, wrap_chat_message};
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -42,13 +43,23 @@ pub async fn execute_dm_to_user(
         "Shared Key Pubkey",
         &shared_keys.public_key().to_hex(),
     );
-    print_info_line("💡", "Sending shared-key custom wrap message...");
+    print_info_line("💡", "Sending chat message...");
     println!();
 
-    // Send as shared-key custom wrap so both parties can decrypt via the shared key
+    // Current envelope (protocol#52): kind 14 signed by K_sign, payload
+    // encrypted to K_conv. This is what the mobile app and Mostrix read.
+    let (conv, sign) = derive_chat_keys(&trade_keys, &receiver)
+        .map_err(|e| anyhow::anyhow!("Failed to derive chat keys: {e}"))?;
+    let event = wrap_chat_message(&trade_keys, &conv, &sign, message)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to wrap chat message: {e}"))?;
+    client.send_event(&event).await?;
+
+    // Also publish the legacy gift wrap, so a counterparty still running a
+    // pre-migration client keeps receiving messages during the transition.
     send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await?;
 
-    print_success_message("Shared-key custom wrap message sent successfully!");
+    print_success_message("Chat message sent (kind 14 envelope + legacy gift wrap)!");
 
     Ok(())
 }
