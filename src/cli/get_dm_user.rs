@@ -67,6 +67,8 @@ pub async fn execute_get_dm_user(
     // 4a. Current envelope (protocol#52): kind 14 signed by K_sign, payload
     // encrypted to K_conv. This is what the mobile app and Mostrix publish.
     let mut messages: Vec<(String, i64, PublicKey)> = Vec::new();
+    // Wat er misging, per envelop. Zie de afhandeling onder 4b.
+    let mut mislukt: Vec<String> = Vec::new();
     match derive_chat_keys(&trade_keys, &pubkey) {
         Ok((conv, sign)) => {
             let sign_pubkey = sign.public_key();
@@ -83,28 +85,54 @@ pub async fn execute_get_dm_user(
                     filter = filter.since(Timestamp::from(cutoff.timestamp() as u64));
                 }
             }
-            let events = ctx
-                .client
-                .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
-                .await?;
-            let now = Timestamp::now();
-            for outer in events.iter() {
-                match unwrap_chat_message(&conv, &sign_pubkey, &allowed_signers, outer, now) {
-                    Ok(chat) => {
-                        messages.push((chat.content, chat.created_at.as_secs() as i64, chat.sender))
+            match ctx.client.fetch_events(filter, FETCH_EVENTS_TIMEOUT).await {
+                Ok(events) => {
+                    let now = Timestamp::now();
+                    for outer in events.iter() {
+                        match unwrap_chat_message(&conv, &sign_pubkey, &allowed_signers, outer, now)
+                        {
+                            Ok(chat) => messages.push((
+                                chat.content,
+                                chat.created_at.as_secs() as i64,
+                                chat.sender,
+                            )),
+                            // Not addressed to us, replayed, or malformed: skip quietly.
+                            Err(e) => log::debug!("skipping chat event {}: {e}", outer.id),
+                        }
                     }
-                    // Not addressed to us, replayed, or malformed: skip quietly.
-                    Err(e) => log::debug!("skipping chat event {}: {e}", outer.id),
                 }
+                Err(e) => mislukt.push(format!("kind 14 envelope: {e}")),
             }
         }
-        Err(e) => log::warn!("could not derive chat keys: {e}"),
+        Err(e) => mislukt.push(format!("chat keys: {e}")),
     }
 
     // 4b. Legacy gift-wrap envelope, so conversations started before the
     // migration stay readable (mostro-core keeps this path for dual-read).
     if !crate::cli::dm_to_user::geen_legacy() {
-        messages.extend(fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?);
+        match fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await {
+            Ok(gevonden) => messages.extend(gevonden),
+            Err(e) => mislukt.push(format!("legacy gift wrap: {e}")),
+        }
+    }
+
+    // One broken half must not throw away what the other half found, and it
+    // must not be silent either: a conversation that came back short for
+    // technical reasons looks exactly like a counterparty with little to say.
+    if !mislukt.is_empty() {
+        if messages.is_empty() {
+            return Err(anyhow::anyhow!(
+                "could not read this conversation: {}",
+                mislukt.join("; ")
+            ));
+        }
+        print_info_line(
+            "⚠️",
+            &format!(
+                "Part of this conversation could not be read ({}). What follows may be incomplete.",
+                mislukt.join("; ")
+            ),
+        );
     }
 
     // 5. Apply "since" filter (minutes back from now)
