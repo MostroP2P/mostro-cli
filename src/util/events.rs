@@ -19,12 +19,7 @@ fn create_fake_timestamp() -> Result<Timestamp> {
     Ok(Timestamp::from(fake_since_time))
 }
 
-fn create_seven_days_filter(
-    letter: Alphabet,
-    value: String,
-    pubkey: PublicKey,
-    event_kind: u16,
-) -> Result<Filter> {
+fn create_seven_days_filter(value: String, pubkey: PublicKey, event_kind: u16) -> Result<Filter> {
     let since_time = chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::days(7))
         .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
@@ -34,8 +29,8 @@ fn create_seven_days_filter(
         .author(pubkey)
         .limit(50)
         .since(timestamp)
-        .custom_tag(SingleLetterTag::lowercase(letter), value)
-        .kind(nostr_sdk::Kind::Custom(event_kind)))
+        .custom_tag(SingleLetterTag::LOWERCASE_Z, value)
+        .kind(nostr_sdk::prelude::Kind::Custom(event_kind)))
 }
 
 pub fn create_filter(
@@ -45,25 +40,19 @@ pub fn create_filter(
     mostro_pubkey: PublicKey,
 ) -> Result<Filter> {
     match list_kind {
-        ListKind::Orders => create_seven_days_filter(
-            Alphabet::Z,
-            "order".to_string(),
-            pubkey,
-            NOSTR_ORDER_EVENT_KIND,
-        ),
-        ListKind::Disputes => create_seven_days_filter(
-            Alphabet::Z,
-            "dispute".to_string(),
-            pubkey,
-            NOSTR_DISPUTE_EVENT_KIND,
-        ),
+        ListKind::Orders => {
+            create_seven_days_filter("order".to_string(), pubkey, NOSTR_ORDER_EVENT_KIND)
+        }
+        ListKind::Disputes => {
+            create_seven_days_filter("dispute".to_string(), pubkey, NOSTR_DISPUTE_EVENT_KIND)
+        }
         ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
             let fake_timestamp = create_fake_timestamp()?;
             // Mostro→user/admin DMs are protocol-v2 kind 14, authored by
             // Mostro's own key. Pin the author to keep them distinct from
             // NIP-17 peer chat that shares kind 14.
             Ok(Filter::new()
-                .kind(nostr_sdk::Kind::PrivateDirectMessage)
+                .kind(nostr_sdk::prelude::Kind::PrivateDirectMessage)
                 .pubkey(pubkey)
                 .author(mostro_pubkey)
                 .since(fake_timestamp))
@@ -81,7 +70,7 @@ pub fn create_filter(
                     .timestamp()
             } as u64;
             Ok(Filter::new()
-                .kind(nostr_sdk::Kind::PrivateDirectMessage)
+                .kind(nostr_sdk::prelude::Kind::PrivateDirectMessage)
                 .pubkey(pubkey)
                 .since(Timestamp::from(since)))
         }
@@ -96,7 +85,7 @@ pub fn create_filter(
 /// Pure: read the second slot of the first tag whose first slot equals
 /// `tag_name`. Split out so the kind-38385 tag-parsing logic stays unit
 /// testable without spinning up a relay.
-fn read_info_tag_from_event(event: &nostr_sdk::Event, tag_name: &str) -> Option<String> {
+fn read_info_tag_from_event(event: &nostr_sdk::prelude::Event, tag_name: &str) -> Option<String> {
     event.tags.iter().find_map(|tag| {
         let slice = tag.as_slice();
         if slice.first().map(String::as_str) == Some(tag_name) {
@@ -110,11 +99,12 @@ fn read_info_tag_from_event(event: &nostr_sdk::Event, tag_name: &str) -> Option<
 async fn fetch_info_tag(ctx: &crate::cli::Context, tag_name: &str) -> Option<String> {
     let filter = Filter::new()
         .author(ctx.mostro_pubkey)
-        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
+        .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND));
 
     let events = ctx
         .client
-        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .fetch_events(filter)
+        .timeout(FETCH_EVENTS_TIMEOUT)
         .await
         .ok()?;
 
@@ -160,9 +150,10 @@ pub async fn fetch_required_pow(ctx: &crate::cli::Context) -> Option<u8> {
 pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
     let filter = Filter::new()
         .author(mostro_pubkey)
-        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
+        .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND));
     let events = client
-        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .fetch_events(filter)
+        .timeout(FETCH_EVENTS_TIMEOUT)
         .await
         .ok()?;
     let event = events.iter().max_by_key(|e| e.created_at)?;
@@ -184,8 +175,12 @@ pub const INFO_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 pub async fn fetch_protocol_version_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
     let filter = Filter::new()
         .author(mostro_pubkey)
-        .kind(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND));
-    let events = client.fetch_events(filter, INFO_PROBE_TIMEOUT).await.ok()?;
+        .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND));
+    let events = client
+        .fetch_events(filter)
+        .timeout(INFO_PROBE_TIMEOUT)
+        .await
+        .ok()?;
     let event = events.iter().max_by_key(|e| e.created_at)?;
     read_info_tag_from_event(event, "protocol_version").and_then(|v| v.trim().parse::<u8>().ok())
 }
@@ -204,7 +199,8 @@ pub async fn fetch_events_list(
             let filters = create_filter(list_kind, ctx.mostro_pubkey, None, ctx.mostro_pubkey)?;
             let fetched_events = ctx
                 .client
-                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .fetch_events(filters)
+                .timeout(FETCH_EVENTS_TIMEOUT)
                 .await?;
             let orders = parse_orders_events(fetched_events, currency, status, kind);
             Ok(orders.into_iter().map(Event::SmallOrder).collect())
@@ -217,7 +213,8 @@ pub async fn fetch_events_list(
                 create_filter(list_kind, admin_keys.public_key(), None, ctx.mostro_pubkey)?;
             let fetched_events = ctx
                 .client
-                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .fetch_events(filters)
+                .timeout(FETCH_EVENTS_TIMEOUT)
                 .await?;
             let direct_messages_mostro =
                 parse_dm_events(fetched_events, admin_keys, since, true).await;
@@ -240,7 +237,8 @@ pub async fn fetch_events_list(
                 )?;
                 let fetched_user_messages = ctx
                     .client
-                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+                    .fetch_events(filter)
+                    .timeout(FETCH_EVENTS_TIMEOUT)
                     .await?;
                 // NIP-17 peer-to-peer chat (not Mostro-protocol): decode with
                 // the trade↔peer conversation key.
@@ -266,7 +264,8 @@ pub async fn fetch_events_list(
                 )?;
                 let fetched_user_messages = ctx
                     .client
-                    .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+                    .fetch_events(filter)
+                    .timeout(FETCH_EVENTS_TIMEOUT)
                     .await?;
                 // Mostro→user DMs (Mostro-protocol): kind-14 NIP-44 direct,
                 // decoded by `unwrap_incoming`.
@@ -284,7 +283,8 @@ pub async fn fetch_events_list(
             let filters = create_filter(list_kind, ctx.mostro_pubkey, None, ctx.mostro_pubkey)?;
             let fetched_events = ctx
                 .client
-                .fetch_events(filters, FETCH_EVENTS_TIMEOUT)
+                .fetch_events(filters)
+                .timeout(FETCH_EVENTS_TIMEOUT)
                 .await?;
             let disputes = parse_dispute_events(fetched_events);
             Ok(disputes.into_iter().map(Event::Dispute).collect())
@@ -296,11 +296,10 @@ pub async fn fetch_events_list(
 mod tests {
     use super::*;
 
-    async fn make_info_event(keys: &Keys, tags: Vec<Tag>) -> nostr_sdk::Event {
-        EventBuilder::new(nostr_sdk::Kind::Custom(NOSTR_INFO_EVENT_KIND), "")
+    fn make_info_event(keys: &Keys, tags: Vec<Tag>) -> nostr_sdk::prelude::Event {
+        EventBuilder::new(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND), "")
             .tags(tags)
-            .sign(keys)
-            .await
+            .finalize(keys)
             .expect("sign info event")
     }
 
@@ -318,15 +317,14 @@ mod tests {
                 pow_tag("12"),
                 Tag::parse(["fiat_currencies_accepted", "USD,EUR"]).unwrap(),
             ],
-        )
-        .await;
+        );
         assert_eq!(read_info_tag_from_event(&event, "pow"), Some("12".into()));
     }
 
     #[tokio::test]
     async fn read_info_tag_returns_none_when_missing() {
         let keys = Keys::generate();
-        let event = make_info_event(&keys, vec![Tag::parse(["fee", "0.006"]).unwrap()]).await;
+        let event = make_info_event(&keys, vec![Tag::parse(["fee", "0.006"]).unwrap()]);
         assert_eq!(read_info_tag_from_event(&event, "pow"), None);
     }
 
@@ -339,8 +337,7 @@ mod tests {
         let event = make_info_event(
             &keys,
             vec![pow_tag("0"), Tag::parse(["protocol_version", "2"]).unwrap()],
-        )
-        .await;
+        );
         assert_eq!(
             read_info_tag_from_event(&event, "protocol_version").as_deref(),
             Some("2")
@@ -351,7 +348,7 @@ mod tests {
             Some(2)
         );
         // Absent tag → None → caller assumes nip44.
-        let bare = make_info_event(&keys, vec![pow_tag("0")]).await;
+        let bare = make_info_event(&keys, vec![pow_tag("0")]);
         assert_eq!(read_info_tag_from_event(&bare, "protocol_version"), None);
     }
 

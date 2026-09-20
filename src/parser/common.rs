@@ -49,7 +49,7 @@ pub fn create_error_cell(message: &str) -> Cell {
 pub fn create_standard_table() -> Table {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
     table
 }

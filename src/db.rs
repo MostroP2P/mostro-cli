@@ -1,5 +1,6 @@
 use crate::util::get_mcli_path;
 use anyhow::Result;
+use bip39::{Mnemonic, WordCount};
 use mostro_core::prelude::*;
 use nip06::FromMnemonic;
 use nostr_sdk::prelude::*;
@@ -58,7 +59,7 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
         .execute(&pool)
         .await?;
 
-        let mnemonic = match Mnemonic::generate(12) {
+        let mnemonic = match Mnemonic::generate(WordCount::Words12) {
             Ok(m) => m.to_string(),
             Err(e) => {
                 println!("Error generating mnemonic: {}", e);

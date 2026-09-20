@@ -80,7 +80,8 @@ pub async fn execute_get_dm_user_labelled(
     }
     let events = ctx
         .client
-        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .fetch_events(filter)
+        .timeout(FETCH_EVENTS_TIMEOUT)
         .await
         .map_err(|e| anyhow::anyhow!("could not read this conversation: {e}"))?;
 

@@ -1,13 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use anyhow::Result;
-use base64::engine::general_purpose;
-use base64::Engine;
 use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use mostro_core::prelude::*;
-use nip44::v2::{decrypt_to_bytes, ConversationKey};
+use nostr::nips::nip44;
 use nostr_sdk::prelude::*;
 
 use crate::{
@@ -326,7 +324,7 @@ fn handle_orders_list_display(orders: &[mostro_core::order::SmallOrder]) {
 fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisputeInfo) -> String {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(120)
         .set_header(vec![
@@ -1025,7 +1023,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
 ///   trade↔peer conversation key (these are *not* Mostro-protocol messages and
 ///   carry a bare `Message`, not the v2 tuple).
 pub async fn parse_dm_events(
-    events: Events,
+    events: BTreeSet<Event>,
     pubkey: &Keys,
     since: Option<&i64>,
     mostro_protocol: bool,
@@ -1039,7 +1037,7 @@ pub async fn parse_dm_events(
             continue;
         }
 
-        if dm.kind != nostr_sdk::Kind::PrivateDirectMessage {
+        if dm.kind != nostr_sdk::prelude::Kind::PrivateDirectMessage {
             continue;
         }
 
@@ -1053,29 +1051,11 @@ pub async fn parse_dm_events(
                 }
             }
         } else {
-            let ck = if let Ok(ck) = ConversationKey::derive(pubkey.secret_key(), &dm.pubkey) {
-                ck
-            } else {
-                continue;
-            };
-            let b64decoded_content = match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
-                Ok(b64decoded_content) => b64decoded_content,
-                Err(_) => {
-                    continue;
-                }
-            };
-            let unencrypted_content = match decrypt_to_bytes(&ck, &b64decoded_content) {
-                Ok(bytes) => bytes,
-                Err(_) => {
-                    continue;
-                }
-            };
-            let message_str = match String::from_utf8(unencrypted_content) {
-                Ok(s) => s,
-                Err(_) => {
-                    continue;
-                }
-            };
+            let message_str =
+                match nip44::decrypt(pubkey.secret_key(), &dm.pubkey, dm.content.as_bytes()) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
             let message = match Message::from_json(&message_str) {
                 Ok(m) => m,
                 Err(_) => {
@@ -1251,7 +1231,9 @@ mod tests {
 
     async fn test_ctx(pool: SqlitePool, mostro: &Keys, trade: &Keys) -> Context {
         Context {
-            client: Client::new(trade.clone()),
+            client: Client::builder()
+                .authenticator(SignerAuthenticator::new(trade.clone()))
+                .build(),
             identity_keys: trade.clone(),
             trade_keys: trade.clone(),
             trade_index: 1,

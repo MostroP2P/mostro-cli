@@ -1,9 +1,9 @@
 use anyhow::Result;
-use base64::engine::general_purpose;
-use base64::Engine;
 use mostro_core::prelude::*;
-use nip44::v2::{encrypt_to_bytes, ConversationKey};
+use nostr::nips::nip44;
 use nostr_sdk::prelude::*;
+use secp256k1::{ecdh, PublicKey as Secp256k1PublicKey};
+use std::collections::BTreeSet;
 use std::env::var;
 use std::str::FromStr;
 
@@ -19,7 +19,7 @@ pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
 
     // Only log admin public key in verbose mode
     if std::env::var("RUST_LOG").is_ok() {
-        println!("🔑 Admin Keys: {}", admin_keys.public_key);
+        println!("🔑 Admin Keys: {}", admin_keys.public_key());
     }
 
     Ok(admin_keys)
@@ -28,19 +28,20 @@ pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
 /// Derive shared secret bytes (ECDH) for ChaCha20-Poly1305 file encryption
 /// in `send_admin_dm_attach`. Returns 32 bytes.
 pub fn derive_shared_key_bytes(local_keys: &Keys, other_pubkey: &PublicKey) -> Result<[u8; 32]> {
-    use bitcoin::secp256k1::ecdh::shared_secret_point;
-    use bitcoin::secp256k1::{Parity, PublicKey as SecpPublicKey};
+    let mut compressed = [0u8; 33];
+    compressed[0] = 0x02; // assume even parity, as NIP-04/44 do
+    compressed[1..].copy_from_slice(other_pubkey.as_bytes());
+    let normalized = Secp256k1PublicKey::from_slice(&compressed)
+        .map_err(|e| anyhow::anyhow!("invalid peer pubkey: {e}"))?;
 
-    let sk = local_keys.secret_key();
-    let xonly = other_pubkey
-        .xonly()
-        .map_err(|_| anyhow::anyhow!("failed to get x-only public key"))?;
-    let secp_pk = SecpPublicKey::from_x_only_public_key(xonly, Parity::Even);
-    let mut point_bytes = shared_secret_point(&secp_pk, sk).as_slice().to_vec();
-    point_bytes.resize(32, 0);
-    point_bytes
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("shared secret point must be at least 32 bytes"))
+    let secret_key =
+        secp256k1::SecretKey::from_byte_array(&local_keys.secret_key().to_secret_bytes())
+            .map_err(|e| anyhow::anyhow!("invalid local secret key: {e}"))?;
+
+    let point = ecdh::shared_secret_point(&normalized, &secret_key);
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&point[..32]);
+    Ok(shared)
 }
 
 const GIFTWRAP_UNSUPPORTED: &str = "gift-wrap (protocol v1) is no longer supported; use nip44";
@@ -183,7 +184,7 @@ pub async fn wait_for_dm<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
     sent_message: F,
-) -> anyhow::Result<Events>
+) -> anyhow::Result<BTreeSet<Event>>
 where
     F: std::future::Future<Output = Result<()>> + Send,
 {
@@ -191,7 +192,7 @@ where
     let trade_pubkey = trade_keys.public_key();
     // Kind 14 is shared with NIP-17 peer chat, so pin the author to Mostro's
     // key to keep the reply unambiguous.
-    let accepted_kind = nostr_sdk::Kind::PrivateDirectMessage;
+    let accepted_kind = nostr_sdk::prelude::Kind::PrivateDirectMessage;
     let mostro_pubkey = ctx.mostro_pubkey;
     let mut notifications = ctx.client.notifications();
     let opts =
@@ -201,7 +202,7 @@ where
         .kind(accepted_kind)
         .author(mostro_pubkey)
         .limit(0);
-    ctx.client.subscribe(subscription, Some(opts)).await?;
+    ctx.client.subscribe(subscription).close_on(opts).await?;
 
     // Send message here after opening notifications to avoid missing messages.
     sent_message.await?;
@@ -227,12 +228,12 @@ where
     // from Mostro" further downstream. Mirror the subscription filter here.
     let waited = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
-            match notifications.recv().await {
-                Ok(RelayPoolNotification::Event { event, .. }) => {
+            match notifications.next().await {
+                Some(ClientNotification::Event { event, .. }) => {
                     if event.kind != accepted_kind {
                         continue;
                     }
-                    if !event.tags.public_keys().any(|pk| *pk == trade_pubkey) {
+                    if !event.tags.public_keys().any(|pk| pk == trade_pubkey) {
                         continue;
                     }
                     // Reject any kind-14 not authored by Mostro (e.g. an
@@ -242,9 +243,9 @@ where
                     }
                     return Ok(*event);
                 }
-                Ok(_) => continue,
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Error receiving notification: {:?}", e));
+                Some(_) => continue,
+                None => {
+                    return Err(anyhow::anyhow!("notification stream closed"));
                 }
             }
         }
@@ -284,7 +285,7 @@ where
         }
     };
 
-    let mut events = Events::default();
+    let mut events = BTreeSet::new();
     events.insert(event);
     Ok(events)
 }
@@ -308,16 +309,23 @@ async fn create_private_dm_event(
     receiver_pubkey: &PublicKey,
     payload: String,
     pow: u8,
-) -> Result<nostr_sdk::Event> {
-    let ck = ConversationKey::derive(trade_keys.secret_key(), receiver_pubkey)?;
-    let encrypted_content = encrypt_to_bytes(&ck, payload.as_bytes())?;
-    let b64decoded_content = general_purpose::STANDARD.encode(encrypted_content);
-    Ok(
-        EventBuilder::new(nostr_sdk::Kind::PrivateDirectMessage, b64decoded_content)
-            .pow(pow)
-            .tag(Tag::public_key(*receiver_pubkey))
-            .sign_with_keys(trade_keys)?,
-    )
+) -> Result<Event> {
+    let encrypted = nip44::encrypt(
+        trade_keys.secret_key(),
+        receiver_pubkey,
+        payload,
+        nip44::Version::V2,
+    )?;
+    let unsigned = EventBuilder::new(nostr_sdk::prelude::Kind::PrivateDirectMessage, encrypted)
+        .tag(Tag::public_key(*receiver_pubkey))
+        .finalize_unsigned(trade_keys.public_key());
+    let unsigned = match core::num::NonZeroU8::new(pow) {
+        Some(pow) => unsigned
+            .mine(&SingleThreadPow, pow)
+            .map_err(|e| anyhow::anyhow!("failed to mine NIP-13 PoW: {e}"))?,
+        None => unsigned,
+    };
+    Ok(unsigned.finalize(trade_keys)?)
 }
 
 /// Send a Mostro protocol message to `receiver_pubkey`.
@@ -378,7 +386,7 @@ pub async fn send_dm(
 }
 
 pub async fn print_dm_events(
-    recv_event: Events,
+    recv_event: BTreeSet<Event>,
     request_id: u64,
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
@@ -498,7 +506,7 @@ mod tests {
         assert_eq!(transport, Transport::Nip44Direct);
         assert_eq!(
             transport.event_kind(),
-            nostr_sdk::Kind::PrivateDirectMessage
+            nostr_sdk::prelude::Kind::PrivateDirectMessage
         );
     }
 
@@ -519,7 +527,10 @@ mod tests {
     fn transport_from_str_maps_nip44_to_kind_14() {
         let v2 = Transport::from_str("nip44").expect("nip44 parses");
         assert_eq!(v2, Transport::Nip44Direct);
-        assert_eq!(v2.event_kind(), nostr_sdk::Kind::PrivateDirectMessage);
+        assert_eq!(
+            v2.event_kind(),
+            nostr_sdk::prelude::Kind::PrivateDirectMessage
+        );
         assert!(Transport::from_str("bogus").is_err());
     }
 
@@ -562,7 +573,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(event.kind, nostr_sdk::Kind::PrivateDirectMessage);
+        assert_eq!(event.kind, nostr_sdk::prelude::Kind::PrivateDirectMessage);
         assert_eq!(
             event.pubkey,
             trade_keys.public_key(),

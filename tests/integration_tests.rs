@@ -12,7 +12,9 @@ async fn create_test_context() -> anyhow::Result<Context> {
     let context_keys = Keys::generate();
 
     // Create a test client
-    let client = Client::new(identity_keys.clone());
+    let client = Client::builder()
+        .authenticator(SignerAuthenticator::new(identity_keys.clone()))
+        .build();
 
     // Mock mostro pubkey
     let mostro_pubkey = PublicKey::from_hex(&format!("02{}", "1".repeat(62)))?;
@@ -92,7 +94,7 @@ fn direct_messages_filter_is_transport_aware() {
         .kinds
         .as_ref()
         .unwrap()
-        .contains(&Kind::PrivateDirectMessage));
+        .contains(&nostr_sdk::prelude::Kind::PrivateDirectMessage));
     assert!(
         filter.authors.as_ref().unwrap().contains(&mostro),
         "DM filter must pin author = mostro_pubkey"

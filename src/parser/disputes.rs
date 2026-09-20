@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::collections::BTreeSet;
 
 use anyhow::Result;
 use chrono::DateTime;
@@ -6,14 +7,13 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use log::info;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
 
 use crate::parser::common::{apply_status_color, create_error_cell};
 use crate::util::Event;
 
 use crate::nip33::dispute_from_tags;
 
-pub fn parse_dispute_events(events: Events) -> Vec<Dispute> {
+pub fn parse_dispute_events(events: BTreeSet<nostr_sdk::prelude::Event>) -> Vec<Dispute> {
     // Extracted Disputes List
     let mut disputes_list = Vec::<Dispute>::new();
 
@@ -65,7 +65,7 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
 
     if disputes_table.is_empty() {
         table
-            .load_preset(UTF8_FULL)
+            .load_style(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![Cell::new("📭 No Disputes")
@@ -83,7 +83,7 @@ pub fn print_disputes_table(disputes_table: Vec<Event>) -> Result<String> {
         rows.push(r);
     } else {
         table
-            .load_preset(UTF8_FULL)
+            .load_style(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![

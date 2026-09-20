@@ -122,7 +122,7 @@ pub async fn execute_send_msg(
                     // Wait for the child-order kind-14 event authored by Mostro.
                     let subscription = create_filter(
                         ListKind::DirectMessagesUser,
-                        next_trade_key.public_key,
+                        next_trade_key.public_key(),
                         None,
                         ctx.mostro_pubkey,
                     )?;
@@ -130,7 +130,8 @@ pub async fn execute_send_msg(
                     // Wait for potential new order message from Mostro
                     let events = ctx
                         .client
-                        .fetch_events(subscription, FETCH_EVENTS_TIMEOUT)
+                        .fetch_events(subscription)
+                        .timeout(FETCH_EVENTS_TIMEOUT)
                         .await?;
                     let messages = parse_dm_events(events, &next_trade_key, Some(&2), true).await;
                     if !messages.is_empty() {

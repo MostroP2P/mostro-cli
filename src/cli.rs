@@ -460,6 +460,7 @@ fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
 }
 
 pub async fn run() -> Result<()> {
+    util::net::install_rustls_crypto_provider();
     let cli = Cli::parse();
 
     // Daemon-local gRPC commands: no relays, keys or database involved.

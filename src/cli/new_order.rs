@@ -165,7 +165,7 @@ pub async fn execute_new_order(
     table.add_row(create_emoji_field_row(
         "🔑 ",
         "Trade Key",
-        &ctx.trade_keys.public_key.to_hex(),
+        &ctx.trade_keys.public_key().to_hex(),
     ));
     table.add_row(create_emoji_field_row(
         "🎯 ",

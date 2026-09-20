@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::parser::common::{apply_kind_color, apply_status_color, create_error_cell};
 use crate::util::Event;
@@ -9,13 +9,12 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use log::{error, info};
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
 use crate::nip33::order_from_tags;
 
 pub fn parse_orders_events(
-    events: Events,
+    events: BTreeSet<nostr_sdk::prelude::Event>,
     currency: Option<String>,
     status: Option<Status>,
     kind: Option<mostro_core::order::Kind>,
@@ -84,7 +83,7 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
     let mut table = Table::new();
 
     table
-        .load_preset(UTF8_FULL)
+        .load_style(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_width(160)
         .set_header(vec![
@@ -172,7 +171,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
 
     if orders_table.is_empty() {
         table
-            .load_preset(UTF8_FULL)
+            .load_style(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![Cell::new("📭 No Offers")
@@ -190,7 +189,7 @@ pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
         rows.push(r);
     } else {
         table
-            .load_preset(UTF8_FULL)
+            .load_style(UTF8_FULL)
             .set_content_arrangement(ContentArrangement::Dynamic)
             .set_width(160)
             .set_header(vec![

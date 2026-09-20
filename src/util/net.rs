@@ -1,7 +1,18 @@
 use anyhow::Result;
 use nostr_sdk::prelude::*;
 use std::env::var;
+use std::sync::Once;
 use std::time::Duration;
+
+/// rustls 0.23 cannot auto-pick a process CryptoProvider when more than one
+/// backend feature is in the graph. Pin `ring` (same as tonic `tls-ring` and
+/// nostr-sdk's default) before any TLS handshake.
+pub fn install_rustls_crypto_provider() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
 
 /// Upper bound on how long [`connect_nostr`] blocks waiting for the relay
 /// handshakes to complete. `Client::connect` only *spawns* background
@@ -12,6 +23,7 @@ use std::time::Duration;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn connect_nostr() -> Result<Client> {
+    install_rustls_crypto_provider();
     let my_keys = Keys::generate();
 
     let relays = var("RELAYS").map_err(|_| anyhow::anyhow!("RELAYS is not set"))?;
@@ -25,17 +37,16 @@ pub async fn connect_nostr() -> Result<Client> {
     if relays.is_empty() {
         return Err(anyhow::anyhow!("RELAYS is not set"));
     }
-    let client = Client::new(my_keys);
+    let client = Client::builder()
+        .authenticator(SignerAuthenticator::new(my_keys))
+        .build();
     for r in relays.into_iter() {
         client.add_relay(r).await?;
     }
-    client.connect().await;
-    // `connect` is fire-and-forget: it doesn't wait for the sockets to come up.
-    // Block until the relays are actually connected so the immediately
-    // following transport auto-detection, subscription and DM publish don't
-    // race the handshake — otherwise a fast (e.g. local) Mostro can reply
-    // before our subscription lands and, with `limit(0)`, the live-only
-    // subscription never sees the stored reply → `wait_for_dm` times out.
-    client.wait_for_connection(CONNECT_TIMEOUT).await;
+    // `connect` is fire-and-forget unless we wait: without this, the very
+    // next network op (the transport probe, then `subscribe` + `send_dm`) races
+    // the still-in-progress handshake. On a fast/local relay this returns in
+    // milliseconds; it only blocks the full budget when a relay is unreachable.
+    client.connect().and_wait(CONNECT_TIMEOUT).await;
     Ok(client)
 }
