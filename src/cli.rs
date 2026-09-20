@@ -96,9 +96,10 @@ pub struct Cli {
     pub pow: Option<String>,
     #[arg(short, long)]
     pub secret: bool,
-    /// Wire transport to speak to the node: "gift-wrap" (protocol v1, default)
-    /// or "nip44" (protocol v2). Must match the node's `transport` setting
-    /// (advertised on its kind-38385 info event). See docs/TRANSPORT_V2_SPEC.md.
+    /// Wire transport to speak to the node. Only `nip44` (protocol v2) is
+    /// supported. `gift-wrap` (protocol v1) is rejected. When omitted, the CLI
+    /// auto-detects from the node's `protocol_version` tag and defaults to
+    /// nip44.
     #[arg(short, long)]
     pub transport: Option<String>,
 }
@@ -199,7 +200,7 @@ pub enum Commands {
         #[arg(short, long)]
         from_user: bool,
     },
-    /// Get direct messages sent to any trade keys
+    /// Get kind-14 chat messages for an order's trade keys
     GetDmUser {
         /// Pubkey of the user to get direct messages from
         #[arg(short, long)]
@@ -234,7 +235,7 @@ pub enum Commands {
         #[arg(short, long, num_args = 1..)]
         message: Vec<String>,
     },
-    /// Send gift wrapped direct message to a user
+    /// Send a kind-14 chat message to a user
     DmToUser {
         /// Pubkey of the recipient
         #[arg(short, long)]
@@ -344,7 +345,7 @@ pub enum Commands {
         #[arg(short, long)]
         dispute_id: Uuid,
     },
-    /// Send gift wrapped direct message to a user (only admin)
+    /// Send a direct message to a user (only admin)
     AdmSendDm {
         /// Pubkey of the recipient
         #[arg(short, long)]
@@ -557,7 +558,7 @@ async fn init_context(cli: &Cli) -> Result<Context> {
     // `--transport`/`TRANSPORT` wins; otherwise auto-detect from the node's
     // advertised `protocol_version` so the operator need not match it by hand
     // (docs/TRANSPORT_V2_SPEC.md Phase 3).
-    resolve_transport(&client, mostro_pubkey).await;
+    resolve_transport(&client, mostro_pubkey).await?;
 
     Ok(Context {
         client,
@@ -573,21 +574,17 @@ async fn init_context(cli: &Cli) -> Result<Context> {
 /// Resolve the wire transport into the `TRANSPORT` env var the messaging layer
 /// reads (`parse_transport_env`). An explicit `--transport` / `TRANSPORT` is
 /// authoritative and skips the network probe; otherwise the node's advertised
-/// `protocol_version` tag (kind-38385 info event) selects it. A node that
-/// publishes nothing — a pre-v2 daemon, or an unreachable relay — leaves the
-/// var unset, so the messaging layer falls back to the gift-wrap default. This
-/// also guards against accidentally pairing a v2-capable CLI with an older
-/// daemon: absent the tag, the CLI stays on v1.
-async fn resolve_transport(client: &Client, mostro_pubkey: PublicKey) {
+/// `protocol_version` tag (kind-38385 info event) selects it. Protocol v1
+/// (gift wrap) is no longer supported. A node that publishes nothing defaults
+/// to nip44.
+async fn resolve_transport(client: &Client, mostro_pubkey: PublicKey) -> Result<()> {
     // Only an explicit, non-empty value is authoritative — mirror
-    // `parse_transport_env`, which treats empty/whitespace as unset and falls
-    // back to the default. Otherwise `TRANSPORT=""` (e.g. `--transport ""`)
-    // would skip auto-detection and leave the var empty, silently pairing a v2
-    // node to the gift-wrap default.
+    // `parse_transport_env`, which treats empty/whitespace as unset.
     if let Ok(explicit) = std::env::var("TRANSPORT") {
         if !explicit.trim().is_empty() {
+            crate::util::messaging::parse_transport_env()?;
             log::info!("Transport: {explicit} (explicit)");
-            return;
+            return Ok(());
         }
     }
     match util::events::fetch_protocol_version_with(client.clone(), mostro_pubkey).await {
@@ -595,15 +592,25 @@ async fn resolve_transport(client: &Client, mostro_pubkey: PublicKey) {
             set_var("TRANSPORT", "nip44");
             log::info!("Transport: nip44 (auto-detected protocol v2)");
         }
-        Some(1) => log::info!("Transport: gift-wrap (auto-detected protocol v1)"),
-        Some(other) => {
-            log::warn!("Node advertised unknown protocol_version={other}; defaulting to gift-wrap")
+        Some(1) => {
+            return Err(anyhow::anyhow!(
+                "This Mostro instance speaks protocol v1 (gift wrap), which this CLI no longer supports. \
+                 Use a v2 node (protocol_version=2 / nip44)."
+            ));
         }
-        None => log::info!(
-            "Could not detect node transport (no kind-38385 protocol_version tag); \
-             defaulting to gift-wrap"
-        ),
+        Some(other) => {
+            set_var("TRANSPORT", "nip44");
+            log::warn!("Node advertised unknown protocol_version={other}; defaulting to nip44");
+        }
+        None => {
+            set_var("TRANSPORT", "nip44");
+            log::info!(
+                "Could not detect node transport (no kind-38385 protocol_version tag); \
+                 defaulting to nip44"
+            );
+        }
     }
+    Ok(())
 }
 
 fn is_admin_command(command: &Option<Commands>) -> bool {

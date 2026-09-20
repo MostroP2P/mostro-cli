@@ -8,9 +8,20 @@ pub fn uppercase_first(s: &str) -> String {
     }
 }
 
+/// Where the database lives.
+///
+/// `$HOME/.mcli` by default. `MCLI_DIR` overrides it, which is what a second
+/// identity, a test run, or a long-running process built on this crate as a
+/// library needs: they should not have to move `$HOME` to point at their own
+/// database.
 pub fn get_mcli_path() -> String {
-    let home_dir = dirs::home_dir().expect("Couldn't get home directory");
-    let mcli_path = format!("{}/.mcli", home_dir.display());
+    let mcli_path = match std::env::var("MCLI_DIR") {
+        Ok(path) if !path.trim().is_empty() => path.trim().to_string(),
+        _ => {
+            let home_dir = dirs::home_dir().expect("Couldn't get home directory");
+            format!("{}/.mcli", home_dir.display())
+        }
+    };
     if let Err(e) = ensure_private_dir(&mcli_path) {
         panic!("Couldn't create mostro-cli directory in HOME: {}", e);
     }

@@ -3,12 +3,15 @@ use crate::db::Order;
 use crate::parser::common::{
     print_info_line, print_key_value, print_no_data_message, print_section_header,
 };
-use crate::util::messaging::{derive_shared_key_bytes, fetch_gift_wraps_for_shared_key};
+use crate::util::FETCH_EVENTS_TIMEOUT;
 use anyhow::Result;
+use mostro_core::chat::{
+    chat_filter, derive_chat_keys, unwrap_chat_message, CHAT_DEFAULT_LOOKBACK_SECS,
+};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-/// Fetch user-to-user chat messages over a shared conversation key.
+/// Fetch user-to-user chat messages (kind 14, protocol#52).
 ///
 /// CLI parameters:
 /// - `pubkey`: counterparty pubkey
@@ -24,10 +27,9 @@ pub async fn execute_get_dm_user(
     print_key_value("👥", "Counterparty", &pubkey.to_string());
     print_key_value("📋", "Order ID", &order_id.to_string());
     print_key_value("⏰", "Since", &format!("{} minutes ago", since));
-    print_info_line("💡", "Fetching shared-key chat messages...");
+    print_info_line("💡", "Fetching chat messages...");
     println!();
 
-    // 1. Get the order and its trade keys
     let order = Order::get_by_id(&ctx.pool, &order_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("Failed to load order {order_id}: {e}"))?;
@@ -39,21 +41,7 @@ pub async fn execute_get_dm_user(
     let trade_keys =
         Keys::parse(&trade_keys_str).map_err(|e| anyhow::anyhow!("Invalid trade keys: {e}"))?;
 
-    // 2. Derive the shared conversation key (trade private key + counterparty pubkey)
-    let shared_key_bytes = derive_shared_key_bytes(&trade_keys, &pubkey).map_err(|e| {
-        log::warn!(
-            "get_dm_user: could not derive shared key (trade + counterparty): {}",
-            e
-        );
-        anyhow::anyhow!("Could not derive shared key for chat with counterparty")
-    })?;
-
-    let shared_keys = SecretKey::from_slice(&shared_key_bytes)
-        .map(Keys::new)
-        .map_err(|e| anyhow::anyhow!("Could not build Keys from shared key: {e}"))?;
-
-    // 3. Enforce the 7-day lookback window used by fetch_gift_wraps_for_shared_key
-    let max_minutes: i64 = 7 * 24 * 60;
+    let max_minutes: i64 = (CHAT_DEFAULT_LOOKBACK_SECS / 60) as i64;
     if *since > max_minutes {
         return Err(anyhow::anyhow!(
             "Lookback window is limited to 7 days ({} minutes); requested {} minutes",
@@ -62,10 +50,39 @@ pub async fn execute_get_dm_user(
         ));
     }
 
-    // 4. Fetch all gift wraps addressed to this shared key and decrypt them
-    let mut messages = fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?;
+    let (conv, sign) = derive_chat_keys(&trade_keys, &pubkey)
+        .map_err(|e| anyhow::anyhow!("Failed to derive chat keys: {e}"))?;
+    let sign_pubkey = sign.public_key();
+    let allowed_signers = [trade_keys.public_key(), pubkey];
+    // chat_filter defaults to a seven-day lookback. For a shorter `since`,
+    // narrow it here so the relays and the decrypt loop skip events that
+    // would only be discarded later. Safe for kind 14: created_at is the
+    // real send time.
+    let mut filter = chat_filter(sign_pubkey);
+    if *since > 0 {
+        if let Some(cutoff) =
+            chrono::Utc::now().checked_sub_signed(chrono::Duration::minutes(*since))
+        {
+            filter = filter.since(Timestamp::from(cutoff.timestamp() as u64));
+        }
+    }
+    let events = ctx
+        .client
+        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .await
+        .map_err(|e| anyhow::anyhow!("could not read this conversation: {e}"))?;
 
-    // 5. Apply "since" filter (minutes back from now)
+    let now = Timestamp::now();
+    let mut messages: Vec<(String, i64, PublicKey)> = Vec::new();
+    for outer in events.iter() {
+        match unwrap_chat_message(&conv, &sign_pubkey, &allowed_signers, outer, now) {
+            Ok(chat) => {
+                messages.push((chat.content, chat.created_at.as_secs() as i64, chat.sender))
+            }
+            Err(e) => log::debug!("skipping chat event {}: {e}", outer.id),
+        }
+    }
+
     if *since > 0 {
         let cutoff_ts = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::minutes(*since))
@@ -79,16 +96,14 @@ pub async fn execute_get_dm_user(
         messages.retain(|(_, ts, _)| (*ts) >= cutoff_ts);
     }
 
-    // 6. Keep only messages sent by the counterparty (not our own side)
     messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey);
 
     if messages.is_empty() {
-        print_no_data_message("📭 No chat messages found for this shared conversation key.");
+        print_no_data_message("📭 No chat messages found for this conversation.");
         return Ok(());
     }
 
-    // 7. Pretty-print the messages
-    print_section_header("💬 Shared-Key Chat Messages");
+    print_section_header("💬 Chat Messages");
 
     for (idx, (content, ts, sender_pk)) in messages.iter().enumerate() {
         let date = match chrono::DateTime::from_timestamp(*ts, 0) {
@@ -96,13 +111,10 @@ pub async fn execute_get_dm_user(
             None => "Invalid timestamp".to_string(),
         };
 
-        // Messages are already filtered to only those from the counterparty.
-        let from_label = format!("👤 Counterparty ({sender_pk})");
-
         println!("📄 Message {}:", idx + 1);
         println!("─────────────────────────────────────");
         println!("⏰ Time: {}", date);
-        println!("📨 From: {}", from_label);
+        println!("📨 From: 👤 Counterparty ({sender_pk})");
         println!("📝 Content:");
         for line in content.lines() {
             println!("   {}", line);

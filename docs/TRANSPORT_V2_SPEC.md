@@ -1,6 +1,6 @@
 # mostro-cli — Transport v2 (NIP-44 Direct) client support
 
-**Status:** Phases 1–3 implemented
+**Status:** nip44 only. Protocol v1 gift wrap is no longer supported.
 **Daemon spec:** `MostroP2P/mostro` → `docs/TRANSPORT_V2_SPEC.md`
 **Issue:** [#626 — Messaging Transport Abstraction Layer](https://github.com/MostroP2P/mostro/issues/626)
 **Core:** `transport` module shipped in **mostro-core 0.13.0**

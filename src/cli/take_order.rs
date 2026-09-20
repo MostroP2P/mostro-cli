@@ -120,8 +120,7 @@ pub async fn execute_take_order(
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    // Send the DM
-    // This is so we can wait for the gift wrap event in the main thread
+    // Send the DM and wait for Mostro's kind-14 reply in the main thread
     let sent_message = send_dm(
         &ctx.client,
         &ctx.identity_keys,

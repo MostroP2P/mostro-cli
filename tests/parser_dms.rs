@@ -228,8 +228,8 @@ async fn parse_dm_with_time_filter() {
     assert!(out.is_empty());
 }
 
-// End-to-end check that parse_dm_events accepts gift wraps produced by the
-// centralized `wrap_message` pipeline. This is the receive-side counterpart
+// End-to-end check that parse_dm_events accepts kind-14 wraps produced by the
+// centralized `wrap_message_with` pipeline. This is the receive-side counterpart
 // of the wiring tests in src/util/messaging.rs and protects against a future
 // drift between how we publish DMs and how we decode them.
 #[tokio::test]
@@ -245,7 +245,8 @@ async fn parse_dm_events_accepts_wrap_message_output() {
         Action::NewOrder,
         Some(Payload::TextMessage("hello".to_string())),
     );
-    let wrapped = wrap_message(
+    let wrapped = wrap_message_with(
+        Transport::Nip44Direct,
         &inner,
         &sender_identity_keys,
         &sender_trade_keys,
@@ -269,7 +270,7 @@ async fn parse_dm_events_accepts_wrap_message_output() {
     );
 }
 
-// Gift wraps addressed to somebody else must be silently skipped, not
+// Kind-14 events addressed to somebody else must be silently skipped, not
 // treated as protocol violations.
 #[tokio::test]
 async fn parse_dm_events_skips_events_for_other_keys() {
@@ -278,7 +279,8 @@ async fn parse_dm_events_skips_events_for_other_keys() {
     let intended_recipient = Keys::generate();
     let eavesdropper = Keys::generate();
 
-    let wrapped = wrap_message(
+    let wrapped = wrap_message_with(
+        Transport::Nip44Direct,
         &Message::new_order(None, Some(1), Some(1), Action::NewOrder, None),
         &sender_identity,
         &sender_trade,

@@ -879,17 +879,12 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
 /// Parse a batch of incoming events into `(Message, created_at, sender)`.
 ///
 /// `mostro_protocol` selects how each event is decoded:
-/// - `true` — Mostro-protocol messages: route every event through
-///   mostro-core's [`unwrap_incoming`], which dispatches on the event kind
-///   (1059 gift wrap, v1 / 14 NIP-44 direct, v2) and returns the same
-///   `UnwrappedMessage`. This is the receive path for replies to commands and
-///   for Mostro→user DM listings.
+/// - `true` — Mostro-protocol messages: route kind-14 events through
+///   mostro-core's [`unwrap_incoming`]. This is the receive path for replies
+///   to commands and for Mostro→user DM listings. Gift wraps are ignored.
 /// - `false` — NIP-17 peer-to-peer chat: kind-14 events are decrypted with the
 ///   trade↔peer conversation key (these are *not* Mostro-protocol messages and
 ///   carry a bare `Message`, not the v2 tuple).
-///
-/// Keeping the two explicit avoids misparsing peer chat as a Mostro message on
-/// the v2 transport, where both share kind 14 (see docs/TRANSPORT_V2_SPEC.md).
 pub async fn parse_dm_events(
     events: Events,
     pubkey: &Keys,
@@ -905,6 +900,10 @@ pub async fn parse_dm_events(
             continue;
         }
 
+        if dm.kind != nostr_sdk::Kind::PrivateDirectMessage {
+            continue;
+        }
+
         let (created_at, message, sender) = if mostro_protocol {
             match unwrap_incoming(dm, pubkey).await {
                 Ok(Some(u)) => (u.created_at, u.message, u.sender),
@@ -915,51 +914,36 @@ pub async fn parse_dm_events(
                 }
             }
         } else {
-            match dm.kind {
-                nostr_sdk::Kind::GiftWrap => match unwrap_message(dm, pubkey).await {
-                    Ok(Some(u)) => (u.created_at, u.message, u.sender),
-                    Ok(None) => continue, // outer NIP-44 failed → not addressed to us
-                    Err(e) => {
-                        eprintln!("Warning: could not unwrap gift wrap (event {}): {e}", dm.id);
-                        continue;
-                    }
-                },
-                nostr_sdk::Kind::PrivateDirectMessage => {
-                    let ck =
-                        if let Ok(ck) = ConversationKey::derive(pubkey.secret_key(), &dm.pubkey) {
-                            ck
-                        } else {
-                            continue;
-                        };
-                    let b64decoded_content =
-                        match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
-                            Ok(b64decoded_content) => b64decoded_content,
-                            Err(_) => {
-                                continue;
-                            }
-                        };
-                    let unencrypted_content = match decrypt_to_bytes(&ck, &b64decoded_content) {
-                        Ok(bytes) => bytes,
-                        Err(_) => {
-                            continue;
-                        }
-                    };
-                    let message_str = match String::from_utf8(unencrypted_content) {
-                        Ok(s) => s,
-                        Err(_) => {
-                            continue;
-                        }
-                    };
-                    let message = match Message::from_json(&message_str) {
-                        Ok(m) => m,
-                        Err(_) => {
-                            continue;
-                        }
-                    };
-                    (dm.created_at, message, dm.pubkey)
+            let ck = if let Ok(ck) = ConversationKey::derive(pubkey.secret_key(), &dm.pubkey) {
+                ck
+            } else {
+                continue;
+            };
+            let b64decoded_content = match general_purpose::STANDARD.decode(dm.content.as_bytes()) {
+                Ok(b64decoded_content) => b64decoded_content,
+                Err(_) => {
+                    continue;
                 }
-                _ => continue,
-            }
+            };
+            let unencrypted_content = match decrypt_to_bytes(&ck, &b64decoded_content) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    continue;
+                }
+            };
+            let message_str = match String::from_utf8(unencrypted_content) {
+                Ok(s) => s,
+                Err(_) => {
+                    continue;
+                }
+            };
+            let message = match Message::from_json(&message_str) {
+                Ok(m) => m,
+                Err(_) => {
+                    continue;
+                }
+            };
+            (dm.created_at, message, dm.pubkey)
         };
         // check if the message is older than the since time if it is, skip it
         if let Some(since_time) = since {

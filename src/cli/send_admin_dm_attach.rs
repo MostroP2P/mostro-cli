@@ -7,6 +7,7 @@ use base64::Engine;
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use mostro_core::chat::{derive_chat_keys, wrap_chat_message};
 use nostr_sdk::prelude::*;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -18,7 +19,6 @@ use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
 use crate::util::messaging::derive_shared_key_bytes;
-use crate::util::send_admin_chat_message_via_shared_key;
 
 const MAX_FILE_SIZE_BYTES: u64 = 25 * 1024 * 1024;
 
@@ -302,13 +302,12 @@ pub async fn execute_send_admin_dm_attach(
     let content = serde_json::to_string(&payload_json)
         .map_err(|e| anyhow::anyhow!("failed to serialize attachment payload: {e}"))?;
 
-    send_admin_chat_message_via_shared_key(
-        &ctx.client,
-        &trade_keys,
-        &Keys::new(SecretKey::from_slice(&shared_key)?),
-        &content,
-    )
-    .await?;
+    let (conv, sign) = derive_chat_keys(&trade_keys, &receiver)
+        .map_err(|e| anyhow::anyhow!("Failed to derive chat keys: {e}"))?;
+    let event = wrap_chat_message(&trade_keys, &conv, &sign, &content)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to wrap chat message: {e}"))?;
+    ctx.client.send_event(&event).await?;
 
     println!("✅ Encrypted attachment sent successfully to admin!");
 
