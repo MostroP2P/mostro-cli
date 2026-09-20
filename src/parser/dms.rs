@@ -473,7 +473,7 @@ fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisput
 /// mostrod is trusted: peer chat is decrypted with our own trade key, so a
 /// counterparty could otherwise craft an `Order` payload naming any pubkey and
 /// redirect every later chat command to an address of their choosing.
-pub(crate) async fn persist_counterparty_pubkey(
+pub async fn persist_counterparty_pubkey(
     message: &MessageKind,
     sender: &PublicKey,
     ctx: &Context,
@@ -537,7 +537,7 @@ pub(crate) async fn persist_counterparty_pubkey(
 ///
 /// `peer.pubkey` is parsed as [`PublicKey`] so hex and npub compare equal, and
 /// the stored value is always canonical hex.
-pub(crate) async fn persist_solver_pubkey(
+pub async fn persist_solver_pubkey(
     message: &MessageKind,
     sender: &PublicKey,
     ctx: &Context,
