@@ -1812,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "mostro-cli"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
