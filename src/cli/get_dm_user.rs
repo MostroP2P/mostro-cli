@@ -71,9 +71,21 @@ pub async fn execute_get_dm_user(
         Ok((conv, sign)) => {
             let sign_pubkey = sign.public_key();
             let allowed_signers = [trade_keys.public_key(), pubkey];
+            // chat_filter defaults to a seven-day lookback. For a shorter
+            // `since`, narrow it here so the relays and the decrypt loop skip
+            // events that step 5 would only discard again. Safe for kind 14:
+            // unlike a gift wrap its created_at is the real send time.
+            let mut filter = chat_filter(sign_pubkey);
+            if *since > 0 {
+                if let Some(cutoff) =
+                    chrono::Utc::now().checked_sub_signed(chrono::Duration::minutes(*since))
+                {
+                    filter = filter.since(Timestamp::from(cutoff.timestamp() as u64));
+                }
+            }
             let events = ctx
                 .client
-                .fetch_events(chat_filter(sign_pubkey), FETCH_EVENTS_TIMEOUT)
+                .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                 .await?;
             let now = Timestamp::now();
             for outer in events.iter() {
