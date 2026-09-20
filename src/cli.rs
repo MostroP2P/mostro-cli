@@ -462,6 +462,19 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
+/// Shared footnote for missing `MOSTRO_PUBKEY` / `RELAYS` errors.
+///
+/// The CLI never reads a config file; `~/.config/mostro` is a user-managed
+/// convenience (see README Suggested setup), not something the binary creates.
+const ENV_FILE_HINT: &str = "\
+mostro-cli does not read any config file, and does not create ~/.config/mostro.\n\
+To avoid re-exporting every time, create that directory yourself, put the\n\
+exports in a file (e.g. ~/.config/mostro/env.sh, chmod 600) and `source` it\n\
+before running the CLI.\n\
+See https://github.com/MostroP2P/mostro-cli#suggested-setup";
+
+/// Resolve the Mostro instance pubkey from `--mostropubkey` / `-m`, then
+/// `MOSTRO_PUBKEY`. Fails with setup guidance if neither is set.
 fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
     cli.mostropubkey
         .clone()
@@ -469,9 +482,11 @@ fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "MOSTRO_PUBKEY not set.\n\
-             Provide it using one of the following methods:\n\
-             1) --mostropubkey <npub>\n\
-             2) export MOSTRO_PUBKEY=<npub>"
+                 Provide it using one of the following methods:\n\
+                 1) --mostropubkey <npub> (or -m)\n\
+                 2) export MOSTRO_PUBKEY=<npub>\n\
+                 \n\
+                 {ENV_FILE_HINT}"
             )
         })
 }
@@ -486,8 +501,10 @@ fn resolve_relays() -> Result<String> {
         _ => Err(anyhow::anyhow!(
             "RELAYS not set.\n\
              Provide it using one of the following methods:\n\
-             1) --relays <relay[,relay...]>\n\
-             2) export RELAYS=<relay[,relay...]>"
+             1) --relays <relay[,relay...]> (or -r)\n\
+             2) export RELAYS=<relay[,relay...]>\n\
+             \n\
+             {ENV_FILE_HINT}"
         )),
     }
 }
@@ -755,5 +772,69 @@ impl Commands {
             }
             Commands::OrdersInfo { order_ids } => execute_orders_info(order_ids, ctx).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    use serial_test::serial;
+
+    fn with_env_cleared<R>(key: &str, f: impl FnOnce() -> R) -> R {
+        let previous = std::env::var(key).ok();
+        std::env::remove_var(key);
+        let result = f();
+        match previous {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+        result
+    }
+
+    #[test]
+    #[serial]
+    fn missing_mostro_pubkey_message_guides_setup() {
+        with_env_cleared("MOSTRO_PUBKEY", || {
+            let cli = Cli::try_parse_from(["mostro-cli", "listorders"]).unwrap();
+            let err = resolve_mostro_pubkey(&cli).unwrap_err().to_string();
+            assert!(err.contains("--mostropubkey <npub>"), "{err}");
+            assert!(err.contains("(or -m)"), "{err}");
+            assert!(err.contains("export MOSTRO_PUBKEY=<npub>"), "{err}");
+            assert!(err.contains("does not read any config file"), "{err}");
+            assert!(err.contains("does not create ~/.config/mostro"), "{err}");
+            assert!(err.contains("chmod 600"), "{err}");
+            assert!(
+                err.contains("https://github.com/MostroP2P/mostro-cli#suggested-setup"),
+                "{err}"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn missing_relays_message_guides_setup() {
+        with_env_cleared("RELAYS", || {
+            let err = resolve_relays().unwrap_err().to_string();
+            assert!(err.contains("--relays <relay[,relay...]>"), "{err}");
+            assert!(err.contains("(or -r)"), "{err}");
+            assert!(err.contains("export RELAYS=<relay[,relay...]>"), "{err}");
+            assert!(err.contains("does not read any config file"), "{err}");
+            assert!(err.contains("does not create ~/.config/mostro"), "{err}");
+            assert!(
+                err.contains("https://github.com/MostroP2P/mostro-cli#suggested-setup"),
+                "{err}"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn mostro_pubkey_flag_wins_when_env_is_unset() {
+        with_env_cleared("MOSTRO_PUBKEY", || {
+            let cli =
+                Cli::try_parse_from(["mostro-cli", "-m", "npub1testpubkey", "listorders"]).unwrap();
+            assert_eq!(resolve_mostro_pubkey(&cli).unwrap(), "npub1testpubkey");
+        });
     }
 }
