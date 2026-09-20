@@ -14,7 +14,7 @@ settable via the matching env var):
 - `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
 - `-t, --transport <nip44>` (`TRANSPORT`): wire transport. Only `nip44`
-  (protocol v2, signed kind 14) is supported; `gift-wrap` is rejected.
+  (protocol v2, signed kind 14) is supported.
   **Optional**: when omitted, the CLI auto-detects it at startup from the node's
   `protocol_version` tag on its kind-38385 info event (a node that advertises
   nothing is treated as `nip44`). A v1 node is an error.

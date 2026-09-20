@@ -15,7 +15,7 @@ deadline has elapsed
 ```
 
 (or, in current `main`, the slightly less awful but still ambiguous
-`Timeout waiting for DM or gift wrap event`).
+`Timeout waiting for DM event`).
 
 This is misleading. From the user perspective the message can mean almost
 anything: the relay is slow, mostrod is down, the network is broken, the CLI
@@ -26,12 +26,12 @@ hidden.
 
 The flow that breaks today:
 
-1. `mostro-cli` mines PoW on the outer GiftWrap based on the `POW` env var
+1. `mostro-cli` mines PoW on the outer kind-14 event based on the `POW` env var
    (default `0`) — see `src/util/messaging.rs::parse_pow_env` and the
    `WrapOptions { pow, .. }` plumbing.
 2. The wrapped event is published to relays via `client.send_event(...)`.
 3. `wait_for_dm` opens a subscription on the trade key and waits for
-   `FETCH_EVENTS_TIMEOUT` (15 s) for an inbound GiftWrap.
+   `FETCH_EVENTS_TIMEOUT` (15 s) for an inbound kind-14 event from Mostro.
 4. If `mostrod` requires PoW above what the client provided, mostrod
    silently drops the event in
    [`mostro/src/app.rs`](https://github.com/MostroP2P/mostro) — the relay
@@ -184,11 +184,11 @@ request, surfacing further downstream as `"No response received from
 Mostro"`.
 
 Fix: the notification loop mirrors the subscription filter explicitly —
-only `Kind::GiftWrap` events whose `p` tags contain `trade_keys.public_key()`
-escape the loop. Anything else (kind‑38385 info, replaceable
-status events, gift wraps for other trade keys) is dropped on the floor
-so the wait properly reaches its timeout, where the PoW probe result
-escalates to `PowRequirementUnmet`.
+only kind-14 events authored by Mostro whose `p` tags contain
+`trade_keys.public_key()` escape the loop. Anything else (kind‑38385 info,
+replaceable status events, peer chat tagged to this trade key) is dropped
+on the floor so the wait properly reaches its timeout, where the PoW probe
+result escalates to `PowRequirementUnmet`.
 
 ### 4.4 `add_bond_invoice` interplay
 

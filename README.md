@@ -132,7 +132,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 |---|---|---|
 | `POW` | `-p, --pow` | Proof-of-work difficulty (bits) required by the Mostro instance for incoming events. Set this if the daemon enforces PoW. |
 | `SECRET` | `-s, --secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index). |
-| `TRANSPORT` | `-t, --transport` | Wire transport: only `nip44` (protocol v2). `gift-wrap` is rejected. Leave unset to auto-detect from the instance's info event (defaults to nip44). |
+| `TRANSPORT` | `-t, --transport` | Wire transport: only `nip44` (protocol v2, signed kind 14). Leave unset to auto-detect from the instance's info event (defaults to nip44). |
 | `ADMIN_NSEC` | — | Admin/solver private key in `nsec1...` or hex format. Only read when an `adm*` command is invoked. |
 | `MOSTRO_RPC_URL` | `http://127.0.0.1:50051` | `mostrod` admin gRPC endpoint (`[rpc]` in the daemon's settings). Only used by `admsetmaintenance` / `admmaintenancestatus` / `admcancelpending`. |
 | `MOSTRO_RPC_TOKEN` | — | Bearer token for the admin gRPC, required when the daemon sets `[rpc].auth_token`. Only used by the three commands above. Sent in cleartext only to a loopback URL (direct or through an SSH tunnel); any other `http://` host is refused, use `https://` via a TLS proxy instead. |
@@ -635,7 +635,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
-- `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; `gift-wrap` is no longer supported).
+- `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; only nip44 is supported).
 
 ```bash
 mostro-cli -m <npub> -r wss://<relay> listorders -k sell -c usd

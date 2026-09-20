@@ -100,7 +100,7 @@ Step‑by‑step:
    ```rust
    send_dm(
        &ctx.client,
-       Some(&trade_keys),
+       &ctx.identity_keys,
        &trade_keys,
        &receiver,
        message,
@@ -111,12 +111,12 @@ Step‑by‑step:
    ```
 
    - `client`: connected Nostr client (relays from `RELAYS`).
-   - `identity_keys: Some(&trade_keys)`: used for signing when we choose the "signed gift wrap" mode.
-   - `trade_keys`: the per‑order trade keys used for DM encryption / gift wrap.
+   - `identity_keys`: long-term identity; signs the inner identity proof.
+   - `trade_keys`: the per-order trade keys that author the kind-14 event.
    - `receiver`: target Nostr pubkey (user or service).
    - `payload`: the serialized Mostro `Message` JSON built above.
    - `expiration: None`: no extra NIP‑40 expiration tags.
-   - `to_user: false`: this controls which DM mode is used (see below).
+   - `to_user: false`: Mostro-protocol wrap (see below), not NIP-17 peer chat.
 
 ### 3. Low‑level DM construction (`util::send_dm`)
 
@@ -125,165 +125,77 @@ File: `src/util/messaging.rs`
 ```rust
 pub async fn send_dm(
     client: &Client,
-    identity_keys: Option<&Keys>,
+    identity_keys: &Keys,
     trade_keys: &Keys,
     receiver_pubkey: &PublicKey,
     payload: String,
     expiration: Option<Timestamp>,
     to_user: bool,
 ) -> Result<()> {
-    let pow: u8 = var("POW")
-        .unwrap_or('0'.to_string())
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
-    let private = var("SECRET")
-        .unwrap_or("false".to_string())
-        .parse::<bool>()
-        .map_err(|e| anyhow::anyhow!("Failed to parse SECRET: {}", e))?;
+    let pow = parse_pow_env()?;
 
-    let message_type = determine_message_type(to_user, private);
+    if to_user {
+        let event = create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?;
+        client.send_event(&event).await?;
+        return Ok(());
+    }
 
-    let event = match message_type {
-        MessageType::PrivateDirectMessage => {
-            create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?
-        }
-        MessageType::PrivateGiftWrap => {
-            create_gift_wrap_event(
-                trade_keys,
-                identity_keys,
-                receiver_pubkey,
-                payload,
-                pow,
-                expiration,
-                false,
-            )
-            .await?
-        }
-        MessageType::SignedGiftWrap => {
-            create_gift_wrap_event(
-                trade_keys,
-                identity_keys,
-                receiver_pubkey,
-                payload,
-                pow,
-                expiration,
-                true,
-            )
-            .await?
-        }
+    let message = Message::from_json(&payload)?;
+    let private = parse_secret_env()?;
+    let opts = WrapOptions {
+        pow,
+        expiration,
+        signed: !private,
     };
 
-    client.send_event(&event).await?;
-    Ok(())
+    publish_wrapped(
+        client,
+        parse_transport_env()?,
+        identity_keys,
+        trade_keys,
+        receiver_pubkey,
+        &message,
+        opts,
+    )
+    .await
 }
 ```
 
 Key points:
 
 - **POW**:
-  - `POW` env var (default `"0"`) controls proof‑of‑work difficulty for the outer Nostr event.
+  - `POW` env var (default `"0"`) controls proof‑of‑work difficulty for the outer kind-14 event.
 - **SECRET**:
-  - `SECRET` env var (`"true"/"false"`) controls whether messages are sent as private DMs vs gift wraps.
+  - `SECRET=true` leaves the inner tuple unsigned (full-privacy mode: identity = trade key).
+- **`to_user`**:
+  - `true` — NIP-17 `PrivateDirectMessage` (kind 14 signed directly by `trade_keys`).
+  - `false` — Mostro-protocol message via `wrap_message_with(Transport::Nip44Direct, …)`.
 
-- **Message type decision**:
+  For `senddm`, `to_user` is **`false`**.
 
-  ```rust
-  fn determine_message_type(to_user: bool, private: bool) -> MessageType {
-      match (to_user, private) {
-          (true, _) => MessageType::PrivateDirectMessage,
-          (false, true) => MessageType::PrivateGiftWrap,
-          (false, false) => MessageType::SignedGiftWrap,
-      }
-  }
-  ```
+#### 3.1 Mostro-protocol kind-14 DM (default `senddm` mode)
 
-  For `senddm`:
-  - `to_user` is **`false`**
-  - `SECRET` defaults to **`false`**
-  - So we use **`MessageType::SignedGiftWrap`**
-
-#### 3.1 Signed gift wrap DM (default `senddm` mode)
-
-For `MessageType::SignedGiftWrap` we use `create_gift_wrap_event(..., signed = true)`:
-
-```rust
-async fn create_gift_wrap_event(
-    trade_keys: &Keys,
-    identity_keys: Option<&Keys>,
-    receiver_pubkey: &PublicKey,
-    payload: String,
-    pow: u8,
-    expiration: Option<Timestamp>,
-    signed: bool,
-) -> Result<nostr_sdk::Event> {
-    let message = Message::from_json(&payload)
-        .map_err(|e| anyhow::anyhow!("Failed to deserialize message: {e}"))?;
-
-    let content = if signed {
-        let _identity_keys = identity_keys
-            .ok_or_else(|| Error::msg("identity_keys required for signed messages"))?;
-        let sig = Message::sign(payload, trade_keys);
-        serde_json::to_string(&(message, sig))
-            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
-    } else {
-        let content: (Message, Option<Signature>) = (message, None);
-        serde_json::to_string(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize message: {e}"))?
-    };
-
-    let rumor = EventBuilder::text_note(content)
-        .pow(pow)
-        .build(trade_keys.public_key());
-
-    let tags = create_expiration_tags(expiration);
-
-    let signer_keys = if signed {
-        identity_keys.ok_or_else(|| Error::msg("identity_keys required for signed messages"))?
-    } else {
-        trade_keys
-    };
-
-    Ok(EventBuilder::gift_wrap(signer_keys, receiver_pubkey, rumor, tags).await?)
-}
-```
-
-Protocol behaviour:
+`publish_wrapped` calls `wrap_message_with` with `Transport::Nip44Direct`:
 
 - **Inner content**:
   - Parses the Mostro `Message` from `payload`.
-  - If `signed = true`:
-    - Computes a Mostro‑level signature: `Message::sign(payload, trade_keys)`.
-    - Wraps `(message, sig)` into JSON.
-  - Builds a text‑note rumor event:
-    - `kind`: `TextNote`
-    - `content`: JSON `(Message, Signature)` or `(Message, None)`.
-    - `pubkey`: `trade_keys.public_key()`
-    - Optional POW as configured by `POW`.
-
-- **Outer NIP‑59 Gift Wrap**:
-  - `EventBuilder::gift_wrap(...)` wraps the rumor into a **GiftWrap** event (NIP‑59).
-  - `signer_keys`:
-    - For `senddm` default, `signed = true`, so `signer_keys = identity_keys`, passed as `Some(&trade_keys)`.
-    - This means the outer event is also signed by the **trade keys**.
-  - `receiver_pubkey`: the `receiver` passed to `execute_send_dm` (user/Mostro/other).
-  - `tags`: optional NIP‑40 expiration (unused here).
-
+  - When `signed = true` (default): identity proof is bound to the trade key
+    inside the NIP-44 ciphertext.
+  - When `SECRET=true`: the inner tuple is unsigned.
+- **Outer event**:
+  - Kind 14, authored by `trade_keys`, NIP-44 encrypted to `receiver_pubkey`.
+  - Optional NIP-13 PoW from `POW`.
+  - Optional NIP-40 expiration (unused here).
 - **Relaying**:
-  - The final event is sent via:
-
-    ```rust
-    client.send_event(&event).await?;
-    ```
-
-  - `client` is a `nostr_sdk::Client` connected to all relays in `RELAYS`.
+  - `client.send_event(&event).await?` to every relay in `RELAYS`.
 
 ### 4. Keys and protocols summary
 
 - **Keys**:
   - `identity_keys` (i0): long‑term user identity (stored in DB).
-  - `trade_keys`: per‑order ephemeral keys used for:
-    - DM identity on Nostr.
-    - Signing Mostro messages (`Message::sign`).
+  - `trade_keys`: per-order ephemeral keys used for:
+    - Authoring the kind-14 event.
+    - Signing the Mostro inner tuple when not in secret mode.
   - `receiver_pubkey`: DM target (user or service).
 
 - **Protocols**:
@@ -292,6 +204,4 @@ Protocol behaviour:
   - **Nostr**:
     - NIP‑13 (optional POW).
     - NIP‑40 (optional expiration tags, not used here).
-    - NIP‑59 Gift Wrap for encapsulating the Mostro message.
-
-
+    - NIP‑44 kind 14 for encapsulating the Mostro message.

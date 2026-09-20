@@ -61,7 +61,7 @@ agreed otherwise.
 - Exposure or leakage of the mnemonic, identity key or derived trade keys.
 - Weaknesses in key derivation, storage or database encryption.
 - Flaws in the encryption, signing or validation of Nostr messages
-  (NIP-06, NIP-44, NIP-59, NIP-98).
+  (NIP-06, NIP-13, NIP-44, NIP-98).
 - Improper validation of messages received from a Mostro instance or a counterpart
   that leads to loss of funds, impersonation or privacy loss.
 - Insecure file permissions or insecure defaults in the CLI data directory.
