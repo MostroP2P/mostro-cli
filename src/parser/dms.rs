@@ -465,7 +465,61 @@ fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisput
 }
 
 /// Execute logic of command answer
+/// Persist the counterparty's trade pubkey whenever mostrod includes it on an
+/// Order payload, so the chat commands stop requiring `--pubkey` by hand.
+///
+/// mostrod sets both `buyer_trade_pubkey` and `seller_trade_pubkey`; whichever
+/// one is not ours is the counterparty. Best-effort: any failure is logged and
+/// ignored, since this only ever adds convenience.
+pub(crate) async fn persist_counterparty_pubkey(message: &MessageKind, ctx: &Context) {
+    let Some(Payload::Order(small)) = message.payload.as_ref() else {
+        return;
+    };
+    let (Some(buyer), Some(seller)) = (
+        small.buyer_trade_pubkey.as_ref(),
+        small.seller_trade_pubkey.as_ref(),
+    ) else {
+        return;
+    };
+    let Some(order_id) = small.id.or(message.id) else {
+        return;
+    };
+
+    let mut order = match Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
+        Ok(o) => o,
+        Err(e) => {
+            log::debug!("counterparty pubkey: order {order_id} not in db yet: {e}");
+            return;
+        }
+    };
+    if order.counterparty_pubkey.is_some() {
+        return;
+    }
+
+    let ours = match order
+        .trade_keys
+        .as_ref()
+        .and_then(|tk| Keys::parse(tk).ok())
+    {
+        Some(keys) => keys.public_key().to_hex(),
+        None => return,
+    };
+    let peer = if *buyer == ours {
+        seller
+    } else if *seller == ours {
+        buyer
+    } else {
+        return;
+    };
+
+    order.set_counterparty_pubkey(peer.clone());
+    if let Err(e) = order.save(&ctx.pool).await {
+        log::debug!("counterparty pubkey: could not persist for {order_id}: {e}");
+    }
+}
+
 pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Result<()> {
+    persist_counterparty_pubkey(message, ctx).await;
     // Do the logic for the message response
     match message.action {
         Action::NewOrder => {
