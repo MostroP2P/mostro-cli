@@ -114,7 +114,7 @@ settable via the matching env var):
   - **Handler**: `execute_get_dm(since, false, from_user, ctx)` in `src/cli/get_dm.rs`.
 
 - **`getdmuser`**
-  - **Description**: Get direct messages sent to any trade keys.
+  - **Description**: Get kind-14 peer chat messages for an order's trade keys.
   - **Args**:
     - `--since <i64>`: Minutes back from now to query (default: 30).
   - **Handler**: `execute_get_dm_user(since, ctx)` in `src/cli/get_dm_user.rs`.
@@ -128,7 +128,7 @@ settable via the matching env var):
   - **Handler**: `execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, &msg)` in `src/cli/send_dm.rs`.
 
 - **`dmtouser`**
-  - **Description**: Send a direct message to a user via a **shared-key custom wrap**. Derives an ECDH shared key from the order’s trade keys and the recipient pubkey; the message is sent as a NIP-59 gift wrap addressed to the shared key’s public key (NIP-44 encrypted), so both sides can decrypt.
+  - **Description**: Send a kind-14 peer chat message (`K_conv` / `K_sign`). Derives chat keys from the order’s trade keys and the recipient pubkey.
   - **Args**:
     - `--pubkey <NPUB/HEX>`: Recipient pubkey.
     - `--order-id <UUID>`: Order id to derive trade keys and shared key.

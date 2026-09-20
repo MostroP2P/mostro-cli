@@ -199,7 +199,7 @@ pub enum Commands {
         #[arg(short, long)]
         from_user: bool,
     },
-    /// Get direct messages sent to any trade keys
+    /// Get kind-14 chat messages for an order's trade keys
     GetDmUser {
         /// Pubkey of the user to get direct messages from
         #[arg(short, long)]
@@ -234,7 +234,7 @@ pub enum Commands {
         #[arg(short, long, num_args = 1..)]
         message: Vec<String>,
     },
-    /// Send gift wrapped direct message to a user
+    /// Send a kind-14 chat message to a user
     DmToUser {
         /// Pubkey of the recipient
         #[arg(short, long)]

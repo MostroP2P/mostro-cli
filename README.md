@@ -341,7 +341,7 @@ If you want to *post* a buy order instead of taking one, use `neworder -k buy`. 
 
 ## Direct messages with your counterpart
 
-Every order has a counterparty pubkey. You can chat over NIP-17 gift-wrapped DMs:
+Every order has a counterparty pubkey. You can chat over kind-14 envelopes:
 
 ```bash
 # Get the conversation key for a counterpart (informational)
@@ -357,7 +357,7 @@ mostro-cli getdmuser -p <their-pubkey> -o <order-id> --since 120
 # Send a DM (uses the order's trade key)
 mostro-cli senddm -p <their-pubkey> -o <order-id> -m "hi, sending now"
 
-# Send a gift-wrapped DM to a user (similar, alternative encoding)
+# Send a kind-14 chat message to a user
 mostro-cli dmtouser -p <their-pubkey> -o <order-id> -m "hello"
 ```
 
@@ -582,7 +582,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `getdm [--since <min>] [--from-user]` — fetch recent DMs.
 - `getdmuser -p <pubkey> -o <id> [--since <min>]` — DMs to a specific order's trade key.
 - `senddm -p <pubkey> -o <id> -m <message>` — DM your counterpart.
-- `dmtouser -p <pubkey> -o <id> -m <message>` — gift-wrapped DM.
+- `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat.
 - `conversationkey -p <pubkey>` — show the conversation key.
 
 ### Disputes (read-only for users)

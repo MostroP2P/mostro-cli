@@ -3,14 +3,15 @@ use crate::db::Order;
 use crate::parser::common::{
     print_info_line, print_key_value, print_no_data_message, print_section_header,
 };
-use crate::util::messaging::{derive_shared_key_bytes, fetch_gift_wraps_for_shared_key};
 use crate::util::FETCH_EVENTS_TIMEOUT;
 use anyhow::Result;
-use mostro_core::chat::{chat_filter, derive_chat_keys, unwrap_chat_message};
+use mostro_core::chat::{
+    chat_filter, derive_chat_keys, unwrap_chat_message, CHAT_DEFAULT_LOOKBACK_SECS,
+};
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-/// Fetch user-to-user chat messages over a shared conversation key.
+/// Fetch user-to-user chat messages (kind 14, protocol#52).
 ///
 /// CLI parameters:
 /// - `pubkey`: counterparty pubkey
@@ -26,10 +27,9 @@ pub async fn execute_get_dm_user(
     print_key_value("👥", "Counterparty", &pubkey.to_string());
     print_key_value("📋", "Order ID", &order_id.to_string());
     print_key_value("⏰", "Since", &format!("{} minutes ago", since));
-    print_info_line("💡", "Fetching shared-key chat messages...");
+    print_info_line("💡", "Fetching chat messages...");
     println!();
 
-    // 1. Get the order and its trade keys
     let order = Order::get_by_id(&ctx.pool, &order_id.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("Failed to load order {order_id}: {e}"))?;
@@ -41,21 +41,7 @@ pub async fn execute_get_dm_user(
     let trade_keys =
         Keys::parse(&trade_keys_str).map_err(|e| anyhow::anyhow!("Invalid trade keys: {e}"))?;
 
-    // 2. Derive the shared conversation key (trade private key + counterparty pubkey)
-    let shared_key_bytes = derive_shared_key_bytes(&trade_keys, &pubkey).map_err(|e| {
-        log::warn!(
-            "get_dm_user: could not derive shared key (trade + counterparty): {}",
-            e
-        );
-        anyhow::anyhow!("Could not derive shared key for chat with counterparty")
-    })?;
-
-    let shared_keys = SecretKey::from_slice(&shared_key_bytes)
-        .map(Keys::new)
-        .map_err(|e| anyhow::anyhow!("Could not build Keys from shared key: {e}"))?;
-
-    // 3. Enforce the 7-day lookback window used by fetch_gift_wraps_for_shared_key
-    let max_minutes: i64 = 7 * 24 * 60;
+    let max_minutes: i64 = (CHAT_DEFAULT_LOOKBACK_SECS / 60) as i64;
     if *since > max_minutes {
         return Err(anyhow::anyhow!(
             "Lookback window is limited to 7 days ({} minutes); requested {} minutes",
@@ -64,77 +50,39 @@ pub async fn execute_get_dm_user(
         ));
     }
 
-    // 4a. Current envelope (protocol#52): kind 14 signed by K_sign, payload
-    // encrypted to K_conv. This is what the mobile app and Mostrix publish.
+    let (conv, sign) = derive_chat_keys(&trade_keys, &pubkey)
+        .map_err(|e| anyhow::anyhow!("Failed to derive chat keys: {e}"))?;
+    let sign_pubkey = sign.public_key();
+    let allowed_signers = [trade_keys.public_key(), pubkey];
+    // chat_filter defaults to a seven-day lookback. For a shorter `since`,
+    // narrow it here so the relays and the decrypt loop skip events that
+    // would only be discarded later. Safe for kind 14: created_at is the
+    // real send time.
+    let mut filter = chat_filter(sign_pubkey);
+    if *since > 0 {
+        if let Some(cutoff) =
+            chrono::Utc::now().checked_sub_signed(chrono::Duration::minutes(*since))
+        {
+            filter = filter.since(Timestamp::from(cutoff.timestamp() as u64));
+        }
+    }
+    let events = ctx
+        .client
+        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
+        .await
+        .map_err(|e| anyhow::anyhow!("could not read this conversation: {e}"))?;
+
+    let now = Timestamp::now();
     let mut messages: Vec<(String, i64, PublicKey)> = Vec::new();
-    let mut failures: Vec<String> = Vec::new();
-    match derive_chat_keys(&trade_keys, &pubkey) {
-        Ok((conv, sign)) => {
-            let sign_pubkey = sign.public_key();
-            let allowed_signers = [trade_keys.public_key(), pubkey];
-            // chat_filter defaults to a seven-day lookback. For a shorter
-            // `since`, narrow it here so the relays and the decrypt loop skip
-            // events that step 5 would only discard again. Safe for kind 14:
-            // unlike a gift wrap its created_at is the real send time.
-            let mut filter = chat_filter(sign_pubkey);
-            if *since > 0 {
-                if let Some(cutoff) =
-                    chrono::Utc::now().checked_sub_signed(chrono::Duration::minutes(*since))
-                {
-                    filter = filter.since(Timestamp::from(cutoff.timestamp() as u64));
-                }
+    for outer in events.iter() {
+        match unwrap_chat_message(&conv, &sign_pubkey, &allowed_signers, outer, now) {
+            Ok(chat) => {
+                messages.push((chat.content, chat.created_at.as_secs() as i64, chat.sender))
             }
-            match ctx.client.fetch_events(filter, FETCH_EVENTS_TIMEOUT).await {
-                Ok(events) => {
-                    let now = Timestamp::now();
-                    for outer in events.iter() {
-                        match unwrap_chat_message(&conv, &sign_pubkey, &allowed_signers, outer, now)
-                        {
-                            Ok(chat) => messages.push((
-                                chat.content,
-                                chat.created_at.as_secs() as i64,
-                                chat.sender,
-                            )),
-                            // Not addressed to us, replayed, or malformed: skip quietly.
-                            Err(e) => log::debug!("skipping chat event {}: {e}", outer.id),
-                        }
-                    }
-                }
-                Err(e) => failures.push(format!("kind 14 envelope: {e}")),
-            }
-        }
-        Err(e) => failures.push(format!("chat keys: {e}")),
-    }
-
-    // 4b. Legacy gift-wrap envelope, so conversations started before the
-    // migration stay readable (mostro-core keeps this path for dual-read).
-    if !crate::cli::dm_to_user::skip_legacy() {
-        match fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await {
-            Ok(found) => messages.extend(found),
-            Err(e) => failures.push(format!("legacy gift wrap: {e}")),
+            Err(e) => log::debug!("skipping chat event {}: {e}", outer.id),
         }
     }
 
-    // One broken half must not throw away what the other half found, and it
-    // must not be silent either: a conversation that came back short for
-    // technical reasons looks exactly like a counterparty with little to say.
-    if !failures.is_empty() {
-        if messages.is_empty() {
-            return Err(anyhow::anyhow!(
-                "could not read this conversation: {}",
-                failures.join("; ")
-            ));
-        }
-        print_info_line(
-            "⚠️",
-            &format!(
-                "Part of this conversation could not be read ({}). What follows may be incomplete.",
-                failures.join("; ")
-            ),
-        );
-    }
-
-    // 5. Apply "since" filter (minutes back from now)
     if *since > 0 {
         let cutoff_ts = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::minutes(*since))
@@ -148,19 +96,14 @@ pub async fn execute_get_dm_user(
         messages.retain(|(_, ts, _)| (*ts) >= cutoff_ts);
     }
 
-    // 6. Keep only messages sent by the counterparty (not our own side)
     messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey);
-    // Dual-write publishes the same text as kind 14 and as a gift wrap.
-    // Collapse those into one row; keep distinct sends of the same text.
-    messages = dedup_chat_messages(messages);
 
     if messages.is_empty() {
-        print_no_data_message("📭 No chat messages found for this shared conversation key.");
+        print_no_data_message("📭 No chat messages found for this conversation.");
         return Ok(());
     }
 
-    // 7. Pretty-print the messages
-    print_section_header("💬 Shared-Key Chat Messages");
+    print_section_header("💬 Chat Messages");
 
     for (idx, (content, ts, sender_pk)) in messages.iter().enumerate() {
         let date = match chrono::DateTime::from_timestamp(*ts, 0) {
@@ -168,13 +111,10 @@ pub async fn execute_get_dm_user(
             None => "Invalid timestamp".to_string(),
         };
 
-        // Messages are already filtered to only those from the counterparty.
-        let from_label = format!("👤 Counterparty ({sender_pk})");
-
         println!("📄 Message {}:", idx + 1);
         println!("─────────────────────────────────────");
         println!("⏰ Time: {}", date);
-        println!("📨 From: {}", from_label);
+        println!("📨 From: 👤 Counterparty ({sender_pk})");
         println!("📝 Content:");
         for line in content.lines() {
             println!("   {}", line);
@@ -183,46 +123,4 @@ pub async fn execute_get_dm_user(
     }
 
     Ok(())
-}
-
-/// Drop cross-format copies of the same logical message (same sender, same
-/// trimmed body, timestamps within two seconds). Format-specific event ids
-/// are not a valid key: kind 14 and the legacy wrap are different events.
-fn dedup_chat_messages(
-    mut messages: Vec<(String, i64, PublicKey)>,
-) -> Vec<(String, i64, PublicKey)> {
-    messages.sort_by(|a, b| {
-        a.2.cmp(&b.2)
-            .then_with(|| a.0.trim().cmp(b.0.trim()))
-            .then_with(|| a.1.cmp(&b.1))
-    });
-    messages.dedup_by(|a, b| a.2 == b.2 && a.0.trim() == b.0.trim() && a.1.abs_diff(b.1) <= 2);
-    messages.sort_by_key(|(_, ts, _)| *ts);
-    messages
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dedup_collapses_kind14_and_legacy_copies() {
-        let sender = Keys::generate().public_key();
-        let other = Keys::generate().public_key();
-        let messages = vec![
-            ("hello".to_string(), 1_000, sender),
-            ("hello".to_string(), 1_001, sender),
-            ("hello".to_string(), 1_000, other),
-            ("later".to_string(), 2_000, sender),
-        ];
-        let deduped = dedup_chat_messages(messages);
-        assert_eq!(deduped.len(), 3);
-        assert!(deduped
-            .iter()
-            .any(|(c, _, pk)| c == "hello" && *pk == sender));
-        assert!(deduped
-            .iter()
-            .any(|(c, _, pk)| c == "hello" && *pk == other));
-        assert!(deduped.iter().any(|(c, _, _)| c == "later"));
-    }
 }
