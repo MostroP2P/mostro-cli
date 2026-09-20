@@ -1,6 +1,7 @@
 use mostro_client::parser::orders::{parse_orders_events, print_orders_table};
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use std::collections::BTreeSet;
 
 fn build_order_event(
     kind: mostro_core::order::Kind,
@@ -8,53 +9,33 @@ fn build_order_event(
     fiat: &str,
     amount: i64,
     fiat_amount: i64,
-) -> nostr_sdk::Event {
+) -> Event {
     let keys = Keys::generate();
     let id = uuid::Uuid::new_v4();
 
     let mut tags = Tags::new();
-    tags.push(Tag::custom(
-        TagKind::Custom("d".into()),
-        vec![id.to_string()],
-    ));
-    tags.push(Tag::custom(
-        TagKind::Custom("k".into()),
-        vec![kind.to_string()],
-    ));
-    tags.push(Tag::custom(
-        TagKind::Custom("f".into()),
-        vec![fiat.to_string()],
-    ));
-    tags.push(Tag::custom(
-        TagKind::Custom("s".into()),
-        vec![status.to_string()],
-    ));
-    tags.push(Tag::custom(
-        TagKind::Custom("amt".into()),
-        vec![amount.to_string()],
-    ));
-    tags.push(Tag::custom(
-        TagKind::Custom("fa".into()),
-        vec![fiat_amount.to_string()],
-    ));
+    tags.push(Tag::custom("d", vec![id.to_string()]));
+    tags.push(Tag::custom("k", vec![kind.to_string()]));
+    tags.push(Tag::custom("f", vec![fiat.to_string()]));
+    tags.push(Tag::custom("s", vec![status.to_string()]));
+    tags.push(Tag::custom("amt", vec![amount.to_string()]));
+    tags.push(Tag::custom("fa", vec![fiat_amount.to_string()]));
 
-    EventBuilder::new(nostr_sdk::Kind::TextNote, "")
+    EventBuilder::new(nostr_sdk::prelude::Kind::TextNote, "")
         .tags(tags)
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap()
 }
 
 #[test]
 fn parse_orders_empty() {
-    let filter = Filter::new();
-    let events = Events::new(&filter);
+    let events = BTreeSet::new();
     let out = parse_orders_events(events, None, None, None);
     assert!(out.is_empty());
 }
 
 #[test]
 fn parse_orders_basic_and_print() {
-    let filter = Filter::new();
     let e = build_order_event(
         mostro_core::order::Kind::Sell,
         Status::Pending,
@@ -62,7 +43,7 @@ fn parse_orders_basic_and_print() {
         100,
         1000,
     );
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     events.insert(e);
     let out = parse_orders_events(
         events,
@@ -82,7 +63,6 @@ fn parse_orders_basic_and_print() {
 
 #[test]
 fn parse_orders_with_kind_filter() {
-    let filter = Filter::new();
     let e1 = build_order_event(
         mostro_core::order::Kind::Buy,
         Status::Active,
@@ -97,7 +77,7 @@ fn parse_orders_with_kind_filter() {
         100000,
         1000,
     );
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     events.insert(e1);
     events.insert(e2);
 
@@ -114,7 +94,6 @@ fn parse_orders_with_kind_filter() {
 
 #[test]
 fn parse_orders_with_status_filter() {
-    let filter = Filter::new();
     let e1 = build_order_event(
         mostro_core::order::Kind::Sell,
         Status::Active,
@@ -129,7 +108,7 @@ fn parse_orders_with_status_filter() {
         50000,
         500,
     );
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     events.insert(e1);
     events.insert(e2);
 
@@ -141,7 +120,6 @@ fn parse_orders_with_status_filter() {
 
 #[test]
 fn parse_orders_with_currency_filter() {
-    let filter = Filter::new();
     let e1 = build_order_event(
         mostro_core::order::Kind::Buy,
         Status::Active,
@@ -156,7 +134,7 @@ fn parse_orders_with_currency_filter() {
         100000,
         1000,
     );
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     events.insert(e1);
     events.insert(e2);
 
@@ -168,7 +146,6 @@ fn parse_orders_with_currency_filter() {
 
 #[test]
 fn parse_orders_no_filters() {
-    let filter = Filter::new();
     let e1 = build_order_event(
         mostro_core::order::Kind::Buy,
         Status::Active,
@@ -183,7 +160,7 @@ fn parse_orders_no_filters() {
         50000,
         500,
     );
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     events.insert(e1);
     events.insert(e2);
 
@@ -205,7 +182,6 @@ fn print_orders_empty_list() {
 
 #[test]
 fn print_orders_multiple_orders() {
-    let filter = Filter::new();
     let orders = vec![
         build_order_event(
             mostro_core::order::Kind::Buy,
@@ -223,7 +199,7 @@ fn print_orders_multiple_orders() {
         ),
     ];
 
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     for order in orders {
         events.insert(order);
     }
@@ -243,9 +219,8 @@ fn print_orders_multiple_orders() {
 
 #[test]
 fn parse_orders_different_amounts() {
-    let filter = Filter::new();
     let amounts = vec![10000i64, 50000i64, 100000i64, 1000000i64];
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
 
     for amount in &amounts {
         let e = build_order_event(
@@ -264,9 +239,8 @@ fn parse_orders_different_amounts() {
 
 #[test]
 fn parse_orders_different_currencies() {
-    let filter = Filter::new();
     let currencies = vec!["USD", "EUR", "GBP", "JPY", "CAD"];
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
 
     for currency in &currencies {
         let e = build_order_event(
@@ -285,7 +259,6 @@ fn parse_orders_different_currencies() {
 
 #[test]
 fn parse_orders_market_price() {
-    let filter = Filter::new();
     // Market price orders have amount = 0
     let e = build_order_event(
         mostro_core::order::Kind::Buy,
@@ -294,7 +267,7 @@ fn parse_orders_market_price() {
         0,
         1000,
     );
-    let mut events = Events::new(&filter);
+    let mut events = BTreeSet::new();
     events.insert(e);
 
     let out = parse_orders_events(events, Some("USD".into()), None, None);

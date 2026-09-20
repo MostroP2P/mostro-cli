@@ -21,43 +21,50 @@ name = "mostro-cli"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.99"
-clap = { version = "4.5.46", features = ["derive"] }
-nostr-sdk = { version = "0.44.1", features = [
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+nostr-sdk = { version = "0.45.3" }
+# Enable NIP features on `nostr` (re-exported via nostr-sdk::prelude). nip06 is
+# required for Keys::from_mnemonic_*; nip44 for protocol DMs and kind-14 chat.
+nostr = { version = "0.45.5", default-features = false, features = [
+  "std",
+  "os-rng",
   "nip06",
   "nip44",
-  "nip59",
-  "nip98",
 ] }
 serde = "1.0.219"
 serde_json = "1.0.143"
-tokio = { version = "1.47.1", features = ["full"] }
-comfy-table = "7.2.1"
+tokio = { version = "1.53.1", features = ["full"] }
+comfy-table = "8.0.0"
 chrono = "0.4.42"
-log = "0.4.28"
-futures = "0.3"
+log = "0.4.34"
+futures = "0.3.34"
 uuid = { version = "1.18.1", features = [
   "v4",
   "fast-rng",
   "macro-diagnostics",
   "serde",
 ] }
-lightning-invoice = { version = "0.33.2", features = ["std"] }
-reqwest = { version = "0.12.23", default-features = false, features = [
+lightning-invoice = { version = "0.34.1", features = ["std"] }
+reqwest = { version = "0.13.5", default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls",
 ] }
-mostro-core = "=0.14.2"
-lnurl-rs = { version = "0.9.0", default-features = false, features = ["ureq"] }
+mostro-core = "=0.14.6"
+lnurl-rs = { version = "0.10.0", default-features = false, features = ["ureq"] }
 pretty_env_logger = "0.5.0"
-sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }
-bip39 = { version = "2.2.0", features = ["rand"] }
-dirs = "6.0.0"
-chacha20poly1305 = "0.10.1"
-rand_core = "0.10.0"
-bitcoin = "0.32.8"
-bitcoin_hashes = { version = "0.20.0", default-features = false }
-base64 = "0.22"
+sqlx = { version = "0.9.0", features = [
+  "sqlite",
+  "runtime-tokio",
+  "tls-rustls",
+] }
+bip39 = { version = "3.0.0", features = ["rand"] }
+dirs = "7.0.0"
+chacha20poly1305 = "0.11.0"
+rand_core = "0.10.1"
+secp256k1 = "0.30"
+bitcoin_hashes = { version = "1.2.0", default-features = false }
+base64 = "0.23.1"
 # Admin gRPC (mostrod `[rpc]`): hand-written prost messages + tonic client,
 # no protoc / build.rs needed to `cargo install`.
 tonic = { version = "0.14.2", features = ["tls-ring", "tls-native-roots"] }
@@ -86,5 +93,5 @@ pre-release-hook = [
 
 [dev-dependencies]
 tokio-test = "0.4"
-serial_test = "3.1"
-rstest = "0.26.1"
+serial_test = "4.0.1"
+rstest = "0.27.0"

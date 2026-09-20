@@ -1,11 +1,12 @@
 use mostro_client::parser::dms::{parse_dm_events, print_direct_messages};
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
+use std::collections::BTreeSet;
 
 #[tokio::test]
 async fn parse_dm_empty() {
     let keys = Keys::generate();
-    let events = Events::new(&Filter::new());
+    let events = BTreeSet::new();
     let out = parse_dm_events(events, &keys, None, true).await;
     assert!(out.is_empty());
 }
@@ -222,7 +223,7 @@ async fn print_dms_with_restore_session_payload() {
 #[tokio::test]
 async fn parse_dm_with_time_filter() {
     let keys = Keys::generate();
-    let events = Events::new(&Filter::new());
+    let events = BTreeSet::new();
     let since = 1700000000i64;
     let out = parse_dm_events(events, &keys, Some(&since), true).await;
     assert!(out.is_empty());
@@ -256,7 +257,7 @@ async fn parse_dm_events_accepts_wrap_message_output() {
     .await
     .expect("wrap");
 
-    let mut events = Events::new(&Filter::new());
+    let mut events = BTreeSet::new();
     events.insert(wrapped);
 
     let parsed = parse_dm_events(events, &receiver_keys, None, true).await;
@@ -290,7 +291,7 @@ async fn parse_dm_events_skips_events_for_other_keys() {
     .await
     .unwrap();
 
-    let mut events = Events::new(&Filter::new());
+    let mut events = BTreeSet::new();
     events.insert(wrapped);
 
     let parsed = parse_dm_events(events, &eavesdropper, None, true).await;

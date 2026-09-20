@@ -61,7 +61,7 @@ mod tests {
         let event = wrap_chat_message(&alice, &conv, &sign, "hello from alice")
             .await
             .unwrap();
-        assert_eq!(event.kind, Kind::PrivateDirectMessage);
+        assert_eq!(event.kind, nostr_sdk::prelude::Kind::PrivateDirectMessage);
         assert_eq!(event.pubkey, sign.public_key());
 
         let allowed = [alice.public_key(), bob.public_key()];

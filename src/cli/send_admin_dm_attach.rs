@@ -5,12 +5,10 @@ use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use bitcoin_hashes::sha256::Hash as Sha256Hash;
-use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::aead::{Aead, Generate, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use mostro_core::chat::{derive_chat_keys, wrap_chat_message};
 use nostr_sdk::prelude::*;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use uuid::Uuid;
 
 use crate::cli::Context;
@@ -35,15 +33,15 @@ const BLOSSOM_SERVERS: &[&str] = &[
 ];
 
 fn encrypt_blob(shared_key: [u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, String)> {
-    let key = Key::from_slice(&shared_key);
-    let cipher = ChaCha20Poly1305::new(key);
+    let key = Key::from(shared_key);
+    let cipher = ChaCha20Poly1305::new(&key);
 
+    let nonce = Nonce::generate();
     let mut nonce_bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    nonce_bytes.copy_from_slice(nonce.as_slice());
 
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|e| anyhow::anyhow!("encryption failed: {e}"))?;
 
     if ciphertext.len() < 16 {
@@ -100,11 +98,11 @@ async fn upload_to_blossom(trade_keys: &Keys, encrypted_blob: Vec<u8>) -> Result
         let tags = [
             Tag::hashtag("upload"), // ["t", "upload"]
             Tag::expiration(expiration),
-            Tag::custom(TagKind::x(), [payload_hex.clone()]),
+            Tag::custom("x", [payload_hex.clone()]),
         ];
         let event = match EventBuilder::new(Kind::BlossomAuth, "Upload Blob")
             .tags(tags)
-            .sign_with_keys(trade_keys)
+            .finalize(trade_keys)
         {
             Ok(e) => e,
             Err(e) => {
