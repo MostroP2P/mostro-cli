@@ -401,9 +401,11 @@ pub async fn print_dm_events(
         Err(e) => return Err(anyhow::anyhow!("Unexpected response from Mostro: {e}")),
     }
 
-    // The reply is validated above; record the counterparty pubkey it carries.
-    crate::parser::dms::persist_counterparty_pubkey(inner, sender, ctx).await;
     print_commands_results(inner, ctx).await?;
+    // After, not before: on Action::NewOrder the row is created by
+    // print_commands_results, and the helper needs it to exist to learn which
+    // of the two trade pubkeys is ours.
+    crate::parser::dms::persist_counterparty_pubkey(inner, sender, ctx).await;
     Ok(())
 }
 
