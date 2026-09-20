@@ -44,7 +44,8 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
               buyer_invoice TEXT,
               request_id INTEGER,
               created_at INTEGER,
-              expires_at INTEGER
+              expires_at INTEGER,
+              solver_pubkey TEXT
           );
           CREATE TABLE IF NOT EXISTS users (
               i0_pubkey char(64) PRIMARY KEY,
@@ -85,6 +86,7 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
 
         // Migration: Drop buyer_token and seller_token columns if they exist
         migrate_remove_token_columns(&pool).await?;
+        migrate_add_solver_pubkey(&pool).await?;
     }
 
     Ok(pool)
@@ -111,6 +113,48 @@ fn create_private_db_file(path: &str) -> io::Result<()> {
     }
 
     options.open(path).map(|_| ())
+}
+
+/// Add `solver_pubkey` to databases created before dispute chat existed.
+///
+/// Without it the pubkey the daemon hands us in `admin-took-dispute` has
+/// nowhere to live, and the dispute conversation stays unreachable for every
+/// order that was already in the database.
+async fn migrate_add_solver_pubkey(pool: &SqlitePool) -> Result<()> {
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'solver_pubkey'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if exists == 0 {
+        match sqlx::query("ALTER TABLE orders ADD COLUMN solver_pubkey TEXT")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => println!("Added solver_pubkey column for dispute chat"),
+            // Another process may have added it between the check and here, so
+            // a failure is not conclusive; the schema decides.
+            Err(e) => log::debug!("could not add solver_pubkey column: {e}"),
+        }
+
+        let present = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'solver_pubkey'",
+        )
+        .fetch_one(pool)
+        .await?;
+
+        // Fail closed. Every read and write of an order names this column, so
+        // continuing without it breaks the whole client, not just dispute chat.
+        if present == 0 {
+            return Err(anyhow::anyhow!(
+                "orders table has no solver_pubkey column and it could not be added; \
+                 refusing to continue with a schema every query depends on"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 async fn migrate_remove_token_columns(pool: &SqlitePool) -> Result<()> {
@@ -308,6 +352,9 @@ pub struct Order {
     pub request_id: Option<i64>,
     pub created_at: Option<i64>,
     pub expires_at: Option<i64>,
+    /// Pubkey of the solver handling a dispute on this order, learned from the
+    /// `admin-took-dispute` message. The dispute conversation derives from it.
+    pub solver_pubkey: Option<String>,
 }
 
 impl Order {
@@ -340,6 +387,7 @@ impl Order {
             request_id,
             created_at: Some(chrono::Utc::now().timestamp()),
             expires_at: None,
+            solver_pubkey: None,
         };
 
         // Try insert; if id already exists, perform an update instead
@@ -357,7 +405,22 @@ impl Order {
             };
 
             if is_unique_violation {
-                order.update_db(pool).await?;
+                // The order message carries no counterparty, no solver and no
+                // invoice: those we learned ourselves, along the way. Writing
+                // the fresh row as-is would blank them, and a blanked
+                // counterparty or solver means a chat that can no longer be
+                // opened halfway through a trade.
+                let mut merged = order.clone();
+                if let Some(id) = merged.id.as_ref() {
+                    if let Ok(stored) = Order::get_by_id(pool, id).await {
+                        merged.counterparty_pubkey =
+                            merged.counterparty_pubkey.or(stored.counterparty_pubkey);
+                        merged.solver_pubkey = merged.solver_pubkey.or(stored.solver_pubkey);
+                        merged.buyer_invoice = merged.buyer_invoice.or(stored.buyer_invoice);
+                    }
+                }
+                merged.update_db(pool).await?;
+                return Ok(merged);
             } else {
                 return Err(e.into());
             }
@@ -371,8 +434,9 @@ impl Order {
             r#"
 			      INSERT INTO orders (id, kind, status, amount, min_amount, max_amount,
 			      fiat_code, fiat_amount, payment_method, premium, trade_keys,
-			      counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at)
-			      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			      counterparty_pubkey, is_mine, buyer_invoice, request_id, created_at, expires_at,
+			      solver_pubkey)
+			      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			    "#,
         )
         .bind(&self.id)
@@ -392,6 +456,7 @@ impl Order {
         .bind(self.request_id)
         .bind(self.created_at)
         .bind(self.expires_at)
+        .bind(&self.solver_pubkey)
         .execute(pool)
         .await?
         .rows_affected();
@@ -404,7 +469,8 @@ impl Order {
 			  UPDATE orders 
 			  SET kind = ?, status = ?, amount = ?, min_amount = ?, max_amount = ?,
 			      fiat_code = ?, fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?,
-			      counterparty_pubkey = ?, is_mine = ?, buyer_invoice = ?, request_id = ?, created_at = ?, expires_at = ?
+			      counterparty_pubkey = ?, is_mine = ?, buyer_invoice = ?, request_id = ?, created_at = ?, expires_at = ?,
+			      solver_pubkey = ?
 			  WHERE id = ?
 			"#,
 		)
@@ -424,6 +490,7 @@ impl Order {
 		.bind(self.request_id)
 		.bind(self.created_at)
 		.bind(self.expires_at)
+		.bind(&self.solver_pubkey)
 		.bind(&self.id)
 		.execute(pool)
 		.await?
@@ -482,6 +549,11 @@ impl Order {
         self
     }
 
+    pub fn set_solver_pubkey(&mut self, solver_pubkey: String) -> &mut Self {
+        self.solver_pubkey = Some(solver_pubkey);
+        self
+    }
+
     pub fn set_trade_keys(&mut self, trade_keys: String) -> &mut Self {
         self.trade_keys = Some(trade_keys);
         self
@@ -501,7 +573,7 @@ impl Order {
               UPDATE orders 
               SET kind = ?, status = ?, amount = ?, fiat_code = ?, min_amount = ?, max_amount = ?, 
                   fiat_amount = ?, payment_method = ?, premium = ?, trade_keys = ?, counterparty_pubkey = ?,
-                  is_mine = ?, buyer_invoice = ?, expires_at = ?
+                  is_mine = ?, buyer_invoice = ?, expires_at = ?, solver_pubkey = ?
               WHERE id = ?
               "#,
             )
@@ -519,6 +591,7 @@ impl Order {
             .bind(self.is_mine)
             .bind(&self.buyer_invoice)
             .bind(self.expires_at)
+            .bind(&self.solver_pubkey)
             .bind(id)
             .execute(pool)
             .await?;
@@ -635,6 +708,130 @@ mod tests {
             std::process::id(),
             n
         ))
+    }
+
+    /// Every write path has its own column list, and one of them silently
+    /// dropped the new column while the others carried it. Round-tripping
+    /// through the same `save` the client uses is what catches that.
+    #[tokio::test]
+    async fn test_solver_pubkey_survives_save() {
+        let path = unique_temp_path("solver");
+        let path_str = path.to_str().unwrap().to_string();
+        create_private_db_file(&path_str).expect("should create db file");
+        let pool = test_pool(&path_str).await;
+
+        let mut order = Order {
+            id: Some("11111111-1111-1111-1111-111111111111".to_string()),
+            kind: Some("sell".to_string()),
+            status: Some("dispute".to_string()),
+            fiat_code: "EUR".to_string(),
+            payment_method: "SEPA".to_string(),
+            ..Default::default()
+        };
+        order.insert_db(&pool).await.expect("insert should work");
+
+        let solver = "da23a31d75572138ab8149911a04224812a34bda679caba7cb1824fdf7c592ec";
+        order.set_solver_pubkey(solver.to_string());
+        order.save(&pool).await.expect("save should work");
+
+        let again = Order::get_by_id(&pool, order.id.as_ref().unwrap())
+            .await
+            .expect("order should still be there");
+        assert_eq!(
+            again.solver_pubkey.as_deref(),
+            Some(solver),
+            "solver pubkey must survive a save, otherwise dispute chat stays unreachable"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A pool with the same orders table `connect` creates.
+    async fn test_pool(path_str: &str) -> SqlitePool {
+        let pool = SqlitePool::connect(&format!("sqlite://{}", path_str))
+            .await
+            .expect("should connect");
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS orders (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                min_amount INTEGER,
+                max_amount INTEGER,
+                fiat_code TEXT NOT NULL,
+                fiat_amount INTEGER NOT NULL,
+                payment_method TEXT NOT NULL,
+                premium INTEGER NOT NULL,
+                trade_keys TEXT,
+                counterparty_pubkey TEXT,
+                is_mine BOOLEAN,
+                buyer_invoice TEXT,
+                request_id INTEGER,
+                created_at INTEGER,
+                expires_at INTEGER,
+                solver_pubkey TEXT
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("schema should be created");
+        pool
+    }
+
+    /// An order message repeats what the daemon knows: kind, amount, status.
+    /// It does not repeat what we learned ourselves. Refreshing an order must
+    /// therefore not blank the counterparty or the solver, or the chat for a
+    /// running trade becomes unreachable.
+    #[tokio::test]
+    async fn test_refreshing_an_order_keeps_what_we_learned() {
+        let path = unique_temp_path("merge");
+        let path_str = path.to_str().unwrap().to_string();
+        create_private_db_file(&path_str).expect("should create db file");
+        let pool = test_pool(&path_str).await;
+
+        let id = uuid::Uuid::new_v4();
+        let trade_keys = Keys::generate();
+        let small = SmallOrder {
+            id: Some(id),
+            kind: Some(mostro_core::order::Kind::Sell),
+            status: Some(mostro_core::order::Status::Pending),
+            fiat_code: "EUR".to_string(),
+            payment_method: "SEPA".to_string(),
+            ..Default::default()
+        };
+
+        Order::new(&pool, small.clone(), &trade_keys, None)
+            .await
+            .expect("first save should insert");
+
+        let mut stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        stored.set_counterparty_pubkey(
+            "d74058c52b9ed51bc34f1c16451aab5df756d103a1271a43747dd16360e44bb8".to_string(),
+        );
+        stored.set_solver_pubkey(
+            "da23a31d75572138ab8149911a04224812a34bda679caba7cb1824fdf7c592ec".to_string(),
+        );
+        stored.save(&pool).await.expect("save should work");
+
+        // Same order comes in again, as happens on any later message about it.
+        Order::new(&pool, small, &trade_keys, None)
+            .await
+            .expect("second save should update");
+
+        let again = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert!(
+            again.counterparty_pubkey.is_some(),
+            "counterparty must survive a refresh"
+        );
+        assert!(
+            again.solver_pubkey.is_some(),
+            "solver must survive a refresh"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[cfg(unix)]

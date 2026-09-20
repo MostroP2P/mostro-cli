@@ -9,7 +9,7 @@ This document describes the internal structure of `mostro-cli`, how major module
   - Very thin; most logic is in `src/cli.rs`.
 
 - **`src/cli.rs`**
-  - Declares submodules for each logical command group: `add_invoice`, `adm_send_dm`, `conversation_key`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `list_orders`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`.
+  - Declares submodules for each logical command group: `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `list_orders`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`.
   - Defines:
     - `Context`: runtime dependencies required by commands (Nostr client, keys, trade index, DB pool, optional admin context keys, and Mostro pubkey).
     - `Cli`: top-level arguments parsed by `clap` (subcommand, verbosity, Mostro pubkey override, relay list, PoW, secret mode).
@@ -31,12 +31,12 @@ This document describes the internal structure of `mostro-cli`, how major module
 - **`src/util/mod.rs`**
   - Organizes utility modules:
     - `events`: event filtering and retrieval from Nostr.
-    - `messaging`: higher-level DM helpers (gift-wrapped messages, admin keys, **shared-key derivation and custom wraps**).
+    - `messaging`: higher-level DM helpers (kind-14 NIP-44 wraps, wait-for-reply, admin keys, ECDH shared-secret bytes for attachment encryption).
     - `misc`: small helpers such as `get_mcli_path` and string utilities.
     - `net`: Nostr network connection setup.
     - `storage`: thin storage helpers for orders and DMs.
     - `types`: small shared enums/wrappers.
-  - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, **`derive_shared_keys`, `derive_shared_key_hex`, `keys_from_shared_hex`, `send_admin_chat_message_via_shared_key`**, etc.) so other modules can import from `crate::util` directly.
+  - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, `wait_for_dm`, etc.) so other modules can import from `crate::util` directly.
 
 - **`src/util/storage.rs`**
   - `save_order(order, trade_keys, request_id, trade_index, pool)`:
@@ -53,7 +53,6 @@ This document describes the internal structure of `mostro-cli`, how major module
     - Wraps `SmallOrder`, `Dispute`, and a `Message` tuple `(Message, u64, PublicKey)` for use in parsers and event handling.
   - `ListKind` enum:
     - Identifies what is being listed: `Orders`, `Disputes`, `DirectMessagesUser`, `DirectMessagesAdmin`, `PrivateDirectMessagesUser`.
-  - `MessageType` (internal to `util`) distinguishes DM/gift-wrap styles.
 
 ### Database layer
 
@@ -82,9 +81,9 @@ This document describes the internal structure of `mostro-cli`, how major module
     - `common.rs`: shared parsing helpers.
     - `mod.rs`: module glue.
 
-- **Shared-key custom wraps** (`src/util/messaging.rs`):
-  - **Sending**: `derive_shared_keys(local_keys, counterparty_pubkey)` yields a `Keys` whose public key is used as the NIP-59 gift-wrap recipient; inner content is a signed text note encrypted with NIP-44 to that pubkey. Used by `dmtouser` and `sendadmindmattach`.
-  - **Receiving**: `unwrap_giftwrap_with_shared_key(shared_keys, event)` decrypts with NIP-44 and returns `(content, timestamp, sender_pubkey)`; `fetch_gift_wraps_for_shared_key(client, shared_keys)` fetches Kind::GiftWrap events with `#p` = shared key pubkey and unwraps them. Use when implementing flows that read shared-key DMs.
+- **Peer / solver chat** (`src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
+  - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`.
+  - Attachment encryption still uses ECDH (`derive_shared_key_bytes`) for the Blossom blob only; the metadata DM is the same kind-14 chat envelope.
 
 ### Lightning integration
 
@@ -98,7 +97,7 @@ Each file in `src/cli/` encapsulates the logic of a specific feature or a group 
 
 - Order-related: `add_invoice.rs`, `list_orders.rs`, `new_order.rs`, `take_order.rs`, `orders_info.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`.
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
-- Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
+- Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
 Each module exports an `execute_*` function that `Commands::run` calls. This keeps `src/cli.rs` as a central router while pushing feature logic into focused files.
 

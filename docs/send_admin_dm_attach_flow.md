@@ -39,7 +39,7 @@ pub async fn execute_send_admin_dm_attach(
     // 3) Derive shared key with admin pubkey and encrypt file (ChaCha20-Poly1305)
     // 4) Upload encrypted blob to Blossom with BUD-01 auth
     // 5) Build DM payload JSON referencing Blossom URL + crypto metadata
-    // 6) Gift-wrap DM and send over Nostr
+    // 6) Wrap as kind-14 chat and send over Nostr
 }
 ```
 
@@ -80,7 +80,7 @@ Step‑by‑step:
    - `Keys::parse` reconstructs the **per‑order ephemeral keypair**.
    - These trade keys are used for:
      - Encrypting the attachment (via ECDH shared secret).
-     - Sending/signing the Nostr DM (gift‑wrapped text note).
+     - Sending/signing the Nostr DM (kind-14 chat envelope).
 
 ### 3. ECDH shared key & symmetric encryption
 
@@ -320,30 +320,31 @@ Blossom protocol details:
 
 The function ultimately returns a **public URL** (`blossom_url`) pointing to the encrypted blob.
 
-### 5. DM payload and shared-key custom wrap to admin
+### 5. DM payload and kind-14 chat envelope to admin
 
-Once the encrypted blob is uploaded and we have `blossom_url`, the DM payload is built as JSON (`type`, `blossom_url`, `nonce`, `mime_type`, sizes, `filename`). This content is then sent using **shared-key custom wrap** (same pattern as `dmtouser`):
+Once the encrypted blob is uploaded and we have `blossom_url`, the DM payload is built as JSON (`type`, `blossom_url`, `nonce`, `mime_type`, sizes, `filename`). This content is then sent with the same protocol#52 envelope as `dmtouser`:
 
-- **Shared key**: The same ECDH shared key used for file encryption (trade keys + admin pubkey) is turned into a `Keys` via `Keys::new(SecretKey::from_slice(&shared_key)?)`.
-- **Send**: `send_admin_chat_message_via_shared_key(&ctx.client, &trade_keys, &shared_keys, &content)` in `src/util/messaging.rs`:
-  - Builds an inner text-note event (sender = trade keys), signs it, encrypts it with NIP-44 to the **shared key’s public key**, and wraps it in a NIP-59 GiftWrap event tagged with that pubkey (`#p`).
-  - Both the sender (trade keys) and the admin (who can derive the same shared key) can later fetch and decrypt the event by filtering GiftWrap by the shared key pubkey and using `unwrap_giftwrap_with_shared_key`.
+- **Chat keys**: `derive_chat_keys(&trade_keys, &receiver)` yields `K_conv` / `K_sign`.
+- **Send**: `wrap_chat_message(&trade_keys, &conv, &sign, &content)` then `ctx.client.send_event(&event)`.
+  - Kind 14, signed by `K_sign`, payload NIP-44 encrypted to `K_conv`.
+  - Both the sender (trade keys) and the admin (who can derive the same chat keys) can later fetch and decrypt with `unwrap_chat_message`.
 
-So the attachment metadata is not sent as a plain NIP-59 gift wrap to the admin pubkey; it is sent to the **shared key’s public key**, enabling symmetric decryption for both parties. Relaying is via `ctx.client.send_event(&event)`.
+The Blossom blob is still encrypted with the ECDH shared secret (`derive_shared_key_bytes`). That secret is only for the file; the metadata DM uses the chat envelope.
 
 ### 6. Keys and protocols summary
 
 - **Keys**:
   - `trade_keys` (per‑order):
     - Used for:
-      - ECDH shared secret with admin pubkey (for file encryption and for the shared-key DM).
-      - Nostr identity for the inner text note and for signing the outer NIP‑59 wrap.
+      - ECDH shared secret with admin pubkey (for file encryption).
+      - Deriving `K_conv` / `K_sign` for the kind-14 metadata DM.
       - Signing the Blossom auth event (kind 24242).
   - **Shared key** (ECDH from trade_keys + admin pubkey):
-    - Same 32-byte secret used for ChaCha20‑Poly1305 file encryption.
-    - Wrapped as `Keys` and used as the **recipient** of the DM: the NIP-59 GiftWrap is addressed to the shared key’s public key, and the inner content is NIP-44 encrypted to it, so both sender and admin can derive the key and decrypt.
+    - 32-byte secret used for ChaCha20‑Poly1305 file encryption only.
+  - **Chat keys** (`derive_chat_keys` from trade keys + admin pubkey):
+    - `K_conv` encrypts the metadata DM; `K_sign` authors the kind-14 event.
   - `receiver`:
-    - Admin / solver Nostr pubkey; used to derive the shared key and as the human-facing destination (the actual Nostr event recipient is the shared key pubkey).
+    - Admin / solver Nostr pubkey; used to derive both the file key and the chat keys.
 
 - **Protocols**:
   - **ChaCha20‑Poly1305**:
@@ -356,9 +357,7 @@ So the attachment metadata is not sent as a plain NIP-59 gift wrap to the admin 
     - JSON with attachment metadata:
       - `type`, `blossom_url`, `nonce`, `mime_type`, sizes, `filename`.
   - **Nostr**:
-    - NIP‑13: optional POW on the inner text note.
-    - NIP‑44: encryption of the inner event to the shared key’s public key.
-    - NIP‑59: GiftWrap envelope addressed to the **shared key pubkey** (not directly to the admin), so both parties that know the ECDH secret can fetch and decrypt.
+    - NIP‑44 kind 14: protocol#52 chat envelope (`K_conv` / `K_sign`) for the attachment metadata.
 
 End‑to‑end, `sendadmindmattach`:
 
@@ -366,5 +365,5 @@ End‑to‑end, `sendadmindmattach`:
 2. Encrypts the file with ChaCha20‑Poly1305 using that key.
 3. Authenticates to Blossom with a kind‑24242 auth event (BUD‑01) and uploads the encrypted blob (BUD‑02).
 4. Builds a Mostro DM payload JSON with Blossom URL and crypto metadata.
-5. Sends a **shared-key custom wrap** (NIP-44 inner content, NIP-59 GiftWrap addressed to the shared key’s public key) via `send_admin_chat_message_via_shared_key`, so both the sender and the admin can decrypt the attachment metadata and fetch the blob.
+5. Sends the metadata as a kind-14 chat message (`wrap_chat_message`), so both the sender and the admin can decrypt it and fetch the blob.
 

@@ -14,7 +14,7 @@ settable via the matching env var):
 - `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
 - `-t, --transport <nip44>` (`TRANSPORT`): wire transport. Only `nip44`
-  (protocol v2, signed kind 14) is supported; `gift-wrap` is rejected.
+  (protocol v2, signed kind 14) is supported.
   **Optional**: when omitted, the CLI auto-detects it at startup from the node's
   `protocol_version` tag on its kind-38385 info event (a node that advertises
   nothing is treated as `nip44`). A v1 node is an error.
@@ -132,6 +132,14 @@ settable via the matching env var):
     - `--order-id <UUID>`: Order id to derive trade keys and shared key.
     - `--message <STRING>...`: Message parts; joined with spaces.
   - **Handler**: `execute_dm_to_user(PublicKey::from_str(pubkey)?, &ctx.client, order_id, &msg, &ctx.pool)` in `src/cli/dm_to_user.rs`.
+
+- **`disputechat`**
+  - **Description**: Read, and optionally send on, the dispute conversation with the solver. Uses the same kind-14 envelope as peer chat, derived from the order's trade keys and the stored solver pubkey.
+  - **Args**:
+    - `--order-id <UUID>`: Order that is in dispute.
+    - `--since <i64>`: Minutes back from now to query (default: 1440).
+    - `--message <STRING>`: Optional message to send to the solver before listing.
+  - **Handler**: `execute_dispute_chat(order_id, since, message, ctx)` in `src/cli/dispute_chat.rs`.
 
 ### Direct messages (admin / solver)
 

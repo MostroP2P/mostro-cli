@@ -526,6 +526,64 @@ pub(crate) async fn persist_counterparty_pubkey(
     }
 }
 
+/// Remember which solver is handling a dispute on this order.
+///
+/// `admin-took-dispute` carries the solver's pubkey in a `Peer` payload. The
+/// dispute conversation is derived from it exactly like the peer chat is
+/// derived from the counterparty, so without storing it the user has no way
+/// to reach the solver who is deciding their case.
+///
+/// `sender` MUST be the author of the event that carried this message. Only
+/// mostrod is trusted here: a counterparty who could name the solver would be
+/// naming the key every later dispute message is encrypted to.
+///
+/// `peer.pubkey` is parsed as [`PublicKey`] so hex and npub compare equal, and
+/// the stored value is always canonical hex.
+pub(crate) async fn persist_solver_pubkey(
+    message: &MessageKind,
+    sender: &PublicKey,
+    ctx: &Context,
+) {
+    if message.action != Action::AdminTookDispute {
+        return;
+    }
+    if *sender != ctx.mostro_pubkey {
+        log::debug!("solver pubkey: ignoring admin-took-dispute from non-Mostro sender {sender}");
+        return;
+    }
+    let Some(Payload::Peer(peer)) = message.payload.as_ref() else {
+        return;
+    };
+    let Some(solver) = PublicKey::parse(&peer.pubkey).ok() else {
+        log::debug!("solver pubkey: ignoring unparseable pubkey in admin-took-dispute");
+        return;
+    };
+    let Some(order_id) = message.id else {
+        return;
+    };
+
+    let mut order = match Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
+        Ok(o) => o,
+        Err(e) => {
+            log::debug!("solver pubkey: order {order_id} not in db: {e}");
+            return;
+        }
+    };
+    if order
+        .solver_pubkey
+        .as_deref()
+        .and_then(|stored| PublicKey::parse(stored).ok())
+        .is_some_and(|existing| existing == solver)
+    {
+        return;
+    }
+
+    order.set_solver_pubkey(solver.to_hex());
+    if let Err(e) = order.save(&ctx.pool).await {
+        log::debug!("solver pubkey: could not persist for {order_id}: {e}");
+    }
+}
+
 /// Pick the trade pubkey that is not `ours` from a buyer/seller pair.
 ///
 /// Both sides are parsed as [`PublicKey`] so hex and npub compare equal.
@@ -1180,7 +1238,8 @@ mod tests {
                 buyer_invoice TEXT,
                 request_id INTEGER,
                 created_at INTEGER,
-                expires_at INTEGER
+                expires_at INTEGER,
+                solver_pubkey TEXT
             );
             "#,
         )
@@ -1232,6 +1291,16 @@ mod tests {
             Some(Payload::Order(small.clone())),
         );
         (small, kind)
+    }
+
+    fn admin_took_dispute(id: uuid::Uuid, solver: &str) -> MessageKind {
+        MessageKind::new(
+            Some(id),
+            Some(1),
+            Some(1),
+            Action::AdminTookDispute,
+            Some(Payload::Peer(Peer::new(solver.to_string(), None))),
+        )
     }
 
     #[tokio::test]
@@ -1292,6 +1361,73 @@ mod tests {
         assert_eq!(
             stored.counterparty_pubkey.as_deref(),
             Some(other.public_key().to_hex().as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_solver_stores_canonical_hex_from_mostro() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let solver = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let id = uuid::Uuid::new_v4();
+        let (small, _) = order_message(id, &trade.public_key(), &Keys::generate().public_key());
+        Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+
+        let npub = solver.public_key().to_bech32().expect("npub");
+        persist_solver_pubkey(&admin_took_dispute(id, &npub), &mostro.public_key(), &ctx).await;
+
+        let stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert_eq!(
+            stored.solver_pubkey.as_deref(),
+            Some(solver.public_key().to_hex().as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_solver_ignores_non_mostro_senders() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let solver = Keys::generate();
+        let peer = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let id = uuid::Uuid::new_v4();
+        let (small, _) = order_message(id, &trade.public_key(), &Keys::generate().public_key());
+        Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+
+        persist_solver_pubkey(
+            &admin_took_dispute(id, &solver.public_key().to_hex()),
+            &peer.public_key(),
+            &ctx,
+        )
+        .await;
+
+        let stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert!(stored.solver_pubkey.is_none());
+    }
+
+    #[tokio::test]
+    async fn persist_solver_skips_when_already_the_same_key() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let solver = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let id = uuid::Uuid::new_v4();
+        let (small, _) = order_message(id, &trade.public_key(), &Keys::generate().public_key());
+        let mut order = Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+        order.set_solver_pubkey(solver.public_key().to_hex());
+        order.save(&pool).await.unwrap();
+
+        let npub = solver.public_key().to_bech32().expect("npub");
+        persist_solver_pubkey(&admin_took_dispute(id, &npub), &mostro.public_key(), &ctx).await;
+
+        let stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert_eq!(
+            stored.solver_pubkey.as_deref(),
+            Some(solver.public_key().to_hex().as_str())
         );
     }
 }
