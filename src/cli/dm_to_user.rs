@@ -18,6 +18,13 @@ pub async fn execute_dm_to_user(
     message: &str,
     pool: &SqlitePool,
 ) -> Result<()> {
+    // Check what both envelopes require before either of them is published.
+    // The legacy path rejects empty content, and finding that out afterwards
+    // would mean failing a message that is already on the relays.
+    if message.trim().is_empty() {
+        anyhow::bail!("Cannot send empty chat message");
+    }
+
     // Get the order
     let order = Order::get_by_id(pool, &order_id.to_string())
         .await
@@ -57,9 +64,25 @@ pub async fn execute_dm_to_user(
 
     // Also publish the legacy gift wrap, so a counterparty still running a
     // pre-migration client keeps receiving messages during the transition.
-    send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await?;
-
-    print_success_message("Chat message sent (kind 14 envelope + legacy gift wrap)!");
+    //
+    // The message is already out at this point. Returning an error here would
+    // invite the user to send it again, and the counterparty would see it
+    // twice; a failing legacy copy costs compatibility with old clients, not
+    // the message itself.
+    match send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await
+    {
+        Ok(()) => print_success_message("Chat message sent (kind 14 envelope + legacy gift wrap)!"),
+        Err(e) => {
+            print_success_message("Chat message sent (kind 14 envelope)!");
+            print_info_line(
+                "⚠️",
+                &format!(
+                    "The legacy gift wrap could not be published ({e}). A counterparty on a \
+                     pre-migration client may not see this message; do not send it again."
+                ),
+            );
+        }
+    }
 
     Ok(())
 }
