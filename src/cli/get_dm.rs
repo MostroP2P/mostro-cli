@@ -55,9 +55,13 @@ pub async fn execute_get_dm(
         None
     };
 
-    // Listing messages is also a chance to learn the counterparty pubkey.
-    for (message, _, _) in &dm_events {
-        persist_counterparty_pubkey(message.get_inner_message_kind(), ctx).await;
+    // Listing messages is also a chance to learn the counterparty pubkey, but
+    // only from mostrod. `--fromuser` lists peer chat, which is attacker
+    // controlled, so skip it entirely; the helper re-checks the sender.
+    if !*from_user {
+        for (message, _, sender) in &dm_events {
+            persist_counterparty_pubkey(message.get_inner_message_kind(), sender, ctx).await;
+        }
     }
     print_direct_messages(&dm_events, Some(ctx.mostro_pubkey), claim_window_days).await?;
     Ok(())

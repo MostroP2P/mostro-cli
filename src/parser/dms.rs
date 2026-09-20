@@ -471,7 +471,20 @@ fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisput
 /// mostrod sets both `buyer_trade_pubkey` and `seller_trade_pubkey`; whichever
 /// one is not ours is the counterparty. Best-effort: any failure is logged and
 /// ignored, since this only ever adds convenience.
-pub(crate) async fn persist_counterparty_pubkey(message: &MessageKind, ctx: &Context) {
+///
+/// `sender` MUST be the author of the event that carried this message. Only
+/// mostrod is trusted: peer chat is decrypted with our own trade key, so a
+/// counterparty could otherwise craft an `Order` payload naming any pubkey and
+/// redirect every later chat command to an address of their choosing.
+pub(crate) async fn persist_counterparty_pubkey(
+    message: &MessageKind,
+    sender: &PublicKey,
+    ctx: &Context,
+) {
+    if *sender != ctx.mostro_pubkey {
+        log::debug!("counterparty pubkey: ignoring Order payload from non-Mostro sender {sender}");
+        return;
+    }
     let Some(Payload::Order(small)) = message.payload.as_ref() else {
         return;
     };
@@ -519,7 +532,6 @@ pub(crate) async fn persist_counterparty_pubkey(message: &MessageKind, ctx: &Con
 }
 
 pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Result<()> {
-    persist_counterparty_pubkey(message, ctx).await;
     // Do the logic for the message response
     match message.action {
         Action::NewOrder => {

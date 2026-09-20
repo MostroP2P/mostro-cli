@@ -386,7 +386,7 @@ pub async fn print_dm_events(
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     // Mostro-protocol reply: unwrap via the transport-agnostic dispatcher.
     let messages = parse_dm_events(recv_event, trade_keys, None, true).await;
-    let (message, _, _) = messages
+    let (message, _, sender) = messages
         .first()
         .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
     let inner = message.get_inner_message_kind();
@@ -401,6 +401,8 @@ pub async fn print_dm_events(
         Err(e) => return Err(anyhow::anyhow!("Unexpected response from Mostro: {e}")),
     }
 
+    // The reply is validated above; record the counterparty pubkey it carries.
+    crate::parser::dms::persist_counterparty_pubkey(inner, sender, ctx).await;
     print_commands_results(inner, ctx).await?;
     Ok(())
 }
