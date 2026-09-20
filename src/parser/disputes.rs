@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use anyhow::Result;
 use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
@@ -35,11 +37,11 @@ pub fn parse_dispute_events(events: Events) -> Vec<Dispute> {
     });
 
     // Sort by id to remove duplicates
-    disputes_list.sort_by(|a, b| b.id.cmp(&a.id));
+    disputes_list.sort_by_key(|b| Reverse(b.id));
     disputes_list.dedup_by(|a, b| a.id == b.id);
 
     // Finally sort list by creation time
-    disputes_list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    disputes_list.sort_by_key(|b| Reverse(b.created_at));
     disputes_list
 }
 

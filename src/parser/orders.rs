@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::parser::common::{apply_kind_color, apply_status_color, create_error_cell};
@@ -70,7 +71,7 @@ pub fn parse_orders_events(
         })
         .collect();
 
-    requested.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    requested.sort_by_key(|b| Reverse(b.created_at));
     requested
 }
 
