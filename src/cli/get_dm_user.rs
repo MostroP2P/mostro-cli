@@ -23,8 +23,20 @@ pub async fn execute_get_dm_user(
     since: &i64,
     ctx: &Context,
 ) -> Result<()> {
+    execute_get_dm_user_labelled(pubkey, order_id, since, "Counterparty", ctx).await
+}
+
+/// Same, with a name for who is on the other end. The dispute chat uses the
+/// identical key derivation but the other side is a solver, not the peer.
+pub async fn execute_get_dm_user_labelled(
+    pubkey: PublicKey,
+    order_id: Uuid,
+    since: &i64,
+    label: &str,
+    ctx: &Context,
+) -> Result<()> {
     print_section_header("📨 Fetch User Direct Messages");
-    print_key_value("👥", "Counterparty", &pubkey.to_string());
+    print_key_value("👥", label, &pubkey.to_string());
     print_key_value("📋", "Order ID", &order_id.to_string());
     print_key_value("⏰", "Since", &format!("{} minutes ago", since));
     print_info_line("💡", "Fetching chat messages...");

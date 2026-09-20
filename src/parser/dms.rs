@@ -526,6 +526,55 @@ pub(crate) async fn persist_counterparty_pubkey(
     }
 }
 
+/// Remember which solver is handling a dispute on this order.
+///
+/// `admin-took-dispute` carries the solver's pubkey in a `Peer` payload. The
+/// dispute conversation is derived from it exactly like the peer chat is
+/// derived from the counterparty, so without storing it the user has no way
+/// to reach the solver who is deciding their case.
+///
+/// `sender` MUST be the author of the event that carried this message. Only
+/// mostrod is trusted here: a counterparty who could name the solver would be
+/// naming the key every later dispute message is encrypted to.
+pub(crate) async fn persist_solver_pubkey(
+    message: &MessageKind,
+    sender: &PublicKey,
+    ctx: &Context,
+) {
+    if message.action != Action::AdminTookDispute {
+        return;
+    }
+    if *sender != ctx.mostro_pubkey {
+        log::debug!("solver pubkey: ignoring admin-took-dispute from non-Mostro sender {sender}");
+        return;
+    }
+    let Some(Payload::Peer(peer)) = message.payload.as_ref() else {
+        return;
+    };
+    if peer.pubkey.is_empty() {
+        return;
+    }
+    let Some(order_id) = message.id else {
+        return;
+    };
+
+    let mut order = match Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
+        Ok(o) => o,
+        Err(e) => {
+            log::debug!("solver pubkey: order {order_id} not in db: {e}");
+            return;
+        }
+    };
+    if order.solver_pubkey.as_deref() == Some(peer.pubkey.as_str()) {
+        return;
+    }
+
+    order.set_solver_pubkey(peer.pubkey.clone());
+    if let Err(e) = order.save(&ctx.pool).await {
+        log::debug!("solver pubkey: could not persist for {order_id}: {e}");
+    }
+}
+
 /// Pick the trade pubkey that is not `ours` from a buyer/seller pair.
 ///
 /// Both sides are parsed as [`PublicKey`] so hex and npub compare equal.

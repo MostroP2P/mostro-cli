@@ -2,6 +2,7 @@ pub mod add_bond_invoice;
 pub mod add_invoice;
 pub mod adm_send_dm;
 pub mod conversation_key;
+pub mod dispute_chat;
 pub mod dm_to_user;
 pub mod get_dm;
 pub mod get_dm_user;
@@ -25,6 +26,7 @@ use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
 use crate::cli::dm_to_user::execute_dm_to_user;
 use crate::cli::get_dm::execute_get_dm;
+use crate::cli::dispute_chat::execute_dispute_chat;
 use crate::cli::get_dm_user::execute_get_dm_user;
 use crate::cli::last_trade_index::{
     execute_last_trade_index, execute_last_trade_index_private_key,
@@ -212,6 +214,19 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 30)]
         since: i64,
+    },
+    /// Read the dispute conversation with the solver handling your order
+    DisputeChat {
+        /// Order id that is in dispute
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Since time of the messages in minutes
+        #[arg(short, long)]
+        #[clap(default_value_t = 1440)]
+        since: i64,
+        /// Send this message to the solver instead of only reading
+        #[arg(short, long)]
+        message: Option<String>,
     },
     /// Get the latest direct messages for admin
     GetAdminDm {
@@ -749,6 +764,11 @@ impl Commands {
                 order_id,
                 since,
             } => execute_get_dm_user(PublicKey::from_str(pubkey)?, *order_id, since, ctx).await,
+            Commands::DisputeChat {
+                order_id,
+                since,
+                message,
+            } => execute_dispute_chat(*order_id, since, message.as_deref(), ctx).await,
             Commands::GetAdminDm { since, from_user } => {
                 execute_get_dm(since, true, from_user, ctx).await
             }

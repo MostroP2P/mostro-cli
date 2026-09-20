@@ -371,7 +371,23 @@ If your counterpart misbehaves (no fiat received, no release after fiat sent, et
 mostro-cli dispute -o <order-id>
 ```
 
-This puts the order in dispute. A solver will be assigned and contact you. Use `getdm` to receive their messages and respond with `senddm`. Be honest, provide evidence, and respect that the solver decides.
+This puts the order in dispute. A solver will be assigned and contacts you over
+the **dispute chat**, a channel of its own: it is derived from your trade key and
+the solver's pubkey, the same way the peer chat is derived from the two trade
+keys. `getdm` will not show it, because that command filters on events tagged
+with your own pubkey while this conversation is tagged to its conversation key.
+
+Read it, and answer, with:
+
+```bash
+mostro-cli disputechat -o <order-id>
+mostro-cli disputechat -o <order-id> -m "here is the bank statement"
+```
+
+The solver's pubkey arrives in the `admin-took-dispute` message, so run `getdm`
+once after opening the dispute to let the client store it.
+
+Be honest, provide evidence, and respect that the solver decides.
 
 To see the public dispute queue:
 
