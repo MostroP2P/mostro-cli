@@ -21,7 +21,8 @@ pub async fn execute_dm_to_user(
     // Check what both envelopes require before either of them is published.
     // The legacy path rejects empty content, and finding that out afterwards
     // would mean failing a message that is already on the relays.
-    if message.trim().is_empty() {
+    let message = message.trim();
+    if message.is_empty() {
         anyhow::bail!("Cannot send empty chat message");
     }
 
@@ -74,13 +75,12 @@ pub async fn execute_dm_to_user(
     // invite the user to send it again, and the counterparty would see it
     // twice; a failing legacy copy costs compatibility with old clients, not
     // the message itself.
-    if geen_legacy() {
+    if skip_legacy() {
         print_success_message("Chat message sent (kind 14 envelope only)!");
         return Ok(());
     }
 
-    match send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await
-    {
+    match send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await {
         Ok(()) => print_success_message("Chat message sent (kind 14 envelope + legacy gift wrap)!"),
         Err(e) => {
             print_success_message("Chat message sent (kind 14 envelope)!");
@@ -99,9 +99,58 @@ pub async fn execute_dm_to_user(
 
 /// Whether to skip the legacy gift-wrap copy, on both the writing and the
 /// reading side.
-pub fn geen_legacy() -> bool {
+pub fn skip_legacy() -> bool {
     matches!(
         std::env::var("MOSTRO_CHAT_NO_LEGACY").as_deref(),
         Ok("1") | Ok("true") | Ok("yes")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mostro_core::chat::unwrap_chat_message;
+    use serial_test::serial;
+
+    #[tokio::test]
+    async fn kind14_envelope_roundtrips_peer_to_peer() {
+        let alice = Keys::generate();
+        let bob = Keys::generate();
+        let (conv, sign) = derive_chat_keys(&alice, &bob.public_key()).unwrap();
+        let event = wrap_chat_message(&alice, &conv, &sign, "hello from alice")
+            .await
+            .unwrap();
+        assert_eq!(event.kind, Kind::PrivateDirectMessage);
+        assert_eq!(event.pubkey, sign.public_key());
+
+        let allowed = [alice.public_key(), bob.public_key()];
+        let chat = unwrap_chat_message(
+            &conv,
+            &sign.public_key(),
+            &allowed,
+            &event,
+            Timestamp::now(),
+        )
+        .unwrap();
+        assert_eq!(chat.content, "hello from alice");
+        assert_eq!(chat.sender, alice.public_key());
+    }
+
+    #[test]
+    #[serial]
+    fn skip_legacy_reads_the_env_flag() {
+        let previous = std::env::var("MOSTRO_CHAT_NO_LEGACY").ok();
+        std::env::remove_var("MOSTRO_CHAT_NO_LEGACY");
+        assert!(!skip_legacy());
+
+        std::env::set_var("MOSTRO_CHAT_NO_LEGACY", "1");
+        assert!(skip_legacy());
+        std::env::set_var("MOSTRO_CHAT_NO_LEGACY", "true");
+        assert!(skip_legacy());
+
+        match previous {
+            Some(value) => std::env::set_var("MOSTRO_CHAT_NO_LEGACY", value),
+            None => std::env::remove_var("MOSTRO_CHAT_NO_LEGACY"),
+        }
+    }
 }

@@ -16,7 +16,7 @@ pub fn uppercase_first(s: &str) -> String {
 /// database.
 pub fn get_mcli_path() -> String {
     let mcli_path = match std::env::var("MCLI_DIR") {
-        Ok(pad) if !pad.trim().is_empty() => pad.trim().to_string(),
+        Ok(path) if !path.trim().is_empty() => path.trim().to_string(),
         _ => {
             let home_dir = dirs::home_dir().expect("Couldn't get home directory");
             format!("{}/.mcli", home_dir.display())

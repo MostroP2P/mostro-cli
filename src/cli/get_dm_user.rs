@@ -67,8 +67,7 @@ pub async fn execute_get_dm_user(
     // 4a. Current envelope (protocol#52): kind 14 signed by K_sign, payload
     // encrypted to K_conv. This is what the mobile app and Mostrix publish.
     let mut messages: Vec<(String, i64, PublicKey)> = Vec::new();
-    // Wat er misging, per envelop. Zie de afhandeling onder 4b.
-    let mut mislukt: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     match derive_chat_keys(&trade_keys, &pubkey) {
         Ok((conv, sign)) => {
             let sign_pubkey = sign.public_key();
@@ -101,36 +100,36 @@ pub async fn execute_get_dm_user(
                         }
                     }
                 }
-                Err(e) => mislukt.push(format!("kind 14 envelope: {e}")),
+                Err(e) => failures.push(format!("kind 14 envelope: {e}")),
             }
         }
-        Err(e) => mislukt.push(format!("chat keys: {e}")),
+        Err(e) => failures.push(format!("chat keys: {e}")),
     }
 
     // 4b. Legacy gift-wrap envelope, so conversations started before the
     // migration stay readable (mostro-core keeps this path for dual-read).
-    if !crate::cli::dm_to_user::geen_legacy() {
+    if !crate::cli::dm_to_user::skip_legacy() {
         match fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await {
-            Ok(gevonden) => messages.extend(gevonden),
-            Err(e) => mislukt.push(format!("legacy gift wrap: {e}")),
+            Ok(found) => messages.extend(found),
+            Err(e) => failures.push(format!("legacy gift wrap: {e}")),
         }
     }
 
     // One broken half must not throw away what the other half found, and it
     // must not be silent either: a conversation that came back short for
     // technical reasons looks exactly like a counterparty with little to say.
-    if !mislukt.is_empty() {
+    if !failures.is_empty() {
         if messages.is_empty() {
             return Err(anyhow::anyhow!(
                 "could not read this conversation: {}",
-                mislukt.join("; ")
+                failures.join("; ")
             ));
         }
         print_info_line(
             "⚠️",
             &format!(
                 "Part of this conversation could not be read ({}). What follows may be incomplete.",
-                mislukt.join("; ")
+                failures.join("; ")
             ),
         );
     }
@@ -151,6 +150,9 @@ pub async fn execute_get_dm_user(
 
     // 6. Keep only messages sent by the counterparty (not our own side)
     messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey);
+    // Dual-write publishes the same text as kind 14 and as a gift wrap.
+    // Collapse those into one row; keep distinct sends of the same text.
+    messages = dedup_chat_messages(messages);
 
     if messages.is_empty() {
         print_no_data_message("📭 No chat messages found for this shared conversation key.");
@@ -181,4 +183,46 @@ pub async fn execute_get_dm_user(
     }
 
     Ok(())
+}
+
+/// Drop cross-format copies of the same logical message (same sender, same
+/// trimmed body, timestamps within two seconds). Format-specific event ids
+/// are not a valid key: kind 14 and the legacy wrap are different events.
+fn dedup_chat_messages(
+    mut messages: Vec<(String, i64, PublicKey)>,
+) -> Vec<(String, i64, PublicKey)> {
+    messages.sort_by(|a, b| {
+        a.2.cmp(&b.2)
+            .then_with(|| a.0.trim().cmp(b.0.trim()))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    messages.dedup_by(|a, b| a.2 == b.2 && a.0.trim() == b.0.trim() && a.1.abs_diff(b.1) <= 2);
+    messages.sort_by_key(|(_, ts, _)| *ts);
+    messages
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedup_collapses_kind14_and_legacy_copies() {
+        let sender = Keys::generate().public_key();
+        let other = Keys::generate().public_key();
+        let messages = vec![
+            ("hello".to_string(), 1_000, sender),
+            ("hello".to_string(), 1_001, sender),
+            ("hello".to_string(), 1_000, other),
+            ("later".to_string(), 2_000, sender),
+        ];
+        let deduped = dedup_chat_messages(messages);
+        assert_eq!(deduped.len(), 3);
+        assert!(deduped
+            .iter()
+            .any(|(c, _, pk)| c == "hello" && *pk == sender));
+        assert!(deduped
+            .iter()
+            .any(|(c, _, pk)| c == "hello" && *pk == other));
+        assert!(deduped.iter().any(|(c, _, _)| c == "later"));
+    }
 }

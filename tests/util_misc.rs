@@ -1,4 +1,5 @@
 use mostro_client::util::misc::{ensure_private_dir, get_mcli_path, uppercase_first};
+use serial_test::serial;
 
 #[test]
 fn test_uppercase_first_empty_string() {
@@ -55,6 +56,7 @@ fn test_uppercase_first_whitespace() {
 }
 
 #[test]
+#[serial]
 fn test_get_mcli_path_returns_valid_path() {
     let path = get_mcli_path();
 
@@ -66,6 +68,7 @@ fn test_get_mcli_path_returns_valid_path() {
 }
 
 #[test]
+#[serial]
 fn test_get_mcli_path_is_absolute() {
     let path = get_mcli_path();
 
@@ -79,12 +82,32 @@ fn test_get_mcli_path_is_absolute() {
 }
 
 #[test]
+#[serial]
 fn test_get_mcli_path_consistent() {
     let path1 = get_mcli_path();
     let path2 = get_mcli_path();
 
     // Should return the same path on multiple calls
     assert_eq!(path1, path2);
+}
+
+#[test]
+#[serial]
+fn test_get_mcli_path_honours_mcli_dir() {
+    let dir = unique_temp_path("mcli-dir");
+    let dir_str = dir.to_str().unwrap();
+    let previous = std::env::var("MCLI_DIR").ok();
+    std::env::set_var("MCLI_DIR", dir_str);
+
+    let path = get_mcli_path();
+    assert_eq!(path, dir_str);
+    assert!(dir.is_dir());
+
+    match previous {
+        Some(value) => std::env::set_var("MCLI_DIR", value),
+        None => std::env::remove_var("MCLI_DIR"),
+    }
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// Build a unique, non-existent path inside the OS temp dir without pulling in
