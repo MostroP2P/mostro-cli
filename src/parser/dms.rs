@@ -473,11 +473,7 @@ fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisput
 /// mostrod is trusted: peer chat is decrypted with our own trade key, so a
 /// counterparty could otherwise craft an `Order` payload naming any pubkey and
 /// redirect every later chat command to an address of their choosing.
-pub async fn persist_counterparty_pubkey(
-    message: &MessageKind,
-    sender: &PublicKey,
-    ctx: &Context,
-) {
+pub async fn persist_counterparty_pubkey(message: &MessageKind, sender: &PublicKey, ctx: &Context) {
     if *sender != ctx.mostro_pubkey {
         log::debug!("counterparty pubkey: ignoring Order payload from non-Mostro sender {sender}");
         return;
@@ -537,11 +533,7 @@ pub async fn persist_counterparty_pubkey(
 ///
 /// `peer.pubkey` is parsed as [`PublicKey`] so hex and npub compare equal, and
 /// the stored value is always canonical hex.
-pub async fn persist_solver_pubkey(
-    message: &MessageKind,
-    sender: &PublicKey,
-    ctx: &Context,
-) {
+pub async fn persist_solver_pubkey(message: &MessageKind, sender: &PublicKey, ctx: &Context) {
     if message.action != Action::AdminTookDispute {
         return;
     }
