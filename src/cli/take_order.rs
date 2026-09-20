@@ -59,7 +59,7 @@ pub async fn execute_take_order(
     amount: Option<u32>,
     ctx: &Context,
 ) -> Result<()> {
-    let action_name = match action {
+    let action_name = match &action {
         Action::TakeBuy => "take buy",
         Action::TakeSell => "take sell",
         _ => return Err(anyhow::anyhow!("Invalid action for take order")),
@@ -80,8 +80,8 @@ pub async fn execute_take_order(
     }
     if let Some(amt) = amount {
         table.add_row(create_emoji_field_row(
-            "💰 ",
-            "Amount (sats)",
+            "💵 ",
+            "Fiat Amount",
             &amt.to_string(),
         ));
     }

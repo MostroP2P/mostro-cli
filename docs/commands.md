@@ -50,14 +50,14 @@ settable via the matching env var):
   - **Args**:
     - `--order-id <UUID>`: Order identifier.
     - `--invoice <STRING>`: Optional Lightning invoice.
-    - `--amount <u32>`: Fiat amount to buy.
+    - `--amount <u32>`: Fiat amount to pay (someone is selling sats, you are buying).
   - **Handler**: `execute_take_order(order_id, Action::TakeSell, invoice, amount, ctx)` in `src/cli/take_order.rs`.
 
 - **`takebuy`**
   - **Description**: Take a buy order from a Mostro pubkey.
   - **Args**:
     - `--order-id <UUID>`: Order identifier.
-    - `--amount <u32>`: Fiat amount to sell.
+    - `--amount <u32>`: Fiat amount to receive (someone is buying sats, you are selling).
   - **Handler**: `execute_take_order(order_id, Action::TakeBuy, &None, amount, ctx)` in `src/cli/take_order.rs`.
 
 - **`addinvoice`**
