@@ -406,6 +406,7 @@ pub async fn print_dm_events(
     // print_commands_results, and the helper needs it to exist to learn which
     // of the two trade pubkeys is ours.
     crate::parser::dms::persist_counterparty_pubkey(inner, sender, ctx).await;
+    crate::parser::dms::persist_solver_pubkey(inner, sender, ctx).await;
     Ok(())
 }
 

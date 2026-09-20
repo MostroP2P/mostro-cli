@@ -133,6 +133,14 @@ settable via the matching env var):
     - `--message <STRING>...`: Message parts; joined with spaces.
   - **Handler**: `execute_dm_to_user(PublicKey::from_str(pubkey)?, &ctx.client, order_id, &msg, &ctx.pool)` in `src/cli/dm_to_user.rs`.
 
+- **`disputechat`**
+  - **Description**: Read, and optionally send on, the dispute conversation with the solver. Uses the same kind-14 envelope as peer chat, derived from the order's trade keys and the stored solver pubkey.
+  - **Args**:
+    - `--order-id <UUID>`: Order that is in dispute.
+    - `--since <i64>`: Minutes back from now to query (default: 1440).
+    - `--message <STRING>`: Optional message to send to the solver before listing.
+  - **Handler**: `execute_dispute_chat(order_id, since, message, ctx)` in `src/cli/dispute_chat.rs`.
+
 ### Direct messages (admin / solver)
 
 - **`getadmindm`**

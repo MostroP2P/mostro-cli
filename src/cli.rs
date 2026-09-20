@@ -24,9 +24,9 @@ use crate::cli::add_bond_invoice::execute_add_bond_invoice;
 use crate::cli::add_invoice::execute_add_invoice;
 use crate::cli::adm_send_dm::execute_adm_send_dm;
 use crate::cli::conversation_key::execute_conversation_key;
+use crate::cli::dispute_chat::execute_dispute_chat;
 use crate::cli::dm_to_user::execute_dm_to_user;
 use crate::cli::get_dm::execute_get_dm;
-use crate::cli::dispute_chat::execute_dispute_chat;
 use crate::cli::get_dm_user::execute_get_dm_user;
 use crate::cli::last_trade_index::{
     execute_last_trade_index, execute_last_trade_index_private_key,

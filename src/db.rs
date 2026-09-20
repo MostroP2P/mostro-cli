@@ -808,8 +808,12 @@ mod tests {
             .expect("first save should insert");
 
         let mut stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
-        stored.set_counterparty_pubkey("d74058c52b9ed51bc34f1c16451aab5df756d103a1271a43747dd16360e44bb8".to_string());
-        stored.set_solver_pubkey("da23a31d75572138ab8149911a04224812a34bda679caba7cb1824fdf7c592ec".to_string());
+        stored.set_counterparty_pubkey(
+            "d74058c52b9ed51bc34f1c16451aab5df756d103a1271a43747dd16360e44bb8".to_string(),
+        );
+        stored.set_solver_pubkey(
+            "da23a31d75572138ab8149911a04224812a34bda679caba7cb1824fdf7c592ec".to_string(),
+        );
         stored.save(&pool).await.expect("save should work");
 
         // Same order comes in again, as happens on any later message about it.

@@ -599,6 +599,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `getdmuser -p <pubkey> -o <id> [--since <min>]` — DMs to a specific order's trade key.
 - `senddm -p <pubkey> -o <id> -m <message>` — DM your counterpart.
 - `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat.
+- `disputechat -o <id> [-s <min>] [-m <message>]` — read or answer the solver on the dispute chat.
 - `conversationkey -p <pubkey>` — show the conversation key.
 
 ### Disputes (read-only for users)

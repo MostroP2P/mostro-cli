@@ -5,7 +5,6 @@ use crate::db::Order;
 use crate::parser::common::{print_info_line, print_key_value, print_section_header};
 use anyhow::Result;
 use nostr_sdk::prelude::*;
-use std::str::FromStr;
 use uuid::Uuid;
 
 /// Read, and optionally write to, the dispute conversation with the solver.
@@ -41,7 +40,7 @@ pub async fn execute_dispute_chat(
         );
         return Ok(());
     };
-    let solver_pubkey = PublicKey::from_str(solver)
+    let solver_pubkey = PublicKey::parse(solver)
         .map_err(|e| anyhow::anyhow!("Stored solver pubkey is not valid: {e}"))?;
 
     if let Some(text) = message {

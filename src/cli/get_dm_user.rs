@@ -126,7 +126,7 @@ pub async fn execute_get_dm_user_labelled(
         println!("📄 Message {}:", idx + 1);
         println!("─────────────────────────────────────");
         println!("⏰ Time: {}", date);
-        println!("📨 From: 👤 Counterparty ({sender_pk})");
+        println!("📨 From: 👤 {label} ({sender_pk})");
         println!("📝 Content:");
         for line in content.lines() {
             println!("   {}", line);
