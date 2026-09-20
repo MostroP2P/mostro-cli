@@ -79,13 +79,9 @@ pub async fn execute_take_order(
         table.add_row(create_emoji_field_row("⚡ ", "Invoice", inv));
     }
     if let Some(amt) = amount {
-        let amount_label = match &action {
-            Action::TakeBuy | Action::TakeSell => "Fiat Amount",
-            _ => "Amount (sats)",
-        };
         table.add_row(create_emoji_field_row(
-            "💰 ",
-            amount_label,
+            "💵 ",
+            "Fiat Amount",
             &amt.to_string(),
         ));
     }
