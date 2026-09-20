@@ -5,7 +5,7 @@ use nostr_sdk::prelude::*;
 use crate::{
     cli::Context,
     parser::common::{print_key_value, print_section_header},
-    parser::dms::print_direct_messages,
+    parser::dms::{persist_counterparty_pubkey, print_direct_messages},
     util::{fetch_bond_claim_window_days, fetch_events_list, Event, ListKind},
 };
 
@@ -55,6 +55,14 @@ pub async fn execute_get_dm(
         None
     };
 
+    // Listing messages is also a chance to learn the counterparty pubkey, but
+    // only from mostrod. `--fromuser` lists peer chat, which is attacker
+    // controlled, so skip it entirely; the helper re-checks the sender.
+    if !*from_user {
+        for (message, _, sender) in &dm_events {
+            persist_counterparty_pubkey(message.get_inner_message_kind(), sender, ctx).await;
+        }
+    }
     print_direct_messages(&dm_events, Some(ctx.mostro_pubkey), claim_window_days).await?;
     Ok(())
 }
