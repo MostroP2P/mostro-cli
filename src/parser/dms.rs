@@ -464,9 +464,8 @@ fn display_solver_dispute_info(dispute_info: &mostro_core::dispute::SolverDisput
     table.to_string()
 }
 
-/// Execute logic of command answer
 /// Persist the counterparty's trade pubkey whenever mostrod includes it on an
-/// Order payload, so the chat commands stop requiring `--pubkey` by hand.
+/// Order payload, so later chat commands can use it without `--pubkey`.
 ///
 /// mostrod sets both `buyer_trade_pubkey` and `seller_trade_pubkey`; whichever
 /// one is not ours is the counterparty. Best-effort: any failure is logged and
@@ -514,23 +513,39 @@ pub(crate) async fn persist_counterparty_pubkey(
         .as_ref()
         .and_then(|tk| Keys::parse(tk).ok())
     {
-        Some(keys) => keys.public_key().to_hex(),
+        Some(keys) => keys.public_key(),
         None => return,
     };
-    let peer = if *buyer == ours {
-        seller
-    } else if *seller == ours {
-        buyer
-    } else {
+    let Some(peer) = counterparty_from_trade_pubkeys(&ours, buyer, seller) else {
         return;
     };
 
-    order.set_counterparty_pubkey(peer.clone());
+    order.set_counterparty_pubkey(peer.to_hex());
     if let Err(e) = order.save(&ctx.pool).await {
         log::debug!("counterparty pubkey: could not persist for {order_id}: {e}");
     }
 }
 
+/// Pick the trade pubkey that is not `ours` from a buyer/seller pair.
+///
+/// Both sides are parsed as [`PublicKey`] so hex and npub compare equal.
+fn counterparty_from_trade_pubkeys(
+    ours: &PublicKey,
+    buyer: &str,
+    seller: &str,
+) -> Option<PublicKey> {
+    let buyer = PublicKey::parse(buyer).ok()?;
+    let seller = PublicKey::parse(seller).ok()?;
+    if buyer == *ours {
+        Some(seller)
+    } else if seller == *ours {
+        Some(buyer)
+    } else {
+        None
+    }
+}
+
+/// Execute logic of command answer
 pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Result<()> {
     // Do the logic for the message response
     match message.action {
@@ -1106,4 +1121,177 @@ pub async fn print_direct_messages(
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use sqlx::SqlitePool;
+
+    #[test]
+    fn counterparty_from_trade_pubkeys_picks_the_other_side() {
+        let ours = Keys::generate().public_key();
+        let them = Keys::generate().public_key();
+        assert_eq!(
+            counterparty_from_trade_pubkeys(&ours, &ours.to_hex(), &them.to_hex()),
+            Some(them)
+        );
+        assert_eq!(
+            counterparty_from_trade_pubkeys(&ours, &them.to_hex(), &ours.to_hex()),
+            Some(them)
+        );
+    }
+
+    #[test]
+    fn counterparty_from_trade_pubkeys_accepts_npub() {
+        let ours = Keys::generate().public_key();
+        let them = Keys::generate().public_key();
+        let ours_npub = ours.to_bech32().expect("npub");
+        let them_hex = them.to_hex();
+        assert_eq!(
+            counterparty_from_trade_pubkeys(&ours, &ours_npub, &them_hex),
+            Some(them)
+        );
+    }
+
+    #[test]
+    fn counterparty_from_trade_pubkeys_returns_none_when_neither_is_ours() {
+        let ours = Keys::generate().public_key();
+        let buyer = Keys::generate().public_key().to_hex();
+        let seller = Keys::generate().public_key().to_hex();
+        assert!(counterparty_from_trade_pubkeys(&ours, &buyer, &seller).is_none());
+    }
+
+    async fn memory_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            r#"
+            CREATE TABLE orders (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                min_amount INTEGER,
+                max_amount INTEGER,
+                fiat_code TEXT NOT NULL,
+                fiat_amount INTEGER NOT NULL,
+                payment_method TEXT NOT NULL,
+                premium INTEGER NOT NULL,
+                trade_keys TEXT,
+                counterparty_pubkey TEXT,
+                is_mine BOOLEAN,
+                buyer_invoice TEXT,
+                request_id INTEGER,
+                created_at INTEGER,
+                expires_at INTEGER
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn test_ctx(pool: SqlitePool, mostro: &Keys, trade: &Keys) -> Context {
+        Context {
+            client: Client::new(trade.clone()),
+            identity_keys: trade.clone(),
+            trade_keys: trade.clone(),
+            trade_index: 1,
+            pool,
+            context_keys: None,
+            mostro_pubkey: mostro.public_key(),
+        }
+    }
+
+    fn order_message(
+        id: uuid::Uuid,
+        buyer: &PublicKey,
+        seller: &PublicKey,
+    ) -> (SmallOrder, MessageKind) {
+        let small = SmallOrder::new(
+            Some(id),
+            Some(mostro_core::order::Kind::Sell),
+            Some(Status::Pending),
+            1000,
+            "USD".into(),
+            None,
+            None,
+            100,
+            "ln".into(),
+            0,
+            Some(buyer.to_hex()),
+            Some(seller.to_hex()),
+            None,
+            None,
+            None,
+        );
+        let kind = MessageKind::new(
+            Some(id),
+            Some(1),
+            Some(1),
+            Action::NewOrder,
+            Some(Payload::Order(small.clone())),
+        );
+        (small, kind)
+    }
+
+    #[tokio::test]
+    async fn persist_stores_the_other_trade_key_from_mostro() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let them = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let id = uuid::Uuid::new_v4();
+        let (small, message) = order_message(id, &trade.public_key(), &them.public_key());
+        Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+
+        persist_counterparty_pubkey(&message, &mostro.public_key(), &ctx).await;
+
+        let stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert_eq!(
+            stored.counterparty_pubkey.as_deref(),
+            Some(them.public_key().to_hex().as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_ignores_non_mostro_senders() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let them = Keys::generate();
+        let peer = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let id = uuid::Uuid::new_v4();
+        let (small, message) = order_message(id, &trade.public_key(), &them.public_key());
+        Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+
+        persist_counterparty_pubkey(&message, &peer.public_key(), &ctx).await;
+
+        let stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert!(stored.counterparty_pubkey.is_none());
+    }
+
+    #[tokio::test]
+    async fn persist_does_not_overwrite_an_existing_key() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let them = Keys::generate();
+        let other = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let id = uuid::Uuid::new_v4();
+        let (small, message) = order_message(id, &trade.public_key(), &them.public_key());
+        let mut order = Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+        order.set_counterparty_pubkey(other.public_key().to_hex());
+        order.save(&pool).await.unwrap();
+
+        persist_counterparty_pubkey(&message, &mostro.public_key(), &ctx).await;
+
+        let stored = Order::get_by_id(&pool, &id.to_string()).await.unwrap();
+        assert_eq!(
+            stored.counterparty_pubkey.as_deref(),
+            Some(other.public_key().to_hex().as_str())
+        );
+    }
+}
