@@ -13,13 +13,11 @@ settable via the matching env var):
 - `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
 - `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
-- `-t, --transport <gift-wrap|nip44>` (`TRANSPORT`): wire transport to speak —
-  `gift-wrap` (protocol v1, kind 1059) or `nip44` (protocol v2, signed kind 14).
+- `-t, --transport <nip44>` (`TRANSPORT`): wire transport. Only `nip44`
+  (protocol v2, signed kind 14) is supported; `gift-wrap` is rejected.
   **Optional**: when omitted, the CLI auto-detects it at startup from the node's
   `protocol_version` tag on its kind-38385 info event (a node that advertises
-  nothing — e.g. a pre-v2 daemon — is treated as `gift-wrap`). Pass the flag to
-  override auto-detection. Must match the node's `transport` setting. See
-  `docs/TRANSPORT_V2_SPEC.md`.
+  nothing is treated as `nip44`). A v1 node is an error.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
 
 ### Orders
@@ -145,7 +143,7 @@ settable via the matching env var):
   - **Handler**: `execute_get_dm(since, true, from_user, ctx)` in `src/cli/get_dm.rs`.
 
 - **`admsenddm`** *(admin only)*
-  - **Description**: Send a gift-wrapped direct message to a user as admin/solver.
+  - **Description**: Send a direct message to a user as admin/solver.
   - **Args**:
     - `--pubkey <NPUB/HEX>`: Recipient pubkey.
     - `--message <STRING>...`: Message parts; joined with spaces.

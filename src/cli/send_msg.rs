@@ -119,9 +119,7 @@ pub async fn execute_send_msg(
                 if let Some(Payload::NextTrade(_, index)) = &payload_clone {
                     // Get the correct keys for decoding the child order message
                     let next_trade_key = User::get_trade_keys(&ctx.pool, *index as i64).await?;
-                    // Fake timestamp for giftwraps
-                    // Transport-aware so the v2 child-order event (kind 14,
-                    // authored by Mostro) is fetched too, not just gift wraps.
+                    // Wait for the child-order kind-14 event authored by Mostro.
                     let subscription = create_filter(
                         ListKind::DirectMessagesUser,
                         next_trade_key.public_key,

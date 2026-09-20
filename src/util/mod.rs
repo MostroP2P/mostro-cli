@@ -11,9 +11,8 @@ pub use events::{
     FETCH_EVENTS_TIMEOUT,
 };
 pub use messaging::{
-    derive_shared_key_hex, derive_shared_keys, keys_from_shared_hex, print_dm_events,
-    send_admin_chat_message_via_shared_key, send_dm, send_plain_text_dm, wait_for_dm,
-    PowRequirementUnmet, WaitForDmTimeout,
+    print_dm_events, send_dm, send_plain_text_dm, wait_for_dm, PowRequirementUnmet,
+    WaitForDmTimeout,
 };
 pub use misc::{ensure_private_dir, get_mcli_path, uppercase_first};
 pub use net::connect_nostr;

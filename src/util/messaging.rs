@@ -10,7 +10,6 @@ use std::str::FromStr;
 use crate::cli::Context;
 use crate::parser::dms::print_commands_results;
 use crate::parser::parse_dm_events;
-use crate::util::events::FETCH_EVENTS_TIMEOUT;
 
 /// Helper function to retrieve and validate admin keys from context
 pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
@@ -26,36 +25,8 @@ pub fn get_admin_keys(ctx: &Context) -> Result<&Keys> {
     Ok(admin_keys)
 }
 
-/// Derive shared ECDH keys from a local keypair and a counterparty public key.
-pub fn derive_shared_keys(
-    admin_keys: Option<&Keys>,
-    counterparty_pubkey: Option<&PublicKey>,
-) -> Option<Keys> {
-    let admin = admin_keys?;
-    let cp_pk = counterparty_pubkey?;
-    let shared_bytes = nostr_sdk::util::generate_shared_key(admin.secret_key(), cp_pk).ok()?;
-    let sk = nostr_sdk::SecretKey::from_slice(&shared_bytes).ok()?;
-    Some(Keys::new(sk))
-}
-
-/// Convenience wrapper: derive a shared key and return its secret as a hex string.
-pub fn derive_shared_key_hex(
-    admin_keys: Option<&Keys>,
-    counterparty_pubkey_str: Option<&str>,
-) -> Option<String> {
-    let cp_pk = counterparty_pubkey_str.and_then(|s| PublicKey::parse(s).ok());
-    let keys = derive_shared_keys(admin_keys, cp_pk.as_ref())?;
-    Some(keys.secret_key().to_secret_hex())
-}
-
-/// Rebuild a `Keys` from a stored shared-key hex string.
-pub fn keys_from_shared_hex(hex: &str) -> Option<Keys> {
-    nostr_sdk::Keys::parse(hex).ok()
-}
-
-/// Derive shared secret bytes (ECDH) using the same algorithm as send_admin_dm_attach.
-/// Used so the receive path can decrypt DMs sent via that flow. Returns 32 bytes suitable
-/// for ChaCha20-Poly1305 or for building Keys via Keys::new(SecretKey::from_slice(&bytes)).
+/// Derive shared secret bytes (ECDH) for ChaCha20-Poly1305 file encryption
+/// in `send_admin_dm_attach`. Returns 32 bytes.
 pub fn derive_shared_key_bytes(local_keys: &Keys, other_pubkey: &PublicKey) -> Result<[u8; 32]> {
     use bitcoin::secp256k1::ecdh::shared_secret_point;
     use bitcoin::secp256k1::{Parity, PublicKey as SecpPublicKey};
@@ -72,157 +43,32 @@ pub fn derive_shared_key_bytes(local_keys: &Keys, other_pubkey: &PublicKey) -> R
         .map_err(|_| anyhow::anyhow!("shared secret point must be at least 32 bytes"))
 }
 
-/// Build a NIP-59 gift wrap event to a recipient pubkey (e.g. shared key pubkey).
-/// Rumor content is Mostro protocol format: JSON of (Message, Option<String>).
-async fn build_custom_wrap_event(
-    sender_keys: &Keys,
-    recipient_pubkey: &PublicKey,
-    message: &str,
-) -> Result<Event> {
-    let inner_message = EventBuilder::text_note(message)
-        .build(sender_keys.public_key())
-        .sign(sender_keys)
-        .await?;
-
-    // Ephemeral key for the custom wrap
-    let ephem_key = Keys::generate();
-
-    // Encrypt the inner message with the ephemeral key using NIP-44
-    let encrypted_content = nip44::encrypt(
-        ephem_key.secret_key(),
-        recipient_pubkey,
-        inner_message.as_json(),
-        nip44::Version::V2,
-    )?;
-
-    // Build tags for the wrapper event, the recipient pubkey is the shared key pubkey
-    let tag = Tag::public_key(*recipient_pubkey);
-
-    // Reuse POW behaviour from existing DM helpers, but fail on invalid values
-    let pow: u8 = var("POW")
-        .unwrap_or_else(|_| "0".to_string())
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))?;
-
-    // Build the wrapped event
-    let wrapped_event = EventBuilder::new(nostr_sdk::Kind::GiftWrap, encrypted_content)
-        .tag(tag)
-        .custom_created_at(Timestamp::tweaked(nip59::RANGE_RANDOM_TIMESTAMP_TWEAK))
-        .pow(pow)
-        .sign_with_keys(&ephem_key)?;
-
-    Ok(wrapped_event)
-}
-
-/// Send a chat message via a per-dispute shared key (ECDH-derived).
-/// The gift wrap is addressed to the shared key's public key so both parties
-/// (who derive the same shared key) can fetch and decrypt the event.
-pub async fn send_admin_chat_message_via_shared_key(
-    client: &Client,
-    sender_keys: &Keys,
-    shared_keys: &Keys,
-    content: &str,
-) -> Result<()> {
-    let content = content.trim();
-    if content.is_empty() {
-        return Err(anyhow::anyhow!("Cannot send empty chat message"));
-    }
-    let recipient_pubkey = shared_keys.public_key();
-    let event = build_custom_wrap_event(sender_keys, &recipient_pubkey, content).await?;
-    client.send_event(&event).await?;
-    Ok(())
-}
-
-/// Unwrap a custom Mostro P2P giftwrap addressed to a shared key.
-/// Decrypts with the shared key using NIP-44 and returns (content, timestamp, sender_pubkey).
-pub async fn unwrap_giftwrap_with_shared_key(
-    shared_keys: &Keys,
-    event: &Event,
-) -> Result<(String, i64, PublicKey)> {
-    let decrypted = nip44::decrypt(shared_keys.secret_key(), &event.pubkey, &event.content)
-        .map_err(|e| anyhow::anyhow!("Failed to decrypt gift wrap with shared key: {e}"))?;
-
-    let inner_event = Event::from_json(&decrypted)
-        .map_err(|e| anyhow::anyhow!("Invalid inner chat event: {e}"))?;
-
-    inner_event
-        .verify()
-        .map_err(|e| anyhow::anyhow!("Invalid inner chat event signature: {e}"))?;
-
-    Ok((
-        inner_event.content,
-        inner_event.created_at.as_secs() as i64,
-        inner_event.pubkey,
-    ))
-}
-
-/// Fetch gift wrap events addressed to a specific shared key's public key,
-/// decrypt each with the shared key, and return (content, timestamp, sender_pubkey).
-pub async fn fetch_gift_wraps_for_shared_key(
-    client: &Client,
-    shared_keys: &Keys,
-) -> Result<Vec<(String, i64, PublicKey)>> {
-    let now = Timestamp::now().as_secs();
-    let seven_days_secs: u64 = 7 * 24 * 60 * 60;
-    let wide_since = now.saturating_sub(seven_days_secs);
-
-    let shared_pubkey = shared_keys.public_key();
-    let filter = Filter::new()
-        .kind(nostr_sdk::Kind::GiftWrap)
-        .pubkey(shared_pubkey)
-        .since(Timestamp::from(wide_since))
-        .limit(100);
-
-    let events = client
-        .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch chat events for shared key: {e}"))?;
-
-    let mut messages = Vec::new();
-    for wrapped in events.iter() {
-        let to_shared = wrapped.tags.public_keys().any(|pk| *pk == shared_pubkey);
-        if !to_shared {
-            continue;
-        }
-        match unwrap_giftwrap_with_shared_key(shared_keys, wrapped).await {
-            Ok((content, ts, sender_pubkey)) => {
-                messages.push((content, ts, sender_pubkey));
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to unwrap gift wrap for shared key {}: {}",
-                    wrapped.id,
-                    e
-                );
-            }
-        }
-    }
-    messages.sort_by_key(|(_, ts, _)| *ts);
-    Ok(messages)
-}
+const GIFTWRAP_UNSUPPORTED: &str = "gift-wrap (protocol v1) is no longer supported; use nip44";
 
 /// Resolve the wire transport from the `TRANSPORT` env var (set from the
-/// `--transport` flag in `get_env_var`). Absent/empty ⇒ `gift-wrap`
-/// (protocol v1), so existing invocations are wire-identical. Mirrors how
-/// `POW` / `SECRET` are read here rather than threaded through every call
-/// site. See docs/TRANSPORT_V2_SPEC.md.
+/// `--transport` flag in `get_env_var`). Absent/empty ⇒ `nip44` (protocol v2).
+/// `gift-wrap` is rejected: this CLI no longer speaks protocol v1.
 pub fn parse_transport_env() -> Result<Transport> {
     match var("TRANSPORT") {
-        Ok(s) if !s.trim().is_empty() => Transport::from_str(s.trim())
-            .map_err(|e| anyhow::anyhow!("Invalid TRANSPORT '{}': {e}", s.trim())),
-        _ => Ok(Transport::default()),
+        Ok(s) if !s.trim().is_empty() => {
+            let value = s.trim();
+            if value.eq_ignore_ascii_case("gift-wrap") || value.eq_ignore_ascii_case("giftwrap") {
+                anyhow::bail!("{GIFTWRAP_UNSUPPORTED}");
+            }
+            Transport::from_str(value)
+                .map_err(|e| anyhow::anyhow!("Invalid TRANSPORT '{}': {e}", value))
+        }
+        _ => Ok(Transport::Nip44Direct),
     }
 }
 
-/// Internal: wrap a Mostro `Message` for the configured `transport` and
-/// publish it.
+/// Internal: wrap a Mostro `Message` as a protocol-v2 NIP-44 direct event
+/// (kind 14) and publish it.
 ///
-/// Routes through mostro-core's [`wrap_message_with`], which dispatches to the
-/// protocol-v1 gift wrap (kind 1059) or the protocol-v2 NIP-44 direct event
-/// (kind 14) per `transport`. Follows the dual-key split: `identity_keys`
-/// sign the seal / identity proof (long-lived reputation binding),
-/// `trade_keys` author the event and produce the inner tuple signature. Pass
-/// the same `Keys` for both to opt into full-privacy mode.
+/// Follows the dual-key split: `identity_keys` sign the identity proof
+/// (long-lived reputation binding), `trade_keys` author the event and produce
+/// the inner tuple signature. Pass the same `Keys` for both to opt into
+/// full-privacy mode.
 async fn publish_wrapped(
     client: &Client,
     transport: Transport,
@@ -246,11 +92,10 @@ async fn publish_wrapped(
     Ok(())
 }
 
-/// Send a plain-text DM wrapped as a NIP-59 Gift Wrap.
+/// Send a plain-text DM as a protocol-v2 NIP-44 direct event (kind 14).
 ///
-/// The wrap uses `signed = false` so the inner rumor carries `(Message, None)`.
-/// `identity_keys` sign the seal and `trade_keys` author the rumor; admin
-/// flows that do not rotate trade keys should pass the admin keys for both.
+/// The wrap uses `signed = false` so the inner payload carries `(Message, None)`.
+/// Admin flows that do not rotate trade keys should pass the admin keys for both.
 pub async fn send_plain_text_dm(
     client: &Client,
     identity_keys: &Keys,
@@ -301,7 +146,7 @@ pub struct WaitForDmTimeout;
 
 impl std::fmt::Display for WaitForDmTimeout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Timeout waiting for DM or gift wrap event")
+        write!(f, "Timeout waiting for DM event")
     }
 }
 
@@ -344,24 +189,18 @@ where
 {
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     let trade_pubkey = trade_keys.public_key();
-    // Subscribe on the configured transport's event kind: 1059 (gift wrap,
-    // v1) or 14 (NIP-44 direct, v2). On v2, kind 14 is shared with NIP-17
-    // peer chat, so additionally pin the author to Mostro's key to keep the
-    // reply unambiguous (see docs/TRANSPORT_V2_SPEC.md §2).
-    let transport = parse_transport_env()?;
-    let accepted_kind = transport.event_kind();
-    let is_v2 = transport == Transport::Nip44Direct;
+    // Kind 14 is shared with NIP-17 peer chat, so pin the author to Mostro's
+    // key to keep the reply unambiguous.
+    let accepted_kind = nostr_sdk::Kind::PrivateDirectMessage;
     let mostro_pubkey = ctx.mostro_pubkey;
     let mut notifications = ctx.client.notifications();
     let opts =
         SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
-    let mut subscription = Filter::new()
+    let subscription = Filter::new()
         .pubkey(trade_pubkey)
         .kind(accepted_kind)
+        .author(mostro_pubkey)
         .limit(0);
-    if is_v2 {
-        subscription = subscription.author(mostro_pubkey);
-    }
     ctx.client.subscribe(subscription, Some(opts)).await?;
 
     // Send message here after opening notifications to avoid missing messages.
@@ -378,15 +217,14 @@ where
         ctx.mostro_pubkey,
     ));
 
-    // Wait for the DM or gift wrap event.
+    // Wait for the kind-14 DM.
     //
     // `client.notifications()` is the **global** broadcast for every event
     // any active subscription / fetch sees — including the kind-38385 info
     // event coming back from the spawned PoW probe above. Without an
     // application-side filter, that info event would race ahead of the real
     // reply and short-circuit the wait, surfacing as "No response received
-    // from Mostro" further downstream. So mirror the subscription filter
-    // here and only accept GiftWraps tagged to our trade key.
+    // from Mostro" further downstream. Mirror the subscription filter here.
     let waited = tokio::time::timeout(super::events::FETCH_EVENTS_TIMEOUT, async move {
         loop {
             match notifications.recv().await {
@@ -397,9 +235,9 @@ where
                     if !event.tags.public_keys().any(|pk| *pk == trade_pubkey) {
                         continue;
                     }
-                    // v2: reject any kind-14 not authored by Mostro (e.g. an
+                    // Reject any kind-14 not authored by Mostro (e.g. an
                     // unrelated NIP-17 peer chat tagged to this trade key).
-                    if is_v2 && event.pubkey != mostro_pubkey {
+                    if event.pubkey != mostro_pubkey {
                         continue;
                     }
                     return Ok(*event);
@@ -423,7 +261,7 @@ where
             inner?
         }
         Err(_elapsed) => {
-            // mostrod silently drops events whose outer GiftWrap doesn't meet
+            // mostrod silently drops events whose outer event doesn't meet
             // its NIP-13 PoW requirement (relay accepts → daemon discards →
             // no reply ever comes). The probe has already been running for
             // `FETCH_EVENTS_TIMEOUT` alongside the wait, so it is almost
@@ -484,24 +322,23 @@ async fn create_private_dm_event(
 
 /// Send a Mostro protocol message to `receiver_pubkey`.
 ///
-/// mostro-core 0.10 splits the NIP-59 pipeline across two keys:
+/// mostro-core splits the wrap across two keys:
 ///
-/// * `identity_keys` sign the seal (kind 13). Long-lived per user — the
-///   key the Mostro node uses to attach reputation. Admin flows pass the
-///   admin keys here; identity-scoped requests (restore, last trade index)
-///   pass the account's identity keys.
-/// * `trade_keys` author the rumor (kind 1) and produce the inner tuple
+/// * `identity_keys` bind the long-lived reputation identity. Admin flows
+///   pass the admin keys here; identity-scoped requests (restore, last trade
+///   index) pass the account's identity keys.
+/// * `trade_keys` author the kind-14 event and produce the inner tuple
 ///   signature when `signed = true`. Rotated per order for user flows,
 ///   equal to `identity_keys` for full-privacy mode and for flows that
 ///   don't bind to a specific trade (admin, restore, last trade index).
 ///
 /// For NIP-17 `PrivateDirectMessage` traffic (`to_user = true`), kind 14
 /// is signed directly by `trade_keys` — identity is irrelevant because
-/// there is no seal.
+/// there is no Mostro-protocol tuple.
 ///
-/// Respects the `POW` and `SECRET` env vars: PoW is mined on the outer
-/// wrap (or kind-14 event), and `SECRET=true` flips the inner tuple to
-/// unsigned. Gift wraps go through [`mostro_core::prelude::wrap_message`].
+/// Respects the `POW` and `SECRET` env vars: PoW is mined on the kind-14
+/// event, and `SECRET=true` flips the inner tuple to unsigned. Protocol
+/// messages go through [`wrap_message_with`] on `Transport::Nip44Direct`.
 pub async fn send_dm(
     client: &Client,
     identity_keys: &Keys,
@@ -571,6 +408,7 @@ pub async fn print_dm_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn pow_requirement_unmet_display_mentions_required_and_configured() {
@@ -643,23 +481,60 @@ mod tests {
     // our WrapOptions knobs (signed, pow) reach the outer event.
 
     #[test]
-    // Transport::GiftWrap is deprecated upstream (mostro/#786) but the CLI
-    // keeps the v1 fallback until mostrod v0.19.0 removes the path.
-    #[allow(deprecated)]
-    fn transport_from_str_maps_to_event_kind() {
-        // The CLI resolves `TRANSPORT` via Transport::from_str and subscribes
-        // on `event_kind()`. Lock down the mapping the receive/send paths rely
-        // on (docs/TRANSPORT_V2_SPEC.md §3).
-        let v1 = Transport::from_str("gift-wrap").expect("gift-wrap parses");
-        assert_eq!(v1, Transport::GiftWrap);
-        assert_eq!(v1.event_kind(), nostr_sdk::Kind::GiftWrap);
+    #[serial]
+    fn parse_transport_env_defaults_to_nip44() {
+        let previous = std::env::var("TRANSPORT").ok();
+        std::env::remove_var("TRANSPORT");
+        let transport = parse_transport_env().expect("default transport");
+        match previous {
+            Some(value) => std::env::set_var("TRANSPORT", value),
+            None => std::env::remove_var("TRANSPORT"),
+        }
+        assert_eq!(transport, Transport::Nip44Direct);
+        assert_eq!(
+            transport.event_kind(),
+            nostr_sdk::Kind::PrivateDirectMessage
+        );
+    }
 
+    #[test]
+    #[serial]
+    fn parse_transport_env_rejects_gift_wrap() {
+        let previous = std::env::var("TRANSPORT").ok();
+        std::env::set_var("TRANSPORT", "gift-wrap");
+        let err = parse_transport_env().expect_err("gift-wrap must be rejected");
+        match previous {
+            Some(value) => std::env::set_var("TRANSPORT", value),
+            None => std::env::remove_var("TRANSPORT"),
+        }
+        assert!(err.to_string().contains("no longer supported"));
+    }
+
+    #[test]
+    fn transport_from_str_maps_nip44_to_kind_14() {
         let v2 = Transport::from_str("nip44").expect("nip44 parses");
         assert_eq!(v2, Transport::Nip44Direct);
         assert_eq!(v2.event_kind(), nostr_sdk::Kind::PrivateDirectMessage);
-
-        assert_eq!(Transport::default(), Transport::GiftWrap);
         assert!(Transport::from_str("bogus").is_err());
+    }
+
+    async fn wrap_v2(
+        identity_keys: &Keys,
+        trade_keys: &Keys,
+        receiver: PublicKey,
+        message: &Message,
+        opts: WrapOptions,
+    ) -> Event {
+        wrap_message_with(
+            Transport::Nip44Direct,
+            message,
+            identity_keys,
+            trade_keys,
+            receiver,
+            opts,
+        )
+        .await
+        .expect("wrap v2")
     }
 
     #[tokio::test]
@@ -673,16 +548,14 @@ mod tests {
         let mostro_keys = Keys::generate();
         let message = sample_protocol_message(Some(99));
 
-        let event = wrap_message_with(
-            Transport::Nip44Direct,
-            &message,
+        let event = wrap_v2(
             &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
+            &message,
             WrapOptions::default(),
         )
-        .await
-        .expect("wrap v2");
+        .await;
 
         assert_eq!(event.kind, nostr_sdk::Kind::PrivateDirectMessage);
         assert_eq!(
@@ -701,38 +574,6 @@ mod tests {
             unwrapped.message.as_json().unwrap(),
             message.as_json().unwrap()
         );
-    }
-
-    #[tokio::test]
-    async fn send_dm_gift_wrap_roundtrips_via_unwrap_message() {
-        let identity_keys = Keys::generate();
-        let trade_keys = Keys::generate();
-        let mostro_keys = Keys::generate();
-        let message = sample_protocol_message(Some(42));
-
-        let event = wrap_message(
-            &message,
-            &identity_keys,
-            &trade_keys,
-            mostro_keys.public_key(),
-            WrapOptions::default(),
-        )
-        .await
-        .expect("wrap");
-
-        assert_eq!(event.kind, nostr_sdk::Kind::GiftWrap);
-
-        let unwrapped = unwrap_message(&event, &mostro_keys)
-            .await
-            .expect("unwrap result")
-            .expect("addressed to mostro_keys");
-
-        assert_eq!(unwrapped.sender, trade_keys.public_key());
-        assert_eq!(unwrapped.identity, identity_keys.public_key());
-        assert_eq!(
-            unwrapped.message.as_json().unwrap(),
-            message.as_json().unwrap()
-        );
         assert!(
             unwrapped.signature.is_some(),
             "default WrapOptions has signed=true",
@@ -745,17 +586,19 @@ mod tests {
         let mostro_keys = Keys::generate();
         let message = sample_protocol_message(Some(7));
 
-        let event = wrap_message(
-            &message,
+        let event = wrap_v2(
             &trade_keys,
             &trade_keys,
             mostro_keys.public_key(),
+            &message,
             WrapOptions::default(),
         )
-        .await
-        .expect("wrap");
+        .await;
 
-        let unwrapped = unwrap_message(&event, &mostro_keys).await.unwrap().unwrap();
+        let unwrapped = unwrap_incoming(&event, &mostro_keys)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(unwrapped.sender, trade_keys.public_key());
         assert_eq!(unwrapped.identity, unwrapped.sender);
     }
@@ -766,20 +609,22 @@ mod tests {
         let trade_keys = Keys::generate();
         let mostro_keys = Keys::generate();
 
-        let event = wrap_message(
-            &sample_protocol_message(Some(1)),
+        let event = wrap_v2(
             &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
+            &sample_protocol_message(Some(1)),
             WrapOptions {
                 signed: false,
                 ..Default::default()
             },
         )
-        .await
-        .expect("wrap");
+        .await;
 
-        let unwrapped = unwrap_message(&event, &mostro_keys).await.unwrap().unwrap();
+        let unwrapped = unwrap_incoming(&event, &mostro_keys)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(unwrapped.signature.is_none());
     }
 
@@ -790,18 +635,17 @@ mod tests {
         let mostro_keys = Keys::generate();
         let pow = 4;
 
-        let event = wrap_message(
-            &sample_protocol_message(None),
+        let event = wrap_v2(
             &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
+            &sample_protocol_message(None),
             WrapOptions {
                 pow,
                 ..Default::default()
             },
         )
-        .await
-        .expect("wrap");
+        .await;
 
         assert!(event_meets_pow(&event, pow), "PoW not met");
     }
@@ -813,17 +657,16 @@ mod tests {
         let mostro_keys = Keys::generate();
         let stranger = Keys::generate();
 
-        let event = wrap_message(
-            &sample_protocol_message(Some(1)),
+        let event = wrap_v2(
             &identity_keys,
             &trade_keys,
             mostro_keys.public_key(),
+            &sample_protocol_message(Some(1)),
             WrapOptions::default(),
         )
-        .await
-        .unwrap();
+        .await;
 
-        let result = unwrap_message(&event, &stranger).await.expect("no error");
+        let result = unwrap_incoming(&event, &stranger).await.expect("no error");
         assert!(result.is_none());
     }
 }

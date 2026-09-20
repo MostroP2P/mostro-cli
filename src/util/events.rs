@@ -59,20 +59,14 @@ pub fn create_filter(
         ),
         ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
             let fake_timestamp = create_fake_timestamp()?;
-            // Mostro→user/admin DMs travel on the node's transport: gift wrap
-            // (v1, kind 1059) or NIP-44 direct (v2, kind 14). On v2 the reply
-            // is authored by Mostro's own key, so pin the author to keep it
-            // distinct from NIP-17 peer chat that shares kind 14
-            // (docs/TRANSPORT_V2_SPEC.md §2).
-            let transport = crate::util::messaging::parse_transport_env()?;
-            let mut filter = Filter::new()
-                .kind(transport.event_kind())
+            // Mostro→user/admin DMs are protocol-v2 kind 14, authored by
+            // Mostro's own key. Pin the author to keep them distinct from
+            // NIP-17 peer chat that shares kind 14.
+            Ok(Filter::new()
+                .kind(nostr_sdk::Kind::PrivateDirectMessage)
                 .pubkey(pubkey)
-                .since(fake_timestamp);
-            if transport == Transport::Nip44Direct {
-                filter = filter.author(mostro_pubkey);
-            }
-            Ok(filter)
+                .author(mostro_pubkey)
+                .since(fake_timestamp))
         }
         ListKind::PrivateDirectMessagesUser => {
             let since = if let Some(mins) = since {
@@ -177,19 +171,16 @@ pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -
 
 /// Timeout for the startup transport-capability probe. Deliberately short: it
 /// runs before every command when `--transport`/`TRANSPORT` is unset, so a
-/// node that publishes no info event must degrade to the gift-wrap default
-/// quickly rather than blocking the command for the full
-/// [`FETCH_EVENTS_TIMEOUT`].
+/// node that publishes no info event must degrade to nip44 quickly rather
+/// than blocking the command for the full [`FETCH_EVENTS_TIMEOUT`].
 pub const INFO_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Fetch the node's advertised protocol version from the kind-38385 info
-/// event's `protocol_version` tag (`"1"` = gift wrap, `"2"` = NIP-44 direct;
-/// see the daemon's docs/TRANSPORT_V2_SPEC.md §4).
+/// event's `protocol_version` tag (`"2"` = NIP-44 direct; `"1"` was gift wrap).
 ///
-/// `None` when the node publishes no info event, the tag is absent (a pre-v2
-/// daemon), or the value is unparseable — every such case is treated by the
-/// caller as "assume v1/gift-wrap". Used by the CLI's startup auto-detection
-/// when the operator didn't pick a transport explicitly.
+/// `None` when the node publishes no info event, the tag is absent, or the
+/// value is unparseable — the CLI then assumes nip44. Used by startup
+/// auto-detection when the operator didn't pick a transport explicitly.
 pub async fn fetch_protocol_version_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
     let filter = Filter::new()
         .author(mostro_pubkey)
@@ -277,10 +268,8 @@ pub async fn fetch_events_list(
                     .client
                     .fetch_events(filter, FETCH_EVENTS_TIMEOUT)
                     .await?;
-                // Mostro→user DMs (Mostro-protocol): the filter above already
-                // selected the right kind per transport — gift wrap (v1) or
-                // kind-14 NIP-44 direct (v2) — and `unwrap_incoming` decodes
-                // whichever arrived.
+                // Mostro→user DMs (Mostro-protocol): kind-14 NIP-44 direct,
+                // decoded by `unwrap_incoming`.
                 let direct_messages_for_trade_key =
                     parse_dm_events(fetched_user_messages, &trade_key, since, true).await;
                 // Extend the direct messages
@@ -344,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn protocol_version_tag_reads_and_parses() {
         // Mirrors how `fetch_protocol_version_with` extracts the daemon's
-        // single-value `protocol_version` tag ("1" = gift wrap, "2" = nip44)
+        // single-value `protocol_version` tag ("1" was gift wrap, "2" = nip44)
         // and parses it to the u8 the CLI's auto-detect maps to a Transport.
         let keys = Keys::generate();
         let event = make_info_event(
@@ -361,7 +350,7 @@ mod tests {
                 .and_then(|v| v.trim().parse::<u8>().ok()),
             Some(2)
         );
-        // Absent tag (a pre-v2 daemon) → None → caller assumes gift-wrap.
+        // Absent tag → None → caller assumes nip44.
         let bare = make_info_event(&keys, vec![pow_tag("0")]).await;
         assert_eq!(read_info_tag_from_event(&bare, "protocol_version"), None);
     }

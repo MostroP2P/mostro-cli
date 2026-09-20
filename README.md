@@ -131,8 +131,8 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 | Variable | CLI flag | Description |
 |---|---|---|
 | `POW` | `-p, --pow` | Proof-of-work difficulty (bits) required by the Mostro instance for incoming events. Set this if the daemon enforces PoW. |
-| `SECRET` | `-s, --secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index from gift-wrap inner). |
-| `TRANSPORT` | `-t, --transport` | Wire transport: `gift-wrap` (protocol v1) or `nip44` (protocol v2). Leave unset to auto-detect from the instance's info event. |
+| `SECRET` | `-s, --secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index). |
+| `TRANSPORT` | `-t, --transport` | Wire transport: only `nip44` (protocol v2). `gift-wrap` is rejected. Leave unset to auto-detect from the instance's info event (defaults to nip44). |
 | `ADMIN_NSEC` | — | Admin/solver private key in `nsec1...` or hex format. Only read when an `adm*` command is invoked. |
 | `MOSTRO_RPC_URL` | `http://127.0.0.1:50051` | `mostrod` admin gRPC endpoint (`[rpc]` in the daemon's settings). Only used by `admsetmaintenance` / `admmaintenancestatus` / `admcancelpending`. |
 | `MOSTRO_RPC_TOKEN` | — | Bearer token for the admin gRPC, required when the daemon sets `[rpc].auth_token`. Only used by the three commands above. Sent in cleartext only to a loopback URL (direct or through an SSH tunnel); any other `http://` host is refused, use `https://` via a TLS proxy instead. |
@@ -618,7 +618,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
-- `-t, --transport <gift-wrap|nip44>` — overrides `TRANSPORT` (auto-detected when unset).
+- `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; `gift-wrap` is no longer supported).
 
 ```bash
 mostro-cli -m <npub> -r wss://<relay> listorders -k sell -c usd
@@ -641,7 +641,7 @@ Environment variables read by the CLI:
 | `RELAYS` | Required — Nostr relays. |
 | `POW` | Optional — proof-of-work bits. |
 | `SECRET` | Optional — `true` enables secret-mode inner tuple. |
-| `TRANSPORT` | Optional — `gift-wrap` or `nip44`; auto-detected when unset. |
+| `TRANSPORT` | Optional — `nip44` only; auto-detected when unset. |
 | `ADMIN_NSEC` | Optional — only used by admin commands. |
 | `RUST_LOG` | Read but effectively not configurable — `-v` overwrites it with `info` and is the only thing that initialises the logger. |
 

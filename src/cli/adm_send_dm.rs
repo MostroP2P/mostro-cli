@@ -27,14 +27,11 @@ pub async fn execute_adm_send_dm(receiver: PublicKey, ctx: &Context, message: &s
     ));
     table.add_row(create_emoji_field_row("💬 ", "Message", message));
     println!("{table}");
-    println!("💡 Sending admin gift wrap message...\n");
+    println!("💡 Sending admin message...\n");
 
     send_plain_text_dm(&ctx.client, admin_keys, admin_keys, &receiver, message).await?;
 
-    println!(
-        "✅ Admin gift wrap message sent successfully to {}",
-        receiver
-    );
+    println!("✅ Admin message sent successfully to {}", receiver);
 
     Ok(())
 }
