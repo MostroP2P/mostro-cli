@@ -727,4 +727,8 @@ Issues and PRs welcome at [github.com/MostroP2P/mostro-cli](https://github.com/M
 
 ## License
 
-See [LICENSE](LICENSE).
+Mostro CLI is licensed under the [GNU General Public License v3.0](LICENSE).
+
+The project was previously distributed under the MIT License. That copyright
+and permission notice is preserved in [LICENSE-MIT](LICENSE-MIT) for the
+historical MIT-licensed work.

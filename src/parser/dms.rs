@@ -975,7 +975,7 @@ pub async fn parse_dm_events(
         }
         direct_messages.push((message, created_at.as_secs(), sender));
     }
-    direct_messages.sort_by(|a, b| a.1.cmp(&b.1));
+    direct_messages.sort_by_key(|a| a.1);
     direct_messages
 }
 

@@ -3,7 +3,7 @@ name = "mostro-cli"
 version = "0.16.1"
 edition = "2021"
 rust-version = "1.86"
-license = "MIT"
+license = "GPL-3.0-only"
 authors = [
   "Francisco Calderón <fjcalderon@gmail.com>",
   "Baba O'reily <pinballwizard@nostr.red>",
