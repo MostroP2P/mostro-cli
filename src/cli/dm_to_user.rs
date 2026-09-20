@@ -65,10 +65,20 @@ pub async fn execute_dm_to_user(
     // Also publish the legacy gift wrap, so a counterparty still running a
     // pre-migration client keeps receiving messages during the transition.
     //
+    // `MOSTRO_CHAT_NO_LEGACY=1` skips it. That is how you find out whether the
+    // transition is over: if every counterparty reads kind 14, the second
+    // publication is wasted work, and it is also what makes the same message
+    // arrive twice on the reading side.
+    //
     // The message is already out at this point. Returning an error here would
     // invite the user to send it again, and the counterparty would see it
     // twice; a failing legacy copy costs compatibility with old clients, not
     // the message itself.
+    if geen_legacy() {
+        print_success_message("Chat message sent (kind 14 envelope only)!");
+        return Ok(());
+    }
+
     match send_admin_chat_message_via_shared_key(client, &trade_keys, &shared_keys, message).await
     {
         Ok(()) => print_success_message("Chat message sent (kind 14 envelope + legacy gift wrap)!"),
@@ -85,4 +95,13 @@ pub async fn execute_dm_to_user(
     }
 
     Ok(())
+}
+
+/// Whether to skip the legacy gift-wrap copy, on both the writing and the
+/// reading side.
+pub fn geen_legacy() -> bool {
+    matches!(
+        std::env::var("MOSTRO_CHAT_NO_LEGACY").as_deref(),
+        Ok("1") | Ok("true") | Ok("yes")
+    )
 }

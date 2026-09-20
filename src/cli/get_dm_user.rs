@@ -103,7 +103,9 @@ pub async fn execute_get_dm_user(
 
     // 4b. Legacy gift-wrap envelope, so conversations started before the
     // migration stay readable (mostro-core keeps this path for dual-read).
-    messages.extend(fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?);
+    if !crate::cli::dm_to_user::geen_legacy() {
+        messages.extend(fetch_gift_wraps_for_shared_key(&ctx.client, &shared_keys).await?);
+    }
 
     // 5. Apply "since" filter (minutes back from now)
     if *since > 0 {
