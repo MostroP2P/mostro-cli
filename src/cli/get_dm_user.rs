@@ -109,12 +109,6 @@ pub async fn execute_get_dm_user_labelled(
         messages.retain(|(_, ts, _)| (*ts) >= cutoff_ts);
     }
 
-    // Both sides of the conversation.
-    //
-    // Upstream drops our own messages here, which makes it impossible to read
-    // back what you said yourself in a trade where money is involved. Both
-    // parties write to the same conversation key and we already hold the key
-    // to decrypt it, so showing both directions costs nothing.
     let own_pubkey = trade_keys.public_key();
     messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey || *sender_pk == own_pubkey);
 
@@ -137,7 +131,6 @@ pub async fn execute_get_dm_user_labelled(
         println!("📄 Message {}:", idx + 1);
         println!("─────────────────────────────────────");
         println!("⏰ Time: {}", date);
-        // Who wrote it, now that both sides are shown.
         if *sender_pk == own_pubkey {
             println!("📨 From: 🫵 You ({sender_pk})");
         } else {
