@@ -1,5 +1,11 @@
 # Mostro CLI 🧌
 
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-yellow.svg)](LICENSE)
+[![Rust Version](https://img.shields.io/badge/rust-1.86%2B-blue.svg)](https://www.rust-lang.org)
+[![Version](https://img.shields.io/crates/v/mostro-cli)](https://crates.io/crates/mostro-cli)
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/MostroP2P/mostro-cli)
+
 ![Mostro-logo](static/logo.png)
 
 A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P Bitcoin/Lightning exchange that runs over Nostr. With `mostro-cli` you can browse the orderbook, create and take orders, complete trades, open and resolve disputes, and act as an admin/solver — all from your terminal.
