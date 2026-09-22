@@ -112,7 +112,7 @@ settable via the matching env var):
   - **Handler**: `execute_get_dm(since, false, from_user, ctx)` in `src/cli/get_dm.rs`.
 
 - **`getdmuser`**
-  - **Description**: Get kind-14 peer chat messages for an order's trade keys.
+  - **Description**: Read both sides of the kind-14 chat for an order. The pubkey is the counterparty the conversation is derived from.
   - **Args**:
     - `--since <i64>`: Minutes back from now to query (default: 30).
   - **Handler**: `execute_get_dm_user(since, ctx)` in `src/cli/get_dm_user.rs`.

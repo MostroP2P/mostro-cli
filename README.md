@@ -351,7 +351,7 @@ mostro-cli conversationkey -p <their-pubkey>
 mostro-cli getdm --since 30
 mostro-cli getdm --since 30 --from-user
 
-# Get DMs received by the trade key of a specific order
+# Read both sides of the kind-14 chat for an order
 mostro-cli getdmuser -p <their-pubkey> -o <order-id> --since 120
 
 # Send a DM (uses the order's trade key)
@@ -596,7 +596,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 ### Messaging
 - `getdm [--since <min>] [--from-user]` — fetch recent DMs.
-- `getdmuser -p <pubkey> -o <id> [--since <min>]` — DMs to a specific order's trade key.
+- `getdmuser -p <pubkey> -o <id> [--since <min>]` — both sides of that order's kind-14 chat.
 - `senddm -p <pubkey> -o <id> -m <message>` — DM your counterpart.
 - `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat.
 - `disputechat -o <id> [-s <min>] [-m <message>]` — read or answer the solver on the dispute chat.

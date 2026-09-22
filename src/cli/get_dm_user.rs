@@ -109,7 +109,11 @@ pub async fn execute_get_dm_user_labelled(
         messages.retain(|(_, ts, _)| (*ts) >= cutoff_ts);
     }
 
-    messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey);
+    let own_pubkey = trade_keys.public_key();
+    messages.retain(|(_, _, sender_pk)| *sender_pk == pubkey || *sender_pk == own_pubkey);
+
+    // Oldest first, so a `tail` on the output shows the most recent exchange.
+    messages.sort_by_key(|(_, ts, _)| *ts);
 
     if messages.is_empty() {
         print_no_data_message("📭 No chat messages found for this conversation.");
@@ -127,7 +131,11 @@ pub async fn execute_get_dm_user_labelled(
         println!("📄 Message {}:", idx + 1);
         println!("─────────────────────────────────────");
         println!("⏰ Time: {}", date);
-        println!("📨 From: 👤 {label} ({sender_pk})");
+        if *sender_pk == own_pubkey {
+            println!("📨 From: 🫵 You ({sender_pk})");
+        } else {
+            println!("📨 From: 👤 {label} ({sender_pk})");
+        }
         println!("📝 Content:");
         for line in content.lines() {
             println!("   {}", line);

@@ -202,9 +202,9 @@ pub enum Commands {
         #[arg(short, long)]
         from_user: bool,
     },
-    /// Get kind-14 chat messages for an order's trade keys
+    /// Read both sides of the kind-14 chat for an order
     GetDmUser {
-        /// Pubkey of the user to get direct messages from
+        /// Counterparty pubkey the conversation is derived from
         #[arg(short, long)]
         pubkey: String,
         /// Order id to get the trade keys from
