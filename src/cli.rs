@@ -39,7 +39,9 @@ use crate::cli::maintenance::{
 };
 use crate::cli::new_order::execute_new_order;
 use crate::cli::orders_info::execute_orders_info;
-use crate::cli::payer_history::{execute_declare_payer, execute_payment_history};
+use crate::cli::payer_history::{
+    execute_declare_payer, execute_payment_history, resolve_payer_fields,
+};
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
 use crate::cli::send_admin_dm_attach::execute_send_admin_dm_attach;
@@ -301,9 +303,14 @@ pub enum Commands {
         #[arg(short, long)]
         method: String,
         /// Account field, in registry order; repeat for each field
-        /// (AR|CVU: CBU/CVU then CUIT/CUIL; EU|SEPA: IBAN then holder name)
-        #[arg(short, long = "field", required = true)]
+        /// (AR|CVU: CBU/CVU then CUIT/CUIL; EU|SEPA: IBAN then holder name).
+        /// Fields given here land in your shell history; prefer --fields-stdin
+        #[arg(short, long = "field", required_unless_present = "fields_stdin")]
         fields: Vec<String>,
+        /// Read the account fields from stdin instead, one per line, so they
+        /// stay out of shell history and the process list
+        #[arg(long = "fields-stdin", conflicts_with = "fields")]
+        fields_stdin: bool,
     },
     /// Seller: get the history of the payment account the buyer declared,
     /// and optionally check the details the buyer sent you against it
@@ -313,11 +320,16 @@ pub enum Commands {
         order_id: Uuid,
         /// Method of the details the buyer sent you (AR|CVU, EU|SEPA),
         /// to check them against the declared hash
-        #[arg(short, long, requires = "fields")]
+        #[arg(short, long)]
         method: Option<String>,
-        /// Account field the buyer sent you, in registry order; repeat for each
+        /// Account field the buyer sent you, in registry order; repeat for
+        /// each. Fields given here land in your shell history; prefer
+        /// --fields-stdin
         #[arg(short, long = "field", requires = "method")]
         fields: Vec<String>,
+        /// Read the account fields from stdin instead, one per line
+        #[arg(long = "fields-stdin", requires = "method", conflicts_with = "fields")]
+        fields_stdin: bool,
     },
     /// Restore session to recover all pending orders and disputes
     Restore {},
@@ -789,12 +801,25 @@ impl Commands {
                 order_id,
                 method,
                 fields,
-            } => execute_declare_payer(order_id, method, fields, ctx).await,
+                fields_stdin,
+            } => {
+                let fields = resolve_payer_fields(fields, *fields_stdin)?;
+                execute_declare_payer(order_id, method, &fields, ctx).await
+            }
             Commands::PaymentHistory {
                 order_id,
                 method,
                 fields,
-            } => execute_payment_history(order_id, method.as_deref(), fields, ctx).await,
+                fields_stdin,
+            } => {
+                let fields = resolve_payer_fields(fields, *fields_stdin)?;
+                if method.is_some() && fields.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "--method needs the account fields (-f or --fields-stdin)"
+                    ));
+                }
+                execute_payment_history(order_id, method.as_deref(), &fields, ctx).await
+            }
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {

@@ -21,6 +21,32 @@ use crate::{
     },
 };
 
+/// The payer fields to use: the `-f` values, or, with `from_stdin`, one
+/// field per line read from stdin, so bank details stay out of shell history
+/// and the process list.
+pub fn resolve_payer_fields(fields: &[String], from_stdin: bool) -> Result<Vec<String>> {
+    if !from_stdin {
+        return Ok(fields.to_vec());
+    }
+    use std::io::IsTerminal;
+    let stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        eprintln!("Enter one account field per line, then Ctrl-D:");
+    }
+    read_fields(stdin.lock())
+}
+
+fn read_fields(input: impl std::io::BufRead) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for line in input.lines() {
+        let line = line?;
+        if !line.trim().is_empty() {
+            out.push(line);
+        }
+    }
+    Ok(out)
+}
+
 /// The local copy of `order_id`.
 async fn local_order(order_id: &Uuid, ctx: &Context) -> Result<Order> {
     Order::get_by_id(&ctx.pool, &order_id.to_string())
@@ -394,5 +420,21 @@ mod tests {
             check_declared(&bound, &b, "EU|SEPA", &fields).unwrap(),
             DeclarationCheck::Mismatch { .. }
         ));
+    }
+
+    #[test]
+    fn stdin_fields_are_one_per_line() {
+        let input = "DE89 3704 0044 0532 0130 00\n\nAlice Smith\n";
+        assert_eq!(
+            read_fields(input.as_bytes()).unwrap(),
+            vec![
+                "DE89 3704 0044 0532 0130 00".to_string(),
+                "Alice Smith".to_string()
+            ]
+        );
+        assert_eq!(
+            resolve_payer_fields(&["x".to_string()], false).unwrap(),
+            vec!["x".to_string()]
+        );
     }
 }
