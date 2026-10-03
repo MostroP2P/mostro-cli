@@ -355,7 +355,7 @@ Some Mostro nodes enable payer history (their info event carries `payer_history_
 mostro-cli declarepayer -o <order-id> -m "EU|SEPA" -f "DE89 3704 0044 0532 0130 00" -f "Alice Smith"
 ```
 
-Registered methods and their fields, in order: `AR|CVU` (CBU/CVU, CUIT/CUIL), `EU|SEPA` (IBAN, holder name), `BR|PIX` (PIX key). The command prints the canonical string and its hash. Send the **canonical string** to the seller over the chat (see below). If the node requires a declaration, `fiatsent` fails with `payer_not_declared` until you run this.
+Registered methods and their fields, in order: `AR|CVU` (CBU/CVU, CUIT/CUIL), `EU|SEPA` (IBAN, holder name). PIX is not registered: a PIX key identifies the receiving account, so the seller could not check it against the payment. The command prints the canonical string and its hash. Send the **canonical string** to the seller over the chat (see below). If the node requires a declaration, `fiatsent` fails with `payer_not_declared` until you run this.
 
 **Seller**: after `fiat-sent` Mostro pushes a `payment-history` message, which `getdm` shows with a suggested tier. You can also ask for it:
 

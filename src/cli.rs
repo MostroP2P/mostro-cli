@@ -297,12 +297,11 @@ pub enum Commands {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
-        /// Payment method from the protocol registry: AR|CVU, EU|SEPA or BR|PIX
+        /// Payment method from the protocol registry: AR|CVU or EU|SEPA
         #[arg(short, long)]
         method: String,
         /// Account field, in registry order; repeat for each field
-        /// (AR|CVU: CBU/CVU then CUIT/CUIL; EU|SEPA: IBAN then holder name;
-        /// BR|PIX: the PIX key)
+        /// (AR|CVU: CBU/CVU then CUIT/CUIL; EU|SEPA: IBAN then holder name)
         #[arg(short, long = "field", required = true)]
         fields: Vec<String>,
     },
@@ -312,7 +311,7 @@ pub enum Commands {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
-        /// Method of the details the buyer sent you (AR|CVU, EU|SEPA, BR|PIX),
+        /// Method of the details the buyer sent you (AR|CVU, EU|SEPA),
         /// to check them against the declared hash
         #[arg(short, long, requires = "fields")]
         method: Option<String>,

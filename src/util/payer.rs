@@ -13,38 +13,33 @@ use unicode_normalization::UnicodeNormalization;
 /// How a registry field is normalised.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldKind {
-    /// IBAN, CBU/CVU, PIX key, account number, tax id: whitespace, `-`, `.`
-    /// and `/` removed.
+    /// IBAN, CBU/CVU, account number, tax id: whitespace, `-`, `.` and `/`
+    /// removed.
     Identifier,
     /// Holder name: whitespace runs collapsed to one space and trimmed.
     Name,
-    /// PIX key: an e-mail key (contains `@`) only loses its whitespace, since
-    /// dots and hyphens are part of the address; any other key type follows
-    /// [`FieldKind::Identifier`].
-    PixKey,
 }
 
-/// A payment method from the protocol's registry.
+/// A payment method from the protocol's registry. PIX is deliberately
+/// absent: a PIX key names the receiving account, so the seller cannot match
+/// a buyer's key against the payment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayerMethod {
     /// `AR|CVU`: CBU or CVU number, then the holder's CUIT/CUIL.
     ArCvu,
     /// `EU|SEPA`: IBAN, then the account holder name.
     EuSepa,
-    /// `BR|PIX`: the PIX key as registered.
-    BrPix,
 }
 
 impl PayerMethod {
     /// Every registered method, for help texts and errors.
-    pub const ALL: [PayerMethod; 3] = [PayerMethod::ArCvu, PayerMethod::EuSepa, PayerMethod::BrPix];
+    pub const ALL: [PayerMethod; 2] = [PayerMethod::ArCvu, PayerMethod::EuSepa];
 
     /// The `<COUNTRY>|<METHOD>` prefix.
     pub fn prefix(self) -> &'static str {
         match self {
             PayerMethod::ArCvu => "AR|CVU",
             PayerMethod::EuSepa => "EU|SEPA",
-            PayerMethod::BrPix => "BR|PIX",
         }
     }
 
@@ -53,7 +48,6 @@ impl PayerMethod {
         match self {
             PayerMethod::ArCvu => "CBU/CVU number, holder CUIT/CUIL",
             PayerMethod::EuSepa => "IBAN, account holder name",
-            PayerMethod::BrPix => "PIX key",
         }
     }
 
@@ -61,7 +55,6 @@ impl PayerMethod {
         match self {
             PayerMethod::ArCvu => &[FieldKind::Identifier, FieldKind::Identifier],
             PayerMethod::EuSepa => &[FieldKind::Identifier, FieldKind::Name],
-            PayerMethod::BrPix => &[FieldKind::PixKey],
         }
     }
 
@@ -97,10 +90,6 @@ fn normalise(kind: FieldKind, value: &str) -> String {
             .filter(|c| !c.is_whitespace() && !matches!(c, '-' | '.' | '/'))
             .collect(),
         FieldKind::Name => upper.split_whitespace().collect::<Vec<_>>().join(" "),
-        FieldKind::PixKey if upper.contains('@') => {
-            upper.chars().filter(|c| !c.is_whitespace()).collect()
-        }
-        FieldKind::PixKey => normalise(FieldKind::Identifier, value),
     }
 }
 
@@ -203,19 +192,9 @@ mod tests {
                 "EU|SEPA|DE89370400440532013000|ALICE SMITH",
             ),
             (
-                PayerMethod::BrPix,
-                s(&["+55 11 99999-8888"]),
-                "BR|PIX|+5511999998888",
-            ),
-            (
                 PayerMethod::EuSepa,
                 s(&["ES91 2100 0418 4502 0005 1332", "José  García"]),
                 "EU|SEPA|ES9121000418450200051332|JOSÉ GARCÍA",
-            ),
-            (
-                PayerMethod::BrPix,
-                s(&["Alice.Smith@Example.com "]),
-                "BR|PIX|ALICE.SMITH@EXAMPLE.COM",
             ),
         ];
         for (method, fields, expected) in cases {
@@ -235,16 +214,8 @@ mod tests {
                 "ee06af92c95429e7cb0cf8428636199a71a01e32bab7a8526d226161f0de9903",
             ),
             (
-                "BR|PIX|+5511999998888",
-                "77801d9713f5a93e133c8b507429b69ce89ae392e5c37c4777730e2153f08b78",
-            ),
-            (
                 "EU|SEPA|ES9121000418450200051332|JOSÉ GARCÍA",
                 "91863709cf207cf042cece0cc4673241e4e0f321a39a327c16f05a9d0d231ebd",
-            ),
-            (
-                "BR|PIX|ALICE.SMITH@EXAMPLE.COM",
-                "bc10fa5b6d8914c550e3db8e5b3e461720646992e046d2fa5af097e769c323a2",
             ),
         ];
         for (canonical, hash) in cases {
@@ -274,10 +245,10 @@ mod tests {
 
     #[test]
     fn payers_without_a_canonical_form_are_rejected() {
-        assert!(canonical_payer(PayerMethod::BrPix, &s(&[" - . / "])).is_err());
+        assert!(canonical_payer(PayerMethod::EuSepa, &s(&[" - . / ", "x"])).is_err());
         assert!(canonical_payer(PayerMethod::EuSepa, &s(&["DE89", "A|B"])).is_err());
         assert!(canonical_payer(PayerMethod::ArCvu, &s(&["0000003100012345678901"])).is_err());
-        assert!(canonical_payer(PayerMethod::BrPix, &s(&["a", "b"])).is_err());
+        assert!(canonical_payer(PayerMethod::EuSepa, &s(&["a", "b", "c"])).is_err());
     }
 
     #[test]
@@ -286,7 +257,8 @@ mod tests {
             assert_eq!(PayerMethod::parse(v).unwrap(), PayerMethod::ArCvu);
         }
         assert_eq!(PayerMethod::parse("eu|sepa").unwrap(), PayerMethod::EuSepa);
-        assert_eq!(PayerMethod::parse("BR|PIX").unwrap(), PayerMethod::BrPix);
+        // Not in the registry: a PIX key is not sender data.
+        assert!(PayerMethod::parse("BR|PIX").is_err());
         assert!(PayerMethod::parse("US|ZELLE").is_err());
     }
 
@@ -345,22 +317,6 @@ mod tests {
         assert_eq!(
             history_tier(&history(Unknown, 9, 9, 9, old), now),
             HistoryTier::Unavailable
-        );
-    }
-
-    #[test]
-    fn pix_email_keys_keep_their_punctuation() {
-        let dotted = canonical_payer(PayerMethod::BrPix, &s(&["a.b@example.com"])).unwrap();
-        let plain = canonical_payer(PayerMethod::BrPix, &s(&["ab@example.com"])).unwrap();
-        assert_ne!(
-            dotted, plain,
-            "two different addresses must stay two accounts"
-        );
-        assert_eq!(dotted, "BR|PIX|A.B@EXAMPLE.COM");
-        // Non e-mail keys keep the identifier rule.
-        assert_eq!(
-            canonical_payer(PayerMethod::BrPix, &s(&["123.456.789-09"])).unwrap(),
-            "BR|PIX|12345678909"
         );
     }
 }

@@ -427,7 +427,7 @@ async fn print_dms_with_invalid_timestamp() {
 async fn print_dms_with_payer_history_payloads() {
     let sender_keys = Keys::generate();
     let order_id = Some(uuid::Uuid::new_v4());
-    let hash = payment_hash("BR|PIX|+5511999998888");
+    let hash = payment_hash("EU|SEPA|DE89370400440532013000|ALICE SMITH");
     let declared = Message::new_order(
         order_id,
         None,
