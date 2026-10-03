@@ -146,6 +146,33 @@ pub async fn execute_declare_payer(
     print_dm_events(events, request_id, ctx, Some(&trade_keys)).await
 }
 
+/// How many times the read-only `payment-history` query is sent before
+/// giving up on a reply.
+const HISTORY_QUERY_ATTEMPTS: usize = 3;
+
+/// Send the `payment-history` query and return Mostro's answer.
+/// `wait_for_dm` returns on the first Mostro DM for the trade key, which can
+/// be an unrelated one (a `fiat-sent-ok` landing at the same time), so the
+/// query is re-sent until a batch holds the answer. Re-sending is safe: the
+/// query only reads.
+async fn query_history(order_id: &Uuid, trade_keys: &Keys, ctx: &Context) -> Result<MessageKind> {
+    for _ in 0..HISTORY_QUERY_ATTEMPTS {
+        let (events, request_id) =
+            send_to_mostro(order_id, Action::PaymentHistory, None, trade_keys, ctx).await?;
+        let messages: Vec<Message> = parse_dm_events(events, trade_keys, None, true)
+            .await
+            .into_iter()
+            .map(|(message, _, _)| message)
+            .collect();
+        if let Some(reply) = pick_reply(&messages, request_id, order_id) {
+            return Ok(reply);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No payment-history reply received from Mostro"
+    ))
+}
+
 /// Seller: ask Mostro for the history of the account the buyer declared.
 /// With `method` and `fields` (the details the buyer sent over the chat),
 /// also check them against the declared hash.
@@ -164,15 +191,7 @@ pub async fn execute_payment_history(
     println!();
 
     let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
-    let (events, request_id) =
-        send_to_mostro(order_id, Action::PaymentHistory, None, &trade_keys, ctx).await?;
-    let messages: Vec<Message> = parse_dm_events(events, &trade_keys, None, true)
-        .await
-        .into_iter()
-        .map(|(message, _, _)| message)
-        .collect();
-    let reply = pick_reply(&messages, request_id, order_id)
-        .ok_or_else(|| anyhow::anyhow!("No payment-history reply received from Mostro"))?;
+    let reply = query_history(order_id, &trade_keys, ctx).await?;
 
     match reply.payload {
         Some(Payload::PaymentHistory(history)) => {
