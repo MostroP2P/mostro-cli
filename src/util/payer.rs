@@ -93,9 +93,18 @@ fn normalise(kind: FieldKind, value: &str) -> String {
     }
 }
 
+/// Whether every code point of a normalised field lies in the protocol's
+/// repertoire, U+0020–U+007E and U+00A0–U+017F, where NFKC and the default
+/// uppercase mapping are the same in every Unicode version.
+fn in_repertoire(field: &str) -> bool {
+    field
+        .chars()
+        .all(|c| matches!(c, '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{17f}'))
+}
+
 /// The canonical string for `fields` under `method`, or an error when the
 /// payer has no canonical form (wrong field count, a field empty after
-/// normalisation, or one containing `|`).
+/// normalisation, one containing `|`, or one outside the repertoire).
 pub fn canonical_payer(method: PayerMethod, fields: &[String]) -> Result<String> {
     let kinds = method.field_kinds();
     if fields.len() != kinds.len() {
@@ -112,6 +121,12 @@ pub fn canonical_payer(method: PayerMethod, fields: &[String]) -> Result<String>
         let field = normalise(*kind, raw);
         if field.is_empty() || field.contains('|') {
             bail!("{raw:?} has no canonical form (empty or contains '|')");
+        }
+        if !in_repertoire(&field) {
+            bail!(
+                "{raw:?} has no canonical form: only Latin letters (U+0020-007E, \
+                 U+00A0-017F) are allowed"
+            );
         }
         parts.push(field);
     }
@@ -242,12 +257,26 @@ mod tests {
             spaced.unwrap(),
             "EU|SEPA|DE89370400440532013000|ALICE SMITH"
         );
-        let bom = canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Alice\u{feff}Smith"])).unwrap();
-        assert_eq!(bom, "EU|SEPA|DE89370400440532013000|ALICE\u{feff}SMITH");
+        // U+FEFF is not whitespace, and outside the repertoire.
+        assert!(canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Alice\u{feff}Smith"])).is_err());
+    }
+
+    #[test]
+    fn fields_are_limited_to_the_stable_latin_repertoire() {
+        let iban = "DE89 3704 0044 0532 0130 00";
+        let latin = canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Groß  Łukasz"])).unwrap();
+        assert_eq!(latin, "EU|SEPA|DE89370400440532013000|GROSS ŁUKASZ");
         assert_eq!(
-            payment_hash(&bom),
-            "2cf0d5fe987398b392ba514b7f2bfedbf1a71f8cef6047386c84da12a9949a88"
+            payment_hash(&latin),
+            "4d5352f5235572ba4ddb61eefb1d294acde0424737d65721638da0d3b63676b6"
         );
+        // U+0264 gained an uppercase in Unicode 16; Cyrillic is out of range.
+        for name in ["\u{264}lice", "Алиса"] {
+            assert!(
+                canonical_payer(PayerMethod::EuSepa, &s(&[iban, name])).is_err(),
+                "{name}"
+            );
+        }
     }
 
     #[test]
