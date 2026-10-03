@@ -153,6 +153,28 @@ fn handle_add_bond_invoice_request_display(
 }
 
 /// Format payload details for DM table display
+/// Multi-line summary of a `payment-history` payload with its suggested
+/// tier (protocol book, `payer_declaration.md`).
+fn format_payment_history(h: &PaymentHistory) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let tier = crate::util::payer::history_tier(h, now);
+    let since = |t: Option<i64>| {
+        t.and_then(|t| DateTime::from_timestamp(t, 0))
+            .map(|dt| dt.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "-".to_string())
+    };
+    format!(
+        "📈 {}\n#️⃣ Payment hash: {}\n✅ Successful trades: {}\n👥 Distinct counterparties: {}\n🎖️ Experienced counterparties: {}\n📅 First / last success: {} / {}\n💡 Check the sender yourself: Mostro never auto-releases or auto-refuses",
+        tier.label(),
+        h.payment_hash,
+        h.successful_trades,
+        h.distinct_counterparties,
+        h.experienced_counterparties,
+        since(h.first_success_at),
+        since(h.last_success_at),
+    )
+}
+
 fn format_payload_details(
     payload: &Payload,
     action: &Action,
@@ -255,6 +277,8 @@ fn format_payload_details(
                 )
             }
         }
+        Payload::PayerDeclaration(d) => format!("🧾 Declared payer hash: {}", d.payment_hash),
+        Payload::PaymentHistory(h) => format_payment_history(h),
         _ => {
             // For other payloads, try to pretty-print as JSON
             match serde_json::to_string_pretty(payload) {
@@ -786,6 +810,19 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Some(Payload::CantDo(Some(CantDoReason::NotFound))) => Err(anyhow::anyhow!(
                     "Resource not found. Verify the order or dispute id exists."
                 )),
+                Some(Payload::CantDo(Some(CantDoReason::InvalidPaymentHash))) => {
+                    println!("#️⃣ Invalid Payment Hash");
+                    println!("💡 The payer hash must be 64 lowercase hex characters");
+                    Err(anyhow::anyhow!("Invalid payment hash"))
+                }
+                Some(Payload::CantDo(Some(CantDoReason::PayerNotDeclared))) => {
+                    println!("🧾 Payer Not Declared");
+                    println!("💡 This node requires a payer declaration before fiat-sent");
+                    println!("📊 Run declarepayer for this order first");
+                    Err(anyhow::anyhow!(
+                        "This node requires declarepayer before fiatsent"
+                    ))
+                }
                 _ => {
                     println!("❓ Unknown Error");
                     println!("💡 An unknown error occurred");
@@ -821,6 +858,35 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Err(anyhow::anyhow!("No order id found in message"))
             }
         }
+        Action::PayerDeclared => match message.payload.as_ref() {
+            Some(Payload::PayerDeclaration(d)) => {
+                print_section_header("🧾 Payer Declared");
+                if let Some(order_id) = &message.id {
+                    println!("📋 Order ID: {}", order_id);
+                }
+                println!("#️⃣ Payment hash: {}", d.payment_hash);
+                println!("💡 Seller: hash the canonical string the buyer sends you and compare");
+                Ok(())
+            }
+            other => Err(anyhow::anyhow!(
+                "PayerDeclared expected Payload::PayerDeclaration, got: {:?}",
+                other
+            )),
+        },
+        Action::PaymentHistory => match message.payload.as_ref() {
+            Some(Payload::PaymentHistory(h)) => {
+                print_section_header("📈 Payment History");
+                if let Some(order_id) = &message.id {
+                    println!("📋 Order ID: {}", order_id);
+                }
+                println!("{}", format_payment_history(h));
+                Ok(())
+            }
+            other => Err(anyhow::anyhow!(
+                "PaymentHistory expected Payload::PaymentHistory, got: {:?}",
+                other
+            )),
+        },
         Action::RateReceived => {
             print_section_header("⭐ Rating Received");
             println!("🙏 Thank you for your rating!");
@@ -1112,6 +1178,8 @@ pub async fn print_direct_messages(
             Action::Orders => "📋",
             Action::LastTradeIndex => "🔢",
             Action::SendDm => "💬",
+            Action::DeclarePayer | Action::PayerDeclared => "🧾",
+            Action::PaymentHistory => "📈",
             _ => "🎯",
         };
 
@@ -1403,5 +1471,33 @@ mod tests {
             stored.solver_pubkey.as_deref(),
             Some(solver.public_key().to_hex().as_str())
         );
+    }
+
+    #[test]
+    fn payment_history_summary_shows_tier_and_counters() {
+        let h = PaymentHistory {
+            payment_hash: "a".repeat(64),
+            buyer_mode: BuyerMode::Reputation,
+            successful_trades: 47,
+            distinct_counterparties: 29,
+            experienced_counterparties: 11,
+            first_success_at: Some(1_700_000_000),
+            last_success_at: Some(1_700_100_000),
+        };
+        let text = super::format_payment_history(&h);
+        assert!(text.contains("Established payment account"));
+        assert!(text.contains("Successful trades: 47"));
+        assert!(text.contains("Distinct counterparties: 29"));
+        assert!(text.contains("Experienced counterparties: 11"));
+        assert!(text.contains("2023-11-14"));
+
+        let unavailable =
+            super::format_payment_history(&PaymentHistory::unavailable("b".repeat(64)));
+        assert!(unavailable.contains("History unavailable"));
+        // Never worded as a verified or trusted account.
+        for forbidden in ["verified", "trusted"] {
+            assert!(!text.to_lowercase().contains(forbidden));
+            assert!(!unavailable.to_lowercase().contains(forbidden));
+        }
     }
 }

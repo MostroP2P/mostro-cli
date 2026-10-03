@@ -12,6 +12,7 @@ pub mod list_orders;
 pub mod maintenance;
 pub mod new_order;
 pub mod orders_info;
+pub mod payer_history;
 pub mod rate_user;
 pub mod restore;
 pub mod send_admin_dm_attach;
@@ -38,6 +39,7 @@ use crate::cli::maintenance::{
 };
 use crate::cli::new_order::execute_new_order;
 use crate::cli::orders_info::execute_orders_info;
+use crate::cli::payer_history::{execute_declare_payer, execute_payment_history};
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
 use crate::cli::send_admin_dm_attach::execute_send_admin_dm_attach;
@@ -288,6 +290,27 @@ pub enum Commands {
         /// Rating from 1 to 5
         #[arg(short, long)]
         rating: u8,
+    },
+    /// Buyer: declare the fiat account you will pay from, by hash only
+    /// (payer history; the node must enable `[payer_history]`)
+    DeclarePayer {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Payment method from the protocol registry: AR|CVU, EU|SEPA or BR|PIX
+        #[arg(short, long)]
+        method: String,
+        /// Account field, in registry order; repeat for each field
+        /// (AR|CVU: CBU/CVU then CUIT/CUIL; EU|SEPA: IBAN then holder name;
+        /// BR|PIX: the PIX key)
+        #[arg(short, long = "field", required = true)]
+        fields: Vec<String>,
+    },
+    /// Seller: get the history of the payment account the buyer declared
+    PaymentHistory {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
     },
     /// Restore session to recover all pending orders and disputes
     Restore {},
@@ -755,6 +778,12 @@ impl Commands {
                 execute_add_bond_invoice(order_id, invoice, ctx).await
             }
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
+            Commands::DeclarePayer {
+                order_id,
+                method,
+                fields,
+            } => execute_declare_payer(order_id, method, fields, ctx).await,
+            Commands::PaymentHistory { order_id } => execute_payment_history(order_id, ctx).await,
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {

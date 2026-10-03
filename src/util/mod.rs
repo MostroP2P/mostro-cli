@@ -2,6 +2,7 @@ pub mod events;
 pub mod messaging;
 pub mod misc;
 pub mod net;
+pub mod payer;
 pub mod storage;
 pub mod types;
 

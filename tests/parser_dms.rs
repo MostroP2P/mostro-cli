@@ -193,6 +193,7 @@ async fn print_dms_with_restore_session_payload() {
         order_id: uuid::Uuid::new_v4(),
         trade_index: 1,
         status: "active".to_string(),
+        counterparty_trade_pubkey: None,
     };
     let dispute_info = RestoredDisputesInfo {
         dispute_id: uuid::Uuid::new_v4(),
@@ -417,6 +418,37 @@ async fn print_dms_with_invalid_timestamp() {
     );
     let timestamp = 0u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
+
+    let res = print_direct_messages(&msgs, None, None).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn print_dms_with_payer_history_payloads() {
+    let sender_keys = Keys::generate();
+    let order_id = Some(uuid::Uuid::new_v4());
+    let hash = payment_hash("BR|PIX|+5511999998888");
+    let declared = Message::new_order(
+        order_id,
+        None,
+        None,
+        Action::PayerDeclared,
+        Some(Payload::PayerDeclaration(PayerDeclaration::new(
+            hash.clone(),
+        ))),
+    );
+    let history = Message::new_order(
+        order_id,
+        None,
+        None,
+        Action::PaymentHistory,
+        Some(Payload::PaymentHistory(PaymentHistory::unavailable(hash))),
+    );
+    let timestamp = 1700000000u64;
+    let msgs = vec![
+        (declared, timestamp, sender_keys.public_key()),
+        (history, timestamp + 1, sender_keys.public_key()),
+    ];
 
     let res = print_direct_messages(&msgs, None, None).await;
     assert!(res.is_ok());

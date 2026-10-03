@@ -345,6 +345,26 @@ If you want to *post* a buy order instead of taking one, use `neworder -k buy`. 
 
 ---
 
+## Payer declaration (anti-triangulation)
+
+Some Mostro nodes enable payer history (their info event carries `payer_history_enabled`). On those nodes the buyer can declare which fiat account it will pay from, so the seller can check that the money really comes from the buyer and how much successful history that account has. Mostro only ever receives a hash of the account details.
+
+**Buyer**, after taking the order and before `fiatsent`:
+
+```bash
+mostro-cli declarepayer -o <order-id> -m "EU|SEPA" -f "DE89 3704 0044 0532 0130 00" -f "Alice Smith"
+```
+
+Registered methods and their fields, in order: `AR|CVU` (CBU/CVU, CUIT/CUIL), `EU|SEPA` (IBAN, holder name), `BR|PIX` (PIX key). The command prints the canonical string and its hash. Send the **canonical string** to the seller over the chat (see below). If the node requires a declaration, `fiatsent` fails with `payer_not_declared` until you run this.
+
+**Seller**: after `fiat-sent` Mostro pushes a `payment-history` message, which `getdm` shows with a suggested tier. You can also ask for it:
+
+```bash
+mostro-cli paymenthistory -o <order-id>
+```
+
+Check that the sender shown by your bank matches what the buyer declared. The history is a risk signal only; Mostro never releases or refuses on its own. The rules are in the protocol book, chapter `payer_declaration.md`.
+
 ## Direct messages with your counterpart
 
 Every order has a counterparty pubkey. You can chat over kind-14 envelopes:
@@ -594,6 +614,8 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 ### Trade lifecycle
 - `fiatsent -o <id>` — buyer confirms fiat sent.
+- `declarepayer -o <id> -m <method> -f <field> [-f <field>]` — buyer declares the fiat account it pays from, by hash only (nodes with payer history enabled). See [Payer declaration](#payer-declaration-anti-triangulation).
+- `paymenthistory -o <id>` — seller asks for the history of the account the buyer declared.
 - `release -o <id>` — seller releases the hold invoice.
 - `cancel -o <id>` — cancel a pending order or cooperatively cancel later.
 - `rate -o <id> -r <1-5>` — rate counterpart.
