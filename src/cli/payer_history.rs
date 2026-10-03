@@ -20,14 +20,36 @@ use crate::{
     },
 };
 
-/// Trade keys stored for `order_id`.
-async fn order_trade_keys(order_id: &Uuid, ctx: &Context) -> Result<Keys> {
-    let order = Order::get_by_id(&ctx.pool, &order_id.to_string())
+/// The local copy of `order_id`.
+async fn local_order(order_id: &Uuid, ctx: &Context) -> Result<Order> {
+    Order::get_by_id(&ctx.pool, &order_id.to_string())
         .await
-        .map_err(|_| anyhow::anyhow!("order {} not found", order_id))?;
+        .map_err(|_| anyhow::anyhow!("order {} not found", order_id))
+}
+
+/// Trade keys stored for `order`.
+fn trade_keys_of(order: &Order) -> Result<Keys> {
     match order.trade_keys.as_ref() {
         Some(keys) => Ok(Keys::parse(keys)?),
         None => Err(anyhow::anyhow!("No trade_keys found for this order")),
+    }
+}
+
+/// Heading and explanation for a `not_found` answer to `payment-history`.
+/// Mostro answers the same way when the buyer never declared and when the
+/// order is past success (the declaration was consumed), so only claim the
+/// latter when the local copy says the trade completed.
+pub(crate) fn not_found_guidance(local_status: Option<&str>) -> (&'static str, &'static str) {
+    if local_status == Some(Status::Success.to_string().as_str()) {
+        (
+            "⚠️ Trade already completed",
+            "The declaration was consumed at success; the history is no longer queryable.",
+        )
+    } else {
+        (
+            "⚠️ No payer declaration available",
+            "The buyer did not declare a payment sender, or the order is past success.",
+        )
     }
 }
 
@@ -129,7 +151,7 @@ pub async fn execute_declare_payer(
     );
     println!();
 
-    let trade_keys = order_trade_keys(order_id, ctx).await?;
+    let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
     let payload = Payload::PayerDeclaration(PayerDeclaration::new(hash));
     let (events, request_id) = send_to_mostro(
         order_id,
@@ -159,7 +181,8 @@ pub async fn execute_payment_history(
     );
     println!();
 
-    let trade_keys = order_trade_keys(order_id, ctx).await?;
+    let order = local_order(order_id, ctx).await?;
+    let trade_keys = trade_keys_of(&order)?;
     let (events, request_id) =
         send_to_mostro(order_id, Action::PaymentHistory, None, &trade_keys, ctx).await?;
     let messages: Vec<Message> = parse_dm_events(events, &trade_keys, None, true)
@@ -199,13 +222,10 @@ pub async fn execute_payment_history(
             Ok(())
         }
         Some(Payload::CantDo(Some(CantDoReason::NotFound))) => {
-            // Usually the buyer never declared a payer, or the order already
-            // reached success; an order Mostro does not know reads the same.
-            // Either way no history was retrieved, so fail for scripts.
-            print_section_header("⚠️ No payer declaration available");
-            println!(
-                "💡 The buyer did not declare a payment sender, or the order is past success."
-            );
+            // No history was retrieved whatever the cause, so fail for scripts.
+            let (heading, detail) = not_found_guidance(order.status.as_deref());
+            print_section_header(heading);
+            println!("💡 {detail}");
             println!("💡 Sender verification is unavailable for this trade.");
             Err(anyhow::anyhow!(
                 "no payer declaration available for order {order_id}"
@@ -289,5 +309,16 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(other, DeclarationCheck::Mismatch { .. }));
+    }
+
+    #[test]
+    fn not_found_guidance_only_claims_completion_from_the_local_status() {
+        let (done, _) = not_found_guidance(Some("success"));
+        assert!(done.contains("completed"));
+        for status in [None, Some("fiat-sent"), Some("active")] {
+            let (heading, detail) = not_found_guidance(status);
+            assert!(heading.contains("No payer declaration"), "{status:?}");
+            assert!(detail.contains("or the order is past success"));
+        }
     }
 }
