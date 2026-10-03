@@ -62,16 +62,16 @@ fn trade_keys_of(order: &Order) -> Result<Keys> {
     }
 }
 
-/// Send `action` for `order_id`, signed with the order's trade keys, and
-/// return the events Mostro answered with plus the request id used.
+/// Send `action` for `order_id` with `request_id`, signed with the order's
+/// trade keys, and return the events Mostro answered with.
 async fn send_to_mostro(
     order_id: &Uuid,
+    request_id: u64,
     action: Action,
     payload: Option<Payload>,
     trade_keys: &Keys,
     ctx: &Context,
-) -> Result<(std::collections::BTreeSet<Event>, u64)> {
-    let request_id = Uuid::new_v4().as_u128() as u64;
+) -> Result<std::collections::BTreeSet<Event>> {
     let message = Message::new_order(Some(*order_id), Some(request_id), None, action, payload)
         .as_json()
         .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
@@ -84,8 +84,7 @@ async fn send_to_mostro(
         None,
         false,
     );
-    let events = wait_for_dm(ctx, Some(trade_keys), sent).await?;
-    Ok((events, request_id))
+    wait_for_dm(ctx, Some(trade_keys), sent).await
 }
 
 /// The answer to our `payment-history` query among `messages`: the one
@@ -202,8 +201,10 @@ const REQUEST_ATTEMPTS: usize = 3;
 /// Send `action` and return Mostro's answer to it. `wait_for_dm` returns on
 /// the first Mostro DM for the trade key, which can be an unrelated one (a
 /// `fiat-sent-ok` landing at the same time), so the request is re-sent until
-/// a batch holds the answer. Re-sending is safe for both callers: the
-/// history query only reads, and re-declaring the same hash is a no-op.
+/// a batch holds the answer. Every attempt carries the same request id, so
+/// a reply to an earlier attempt that arrives late still matches. Re-sending
+/// is safe for both callers: the history query only reads, and re-declaring
+/// the same hash is a no-op.
 /// `accept_history_push` also takes a same-order `payment-history` push as
 /// the answer (it holds the same data as the query reply).
 async fn request_until_answered(
@@ -214,9 +215,17 @@ async fn request_until_answered(
     trade_keys: &Keys,
     ctx: &Context,
 ) -> Result<MessageKind> {
+    let request_id = Uuid::new_v4().as_u128() as u64;
     for _ in 0..REQUEST_ATTEMPTS {
-        let (events, request_id) =
-            send_to_mostro(order_id, action.clone(), payload.clone(), trade_keys, ctx).await?;
+        let events = send_to_mostro(
+            order_id,
+            request_id,
+            action.clone(),
+            payload.clone(),
+            trade_keys,
+            ctx,
+        )
+        .await?;
         let messages: Vec<Message> = parse_dm_events(events, trade_keys, None, true)
             .await
             .into_iter()
