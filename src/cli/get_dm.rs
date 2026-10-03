@@ -6,7 +6,10 @@ use crate::{
     cli::Context,
     parser::common::{print_key_value, print_section_header},
     parser::dms::{persist_counterparty_pubkey, persist_solver_pubkey, print_direct_messages},
-    util::{fetch_bond_claim_window_days, fetch_events_list, Event, ListKind},
+    util::{
+        fetch_bond_claim_window_days, fetch_events_list, fetch_payer_history_thresholds, Event,
+        ListKind,
+    },
 };
 
 pub async fn execute_get_dm(
@@ -54,6 +57,19 @@ pub async fn execute_get_dm(
     } else {
         None
     };
+    // Same for the payer-history policy: a pushed history shows the node's
+    // experience thresholds next to its counts.
+    let has_payment_history = dm_events.iter().any(|(message, _, _)| {
+        matches!(
+            message.get_inner_message_kind().payload,
+            Some(Payload::PaymentHistory(_))
+        )
+    });
+    let payer_thresholds = if has_payment_history {
+        fetch_payer_history_thresholds(ctx).await
+    } else {
+        None
+    };
 
     // Listing messages is also a chance to learn the counterparty pubkey, but
     // only from mostrod. `--fromuser` lists peer chat, which is attacker
@@ -64,6 +80,12 @@ pub async fn execute_get_dm(
             persist_solver_pubkey(message.get_inner_message_kind(), sender, ctx).await;
         }
     }
-    print_direct_messages(&dm_events, Some(ctx.mostro_pubkey), claim_window_days).await?;
+    print_direct_messages(
+        &dm_events,
+        Some(ctx.mostro_pubkey),
+        claim_window_days,
+        payer_thresholds,
+    )
+    .await?;
     Ok(())
 }

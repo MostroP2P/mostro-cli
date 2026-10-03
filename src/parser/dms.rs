@@ -16,7 +16,7 @@ use crate::{
         print_payment_method, print_premium, print_required_amount, print_section_header,
         print_success_message, print_trade_index,
     },
-    util::{fetch_bond_claim_window_days, save_order},
+    util::{fetch_bond_claim_window_days, fetch_payer_history_thresholds, save_order},
 };
 use serde_json;
 
@@ -193,6 +193,7 @@ fn format_payload_details(
     payload: &Payload,
     action: &Action,
     claim_window_days: Option<i64>,
+    payer_thresholds: Option<(u32, u32)>,
 ) -> String {
     match payload {
         Payload::TextMessage(t) => format!("✉️ {}", t),
@@ -292,7 +293,7 @@ fn format_payload_details(
             }
         }
         Payload::PayerDeclaration(d) => format!("🧾 Declared payer hash: {}", d.payment_hash),
-        Payload::PaymentHistory(h) => format_payment_history(h, None),
+        Payload::PaymentHistory(h) => format_payment_history(h, payer_thresholds),
         _ => {
             // For other payloads, try to pretty-print as JSON
             match serde_json::to_string_pretty(payload) {
@@ -893,7 +894,8 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 if let Some(order_id) = &message.id {
                     println!("📋 Order ID: {}", order_id);
                 }
-                println!("{}", format_payment_history(h, None));
+                let thresholds = fetch_payer_history_thresholds(ctx).await;
+                println!("{}", format_payment_history(h, thresholds));
                 Ok(())
             }
             other => Err(anyhow::anyhow!(
@@ -1158,6 +1160,7 @@ pub async fn print_direct_messages(
     dm: &[(Message, u64, PublicKey)],
     mostro_pubkey: Option<PublicKey>,
     claim_window_days: Option<i64>,
+    payer_thresholds: Option<(u32, u32)>,
 ) -> Result<()> {
     if dm.is_empty() {
         println!();
@@ -1217,7 +1220,8 @@ pub async fn print_direct_messages(
 
         // Print details with proper formatting
         if let Some(payload) = &inner.payload {
-            let details = format_payload_details(payload, &inner.action, claim_window_days);
+            let details =
+                format_payload_details(payload, &inner.action, claim_window_days, payer_thresholds);
             println!("📝 Details:");
             for line in details.lines() {
                 println!("   {}", line);
