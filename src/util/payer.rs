@@ -94,12 +94,12 @@ fn normalise(kind: FieldKind, value: &str) -> String {
 }
 
 /// Whether every code point of a normalised field lies in the protocol's
-/// repertoire, U+0020–U+007E and U+00A0–U+017F, where NFKC and the default
-/// uppercase mapping are the same in every Unicode version.
+/// repertoire, U+0020–U+007E, U+00A0–U+017F and U+0218–U+021B, where NFKC
+/// and the default uppercase mapping are the same in every Unicode version.
 fn in_repertoire(field: &str) -> bool {
     field
         .chars()
-        .all(|c| matches!(c, '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{17f}'))
+        .all(|c| matches!(c, '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{17f}' | '\u{218}'..='\u{21b}'))
 }
 
 /// The canonical string for `fields` under `method`, or an error when the
@@ -125,7 +125,7 @@ pub fn canonical_payer(method: PayerMethod, fields: &[String]) -> Result<String>
         if !in_repertoire(&field) {
             bail!(
                 "{raw:?} has no canonical form: only Latin letters (U+0020-007E, \
-                 U+00A0-017F) are allowed"
+                 U+00A0-017F, U+0218-021B) are allowed"
             );
         }
         parts.push(field);
@@ -269,6 +269,15 @@ mod tests {
         assert_eq!(
             payment_hash(&latin),
             "4d5352f5235572ba4ddb61eefb1d294acde0424737d65721638da0d3b63676b6"
+        );
+        let romanian = canonical_payer(
+            PayerMethod::EuSepa,
+            &s(&["RO49 AAAA 1B31 0075 9384 0000", "Ștefan Țepeș"]),
+        )
+        .unwrap();
+        assert_eq!(
+            payment_hash(&romanian),
+            "2b6b4ce972a97c5c0519b5a06325c34a6f10595ccff4ca94df556ef5445ababf"
         );
         // U+0264 gained an uppercase in Unicode 16; Cyrillic is out of range.
         for name in ["\u{264}lice", "Алиса"] {
