@@ -234,6 +234,23 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_is_exactly_the_unicode_white_space_set() {
+        // Protocol vectors: U+0085 and U+00A0 are whitespace, U+FEFF is not.
+        let iban = "DE89 3704 0044 0532 0130 00";
+        let spaced = canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Alice\u{85}\u{a0}Smith"]));
+        assert_eq!(
+            spaced.unwrap(),
+            "EU|SEPA|DE89370400440532013000|ALICE SMITH"
+        );
+        let bom = canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Alice\u{feff}Smith"])).unwrap();
+        assert_eq!(bom, "EU|SEPA|DE89370400440532013000|ALICE\u{feff}SMITH");
+        assert_eq!(
+            payment_hash(&bom),
+            "2cf0d5fe987398b392ba514b7f2bfedbf1a71f8cef6047386c84da12a9949a88"
+        );
+    }
+
+    #[test]
     fn spaced_and_compact_identifiers_are_the_same_account() {
         let a = canonical_payer(
             PayerMethod::EuSepa,
