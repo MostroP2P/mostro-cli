@@ -78,6 +78,16 @@ impl PayerMethod {
     }
 }
 
+/// Whether raw input may be normalised at all: repertoire, whitespace or a
+/// combining diacritical mark (U+0300–U+036F). Checked before NFKC, which
+/// can map a code point that one Unicode version leaves unassigned into the
+/// repertoire in a newer one.
+fn accepted_input(value: &str) -> bool {
+    value
+        .chars()
+        .all(|c| in_repertoire_char(c) || c.is_whitespace() || ('\u{300}'..='\u{36f}').contains(&c))
+}
+
 fn base(value: &str) -> String {
     value.nfkc().collect::<String>().to_uppercase()
 }
@@ -97,9 +107,11 @@ fn normalise(kind: FieldKind, value: &str) -> String {
 /// repertoire, U+0020–U+007E, U+00A0–U+017F and U+0218–U+021B, where NFKC
 /// and the default uppercase mapping are the same in every Unicode version.
 fn in_repertoire(field: &str) -> bool {
-    field
-        .chars()
-        .all(|c| matches!(c, '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{17f}' | '\u{218}'..='\u{21b}'))
+    field.chars().all(in_repertoire_char)
+}
+
+fn in_repertoire_char(c: char) -> bool {
+    matches!(c, '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{17f}' | '\u{218}'..='\u{21b}')
 }
 
 /// The canonical string for `fields` under `method`, or an error when the
@@ -118,6 +130,12 @@ pub fn canonical_payer(method: PayerMethod, fields: &[String]) -> Result<String>
     }
     let mut parts = vec![method.prefix().to_string()];
     for (kind, raw) in kinds.iter().zip(fields) {
+        if !accepted_input(raw) {
+            bail!(
+                "{raw:?} has no canonical form: only Latin letters (U+0020-007E, \
+                 U+00A0-017F, U+0218-021B), whitespace and combining accents are allowed"
+            );
+        }
         let field = normalise(*kind, raw);
         if field.is_empty() || field.contains('|') {
             bail!("{raw:?} has no canonical form (empty or contains '|')");
@@ -279,6 +297,8 @@ mod tests {
             payment_hash(&romanian),
             "2b6b4ce972a97c5c0519b5a06325c34a6f10595ccff4ca94df556ef5445ababf"
         );
+        // Refused before NFKC: U+A7F1 normalises to "S" only under Unicode 17.
+        assert!(canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Alice\u{a7f1}mith"])).is_err());
         // U+0264 gained an uppercase in Unicode 16; Cyrillic is out of range.
         for name in ["\u{264}lice", "Алиса"] {
             assert!(
