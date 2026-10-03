@@ -17,7 +17,7 @@ use crate::{
         fetch_payer_history_thresholds,
         messaging::parse_secret_env,
         payer::{canonical_payer, PayerMethod},
-        send_dm, wait_for_dm,
+        send_dm, wait_for_dm, WaitForDmTimeout,
     },
 };
 
@@ -34,6 +34,23 @@ pub fn resolve_payer_fields(fields: &[String], from_stdin: bool) -> Result<Vec<S
         eprintln!("Enter one account field per line, then Ctrl-D:");
     }
     read_fields(stdin.lock())
+}
+
+/// A chat message read from stdin (trailing newline trimmed), for
+/// `dmtouser --message-stdin`.
+pub fn read_message_stdin() -> Result<String> {
+    use std::io::{IsTerminal, Read};
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        eprintln!("Enter the message, then Ctrl-D:");
+    }
+    let mut text = String::new();
+    stdin.read_to_string(&mut text)?;
+    let text = text.trim_end_matches(['\n', '\r']).to_string();
+    if text.trim().is_empty() {
+        return Err(anyhow::anyhow!("empty message on stdin"));
+    }
+    Ok(text)
 }
 
 fn read_fields(input: impl std::io::BufRead) -> Result<Vec<String>> {
@@ -200,8 +217,9 @@ const REQUEST_ATTEMPTS: usize = 3;
 
 /// Send `action` and return Mostro's answer to it. `wait_for_dm` returns on
 /// the first Mostro DM for the trade key, which can be an unrelated one (a
-/// `fiat-sent-ok` landing at the same time), so the request is re-sent until
-/// a batch holds the answer. Every attempt carries the same request id, so
+/// `fiat-sent-ok` landing at the same time), and a lost request or reply ends
+/// in a wait timeout, so the request is re-sent until a batch holds the
+/// answer. Every attempt carries the same request id, so
 /// a reply to an earlier attempt that arrives late still matches. Re-sending
 /// is safe for both callers: the history query only reads, and re-declaring
 /// the same hash is a no-op.
@@ -216,8 +234,8 @@ async fn request_until_answered(
     ctx: &Context,
 ) -> Result<MessageKind> {
     let request_id = Uuid::new_v4().as_u128() as u64;
-    for _ in 0..REQUEST_ATTEMPTS {
-        let events = send_to_mostro(
+    for attempt in 1..=REQUEST_ATTEMPTS {
+        let events = match send_to_mostro(
             order_id,
             request_id,
             action.clone(),
@@ -225,7 +243,19 @@ async fn request_until_answered(
             trade_keys,
             ctx,
         )
-        .await?;
+        .await
+        {
+            Ok(events) => events,
+            // The request or its reply was lost: re-send. Any other failure
+            // (PoW refused, relay error) would fail the same way again.
+            Err(e) if e.downcast_ref::<WaitForDmTimeout>().is_some() => {
+                if attempt == REQUEST_ATTEMPTS {
+                    return Err(e);
+                }
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         let messages: Vec<Message> = parse_dm_events(events, trade_keys, None, true)
             .await
             .into_iter()

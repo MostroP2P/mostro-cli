@@ -363,10 +363,11 @@ mostro-cli declarepayer -o <order-id> -m "EU|SEPA" --fields-stdin < payer.txt
 Registered methods and their fields, in order: `AR|CVU` (CBU/CVU, CUIT/CUIL), `EU|SEPA` (IBAN, holder name). PIX is not registered: a PIX key identifies the receiving account, so the seller could not check it against the payment. Fields may only use Latin letters (U+0020-007E, U+00A0-017F, U+0218-021B); a holder name in another script has no canonical form, so on a node that requires declarations check that your details are accepted before taking an order. With `--secret` (full-privacy mode) the declared hash is bound to the order, so the node cannot link your trades through the account; it builds no history either way. The command prints the canonical string and its hash. Send the **canonical string** to the seller over the peer chat with `dmtouser` (not `senddm`, which wraps the text as a Mostro message the seller cannot read as chat):
 
 ```bash
-mostro-cli dmtouser -p <seller-trade-pubkey> -o <order-id> -m "EU|SEPA|DE89370400440532013000|ALICE SMITH"
+# Paste the canonical string when prompted, then Ctrl-D (or redirect a chmod 600 file):
+mostro-cli dmtouser -p <seller-trade-pubkey> -o <order-id> --message-stdin
 ```
 
-`dmtouser -m` takes the text as an argument, so it is recorded in your shell history too; with bash's `HISTCONTROL=ignorespace` (or zsh's `HIST_IGNORE_SPACE`), start the command with a space to keep it out. If the node requires a declaration, `fiatsent` fails with `payer_not_declared` until you run this.
+`--message-stdin` keeps the account out of shell history and the process list; `-m "<text>"` would put it in both. If the node requires a declaration, `fiatsent` fails with `payer_not_declared` until you run this.
 
 **Seller**: after `fiat-sent` Mostro pushes a `payment-history` message, which `getdm` shows with a suggested tier. You can also ask for it:
 

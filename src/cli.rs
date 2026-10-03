@@ -40,7 +40,7 @@ use crate::cli::maintenance::{
 use crate::cli::new_order::execute_new_order;
 use crate::cli::orders_info::execute_orders_info;
 use crate::cli::payer_history::{
-    execute_declare_payer, execute_payment_history, resolve_payer_fields,
+    execute_declare_payer, execute_payment_history, read_message_stdin, resolve_payer_fields,
 };
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
@@ -263,8 +263,12 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
         /// Message to send (spaces allowed; use quotes or multiple -m/--message)
-        #[arg(short, long, num_args = 1..)]
+        #[arg(short, long, num_args = 1.., required_unless_present = "message_stdin")]
         message: Vec<String>,
+        /// Read the message from stdin instead, so it stays out of shell
+        /// history and the process list (e.g. payer details)
+        #[arg(long = "message-stdin", conflicts_with = "message")]
+        message_stdin: bool,
     },
     /// Send fiat sent message to confirm payment to other user
     FiatSent {
@@ -726,8 +730,13 @@ impl Commands {
                 pubkey,
                 order_id,
                 message,
+                message_stdin,
             } => {
-                let msg = message.join(" ");
+                let msg = if *message_stdin {
+                    read_message_stdin()?
+                } else {
+                    message.join(" ")
+                };
                 execute_dm_to_user(
                     PublicKey::from_str(pubkey)?,
                     &ctx.client,
