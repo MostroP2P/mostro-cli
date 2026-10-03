@@ -199,12 +199,17 @@ pub async fn execute_payment_history(
             Ok(())
         }
         Some(Payload::CantDo(Some(CantDoReason::NotFound))) => {
-            // The order exists locally, so not_found means the buyer never
-            // declared a payer (or the order already reached success).
-            print_section_header("⚠️ Buyer did not declare a payment sender");
+            // Usually the buyer never declared a payer, or the order already
+            // reached success; an order Mostro does not know reads the same.
+            // Either way no history was retrieved, so fail for scripts.
+            print_section_header("⚠️ No payer declaration available");
+            println!(
+                "💡 The buyer did not declare a payment sender, or the order is past success."
+            );
             println!("💡 Sender verification is unavailable for this trade.");
-            println!("💡 After success the declaration is consumed and the history is no longer queryable.");
-            Ok(())
+            Err(anyhow::anyhow!(
+                "no payer declaration available for order {order_id}"
+            ))
         }
         Some(Payload::CantDo(reason)) => Err(anyhow::anyhow!(
             "Mostro refused the query: {:?}",
