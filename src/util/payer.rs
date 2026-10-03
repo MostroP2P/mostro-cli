@@ -147,9 +147,7 @@ impl HistoryTier {
             HistoryTier::Established => "🟢 Established payment account",
             HistoryTier::Limited => "🟡 Limited payment history",
             HistoryTier::New => "🔴 No previous successful trades with this account",
-            HistoryTier::Unavailable => {
-                "⚪ History unavailable (buyer trades in full-privacy mode)"
-            }
+            HistoryTier::Unavailable => "⚪ History unavailable for this buyer",
         }
     }
 }

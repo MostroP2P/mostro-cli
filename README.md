@@ -361,9 +361,11 @@ Registered methods and their fields, in order: `AR|CVU` (CBU/CVU, CUIT/CUIL), `E
 
 ```bash
 mostro-cli paymenthistory -o <order-id>
+# and check the details the buyer sent you over the chat against the declared hash:
+mostro-cli paymenthistory -o <order-id> -m "EU|SEPA" -f "DE89370400440532013000" -f "ALICE SMITH"
 ```
 
-Check that the sender shown by your bank matches what the buyer declared. The history is a risk signal only; Mostro never releases or refuses on its own. The rules are in the protocol book, chapter `payer_declaration.md`.
+If the details the buyer sent you do not hash to what it declared, the command prints a **DECLARATION MISMATCH** warning: the history shown belongs to another account. Do not release; open a dispute if it is not resolved. If the buyer never declared, the command says so: sender verification is unavailable for that trade. Then check that the sender shown by your bank matches what the buyer declared. The history is a risk signal only; Mostro never releases or refuses on its own. The rules are in the protocol book, chapter `payer_declaration.md`.
 
 ## Direct messages with your counterpart
 
@@ -615,7 +617,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 ### Trade lifecycle
 - `fiatsent -o <id>` — buyer confirms fiat sent.
 - `declarepayer -o <id> -m <method> -f <field> [-f <field>]` — buyer declares the fiat account it pays from, by hash only (nodes with payer history enabled). See [Payer declaration](#payer-declaration-anti-triangulation).
-- `paymenthistory -o <id>` — seller asks for the history of the account the buyer declared.
+- `paymenthistory -o <id> [-m <method> -f <field>...]` — seller asks for the history of the account the buyer declared and, with `-m`/`-f`, checks the details the buyer sent against the declared hash.
 - `release -o <id>` — seller releases the hold invoice.
 - `cancel -o <id>` — cancel a pending order or cooperatively cancel later.
 - `rate -o <id> -r <1-5>` — rate counterpart.

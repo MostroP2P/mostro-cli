@@ -155,7 +155,7 @@ fn handle_add_bond_invoice_request_display(
 /// Format payload details for DM table display
 /// Multi-line summary of a `payment-history` payload with its suggested
 /// tier (protocol book, `payer_declaration.md`).
-fn format_payment_history(h: &PaymentHistory) -> String {
+pub(crate) fn format_payment_history(h: &PaymentHistory, thresholds: Option<(u32, u32)>) -> String {
     let now = chrono::Utc::now().timestamp();
     let tier = crate::util::payer::history_tier(h, now);
     let since = |t: Option<i64>| {
@@ -163,13 +163,27 @@ fn format_payment_history(h: &PaymentHistory) -> String {
             .map(|dt| dt.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "-".to_string())
     };
+    let reason = match h.buyer_mode {
+        BuyerMode::FullPrivacy => " (buyer trades in full-privacy mode)",
+        BuyerMode::Unknown => " (buyer mode not known to this client)",
+        BuyerMode::Reputation => "",
+    };
+    let policy = thresholds
+        .map(|(n, d)| {
+            format!(
+                "\n📏 Experienced = at least {n} successful trades with other buyers, the first {d}+ days earlier (this node's policy)"
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "📈 {}\n#️⃣ Payment hash: {}\n✅ Successful trades: {}\n👥 Distinct counterparties: {}\n🎖️ Experienced counterparties: {}\n📅 First / last success: {} / {}\n💡 Check the sender yourself: Mostro never auto-releases or auto-refuses",
+        "📈 {}{}\n#️⃣ Payment hash: {}\n✅ Successful trades: {}\n👥 Distinct counterparties: {}\n🎖️ Experienced counterparties: {}{}\n📅 First / last success: {} / {}\n💡 Check the sender yourself: Mostro never auto-releases or auto-refuses",
         tier.label(),
+        reason,
         h.payment_hash,
         h.successful_trades,
         h.distinct_counterparties,
         h.experienced_counterparties,
+        policy,
         since(h.first_success_at),
         since(h.last_success_at),
     )
@@ -278,7 +292,7 @@ fn format_payload_details(
             }
         }
         Payload::PayerDeclaration(d) => format!("🧾 Declared payer hash: {}", d.payment_hash),
-        Payload::PaymentHistory(h) => format_payment_history(h),
+        Payload::PaymentHistory(h) => format_payment_history(h, None),
         _ => {
             // For other payloads, try to pretty-print as JSON
             match serde_json::to_string_pretty(payload) {
@@ -879,7 +893,7 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 if let Some(order_id) = &message.id {
                     println!("📋 Order ID: {}", order_id);
                 }
-                println!("{}", format_payment_history(h));
+                println!("{}", format_payment_history(h, None));
                 Ok(())
             }
             other => Err(anyhow::anyhow!(
@@ -1484,7 +1498,7 @@ mod tests {
             first_success_at: Some(1_700_000_000),
             last_success_at: Some(1_700_100_000),
         };
-        let text = super::format_payment_history(&h);
+        let text = super::format_payment_history(&h, Some((5, 30)));
         assert!(text.contains("Established payment account"));
         assert!(text.contains("Successful trades: 47"));
         assert!(text.contains("Distinct counterparties: 29"));
@@ -1492,8 +1506,10 @@ mod tests {
         assert!(text.contains("2023-11-14"));
 
         let unavailable =
-            super::format_payment_history(&PaymentHistory::unavailable("b".repeat(64)));
+            super::format_payment_history(&PaymentHistory::unavailable("b".repeat(64)), None);
         assert!(unavailable.contains("History unavailable"));
+        assert!(unavailable.contains("full-privacy mode"));
+        assert!(text.contains("at least 5 successful trades"));
         // Never worded as a verified or trusted account.
         for forbidden in ["verified", "trusted"] {
             assert!(!text.to_lowercase().contains(forbidden));

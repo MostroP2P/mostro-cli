@@ -131,6 +131,15 @@ pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i
         .and_then(|v| v.parse::<i64>().ok())
 }
 
+/// The node's payer-history experience policy, `(min_trades, min_days)`,
+/// from the kind-38385 info event. `None` when the node does not advertise
+/// it (feature off, older daemon) or the info event can't be fetched.
+pub async fn fetch_payer_history_thresholds(ctx: &crate::cli::Context) -> Option<(u32, u32)> {
+    let trades = fetch_info_tag(ctx, "payer_history_experienced_min_trades").await?;
+    let days = fetch_info_tag(ctx, "payer_history_experienced_min_days").await?;
+    Some((trades.parse().ok()?, days.parse().ok()?))
+}
+
 /// Fetch the Mostro instance's required NIP-13 proof-of-work difficulty from
 /// the kind-38385 info event (`["pow", "<bits>"]` tag).
 ///

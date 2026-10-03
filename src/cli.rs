@@ -306,11 +306,19 @@ pub enum Commands {
         #[arg(short, long = "field", required = true)]
         fields: Vec<String>,
     },
-    /// Seller: get the history of the payment account the buyer declared
+    /// Seller: get the history of the payment account the buyer declared,
+    /// and optionally check the details the buyer sent you against it
     PaymentHistory {
         /// Order id
         #[arg(short, long)]
         order_id: Uuid,
+        /// Method of the details the buyer sent you (AR|CVU, EU|SEPA, BR|PIX),
+        /// to check them against the declared hash
+        #[arg(short, long, requires = "fields")]
+        method: Option<String>,
+        /// Account field the buyer sent you, in registry order; repeat for each
+        #[arg(short, long = "field", requires = "method")]
+        fields: Vec<String>,
     },
     /// Restore session to recover all pending orders and disputes
     Restore {},
@@ -783,7 +791,11 @@ impl Commands {
                 method,
                 fields,
             } => execute_declare_payer(order_id, method, fields, ctx).await,
-            Commands::PaymentHistory { order_id } => execute_payment_history(order_id, ctx).await,
+            Commands::PaymentHistory {
+                order_id,
+                method,
+                fields,
+            } => execute_payment_history(order_id, method.as_deref(), fields, ctx).await,
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {
