@@ -1852,7 +1852,7 @@ dependencies = [
 [[package]]
 name = "mostro-core"
 version = "0.16.0"
-source = "git+https://github.com/MostroP2P/mostro-core?branch=feat%2Fpayer-history#8af92e925b89b11c7e9b6c83cd3b4f753dd4fb83"
+source = "git+https://github.com/MostroP2P/mostro-core?branch=feat%2Fpayer-history#ad10a11d0f372f539a834eeb7f92d763b3482c51"
 dependencies = [
  "bitcoin",
  "chrono",

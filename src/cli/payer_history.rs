@@ -11,12 +11,12 @@ use crate::{
     db::Order,
     parser::{
         common::{print_info_line, print_key_value, print_section_header},
-        dms::{format_payment_history, parse_dm_events},
+        dms::{format_payment_history, parse_dm_events, print_commands_results},
     },
     util::{
         fetch_payer_history_thresholds,
         payer::{canonical_payer, PayerMethod},
-        print_dm_events, send_dm, wait_for_dm,
+        send_dm, wait_for_dm,
     },
 };
 
@@ -94,16 +94,33 @@ pub(crate) enum DeclarationCheck {
     Mismatch { computed: String },
 }
 
+/// The hash a buyer declares for `canonical` on `order_id`: the reusable
+/// one that builds history, or, in full-privacy mode, the order-bound one
+/// that keeps the node from linking the buyer's trades (protocol book,
+/// "Full-privacy buyers").
+pub(crate) fn declaration_hash(order_id: &Uuid, canonical: &str, full_privacy: bool) -> String {
+    if full_privacy {
+        order_bound_payment_hash(order_id, canonical)
+    } else {
+        payment_hash(canonical)
+    }
+}
+
 /// Hash the details the buyer sent the seller and compare them with the
-/// hash it declared to Mostro.
+/// hash it declared to Mostro for `order_id`. Either construction matches:
+/// both commit to the same details, and only the buyer knows which mode it
+/// declared in.
 pub(crate) fn check_declared(
     declared_hash: &str,
+    order_id: &Uuid,
     method: &str,
     fields: &[String],
 ) -> Result<DeclarationCheck> {
     let canonical = canonical_payer(PayerMethod::parse(method)?, fields)?;
     let computed = payment_hash(&canonical);
-    Ok(if computed == declared_hash {
+    let matches = computed == declared_hash
+        || order_bound_payment_hash(order_id, &canonical) == declared_hash;
+    Ok(if matches {
         DeclarationCheck::Match
     } else {
         DeclarationCheck::Mismatch { computed }
@@ -120,7 +137,10 @@ pub async fn execute_declare_payer(
 ) -> Result<()> {
     let method = PayerMethod::parse(method)?;
     let canonical = canonical_payer(method, fields)?;
-    let hash = payment_hash(&canonical);
+    let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
+    // Full-privacy mode signs with the trade key itself.
+    let full_privacy = ctx.identity_keys.public_key() == trade_keys.public_key();
+    let hash = declaration_hash(order_id, &canonical, full_privacy);
 
     print_section_header("🧾 Declare Payer");
     print_key_value("📋", "Order ID", &order_id.to_string());
@@ -133,44 +153,60 @@ pub async fn execute_declare_payer(
     );
     println!();
 
-    let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
     let payload = Payload::PayerDeclaration(PayerDeclaration::new(hash));
-    let (events, request_id) = send_to_mostro(
+    let reply = request_until_answered(
         order_id,
         Action::DeclarePayer,
         Some(payload),
+        false,
         &trade_keys,
         ctx,
     )
     .await?;
-    print_dm_events(events, request_id, ctx, Some(&trade_keys)).await
+    print_commands_results(&reply, ctx).await
 }
 
-/// How many times the read-only `payment-history` query is sent before
-/// giving up on a reply.
-const HISTORY_QUERY_ATTEMPTS: usize = 3;
+/// How many times a payer-history request is sent before giving up on a
+/// reply.
+const REQUEST_ATTEMPTS: usize = 3;
 
-/// Send the `payment-history` query and return Mostro's answer.
-/// `wait_for_dm` returns on the first Mostro DM for the trade key, which can
-/// be an unrelated one (a `fiat-sent-ok` landing at the same time), so the
-/// query is re-sent until a batch holds the answer. Re-sending is safe: the
-/// query only reads.
-async fn query_history(order_id: &Uuid, trade_keys: &Keys, ctx: &Context) -> Result<MessageKind> {
-    for _ in 0..HISTORY_QUERY_ATTEMPTS {
+/// Send `action` and return Mostro's answer to it. `wait_for_dm` returns on
+/// the first Mostro DM for the trade key, which can be an unrelated one (a
+/// `fiat-sent-ok` landing at the same time), so the request is re-sent until
+/// a batch holds the answer. Re-sending is safe for both callers: the
+/// history query only reads, and re-declaring the same hash is a no-op.
+/// `accept_history_push` also takes a same-order `payment-history` push as
+/// the answer (it holds the same data as the query reply).
+async fn request_until_answered(
+    order_id: &Uuid,
+    action: Action,
+    payload: Option<Payload>,
+    accept_history_push: bool,
+    trade_keys: &Keys,
+    ctx: &Context,
+) -> Result<MessageKind> {
+    for _ in 0..REQUEST_ATTEMPTS {
         let (events, request_id) =
-            send_to_mostro(order_id, Action::PaymentHistory, None, trade_keys, ctx).await?;
+            send_to_mostro(order_id, action.clone(), payload.clone(), trade_keys, ctx).await?;
         let messages: Vec<Message> = parse_dm_events(events, trade_keys, None, true)
             .await
             .into_iter()
             .map(|(message, _, _)| message)
             .collect();
-        if let Some(reply) = pick_reply(&messages, request_id, order_id) {
+        let reply = if accept_history_push {
+            pick_reply(&messages, request_id, order_id)
+        } else {
+            messages
+                .iter()
+                .map(|m| m.get_inner_message_kind())
+                .find(|k| k.request_id == Some(request_id))
+                .cloned()
+        };
+        if let Some(reply) = reply {
             return Ok(reply);
         }
     }
-    Err(anyhow::anyhow!(
-        "No payment-history reply received from Mostro"
-    ))
+    Err(anyhow::anyhow!("No {action} reply received from Mostro"))
 }
 
 /// Seller: ask Mostro for the history of the account the buyer declared.
@@ -191,7 +227,15 @@ pub async fn execute_payment_history(
     println!();
 
     let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
-    let reply = query_history(order_id, &trade_keys, ctx).await?;
+    let reply = request_until_answered(
+        order_id,
+        Action::PaymentHistory,
+        None,
+        true,
+        &trade_keys,
+        ctx,
+    )
+    .await?;
 
     match reply.payload {
         Some(Payload::PaymentHistory(history)) => {
@@ -199,7 +243,7 @@ pub async fn execute_payment_history(
             println!("{}", format_payment_history(&history, thresholds));
             if let Some(method) = method {
                 println!();
-                match check_declared(&history.payment_hash, method, fields)? {
+                match check_declared(&history.payment_hash, order_id, method, fields)? {
                     DeclarationCheck::Match => print_info_line(
                         "✅",
                         "The details the buyer sent you match the declared hash.",
@@ -298,8 +342,10 @@ mod tests {
             )
             .unwrap(),
         );
+        let order = Uuid::new_v4();
         let same = check_declared(
             &declared,
+            &order,
             "EU|SEPA",
             &["de89 3704 0044 0532 0130 00".into(), "alice  smith".into()],
         )
@@ -308,10 +354,42 @@ mod tests {
 
         let other = check_declared(
             &declared,
+            &order,
             "EU|SEPA",
             &["DE44500105175407324931".into(), "Mallory Doe".into()],
         )
         .unwrap();
         assert!(matches!(other, DeclarationCheck::Mismatch { .. }));
+    }
+
+    #[test]
+    fn full_privacy_declarations_are_bound_to_the_order() {
+        let canonical = "EU|SEPA|DE89370400440532013000|ALICE SMITH";
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        assert_eq!(
+            declaration_hash(&a, canonical, false),
+            payment_hash(canonical)
+        );
+        assert_ne!(
+            declaration_hash(&a, canonical, true),
+            declaration_hash(&b, canonical, true),
+            "unlinkable across orders"
+        );
+
+        // The seller's check accepts the order-bound form for its own order
+        // only.
+        let fields = [
+            "DE89370400440532013000".to_string(),
+            "Alice Smith".to_string(),
+        ];
+        let bound = declaration_hash(&a, canonical, true);
+        assert_eq!(
+            check_declared(&bound, &a, "EU|SEPA", &fields).unwrap(),
+            DeclarationCheck::Match
+        );
+        assert!(matches!(
+            check_declared(&bound, &b, "EU|SEPA", &fields).unwrap(),
+            DeclarationCheck::Mismatch { .. }
+        ));
     }
 }
