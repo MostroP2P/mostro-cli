@@ -189,6 +189,31 @@ pub(crate) fn format_payment_history(h: &PaymentHistory, thresholds: Option<(u32
     )
 }
 
+/// Shown instead of a payer-history payload that Mostro did not send.
+const UNTRUSTED_PAYER_NOTICE: &str =
+    "🚨 Payer data not sent by Mostro: ignored, since anyone in the chat can forge it";
+
+/// Details of one listed DM. Payer declarations and payment histories only
+/// mean something when Mostro sent them: a peer in the chat could forge any
+/// hash or counters, so from anyone else they are never rendered.
+fn message_details(
+    payload: &Payload,
+    action: &Action,
+    sender: &PublicKey,
+    mostro_pubkey: Option<PublicKey>,
+    claim_window_days: Option<i64>,
+    payer_thresholds: Option<(u32, u32)>,
+) -> String {
+    let payer_payload = matches!(
+        payload,
+        Payload::PayerDeclaration(_) | Payload::PaymentHistory(_)
+    );
+    if payer_payload && mostro_pubkey != Some(*sender) {
+        return UNTRUSTED_PAYER_NOTICE.to_string();
+    }
+    format_payload_details(payload, action, claim_window_days, payer_thresholds)
+}
+
 fn format_payload_details(
     payload: &Payload,
     action: &Action,
@@ -1220,8 +1245,14 @@ pub async fn print_direct_messages(
 
         // Print details with proper formatting
         if let Some(payload) = &inner.payload {
-            let details =
-                format_payload_details(payload, &inner.action, claim_window_days, payer_thresholds);
+            let details = message_details(
+                payload,
+                &inner.action,
+                sender_pubkey,
+                mostro_pubkey,
+                claim_window_days,
+                payer_thresholds,
+            );
             println!("📝 Details:");
             for line in details.lines() {
                 println!("   {}", line);
@@ -1239,6 +1270,36 @@ pub async fn print_direct_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn payer_payloads_render_only_from_mostro() {
+        let mostro = Keys::generate().public_key();
+        let peer = Keys::generate().public_key();
+        let history = Payload::PaymentHistory(PaymentHistory::unavailable("a".repeat(64)));
+        let declared = Payload::PayerDeclaration(PayerDeclaration::new("b".repeat(64)));
+        for payload in [&history, &declared] {
+            let from_mostro = message_details(
+                payload,
+                &Action::PaymentHistory,
+                &mostro,
+                Some(mostro),
+                None,
+                None,
+            );
+            assert_ne!(from_mostro, UNTRUSTED_PAYER_NOTICE);
+            for (sender, known) in [(peer, Some(mostro)), (mostro, None)] {
+                let shown =
+                    message_details(payload, &Action::PaymentHistory, &sender, known, None, None);
+                assert_eq!(shown, UNTRUSTED_PAYER_NOTICE);
+            }
+        }
+        // Everything else renders whoever sent it.
+        let text = Payload::TextMessage("hi".into());
+        assert_ne!(
+            message_details(&text, &Action::SendDm, &peer, Some(mostro), None, None),
+            UNTRUSTED_PAYER_NOTICE
+        );
+    }
     use sqlx::SqlitePool;
 
     #[test]
