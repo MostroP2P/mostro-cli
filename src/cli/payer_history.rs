@@ -35,24 +35,6 @@ fn trade_keys_of(order: &Order) -> Result<Keys> {
     }
 }
 
-/// Heading and explanation for a `not_found` answer to `payment-history`.
-/// Mostro answers the same way when the buyer never declared and when the
-/// order is past success (the declaration was consumed), so only claim the
-/// latter when the local copy says the trade completed.
-pub(crate) fn not_found_guidance(local_status: Option<&str>) -> (&'static str, &'static str) {
-    if local_status == Some(Status::Success.to_string().as_str()) {
-        (
-            "⚠️ Trade already completed",
-            "The declaration was consumed at success; the history is no longer queryable.",
-        )
-    } else {
-        (
-            "⚠️ No payer declaration available",
-            "The buyer did not declare a payment sender, or the order is past success.",
-        )
-    }
-}
-
 /// Send `action` for `order_id`, signed with the order's trade keys, and
 /// return the events Mostro answered with plus the request id used.
 async fn send_to_mostro(
@@ -181,8 +163,7 @@ pub async fn execute_payment_history(
     );
     println!();
 
-    let order = local_order(order_id, ctx).await?;
-    let trade_keys = trade_keys_of(&order)?;
+    let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
     let (events, request_id) =
         send_to_mostro(order_id, Action::PaymentHistory, None, &trade_keys, ctx).await?;
     let messages: Vec<Message> = parse_dm_events(events, &trade_keys, None, true)
@@ -222,10 +203,14 @@ pub async fn execute_payment_history(
             Ok(())
         }
         Some(Payload::CantDo(Some(CantDoReason::NotFound))) => {
-            // No history was retrieved whatever the cause, so fail for scripts.
-            let (heading, detail) = not_found_guidance(order.status.as_deref());
-            print_section_header(heading);
-            println!("💡 {detail}");
+            // Mostro answers the same for "never declared" and "past success"
+            // (the declaration was consumed), and the local status cache does
+            // not track success, so do not claim either. No history was
+            // retrieved whatever the cause, so fail for scripts.
+            print_section_header("⚠️ No payer declaration available");
+            println!(
+                "💡 The buyer did not declare a payment sender, or the order is past success."
+            );
             println!("💡 Sender verification is unavailable for this trade.");
             Err(anyhow::anyhow!(
                 "no payer declaration available for order {order_id}"
@@ -309,16 +294,5 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(other, DeclarationCheck::Mismatch { .. }));
-    }
-
-    #[test]
-    fn not_found_guidance_only_claims_completion_from_the_local_status() {
-        let (done, _) = not_found_guidance(Some("success"));
-        assert!(done.contains("completed"));
-        for status in [None, Some("fiat-sent"), Some("active")] {
-            let (heading, detail) = not_found_guidance(status);
-            assert!(heading.contains("No payer declaration"), "{status:?}");
-            assert!(detail.contains("or the order is past success"));
-        }
     }
 }
