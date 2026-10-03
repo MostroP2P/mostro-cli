@@ -18,6 +18,10 @@ enum FieldKind {
     Identifier,
     /// Holder name: whitespace runs collapsed to one space and trimmed.
     Name,
+    /// PIX key: an e-mail key (contains `@`) only loses its whitespace, since
+    /// dots and hyphens are part of the address; any other key type follows
+    /// [`FieldKind::Identifier`].
+    PixKey,
 }
 
 /// A payment method from the protocol's registry.
@@ -57,7 +61,7 @@ impl PayerMethod {
         match self {
             PayerMethod::ArCvu => &[FieldKind::Identifier, FieldKind::Identifier],
             PayerMethod::EuSepa => &[FieldKind::Identifier, FieldKind::Name],
-            PayerMethod::BrPix => &[FieldKind::Identifier],
+            PayerMethod::BrPix => &[FieldKind::PixKey],
         }
     }
 
@@ -93,6 +97,10 @@ fn normalise(kind: FieldKind, value: &str) -> String {
             .filter(|c| !c.is_whitespace() && !matches!(c, '-' | '.' | '/'))
             .collect(),
         FieldKind::Name => upper.split_whitespace().collect::<Vec<_>>().join(" "),
+        FieldKind::PixKey if upper.contains('@') => {
+            upper.chars().filter(|c| !c.is_whitespace()).collect()
+        }
+        FieldKind::PixKey => normalise(FieldKind::Identifier, value),
     }
 }
 
@@ -206,6 +214,11 @@ mod tests {
                 s(&["ES91 2100 0418 4502 0005 1332", "José  García"]),
                 "EU|SEPA|ES9121000418450200051332|JOSÉ GARCÍA",
             ),
+            (
+                PayerMethod::BrPix,
+                s(&["Alice.Smith@Example.com "]),
+                "BR|PIX|ALICE.SMITH@EXAMPLE.COM",
+            ),
         ];
         for (method, fields, expected) in cases {
             assert_eq!(canonical_payer(method, &fields).unwrap(), expected);
@@ -230,6 +243,10 @@ mod tests {
             (
                 "EU|SEPA|ES9121000418450200051332|JOSÉ GARCÍA",
                 "91863709cf207cf042cece0cc4673241e4e0f321a39a327c16f05a9d0d231ebd",
+            ),
+            (
+                "BR|PIX|ALICE.SMITH@EXAMPLE.COM",
+                "bc10fa5b6d8914c550e3db8e5b3e461720646992e046d2fa5af097e769c323a2",
             ),
         ];
         for (canonical, hash) in cases {
@@ -330,6 +347,22 @@ mod tests {
         assert_eq!(
             history_tier(&history(Unknown, 9, 9, 9, old), now),
             HistoryTier::Unavailable
+        );
+    }
+
+    #[test]
+    fn pix_email_keys_keep_their_punctuation() {
+        let dotted = canonical_payer(PayerMethod::BrPix, &s(&["a.b@example.com"])).unwrap();
+        let plain = canonical_payer(PayerMethod::BrPix, &s(&["ab@example.com"])).unwrap();
+        assert_ne!(
+            dotted, plain,
+            "two different addresses must stay two accounts"
+        );
+        assert_eq!(dotted, "BR|PIX|A.B@EXAMPLE.COM");
+        // Non e-mail keys keep the identifier rule.
+        assert_eq!(
+            canonical_payer(PayerMethod::BrPix, &s(&["123.456.789-09"])).unwrap(),
+            "BR|PIX|12345678909"
         );
     }
 }
