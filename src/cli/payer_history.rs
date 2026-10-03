@@ -15,6 +15,7 @@ use crate::{
     },
     util::{
         fetch_payer_history_thresholds,
+        messaging::parse_secret_env,
         payer::{canonical_payer, PayerMethod},
         send_dm, wait_for_dm,
     },
@@ -138,8 +139,10 @@ pub async fn execute_declare_payer(
     let method = PayerMethod::parse(method)?;
     let canonical = canonical_payer(method, fields)?;
     let trade_keys = trade_keys_of(&local_order(order_id, ctx).await?)?;
-    // Full-privacy mode signs with the trade key itself.
-    let full_privacy = ctx.identity_keys.public_key() == trade_keys.public_key();
+    // Full-privacy mode: `--secret` (Mostro then sees only the trade key),
+    // or a context whose identity is the trade key itself.
+    let full_privacy =
+        parse_secret_env()? || ctx.identity_keys.public_key() == trade_keys.public_key();
     let hash = declaration_hash(order_id, &canonical, full_privacy);
 
     print_section_header("🧾 Declare Payer");

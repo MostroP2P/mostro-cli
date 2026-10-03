@@ -297,7 +297,9 @@ fn parse_pow_env() -> Result<u8> {
         .map_err(|e| anyhow::anyhow!("Failed to parse POW: {}", e))
 }
 
-fn parse_secret_env() -> Result<bool> {
+/// Whether `SECRET` (full-privacy mode) is on: protocol messages then go
+/// out with an unsigned inner tuple, so Mostro sees only the trade key.
+pub(crate) fn parse_secret_env() -> Result<bool> {
     var("SECRET")
         .unwrap_or_else(|_| "false".to_string())
         .parse::<bool>()
