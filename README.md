@@ -352,10 +352,13 @@ Some Mostro nodes enable payer history (their info event carries `payer_history_
 **Buyer**, after taking the order and before `fiatsent`:
 
 ```bash
-# One field per line on stdin keeps the account out of your shell history:
-printf '%s\n' "DE89 3704 0044 0532 0130 00" "Alice Smith" | mostro-cli declarepayer -o <order-id> -m "EU|SEPA" --fields-stdin
-# (or type them interactively after `--fields-stdin`; `-f` also works but is recorded in history)
+# Type the fields when prompted, one per line, then Ctrl-D; nothing lands in shell history:
+mostro-cli declarepayer -o <order-id> -m "EU|SEPA" --fields-stdin
+# or read them from a file only you can read (chmod 600), one field per line:
+mostro-cli declarepayer -o <order-id> -m "EU|SEPA" --fields-stdin < payer.txt
 ```
+
+`-f "<field>"` also works, but the shell records it in its history, as it would any `echo`/`printf` that pipes the fields in.
 
 Registered methods and their fields, in order: `AR|CVU` (CBU/CVU, CUIT/CUIL), `EU|SEPA` (IBAN, holder name). PIX is not registered: a PIX key identifies the receiving account, so the seller could not check it against the payment. Fields may only use Latin letters (U+0020-007E, U+00A0-017F, U+0218-021B); a holder name in another script has no canonical form, so on a node that requires declarations check that your details are accepted before taking an order. With `--secret` (full-privacy mode) the declared hash is bound to the order, so the node cannot link your trades through the account; it builds no history either way. The command prints the canonical string and its hash. Send the **canonical string** to the seller over the peer chat with `dmtouser` (not `senddm`, which wraps the text as a Mostro message the seller cannot read as chat):
 
@@ -370,7 +373,8 @@ mostro-cli dmtouser -p <seller-trade-pubkey> -o <order-id> -m "EU|SEPA|DE8937040
 ```bash
 mostro-cli paymenthistory -o <order-id>
 # and check the details the buyer sent you over the chat against the declared hash:
-printf '%s\n' "DE89370400440532013000" "ALICE SMITH" | mostro-cli paymenthistory -o <order-id> -m "EU|SEPA" --fields-stdin
+# (type the fields the buyer sent you when prompted, then Ctrl-D)
+mostro-cli paymenthistory -o <order-id> -m "EU|SEPA" --fields-stdin
 ```
 
 If the details the buyer sent you do not hash to what it declared, the command prints a **DECLARATION MISMATCH** warning: the history shown belongs to another account. Do not release; open a dispute if it is not resolved. If the buyer never declared, the command says so: sender verification is unavailable for that trade. Then check that the sender shown by your bank matches what the buyer declared. The history is a risk signal only; Mostro never releases or refuses on its own. The rules are in the protocol book, chapter `payer_declaration.md`.
