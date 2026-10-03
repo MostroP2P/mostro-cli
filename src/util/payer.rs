@@ -93,7 +93,8 @@ fn base(value: &str) -> String {
 }
 
 fn normalise(kind: FieldKind, value: &str) -> String {
-    let upper = base(value);
+    // U+00AD SOFT HYPHEN is invisible: drop it from every field.
+    let upper = base(value).replace('\u{ad}', "");
     match kind {
         FieldKind::Identifier => upper
             .chars()
@@ -296,6 +297,15 @@ mod tests {
         assert_eq!(
             payment_hash(&romanian),
             "2b6b4ce972a97c5c0519b5a06325c34a6f10595ccff4ca94df556ef5445ababf"
+        );
+        // Soft hyphens are invisible and dropped from every field.
+        assert_eq!(
+            canonical_payer(
+                PayerMethod::EuSepa,
+                &s(&["DE89\u{ad}370400440532013000", "Ali\u{ad}ce Smith"])
+            )
+            .unwrap(),
+            "EU|SEPA|DE89370400440532013000|ALICE SMITH"
         );
         // Refused before NFKC: U+A7F1 normalises to "S" only under Unicode 17.
         assert!(canonical_payer(PayerMethod::EuSepa, &s(&[iban, "Alice\u{a7f1}mith"])).is_err());
