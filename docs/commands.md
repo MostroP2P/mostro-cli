@@ -214,7 +214,9 @@ settable via the matching env var):
 - **`admaddsolver`** *(admin only)*
   - **Description**: Add a new dispute solver.
   - **Args**:
-    - `--npubkey <NPUB>`: Nostr pubkey of the solver.
+    - `--npubkey <PUBKEY>[:<CATEGORY>]`: Solver pubkey as npub or hex (hex is converted to npub before sending). Optional category: `read`, `read-write` or `write` (default: read-write).
+  - **Requirements**: `ADMIN_NSEC` must be the Mostro daemon's own key; the CLI fails before sending otherwise.
+  - **Behavior**: Waits for Mostro's `AdminAddSolver` confirmation. If Mostro replies `CantDo` or does not reply (e.g. the daemon rejected the request), the command fails and reports that the solver was not added.
   - **Handler**: `execute_admin_add_solver(npubkey, ctx)` in `src/cli/take_dispute.rs`.
 
 - **`admtakedispute`** *(admin/solver only)*

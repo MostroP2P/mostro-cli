@@ -350,7 +350,7 @@ pub enum Commands {
     },
     /// Add a new dispute's solver (only admin)
     AdmAddSolver {
-        /// npubkey
+        /// Solver pubkey (npub or hex), optionally suffixed with `:read`, `:read-write` or `:write`
         #[arg(short, long)]
         npubkey: String,
     },

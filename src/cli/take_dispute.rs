@@ -1,47 +1,145 @@
 use crate::util::messaging::get_admin_keys;
 use anyhow::Result;
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::{Keys, PublicKey, ToBech32};
 use uuid::Uuid;
 
 use crate::{
     cli::Context,
     parser::common::{create_emoji_field_row, create_field_value_header, create_standard_table},
     parser::{dms::print_commands_results, parse_dm_events},
-    util::{admin_send_dm, send_dm, wait_for_dm},
+    util::{send_dm, wait_for_dm},
 };
+
+/// Solver categories mostrod accepts after the `:` separator.
+const SOLVER_CATEGORIES: [&str; 3] = ["read", "read-write", "write"];
+
+/// Normalize the `admaddsolver` argument (`<pubkey>[:<category>]`) into the
+/// `npub[:category]` payload mostrod expects. mostrod only parses bech32, so a
+/// hex key is converted here instead of being silently rejected by the daemon.
+fn normalize_solver_payload(input: &str) -> Result<String> {
+    let mut parts = input.trim().split(':');
+    let raw_pubkey = parts.next().unwrap_or_default().trim();
+    let pubkey = PublicKey::parse(raw_pubkey).map_err(|_| {
+        anyhow::anyhow!("Invalid solver pubkey '{raw_pubkey}': expected an npub or 64-char hex key")
+    })?;
+    let npub = pubkey
+        .to_bech32()
+        .map_err(|e| anyhow::anyhow!("Failed to encode solver pubkey as npub: {e}"))?;
+
+    let category = parts.next().map(str::trim);
+    if parts.next().is_some() {
+        return Err(anyhow::anyhow!(
+            "Invalid solver argument '{input}': expected <pubkey>[:<category>]"
+        ));
+    }
+
+    match category {
+        None => Ok(npub),
+        Some(c) if SOLVER_CATEGORIES.contains(&c) => Ok(format!("{npub}:{c}")),
+        Some(c) => Err(anyhow::anyhow!(
+            "Invalid solver category '{c}': expected one of {}",
+            SOLVER_CATEGORIES.join(", ")
+        )),
+    }
+}
+
+/// mostrod only accepts `AdminAddSolver` signed by its own key, and drops any
+/// other sender without replying, so catch a wrong ADMIN_NSEC before sending.
+fn ensure_admin_is_mostro(admin_keys: &Keys, mostro_pubkey: &PublicKey) -> Result<()> {
+    if admin_keys.public_key() == *mostro_pubkey {
+        return Ok(());
+    }
+    let to_npub = |pk: PublicKey| pk.to_bech32().unwrap_or_else(|_| pk.to_hex());
+    Err(anyhow::anyhow!(
+        "ADMIN_NSEC does not match the Mostro key: admin pubkey is {} but Mostro is {}. \
+         Only the Mostro daemon key can add solvers.",
+        to_npub(admin_keys.public_key()),
+        to_npub(*mostro_pubkey)
+    ))
+}
 
 pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()> {
     println!("👑 Admin Add Solver");
     println!("═══════════════════════════════════════");
+    let payload = normalize_solver_payload(npubkey)?;
     let mut table = create_standard_table();
     table.set_header(create_field_value_header());
-    table.add_row(create_emoji_field_row("🔑 ", "Solver PubKey", npubkey));
+    table.add_row(create_emoji_field_row("🔑 ", "Solver PubKey", &payload));
     table.add_row(create_emoji_field_row(
         "🎯 ",
         "Mostro PubKey",
         &ctx.mostro_pubkey.to_string(),
     ));
     println!("{table}");
+
+    let admin_keys = get_admin_keys(ctx)?;
+    ensure_admin_is_mostro(admin_keys, &ctx.mostro_pubkey)?;
+
     println!("💡 Adding new solver to Mostro...\n");
 
-    let _admin_keys = get_admin_keys(ctx)?;
-
-    // Build admin dispute message
-    let take_dispute_message = Message::new_dispute(
+    // Tag the request so the confirmation can be matched to it: mostrod
+    // echoes `request_id` back in its reply.
+    let request_id = Uuid::new_v4().as_u64_pair().0;
+    let add_solver_message = Message::new_dispute(
         Some(Uuid::new_v4()),
-        None,
+        Some(request_id),
         None,
         Action::AdminAddSolver,
-        Some(Payload::TextMessage(npubkey.to_string())),
+        Some(Payload::TextMessage(payload)),
     )
     .as_json()
     .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
 
-    admin_send_dm(ctx, take_dispute_message).await?;
+    // Wait for Mostro's confirmation: mostrod replies only after the solver
+    // is stored and stays silent on internal errors, so no reply means the
+    // solver was not added.
+    let sent_message = send_dm(
+        &ctx.client,
+        admin_keys,
+        admin_keys,
+        &ctx.mostro_pubkey,
+        add_solver_message,
+        None,
+        false,
+    );
 
-    println!("✅ Solver added successfully!");
+    let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Solver was NOT added: no confirmation from Mostro ({e}). \
+                 Check the mostrod logs for the cause."
+            )
+        })?;
 
-    Ok(())
+    let messages = parse_dm_events(recv_event, admin_keys, None, true).await;
+    let (message, _, sender_pubkey) = messages
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("Solver was NOT added: no response received from Mostro"))?;
+
+    if *sender_pubkey != ctx.mostro_pubkey {
+        return Err(anyhow::anyhow!("Received response from wrong sender"));
+    }
+
+    let message_kind = message.get_inner_message_kind();
+    match message_kind.action {
+        Action::AdminAddSolver if message_kind.request_id != Some(request_id) => Err(
+            anyhow::anyhow!("Solver was NOT confirmed: Mostro's reply does not match this request"),
+        ),
+        Action::AdminAddSolver => {
+            println!("✅ Solver added successfully!");
+            Ok(())
+        }
+        Action::CantDo => print_commands_results(message_kind, ctx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Solver was NOT added: {e}")),
+        ref other => Err(anyhow::anyhow!(
+            "Solver was NOT added: unexpected response from Mostro. Expected: {:?}, Got: {:?}",
+            Action::AdminAddSolver,
+            other
+        )),
+    }
 }
 
 pub async fn execute_admin_cancel_dispute(
@@ -297,4 +395,65 @@ pub async fn execute_take_dispute(dispute_id: &Uuid, ctx: &Context) -> Result<()
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SOLVER_HEX: &str = "cff1d9c8e6dd45b7ecedf13fc38068cd9d209ef1b8f636adfd87f19f104e2112";
+    const SOLVER_NPUB: &str = "npub1elcanj8xm4zm0m8d7ylu8qrgekwjp8h3hrmrdt0aslce7yzwyyfq93cdv2";
+
+    #[test]
+    fn normalize_solver_payload_converts_hex_to_npub() {
+        assert_eq!(normalize_solver_payload(SOLVER_HEX).unwrap(), SOLVER_NPUB);
+    }
+
+    #[test]
+    fn normalize_solver_payload_keeps_npub() {
+        assert_eq!(normalize_solver_payload(SOLVER_NPUB).unwrap(), SOLVER_NPUB);
+    }
+
+    #[test]
+    fn normalize_solver_payload_keeps_category_suffix() {
+        let input = format!("{SOLVER_HEX}:read");
+        assert_eq!(
+            normalize_solver_payload(&input).unwrap(),
+            format!("{SOLVER_NPUB}:read")
+        );
+        let input = format!(" {SOLVER_NPUB} : read-write ");
+        assert_eq!(
+            normalize_solver_payload(&input).unwrap(),
+            format!("{SOLVER_NPUB}:read-write")
+        );
+    }
+
+    #[test]
+    fn normalize_solver_payload_rejects_invalid_pubkey() {
+        assert!(normalize_solver_payload("not-a-key").is_err());
+        assert!(normalize_solver_payload("").is_err());
+        assert!(normalize_solver_payload(&SOLVER_HEX[..60]).is_err());
+    }
+
+    #[test]
+    fn normalize_solver_payload_rejects_unknown_category() {
+        assert!(normalize_solver_payload(&format!("{SOLVER_NPUB}:admin")).is_err());
+        assert!(normalize_solver_payload(&format!("{SOLVER_NPUB}:")).is_err());
+        assert!(normalize_solver_payload(&format!("{SOLVER_NPUB}:read:write")).is_err());
+    }
+
+    #[test]
+    fn ensure_admin_is_mostro_accepts_mostro_key() {
+        let mostro = Keys::generate();
+        assert!(ensure_admin_is_mostro(&mostro, &mostro.public_key()).is_ok());
+    }
+
+    #[test]
+    fn ensure_admin_is_mostro_rejects_other_key() {
+        let mostro = Keys::generate();
+        let other = Keys::generate();
+        let err = ensure_admin_is_mostro(&other, &mostro.public_key()).unwrap_err();
+        let expected = mostro.public_key().to_bech32().unwrap();
+        assert!(err.to_string().contains(&expected));
+    }
 }
