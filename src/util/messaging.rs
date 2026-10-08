@@ -78,7 +78,7 @@ async fn publish_wrapped(
     receiver_pubkey: &PublicKey,
     message: &Message,
     opts: WrapOptions,
-) -> Result<()> {
+) -> Result<EventId> {
     let event = wrap_message_with(
         transport,
         message,
@@ -90,7 +90,7 @@ async fn publish_wrapped(
     .await
     .map_err(|e| anyhow::anyhow!("Failed to wrap message: {e}"))?;
     client.send_event(&event).await?;
-    Ok(())
+    Ok(event.id)
 }
 
 /// Send a plain-text DM as a protocol-v2 NIP-44 direct event (kind 14).
@@ -126,6 +126,7 @@ pub async fn send_plain_text_dm(
         opts,
     )
     .await
+    .map(|_| ())
 }
 
 /// Upper bound on the post-timeout PoW probe inside [`wait_for_dm`]. Kept
@@ -188,6 +189,52 @@ pub async fn wait_for_dm<F>(
 where
     F: std::future::Future<Output = Result<()>> + Send,
 {
+    wait_for_reply(ctx, order_trade_keys, async move {
+        sent_message.await.map(|()| None)
+    })
+    .await
+}
+
+/// Like [`wait_for_dm`], but never accepts the event `sent_message` published
+/// as the reply. Needed when the sender key is Mostro's own key (admin
+/// flows): the outbound request then matches the reply filter itself, and a
+/// relay echoing it back would otherwise be mistaken for Mostro's answer.
+pub async fn wait_for_reply_to<F>(
+    ctx: &crate::cli::Context,
+    order_trade_keys: Option<&Keys>,
+    sent_message: F,
+) -> anyhow::Result<BTreeSet<Event>>
+where
+    F: std::future::Future<Output = Result<EventId>> + Send,
+{
+    wait_for_reply(ctx, order_trade_keys, async move {
+        sent_message.await.map(Some)
+    })
+    .await
+}
+
+/// Whether `event` is a candidate reply from Mostro: a kind-14 authored by
+/// Mostro, tagged to `trade_pubkey`, and not the request we sent ourselves.
+fn is_mostro_reply(
+    event: &Event,
+    trade_pubkey: PublicKey,
+    mostro_pubkey: PublicKey,
+    sent_event_id: Option<EventId>,
+) -> bool {
+    event.kind == nostr_sdk::prelude::Kind::PrivateDirectMessage
+        && event.pubkey == mostro_pubkey
+        && event.tags.public_keys().any(|pk| pk == trade_pubkey)
+        && Some(event.id) != sent_event_id
+}
+
+async fn wait_for_reply<F>(
+    ctx: &crate::cli::Context,
+    order_trade_keys: Option<&Keys>,
+    sent_message: F,
+) -> anyhow::Result<BTreeSet<Event>>
+where
+    F: std::future::Future<Output = Result<Option<EventId>>> + Send,
+{
     let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
     let trade_pubkey = trade_keys.public_key();
     // Kind 14 is shared with NIP-17 peer chat, so pin the author to Mostro's
@@ -205,7 +252,7 @@ where
     ctx.client.subscribe(subscription).close_on(opts).await?;
 
     // Send message here after opening notifications to avoid missing messages.
-    sent_message.await?;
+    let sent_event_id = sent_message.await?;
 
     // Kick off the PoW probe concurrently with the DM wait. By running the
     // kind-38385 lookup alongside the 15s `FETCH_EVENTS_TIMEOUT` instead of
@@ -230,18 +277,12 @@ where
         loop {
             match notifications.next().await {
                 Some(ClientNotification::Event { event, .. }) => {
-                    if event.kind != accepted_kind {
-                        continue;
+                    // Rejects other kinds, kind-14s not authored by Mostro
+                    // (e.g. NIP-17 peer chat tagged to this trade key) and
+                    // the echo of our own request.
+                    if is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
+                        return Ok(*event);
                     }
-                    if !event.tags.public_keys().any(|pk| pk == trade_pubkey) {
-                        continue;
-                    }
-                    // Reject any kind-14 not authored by Mostro (e.g. an
-                    // unrelated NIP-17 peer chat tagged to this trade key).
-                    if event.pubkey != mostro_pubkey {
-                        continue;
-                    }
-                    return Ok(*event);
                 }
                 Some(_) => continue,
                 None => {
@@ -356,12 +397,36 @@ pub async fn send_dm(
     expiration: Option<Timestamp>,
     to_user: bool,
 ) -> Result<()> {
+    send_dm_with_id(
+        client,
+        identity_keys,
+        trade_keys,
+        receiver_pubkey,
+        payload,
+        expiration,
+        to_user,
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Same as [`send_dm`], but returns the id of the published event so the
+/// caller can pass it to [`wait_for_reply_to`].
+pub async fn send_dm_with_id(
+    client: &Client,
+    identity_keys: &Keys,
+    trade_keys: &Keys,
+    receiver_pubkey: &PublicKey,
+    payload: String,
+    expiration: Option<Timestamp>,
+    to_user: bool,
+) -> Result<EventId> {
     let pow = parse_pow_env()?;
 
     if to_user {
         let event = create_private_dm_event(trade_keys, receiver_pubkey, payload, pow).await?;
         client.send_event(&event).await?;
-        return Ok(());
+        return Ok(event.id);
     }
 
     let message = Message::from_json(&payload)
@@ -422,6 +487,74 @@ pub async fn print_dm_events(
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    fn kind14_event(author: &Keys, tagged: PublicKey) -> Event {
+        kind14_event_with(author, tagged, "ciphertext")
+    }
+
+    fn kind14_event_with(author: &Keys, tagged: PublicKey, content: &str) -> Event {
+        EventBuilder::new(nostr_sdk::prelude::Kind::PrivateDirectMessage, content)
+            .tag(Tag::public_key(tagged))
+            .finalize_unsigned(author.public_key())
+            .finalize(author)
+            .unwrap()
+    }
+
+    #[test]
+    fn is_mostro_reply_accepts_kind14_from_mostro_tagged_to_us() {
+        let mostro = Keys::generate();
+        let me = Keys::generate();
+        let event = kind14_event(&mostro, me.public_key());
+        assert!(is_mostro_reply(
+            &event,
+            me.public_key(),
+            mostro.public_key(),
+            None
+        ));
+    }
+
+    #[test]
+    fn is_mostro_reply_rejects_other_author_kind_or_tag() {
+        let mostro = Keys::generate();
+        let me = Keys::generate();
+        let stranger = Keys::generate();
+        let from_stranger = kind14_event(&stranger, me.public_key());
+        let tagged_elsewhere = kind14_event(&mostro, stranger.public_key());
+        let wrong_kind = EventBuilder::new(nostr_sdk::prelude::Kind::TextNote, "x")
+            .tag(Tag::public_key(me.public_key()))
+            .finalize_unsigned(mostro.public_key())
+            .finalize(&mostro)
+            .unwrap();
+        for event in [from_stranger, tagged_elsewhere, wrong_kind] {
+            assert!(!is_mostro_reply(
+                &event,
+                me.public_key(),
+                mostro.public_key(),
+                None
+            ));
+        }
+    }
+
+    #[test]
+    fn is_mostro_reply_skips_our_own_request_when_admin_is_mostro() {
+        // Admin flows sign with the Mostro key itself, so the outbound
+        // request matches the reply filter; only its event id tells it apart.
+        let mostro = Keys::generate();
+        let request = kind14_event_with(&mostro, mostro.public_key(), "request");
+        let reply = kind14_event_with(&mostro, mostro.public_key(), "reply");
+        assert!(!is_mostro_reply(
+            &request,
+            mostro.public_key(),
+            mostro.public_key(),
+            Some(request.id)
+        ));
+        assert!(is_mostro_reply(
+            &reply,
+            mostro.public_key(),
+            mostro.public_key(),
+            Some(request.id)
+        ));
+    }
 
     #[test]
     fn pow_requirement_unmet_display_mentions_required_and_configured() {

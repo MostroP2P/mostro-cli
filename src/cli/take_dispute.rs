@@ -8,7 +8,7 @@ use crate::{
     cli::Context,
     parser::common::{create_emoji_field_row, create_field_value_header, create_standard_table},
     parser::{dms::print_commands_results, parse_dm_events},
-    util::{send_dm, wait_for_dm},
+    util::{send_dm, send_dm_with_id, wait_for_dm, wait_for_reply_to},
 };
 
 /// Solver categories mostrod accepts after the `:` separator.
@@ -94,7 +94,9 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
     // Wait for Mostro's confirmation: mostrod replies only after the solver
     // is stored and stays silent on internal errors, so no reply means the
     // solver was not added.
-    let sent_message = send_dm(
+    // ADMIN_NSEC is Mostro's own key here, so the request itself matches the
+    // reply filter; `wait_for_reply_to` skips it by event id.
+    let sent_message = send_dm_with_id(
         &ctx.client,
         admin_keys,
         admin_keys,
@@ -104,7 +106,7 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
         false,
     );
 
-    let recv_event = wait_for_dm(ctx, Some(admin_keys), sent_message)
+    let recv_event = wait_for_reply_to(ctx, Some(admin_keys), sent_message)
         .await
         .map_err(|e| {
             anyhow::anyhow!(
@@ -123,10 +125,12 @@ pub async fn execute_admin_add_solver(npubkey: &str, ctx: &Context) -> Result<()
     }
 
     let message_kind = message.get_inner_message_kind();
+    if message_kind.request_id != Some(request_id) {
+        return Err(anyhow::anyhow!(
+            "Solver was NOT confirmed: Mostro's reply does not match this request"
+        ));
+    }
     match message_kind.action {
-        Action::AdminAddSolver if message_kind.request_id != Some(request_id) => Err(
-            anyhow::anyhow!("Solver was NOT confirmed: Mostro's reply does not match this request"),
-        ),
         Action::AdminAddSolver => {
             println!("✅ Solver added successfully!");
             Ok(())
