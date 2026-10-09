@@ -96,7 +96,8 @@ fn read_info_tag_from_event(event: &nostr_sdk::prelude::Event, tag_name: &str) -
     })
 }
 
-async fn fetch_info_tag(ctx: &crate::cli::Context, tag_name: &str) -> Option<String> {
+/// The newest revision of the node's kind-38385 info event, if any.
+async fn fetch_info_event(ctx: &crate::cli::Context) -> Option<nostr_sdk::prelude::Event> {
     let filter = Filter::new()
         .author(ctx.mostro_pubkey)
         .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND));
@@ -111,8 +112,11 @@ async fn fetch_info_tag(ctx: &crate::cli::Context, tag_name: &str) -> Option<Str
     // kind-38385 is replaceable, but pick the newest revision by `created_at`
     // explicitly: a lagging relay (or several relays at once) can still surface
     // an older copy.
-    let event = events.iter().max_by_key(|e| e.created_at)?;
-    read_info_tag_from_event(event, tag_name)
+    events.into_iter().max_by_key(|e| e.created_at)
+}
+
+async fn fetch_info_tag(ctx: &crate::cli::Context, tag_name: &str) -> Option<String> {
+    read_info_tag_from_event(&fetch_info_event(ctx).await?, tag_name)
 }
 
 /// Fetch the Mostro instance's kind-38385 info event and read the
@@ -129,6 +133,21 @@ pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i
     fetch_info_tag(ctx, "bond_payout_claim_window_days")
         .await
         .and_then(|v| v.parse::<i64>().ok())
+}
+
+/// The node's payer-history experience policy, `(min_trades, min_days)`,
+/// from the kind-38385 info event. `None` when the node does not advertise
+/// it (feature off, older daemon) or the info event can't be fetched.
+pub async fn fetch_payer_history_thresholds(ctx: &crate::cli::Context) -> Option<(u32, u32)> {
+    read_payer_history_thresholds(&fetch_info_event(ctx).await?)
+}
+
+/// Both thresholds from one revision of the info event, so they can never
+/// come from two different policies.
+fn read_payer_history_thresholds(event: &nostr_sdk::prelude::Event) -> Option<(u32, u32)> {
+    let trades = read_info_tag_from_event(event, "payer_history_experienced_min_trades")?;
+    let days = read_info_tag_from_event(event, "payer_history_experienced_min_days")?;
+    Some((trades.parse().ok()?, days.parse().ok()?))
 }
 
 /// Fetch the Mostro instance's required NIP-13 proof-of-work difficulty from
@@ -364,5 +383,33 @@ mod tests {
         // Out of range for u8 → None, which is the right "ignore this
         // weird value, fall back to generic timeout" behavior.
         assert_eq!(parse("999"), None);
+    }
+
+    #[test]
+    fn payer_history_thresholds_need_both_tags_from_one_event() {
+        let keys = Keys::generate();
+        let both = make_info_event(
+            &keys,
+            vec![
+                Tag::parse(["payer_history_experienced_min_trades", "5"]).unwrap(),
+                Tag::parse(["payer_history_experienced_min_days", "30"]).unwrap(),
+            ],
+        );
+        assert_eq!(read_payer_history_thresholds(&both), Some((5, 30)));
+
+        let one = make_info_event(
+            &keys,
+            vec![Tag::parse(["payer_history_experienced_min_trades", "5"]).unwrap()],
+        );
+        assert_eq!(read_payer_history_thresholds(&one), None);
+
+        let bad = make_info_event(
+            &keys,
+            vec![
+                Tag::parse(["payer_history_experienced_min_trades", "five"]).unwrap(),
+                Tag::parse(["payer_history_experienced_min_days", "30"]).unwrap(),
+            ],
+        );
+        assert_eq!(read_payer_history_thresholds(&bad), None);
     }
 }

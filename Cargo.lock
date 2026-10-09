@@ -1845,14 +1845,14 @@ dependencies = [
  "tokio-test",
  "tonic",
  "tonic-prost",
+ "unicode-normalization",
  "uuid",
 ]
 
 [[package]]
 name = "mostro-core"
-version = "0.14.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad0df29fd70a740c32cfefdf975e5499925e24d820dc95c8c016dc2f94435d7a"
+version = "0.16.0"
+source = "git+https://github.com/MostroP2P/mostro-core?branch=feat%2Fpayer-history#ad10a11d0f372f539a834eeb7f92d763b3482c51"
 dependencies = [
  "bitcoin",
  "chrono",

@@ -12,6 +12,7 @@ pub mod list_orders;
 pub mod maintenance;
 pub mod new_order;
 pub mod orders_info;
+pub mod payer_history;
 pub mod rate_user;
 pub mod restore;
 pub mod send_admin_dm_attach;
@@ -38,6 +39,9 @@ use crate::cli::maintenance::{
 };
 use crate::cli::new_order::execute_new_order;
 use crate::cli::orders_info::execute_orders_info;
+use crate::cli::payer_history::{
+    execute_declare_payer, execute_payment_history, read_message_stdin, resolve_payer_fields,
+};
 use crate::cli::rate_user::execute_rate_user;
 use crate::cli::restore::execute_restore;
 use crate::cli::send_admin_dm_attach::execute_send_admin_dm_attach;
@@ -259,8 +263,12 @@ pub enum Commands {
         #[arg(short, long)]
         order_id: Uuid,
         /// Message to send (spaces allowed; use quotes or multiple -m/--message)
-        #[arg(short, long, num_args = 1..)]
+        #[arg(short, long, num_args = 1.., required_unless_present = "message_stdin")]
         message: Vec<String>,
+        /// Read the message from stdin instead, so it stays out of shell
+        /// history and the process list (e.g. payer details)
+        #[arg(long = "message-stdin", conflicts_with = "message")]
+        message_stdin: bool,
     },
     /// Send fiat sent message to confirm payment to other user
     FiatSent {
@@ -288,6 +296,44 @@ pub enum Commands {
         /// Rating from 1 to 5
         #[arg(short, long)]
         rating: u8,
+    },
+    /// Buyer: declare the fiat account you will pay from, by hash only
+    /// (payer history; the node must enable `[payer_history]`)
+    DeclarePayer {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Payment method from the protocol registry: AR|CVU or EU|SEPA
+        #[arg(short, long)]
+        method: String,
+        /// Account field, in registry order; repeat for each field
+        /// (AR|CVU: CBU/CVU then CUIT/CUIL; EU|SEPA: IBAN then holder name).
+        /// Fields given here land in your shell history; prefer --fields-stdin
+        #[arg(short, long = "field", required_unless_present = "fields_stdin")]
+        fields: Vec<String>,
+        /// Read the account fields from stdin instead, one per line, so they
+        /// stay out of shell history and the process list
+        #[arg(long = "fields-stdin", conflicts_with = "fields")]
+        fields_stdin: bool,
+    },
+    /// Seller: get the history of the payment account the buyer declared,
+    /// and optionally check the details the buyer sent you against it
+    PaymentHistory {
+        /// Order id
+        #[arg(short, long)]
+        order_id: Uuid,
+        /// Method of the details the buyer sent you (AR|CVU, EU|SEPA),
+        /// to check them against the declared hash
+        #[arg(short, long)]
+        method: Option<String>,
+        /// Account field the buyer sent you, in registry order; repeat for
+        /// each. Fields given here land in your shell history; prefer
+        /// --fields-stdin
+        #[arg(short, long = "field", requires = "method")]
+        fields: Vec<String>,
+        /// Read the account fields from stdin instead, one per line
+        #[arg(long = "fields-stdin", requires = "method", conflicts_with = "fields")]
+        fields_stdin: bool,
     },
     /// Restore session to recover all pending orders and disputes
     Restore {},
@@ -684,8 +730,13 @@ impl Commands {
                 pubkey,
                 order_id,
                 message,
+                message_stdin,
             } => {
-                let msg = message.join(" ");
+                let msg = if *message_stdin {
+                    read_message_stdin()?
+                } else {
+                    message.join(" ")
+                };
                 execute_dm_to_user(
                     PublicKey::from_str(pubkey)?,
                     &ctx.client,
@@ -755,6 +806,29 @@ impl Commands {
                 execute_add_bond_invoice(order_id, invoice, ctx).await
             }
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
+            Commands::DeclarePayer {
+                order_id,
+                method,
+                fields,
+                fields_stdin,
+            } => {
+                let fields = resolve_payer_fields(fields, *fields_stdin)?;
+                execute_declare_payer(order_id, method, &fields, ctx).await
+            }
+            Commands::PaymentHistory {
+                order_id,
+                method,
+                fields,
+                fields_stdin,
+            } => {
+                let fields = resolve_payer_fields(fields, *fields_stdin)?;
+                if method.is_some() && fields.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "--method needs the account fields (-f or --fields-stdin)"
+                    ));
+                }
+                execute_payment_history(order_id, method.as_deref(), &fields, ctx).await
+            }
 
             // DM retrieval commands
             Commands::GetDm { since, from_user } => {

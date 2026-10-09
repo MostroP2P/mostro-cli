@@ -14,7 +14,7 @@ async fn parse_dm_empty() {
 #[tokio::test]
 async fn print_dms_empty() {
     let msgs: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -22,7 +22,7 @@ async fn print_dms_empty() {
 async fn print_dms_with_mostro_pubkey() {
     let mostro_key = Keys::generate();
     let msgs: Vec<(Message, u64, PublicKey)> = Vec::new();
-    let res = print_direct_messages(&msgs, Some(mostro_key.public_key()), None).await;
+    let res = print_direct_messages(&msgs, Some(mostro_key.public_key()), None, None).await;
     assert!(res.is_ok());
 }
 
@@ -39,7 +39,7 @@ async fn print_dms_with_single_message() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -51,7 +51,7 @@ async fn print_dms_with_text_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -70,7 +70,7 @@ async fn print_dms_with_payment_request() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -99,7 +99,7 @@ async fn print_dms_with_multiple_messages() {
         msgs.push((message, timestamp, sender_keys.public_key()));
     }
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -118,7 +118,7 @@ async fn print_dms_with_dispute_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -153,7 +153,7 @@ async fn print_dms_with_orders_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -182,7 +182,7 @@ async fn print_dms_distinguishes_mostro() {
         (msg2, 1700000060u64, sender_keys.public_key()),
     ];
 
-    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), None).await;
+    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), None, None).await;
     assert!(res.is_ok());
 }
 
@@ -193,6 +193,7 @@ async fn print_dms_with_restore_session_payload() {
         order_id: uuid::Uuid::new_v4(),
         trade_index: 1,
         status: "active".to_string(),
+        counterparty_trade_pubkey: None,
     };
     let dispute_info = RestoredDisputesInfo {
         dispute_id: uuid::Uuid::new_v4(),
@@ -216,7 +217,7 @@ async fn print_dms_with_restore_session_payload() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -307,7 +308,7 @@ async fn print_dms_with_long_details_truncation() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -325,7 +326,7 @@ async fn print_dms_with_rating_action() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -360,7 +361,7 @@ async fn print_dms_with_add_invoice_action() {
     let timestamp = 1700000000u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
 
@@ -399,9 +400,9 @@ async fn print_dms_with_bond_payout_request() {
 
     // With a known claim window the forfeit deadline is rendered locally; with
     // an unknown window it degrades gracefully. Both must succeed.
-    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), Some(15)).await;
+    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), Some(15), None).await;
     assert!(res.is_ok());
-    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), None).await;
+    let res = print_direct_messages(&msgs, Some(mostro_keys.public_key()), None, None).await;
     assert!(res.is_ok());
 }
 
@@ -418,6 +419,37 @@ async fn print_dms_with_invalid_timestamp() {
     let timestamp = 0u64;
     let msgs = vec![(message, timestamp, sender_keys.public_key())];
 
-    let res = print_direct_messages(&msgs, None, None).await;
+    let res = print_direct_messages(&msgs, None, None, None).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn print_dms_with_payer_history_payloads() {
+    let sender_keys = Keys::generate();
+    let order_id = Some(uuid::Uuid::new_v4());
+    let hash = payment_hash("EU|SEPA|DE89370400440532013000|ALICE SMITH");
+    let declared = Message::new_order(
+        order_id,
+        None,
+        None,
+        Action::PayerDeclared,
+        Some(Payload::PayerDeclaration(PayerDeclaration::new(
+            hash.clone(),
+        ))),
+    );
+    let history = Message::new_order(
+        order_id,
+        None,
+        None,
+        Action::PaymentHistory,
+        Some(Payload::PaymentHistory(PaymentHistory::unavailable(hash))),
+    );
+    let timestamp = 1700000000u64;
+    let msgs = vec![
+        (declared, timestamp, sender_keys.public_key()),
+        (history, timestamp + 1, sender_keys.public_key()),
+    ];
+
+    let res = print_direct_messages(&msgs, None, None, None).await;
     assert!(res.is_ok());
 }
