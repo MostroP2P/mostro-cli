@@ -231,6 +231,7 @@ fn test_new_order_message_with_trade_index() {
         buyer_invoice: None,
         created_at: None,
         expires_at: None,
+        cashu_mint_url: None,
     });
     let message = Message::new_order(
         None,

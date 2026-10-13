@@ -19,6 +19,7 @@ pub mod send_dm;
 pub mod send_msg;
 pub mod take_dispute;
 pub mod take_order;
+pub mod user_info;
 
 use crate::cli::add_bond_invoice::execute_add_bond_invoice;
 use crate::cli::add_invoice::execute_add_invoice;
@@ -44,6 +45,7 @@ use crate::cli::send_admin_dm_attach::execute_send_admin_dm_attach;
 use crate::cli::send_dm::execute_send_dm;
 use crate::cli::take_dispute::execute_take_dispute;
 use crate::cli::take_order::execute_take_order;
+use crate::cli::user_info::execute_user_info;
 use crate::db::{connect, User};
 use crate::util;
 
@@ -391,6 +393,8 @@ pub enum Commands {
     GetLastTradeIndex {},
     /// Get private key of last trade index public key
     GetLastTradePrivkey {},
+    /// Get your reputation (rating, reviews, first trade) as Mostro holds it
+    GetUserInfo {},
     /// Request detailed information for specific orders
     OrdersInfo {
         /// Order IDs to request information for
@@ -671,6 +675,7 @@ impl Commands {
                 execute_last_trade_index(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
             }
             Commands::GetLastTradePrivkey {} => execute_last_trade_index_private_key(ctx).await,
+            Commands::GetUserInfo {} => execute_user_info(ctx).await,
             // DM commands with pubkey parsing
             Commands::SendDm {
                 pubkey,

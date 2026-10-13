@@ -631,6 +631,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `restore` — re-sync active orders and disputes from Mostro.
 - `getlasttradeindex` — fetch your last known trade index from Mostro.
 - `getlasttradeprivkey` — show the private key for the last trade index (advanced).
+- `getuserinfo` — show the reputation (rating, reviews, first trade) this Mostro node holds for **your** local identity (no user-npub arg). If first-contact PoW is required, the CLI fails fast with a `--pow` / `POW=` hint, or pass `--pow <pow_first_contact>` up front.
 
 ### Global flags
 

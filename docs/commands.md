@@ -183,6 +183,13 @@ settable via the matching env var):
   - **Args**: None.
   - **Handler**: `execute_last_trade_index_private_key(ctx)` in `src/cli/last_trade_index.rs`.
 
+- **`getuserinfo`**
+  - **Description**: Get the reputation (rating, reviews, first trade date) the Mostro node holds for **your** identity key. Identity comes from the local wallet (`~/.mcli/mcli.db`); there is no user-npub argument — only Mostro’s pubkey (`-m` / `MOSTRO_PUBKEY`) is required. Sent from a trade key with the identity proof (reputation mode; avoid `-s` / `SECRET` if you want a real rating).
+  - **First-contact PoW**: the trade key is not in an active order/dispute, so Mostro’s `pow_first_contact` lane applies. `ensure_first_contact_pow` fails fast with `PowRequirementUnmet` when configured `POW` is below the advertised difficulty; otherwise pass `--pow <pow_first_contact>` (or set `POW`).
+  - **Reply correlation**: waits via `wait_for_dm_matching` until a decryptable `UserInfo` or `CantDo` echoes this request’s `request_id` (skips unrelated Mostro DMs to the same trade key). Does **not** use `validate_response` for dispatch — that helper returns `MostroCantDo` before checking the id.
+  - **Args**: None.
+  - **Handler**: `execute_user_info(ctx)` in `src/cli/user_info.rs`.
+
 ### Session & restore
 
 - **`restore`**

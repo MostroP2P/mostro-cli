@@ -265,6 +265,31 @@ fn format_payload_details(
     }
 }
 
+/// Lines shown for a `user-info` reply. Clients read `since` when present and
+/// only fall back to the deprecated `operating_days`.
+fn user_info_lines(info: &UserInfo, now: u64) -> Vec<String> {
+    let mut lines = Vec::new();
+    if info.reviews > 0 {
+        lines.push(format!("⭐ Rating: {:.1}/5.0", info.rating));
+    }
+    lines.push(format!("📊 Reviews: {}", info.reviews));
+    match info.since {
+        Some(since) => lines.push(format!(
+            "📅 Since: {} ({} days)",
+            format_timestamp(since as i64),
+            now.saturating_sub(since) / 86_400
+        )),
+        None if info.operating_days > 0 => {
+            lines.push(format!("📅 Operating Days: {}", info.operating_days))
+        }
+        None => {}
+    }
+    if info.reviews == 0 {
+        lines.push("💡 No reputation yet".to_string());
+    }
+    lines
+}
+
 /// Handle orders list display
 fn handle_orders_list_display(orders: &[mostro_core::order::SmallOrder]) {
     if orders.is_empty() {
@@ -786,6 +811,14 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Some(Payload::CantDo(Some(CantDoReason::NotFound))) => Err(anyhow::anyhow!(
                     "Resource not found. Verify the order or dispute id exists."
                 )),
+                Some(Payload::CantDo(Some(CantDoReason::ReputationIdentityRequired))) => {
+                    Err(anyhow::anyhow!(
+                        "Reputation is only kept in reputation mode: the request carried no identity proof."
+                    ))
+                }
+                Some(Payload::CantDo(Some(CantDoReason::InvalidSignature))) => Err(anyhow::anyhow!(
+                    "Mostro rejected the signature (trade or identity proof did not verify)."
+                )),
                 _ => {
                     println!("❓ Unknown Error");
                     println!("💡 An unknown error occurred");
@@ -862,6 +895,19 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
             }
             Ok(())
         }
+        Action::UserInfo => match &message.payload {
+            Some(Payload::UserInfo(info)) => {
+                print_section_header("👤 User Info");
+                for line in user_info_lines(info, Timestamp::now().as_secs()) {
+                    println!("{line}");
+                }
+                Ok(())
+            }
+            other => Err(anyhow::anyhow!(
+                "UserInfo expected Payload::UserInfo, got: {:?}",
+                other
+            )),
+        },
         Action::DisputeInitiatedByYou => {
             if let Some(Payload::Dispute(dispute_id, _)) = &message.payload {
                 println!("⚖️  Dispute Initiated");
@@ -1154,6 +1200,39 @@ pub async fn print_direct_messages(
 mod tests {
     use super::*;
     use sqlx::SqlitePool;
+
+    #[test]
+    fn user_info_lines_show_rating_and_age_from_since() {
+        let info = UserInfo {
+            rating: 4.8,
+            reviews: 23,
+            operating_days: 1,
+            since: Some(1_700_784_000),
+        };
+        let lines = user_info_lines(&info, 1_700_784_000 + 10 * 86_400);
+        assert_eq!(lines[0], "⭐ Rating: 4.8/5.0");
+        assert_eq!(lines[1], "📊 Reviews: 23");
+        assert!(lines[2].contains("2023-11-24") && lines[2].contains("(10 days)"));
+        assert_eq!(lines.len(), 3);
+    }
+
+    #[test]
+    fn user_info_lines_hide_rating_without_reviews() {
+        let lines = user_info_lines(&UserInfo::default(), 1_700_000_000);
+        assert_eq!(lines, vec!["📊 Reviews: 0", "💡 No reputation yet"]);
+    }
+
+    #[test]
+    fn user_info_lines_fall_back_to_operating_days() {
+        let info = UserInfo {
+            rating: 3.0,
+            reviews: 2,
+            operating_days: 42,
+            since: None,
+        };
+        let lines = user_info_lines(&info, 1_700_000_000);
+        assert!(lines.contains(&"📅 Operating Days: 42".to_string()));
+    }
 
     #[test]
     fn counterparty_from_trade_pubkeys_picks_the_other_side() {

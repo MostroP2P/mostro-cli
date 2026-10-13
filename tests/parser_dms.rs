@@ -141,6 +141,7 @@ async fn print_dms_with_orders_payload() {
         seller_trade_pubkey: None,
         min_amount: None,
         max_amount: None,
+        cashu_mint_url: None,
     };
     let orders_payload = Payload::Orders(vec![order]);
     let message = Message::new_order(
@@ -193,6 +194,7 @@ async fn print_dms_with_restore_session_payload() {
         order_id: uuid::Uuid::new_v4(),
         trade_index: 1,
         status: "active".to_string(),
+        counterparty_trade_pubkey: None,
     };
     let dispute_info = RestoredDisputesInfo {
         dispute_id: uuid::Uuid::new_v4(),
@@ -348,6 +350,7 @@ async fn print_dms_with_add_invoice_action() {
         expires_at: Some(1700086400),
         min_amount: None,
         max_amount: None,
+        cashu_mint_url: None,
     };
     let order_payload = Payload::Order(order);
     let message = Message::new_order(
@@ -383,6 +386,7 @@ async fn print_dms_with_bond_payout_request() {
         expires_at: None,
         min_amount: None,
         max_amount: None,
+        cashu_mint_url: None,
     };
     let payload = Payload::BondPayoutRequest(BondPayoutRequest {
         order,

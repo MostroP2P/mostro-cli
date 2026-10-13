@@ -117,10 +117,25 @@ relays, never break flows that worked before.
 
 ### 4.3 Where to plug it in — `wait_for_dm`
 
-`wait_for_dm` is the single chokepoint that every request/reply flow goes
-through (`add_invoice`, `take_order`, `take_dispute`, `send_msg`, `new_order`,
+`wait_for_dm` is the chokepoint for most request/reply flows
+(`add_invoice`, `take_order`, `take_dispute`, `send_msg`, `new_order`,
 `rate_user`, `orders_info`, `restore`, `last_trade_index`, `add_bond_invoice`).
-Centralizing the fix here covers every command in one place.
+Centralizing the base-`pow` probe here covers those commands in one place.
+
+**Exception — `getuserinfo`:** that command sends from a trade key that is
+not yet in Mostro’s active-order/dispute cache, so the daemon’s
+`pow_first_contact` lane applies. The CLI:
+
+1. Calls `ensure_first_contact_pow` **before** `send_dm` (reads
+   `events::fetch_pow_first_contact_with` → advertised
+   `max(pow, pow_first_contact)` from kind 38385). If that difficulty is
+   above configured `POW`, returns `PowRequirementUnmet` immediately.
+2. Waits with `wait_for_dm_matching` (not bare `wait_for_dm`) so the reply
+   must echo the request’s `request_id` and be `UserInfo` or `CantDo`.
+
+The postflight base-`pow` probe inside `wait_for_reply` still runs for
+`wait_for_dm_matching` timeouts; the preflight covers the case where
+`pow_first_contact > pow` and the base probe alone would under-report.
 
 Concurrent probe (chosen — see Alternatives below):
 
@@ -287,3 +302,28 @@ POW=<required> mostro-cli neworder ...
 - Surfacing the PoW requirement during `list-orders` / informational
   flows. The fix is scoped to the request/reply path where the missing
   PoW silently kills the flow.
+
+## 9. Follow-up — first-contact lane (`pow_first_contact`)
+
+Implemented for `getuserinfo` (and reusable for other first-contact
+actions):
+
+| Helper | Role |
+|---|---|
+| `events::fetch_pow_first_contact_with` | Newest kind-38385 → `max(pow, pow_first_contact.unwrap_or(pow))` |
+| `messaging::ensure_first_contact_pow` | Compare to `POW`; `PowRequirementUnmet` if unmet |
+| `messaging::wait_for_dm_matching` | Decrypt + skip until `request_id` (+ optional actions) match |
+
+Unit coverage includes advertised-tag resolution and
+`message_matches_expected_reply` (matching / mismatched / missing id,
+correlated vs uncorrelated `CantDo`, unrelated action with matching id).
+
+Manual check:
+
+```sh
+# with pow_first_contact advertised above POW:
+POW=0 mostro-cli getuserinfo
+# expected: PowRequirementUnmet mentioning the first-contact bits
+POW=<pow_first_contact> mostro-cli getuserinfo
+# expected: User Info section (or zeros / CantDo for unknown identity)
+```

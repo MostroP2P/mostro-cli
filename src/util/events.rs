@@ -138,6 +138,8 @@ pub async fn fetch_bond_claim_window_days(ctx: &crate::cli::Context) -> Option<i
 /// when the value is unparseable, or when the info event can't be fetched.
 /// Used by [`crate::util::messaging::wait_for_dm`] to distinguish a real
 /// timeout from a silent PoW rejection — see `docs/pow_error_handling.md`.
+/// For the stiffer first-contact lane (`pow_first_contact`), see
+/// [`fetch_pow_first_contact_with`].
 pub async fn fetch_required_pow(ctx: &crate::cli::Context) -> Option<u8> {
     fetch_required_pow_with(ctx.client.clone(), ctx.mostro_pubkey).await
 }
@@ -147,7 +149,38 @@ pub async fn fetch_required_pow(ctx: &crate::cli::Context) -> Option<u8> {
 /// `wait_for_dm` kicks the probe off concurrently with the DM wait so the
 /// answer is already in hand by the time the wait times out (zero added
 /// latency in the timeout path, instead of a sequential second fetch).
+/// Shares the newest-info-event fetch with [`fetch_pow_first_contact_with`].
 pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
+    let event = fetch_newest_info_event(client, mostro_pubkey).await?;
+    read_info_tag_from_event(&event, "pow").and_then(|v| v.parse::<u8>().ok())
+}
+
+/// Best-effort: advertised first-contact NIP-13 difficulty from kind-38385.
+///
+/// Mirrors mostrod's `advertised_first_contact_pow`:
+/// `max(pow, pow_first_contact.unwrap_or(pow))`. Returns `None` when the
+/// info event is unreachable or the base `pow` tag is missing/unparseable
+/// (older daemons). Used by first-contact flows such as `UserInfo` that
+/// send from an unknown trade key.
+pub async fn fetch_pow_first_contact_with(client: Client, mostro_pubkey: PublicKey) -> Option<u8> {
+    let event = fetch_newest_info_event(client, mostro_pubkey).await?;
+    advertised_pow_first_contact_from_event(&event)
+}
+
+/// Pure: resolve the first-contact difficulty advertised on a kind-38385
+/// info event. Split out for unit tests without a relay.
+fn advertised_pow_first_contact_from_event(event: &nostr_sdk::prelude::Event) -> Option<u8> {
+    let base = read_info_tag_from_event(event, "pow")?.parse::<u8>().ok()?;
+    let first = read_info_tag_from_event(event, "pow_first_contact")
+        .and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(base);
+    Some(base.max(first))
+}
+
+async fn fetch_newest_info_event(
+    client: Client,
+    mostro_pubkey: PublicKey,
+) -> Option<nostr_sdk::prelude::Event> {
     let filter = Filter::new()
         .author(mostro_pubkey)
         .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND));
@@ -156,8 +189,7 @@ pub async fn fetch_required_pow_with(client: Client, mostro_pubkey: PublicKey) -
         .timeout(FETCH_EVENTS_TIMEOUT)
         .await
         .ok()?;
-    let event = events.iter().max_by_key(|e| e.created_at)?;
-    read_info_tag_from_event(event, "pow").and_then(|v| v.parse::<u8>().ok())
+    events.into_iter().max_by_key(|e| e.created_at)
 }
 
 /// Timeout for the startup transport-capability probe. Deliberately short: it
@@ -305,6 +337,27 @@ mod tests {
 
     fn pow_tag(value: &str) -> Tag {
         Tag::parse(["pow", value]).expect("build pow tag")
+    }
+
+    fn pow_first_contact_tag(value: &str) -> Tag {
+        Tag::parse(["pow_first_contact", value]).expect("build pow_first_contact tag")
+    }
+
+    #[test]
+    fn advertised_pow_first_contact_uses_max_of_tags() {
+        let keys = Keys::generate();
+        // Explicit first-contact above base pow → publish the max.
+        let above = make_info_event(&keys, vec![pow_tag("4"), pow_first_contact_tag("16")]);
+        assert_eq!(advertised_pow_first_contact_from_event(&above), Some(16));
+        // First-contact below base still advertises base (daemon checks both).
+        let below = make_info_event(&keys, vec![pow_tag("8"), pow_first_contact_tag("2")]);
+        assert_eq!(advertised_pow_first_contact_from_event(&below), Some(8));
+        // Absent pow_first_contact → fall back to base pow.
+        let fallback = make_info_event(&keys, vec![pow_tag("4")]);
+        assert_eq!(advertised_pow_first_contact_from_event(&fallback), Some(4));
+        // No pow tag → None (older / incomplete info event).
+        let bare = make_info_event(&keys, vec![pow_first_contact_tag("16")]);
+        assert_eq!(advertised_pow_first_contact_from_event(&bare), None);
     }
 
     #[tokio::test]

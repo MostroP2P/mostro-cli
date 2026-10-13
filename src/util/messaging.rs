@@ -181,6 +181,42 @@ impl std::fmt::Display for PowRequirementUnmet {
 
 impl std::error::Error for PowRequirementUnmet {}
 
+/// Fail fast when configured `POW` is below Mostro's advertised first-contact
+/// difficulty.
+///
+/// Actions such as [`Action::UserInfo`] are sent from a trade key that is not
+/// yet in Mostro's active-order/dispute cache, so the daemon applies the
+/// `pow_first_contact` lane and silently drops under-mined events. The generic
+/// [`wait_for_dm`] probe only reads the base `pow` tag, which can be lower.
+/// Call this before `send_dm` on first-contact flows so the user gets a
+/// [`PowRequirementUnmet`] retry hint instead of a timeout.
+pub async fn ensure_first_contact_pow(ctx: &crate::cli::Context) -> Result<()> {
+    let Some(required) =
+        super::events::fetch_pow_first_contact_with(ctx.client.clone(), ctx.mostro_pubkey).await
+    else {
+        // Info event unreachable or missing tags — fall through; wait_for_dm
+        // still has its base-`pow` postflight probe.
+        return Ok(());
+    };
+    let configured = parse_pow_env()?;
+    if required > configured {
+        return Err(PowRequirementUnmet {
+            required,
+            configured,
+        }
+        .into());
+    }
+    Ok(())
+}
+
+/// Wait for the next Mostro kind-14 reply tagged to the trade key.
+///
+/// Returns the first kind-14 authored by Mostro and tagged to the trade key
+/// (ignoring the outbound request's own event id). Does **not** decrypt or
+/// correlate by `request_id` — use [`wait_for_dm_matching`] when the request
+/// carried an id and unrelated DMs to the same key must be skipped. On
+/// timeout, may surface [`PowRequirementUnmet`] via the concurrent base-`pow`
+/// probe (see `docs/pow_error_handling.md`).
 pub async fn wait_for_dm<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
@@ -189,7 +225,37 @@ pub async fn wait_for_dm<F>(
 where
     F: std::future::Future<Output = Result<()>> + Send,
 {
-    wait_for_reply(ctx, order_trade_keys, async move {
+    wait_for_reply(ctx, order_trade_keys, None, async move {
+        sent_message.await.map(|()| None)
+    })
+    .await
+}
+
+/// Like [`wait_for_dm`], but keeps listening until a decryptable Mostro reply
+/// echoes `expected_request_id` and (when non-empty) carries an action in
+/// `allowed_actions`. Unrelated DMs to the same trade key are skipped so a
+/// racing protocol push cannot be mistaken for this request's answer. The REQ
+/// stays open for [`super::events::FETCH_EVENTS_TIMEOUT`] after EOSE so a
+/// skipped first event does not close the subscription.
+///
+/// Callers that accept `CantDo` must correlate by `request_id` **before**
+/// calling [`validate_response`]: that helper returns `MostroCantDo` before it
+/// checks the id, so an uncorrelated `CantDo` would otherwise short-circuit.
+pub async fn wait_for_dm_matching<F>(
+    ctx: &crate::cli::Context,
+    order_trade_keys: Option<&Keys>,
+    expected_request_id: u64,
+    allowed_actions: &[Action],
+    sent_message: F,
+) -> anyhow::Result<BTreeSet<Event>>
+where
+    F: std::future::Future<Output = Result<()>> + Send,
+{
+    let expected = ExpectedReply {
+        request_id: expected_request_id,
+        allowed_actions: allowed_actions.to_vec(),
+    };
+    wait_for_reply(ctx, order_trade_keys, Some(expected), async move {
         sent_message.await.map(|()| None)
     })
     .await
@@ -207,7 +273,7 @@ pub async fn wait_for_reply_to<F>(
 where
     F: std::future::Future<Output = Result<EventId>> + Send,
 {
-    wait_for_reply(ctx, order_trade_keys, async move {
+    wait_for_reply(ctx, order_trade_keys, None, async move {
         sent_message.await.map(Some)
     })
     .await
@@ -227,23 +293,64 @@ fn is_mostro_reply(
         && Some(event.id) != sent_event_id
 }
 
+/// Correlation criteria for [`wait_for_dm_matching`]: exact `request_id`, and
+/// optionally an allow-list of actions (empty = any action).
+#[derive(Clone, Debug)]
+struct ExpectedReply {
+    request_id: u64,
+    allowed_actions: Vec<Action>,
+}
+
+/// True when `message` echoes `expected.request_id` and (if the allow-list is
+/// non-empty) carries an allowed action. Checks the id **before** any
+/// CantDo-specific handling so an uncorrelated `CantDo` is never accepted.
+fn message_matches_expected_reply(message: &Message, expected: &ExpectedReply) -> bool {
+    let inner = message.get_inner_message_kind();
+    if inner.request_id != Some(expected.request_id) {
+        return false;
+    }
+    expected.allowed_actions.is_empty() || expected.allowed_actions.contains(&inner.action)
+}
+
+async fn event_matches_expected_reply(
+    event: &Event,
+    trade_keys: &Keys,
+    expected: &ExpectedReply,
+) -> bool {
+    let mut one = BTreeSet::new();
+    one.insert(event.clone());
+    let messages = parse_dm_events(one, trade_keys, None, true).await;
+    messages
+        .first()
+        .is_some_and(|(msg, _, _)| message_matches_expected_reply(msg, expected))
+}
+
 async fn wait_for_reply<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
+    expected_reply: Option<ExpectedReply>,
     sent_message: F,
 ) -> anyhow::Result<BTreeSet<Event>>
 where
     F: std::future::Future<Output = Result<Option<EventId>>> + Send,
 {
-    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
+    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys).clone();
     let trade_pubkey = trade_keys.public_key();
     // Kind 14 is shared with NIP-17 peer chat, so pin the author to Mostro's
     // key to keep the reply unambiguous.
     let accepted_kind = nostr_sdk::prelude::Kind::PrivateDirectMessage;
     let mostro_pubkey = ctx.mostro_pubkey;
     let mut notifications = ctx.client.notifications();
-    let opts =
-        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
+    // When correlating by request_id we may skip the first matching kind-14
+    // (unrelated push to this trade key), so keep the REQ open for the full
+    // wait window instead of closing after one event.
+    let opts = if expected_reply.is_some() {
+        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitDurationAfterEOSE(
+            super::events::FETCH_EVENTS_TIMEOUT,
+        ))
+    } else {
+        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1))
+    };
     let subscription = Filter::new()
         .pubkey(trade_pubkey)
         .kind(accepted_kind)
@@ -280,9 +387,15 @@ where
                     // Rejects other kinds, kind-14s not authored by Mostro
                     // (e.g. NIP-17 peer chat tagged to this trade key) and
                     // the echo of our own request.
-                    if is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
-                        return Ok(*event);
+                    if !is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
+                        continue;
                     }
+                    if let Some(ref expected) = expected_reply {
+                        if !event_matches_expected_reply(&event, &trade_keys, expected).await {
+                            continue;
+                        }
+                    }
+                    return Ok(*event);
                 }
                 Some(_) => continue,
                 None => {
@@ -380,6 +493,8 @@ async fn create_private_dm_event(
 ///   signature when `signed = true`. Rotated per order for user flows,
 ///   equal to `identity_keys` for full-privacy mode and for flows that
 ///   don't bind to a specific trade (admin, restore, last trade index).
+///   `user-info` is the exception: it needs a trade key distinct from the
+///   identity so the identity proof is attached.
 ///
 /// For NIP-17 `PrivateDirectMessage` traffic (`to_user = true`), kind 14
 /// is signed directly by `trade_keys` — identity is irrelevant because
@@ -553,6 +668,102 @@ mod tests {
             mostro.public_key(),
             mostro.public_key(),
             Some(request.id)
+        ));
+    }
+
+    fn user_info_expected(request_id: u64) -> ExpectedReply {
+        ExpectedReply {
+            request_id,
+            allowed_actions: vec![Action::UserInfo, Action::CantDo],
+        }
+    }
+
+    fn user_info_message(request_id: Option<u64>) -> Message {
+        Message::Restore(MessageKind::new(
+            None,
+            request_id,
+            None,
+            Action::UserInfo,
+            Some(Payload::UserInfo(UserInfo::default())),
+        ))
+    }
+
+    fn cant_do_message(request_id: Option<u64>) -> Message {
+        Message::CantDo(MessageKind::new(
+            None,
+            request_id,
+            None,
+            Action::CantDo,
+            Some(Payload::CantDo(Some(CantDoReason::InvalidAction))),
+        ))
+    }
+
+    fn rate_message(request_id: Option<u64>) -> Message {
+        Message::Order(MessageKind::new(None, request_id, None, Action::Rate, None))
+    }
+
+    #[test]
+    fn correlated_user_info_accepts_matching_id() {
+        let expected = user_info_expected(42);
+        assert!(message_matches_expected_reply(
+            &user_info_message(Some(42)),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn correlated_user_info_rejects_mismatched_or_missing_id() {
+        let expected = user_info_expected(42);
+        assert!(!message_matches_expected_reply(
+            &user_info_message(Some(7)),
+            &expected
+        ));
+        assert!(!message_matches_expected_reply(
+            &user_info_message(None),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn correlated_cant_do_accepted_only_with_matching_id() {
+        let expected = user_info_expected(42);
+        assert!(
+            message_matches_expected_reply(&cant_do_message(Some(42)), &expected),
+            "CantDo must be accepted when it echoes the request_id"
+        );
+        assert!(
+            !message_matches_expected_reply(&cant_do_message(Some(7)), &expected),
+            "uncorrelated CantDo must be skipped (validate_response would \
+             short-circuit on CantDo before checking the id)"
+        );
+        assert!(!message_matches_expected_reply(
+            &cant_do_message(None),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn unrelated_action_with_matching_id_is_skipped() {
+        let expected = user_info_expected(42);
+        assert!(
+            !message_matches_expected_reply(&rate_message(Some(42)), &expected),
+            "stale/concurrent reply with a different action must not win the wait"
+        );
+    }
+
+    #[test]
+    fn empty_allow_list_matches_any_action_with_request_id() {
+        let expected = ExpectedReply {
+            request_id: 42,
+            allowed_actions: vec![],
+        };
+        assert!(message_matches_expected_reply(
+            &rate_message(Some(42)),
+            &expected
+        ));
+        assert!(!message_matches_expected_reply(
+            &rate_message(Some(7)),
+            &expected
         ));
     }
 
