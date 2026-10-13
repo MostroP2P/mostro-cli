@@ -119,7 +119,7 @@ relays, never break flows that worked before.
 
 `wait_for_dm` is the single chokepoint that every request/reply flow goes
 through (`add_invoice`, `take_order`, `take_dispute`, `send_msg`, `new_order`,
-`rate_user`, `orders_info`, `restore`, `last_trade_index`, `add_bond_invoice`).
+`rate_user`, `orders_info`, `restore`, `last_trade_index`, `user_info`, `add_bond_invoice`).
 Centralizing the fix here covers every command in one place.
 
 Concurrent probe (chosen — see Alternatives below):

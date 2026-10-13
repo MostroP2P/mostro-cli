@@ -3,7 +3,7 @@
 **Status:** nip44 only (protocol v2, signed kind 14).
 **Daemon spec:** `MostroP2P/mostro` → `docs/TRANSPORT_V2_SPEC.md`
 **Issue:** [#626 — Messaging Transport Abstraction Layer](https://github.com/MostroP2P/mostro/issues/626)
-**Core:** `transport` module in **mostro-core** (≥ 0.13; CLI pins 0.14.2)
+**Core:** `transport` module in **mostro-core** (≥ 0.13; CLI pins 0.17.3)
 
 This is the client-side counterpart to the daemon's transport spec. The CLI
 speaks protocol **v2**: signed kind-`14` events with NIP-44 encrypted content.

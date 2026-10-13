@@ -380,6 +380,8 @@ async fn create_private_dm_event(
 ///   signature when `signed = true`. Rotated per order for user flows,
 ///   equal to `identity_keys` for full-privacy mode and for flows that
 ///   don't bind to a specific trade (admin, restore, last trade index).
+///   `user-info` is the exception: it needs a trade key distinct from the
+///   identity so the identity proof is attached.
 ///
 /// For NIP-17 `PrivateDirectMessage` traffic (`to_user = true`), kind 14
 /// is signed directly by `trade_keys` — identity is irrelevant because

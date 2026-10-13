@@ -183,6 +183,11 @@ settable via the matching env var):
   - **Args**: None.
   - **Handler**: `execute_last_trade_index_private_key(ctx)` in `src/cli/last_trade_index.rs`.
 
+- **`getuserinfo`**
+  - **Description**: Get the reputation (rating, reviews, first trade date) the Mostro node holds for your identity key. Sent from a trade key with the identity proof, so it needs reputation mode. On a node with a first-contact PoW gate, pass `--pow <pow_first_contact>`.
+  - **Args**: None.
+  - **Handler**: `execute_user_info(ctx)` in `src/cli/user_info.rs`.
+
 ### Session & restore
 
 - **`restore`**

@@ -9,7 +9,7 @@ This document describes the internal structure of `mostro-cli`, how major module
   - Very thin; most logic is in `src/cli.rs`.
 
 - **`src/cli.rs`**
-  - Declares submodules for each logical command group: `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `list_orders`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`.
+  - Declares submodules for each logical command group: `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `list_orders`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`.
   - Defines:
     - `Context`: runtime dependencies required by commands (Nostr client, keys, trade index, DB pool, optional admin context keys, and Mostro pubkey).
     - `Cli`: top-level arguments parsed by `clap` (subcommand, verbosity, Mostro pubkey override, relay list, PoW, secret mode).
@@ -95,7 +95,7 @@ This document describes the internal structure of `mostro-cli`, how major module
 
 Each file in `src/cli/` encapsulates the logic of a specific feature or a group of related commands:
 
-- Order-related: `add_invoice.rs`, `list_orders.rs`, `new_order.rs`, `take_order.rs`, `orders_info.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`.
+- Order-related: `add_invoice.rs`, `list_orders.rs`, `new_order.rs`, `take_order.rs`, `orders_info.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (reputation lookup: sent from a trade key with the identity proof, reply read with the trade key).
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
