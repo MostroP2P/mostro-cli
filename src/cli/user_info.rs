@@ -50,29 +50,34 @@ pub async fn execute_user_info(ctx: &Context) -> Result<()> {
         false,
     );
 
-    // Correlate by request_id: keep waiting past unrelated Mostro DMs to this
-    // trade key until UserInfo/CantDo echoes the id we sent.
-    let recv_event =
-        wait_for_dm_matching(ctx, Some(&ctx.trade_keys), request_id, sent_message).await?;
+    // Correlate by request_id + action: keep waiting past unrelated Mostro DMs
+    // (including uncorrelated CantDo) until UserInfo/CantDo echoes this id.
+    // Do not use validate_response here — it returns MostroCantDo before
+    // checking request_id.
+    let recv_event = wait_for_dm_matching(
+        ctx,
+        Some(&ctx.trade_keys),
+        request_id,
+        &[Action::UserInfo, Action::CantDo],
+        sent_message,
+    )
+    .await?;
 
     let messages = parse_dm_events(recv_event, &ctx.trade_keys, None, true).await;
     let (message, _, _) = messages
         .first()
         .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
     let message = message.get_inner_message_kind();
-    if message.request_id != Some(request_id) {
+    // Defense in depth: wait_for_dm_matching already enforced this filter.
+    if message.request_id != Some(request_id)
+        || !matches!(message.action, Action::UserInfo | Action::CantDo)
+    {
         return Err(anyhow::anyhow!(
-            "Received response with mismatched request_id. Expected: {}, Got: {:?}",
-            request_id,
-            message.request_id
+            "Received response that does not match this user-info request \
+             (request_id={:?}, action={:?})",
+            message.request_id,
+            message.action
         ));
     }
-    match &message.action {
-        Action::UserInfo | Action::CantDo => print_commands_results(message, ctx).await,
-        other => Err(anyhow::anyhow!(
-            "Received response with mismatched action. Expected: {:?}, Got: {:?}",
-            Action::UserInfo,
-            other
-        )),
-    }
+    print_commands_results(message, ctx).await
 }

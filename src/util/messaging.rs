@@ -232,25 +232,32 @@ where
 }
 
 /// Like [`wait_for_dm`], but keeps listening until a decryptable Mostro reply
-/// echoes `expected_request_id`. Unrelated DMs to the same trade key are
-/// skipped so a racing protocol push cannot be mistaken for this request's
-/// answer. The REQ stays open for [`super::events::FETCH_EVENTS_TIMEOUT`]
-/// after EOSE so a skipped first event does not close the subscription.
+/// echoes `expected_request_id` and (when non-empty) carries an action in
+/// `allowed_actions`. Unrelated DMs to the same trade key are skipped so a
+/// racing protocol push cannot be mistaken for this request's answer. The REQ
+/// stays open for [`super::events::FETCH_EVENTS_TIMEOUT`] after EOSE so a
+/// skipped first event does not close the subscription.
+///
+/// Callers that accept `CantDo` must correlate by `request_id` **before**
+/// calling [`validate_response`]: that helper returns `MostroCantDo` before it
+/// checks the id, so an uncorrelated `CantDo` would otherwise short-circuit.
 pub async fn wait_for_dm_matching<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
     expected_request_id: u64,
+    allowed_actions: &[Action],
     sent_message: F,
 ) -> anyhow::Result<BTreeSet<Event>>
 where
     F: std::future::Future<Output = Result<()>> + Send,
 {
-    wait_for_reply(
-        ctx,
-        order_trade_keys,
-        Some(expected_request_id),
-        async move { sent_message.await.map(|()| None) },
-    )
+    let expected = ExpectedReply {
+        request_id: expected_request_id,
+        allowed_actions: allowed_actions.to_vec(),
+    };
+    wait_for_reply(ctx, order_trade_keys, Some(expected), async move {
+        sent_message.await.map(|()| None)
+    })
     .await
 }
 
@@ -286,24 +293,42 @@ fn is_mostro_reply(
         && Some(event.id) != sent_event_id
 }
 
-/// True when a decrypted protocol message echoes `expected` as its request id.
-fn message_echoes_request_id(message: &Message, expected: u64) -> bool {
-    message.get_inner_message_kind().request_id == Some(expected)
+/// Correlation criteria for [`wait_for_dm_matching`]: exact `request_id`, and
+/// optionally an allow-list of actions (empty = any action).
+#[derive(Clone, Debug)]
+struct ExpectedReply {
+    request_id: u64,
+    allowed_actions: Vec<Action>,
 }
 
-async fn event_echoes_request_id(event: &Event, trade_keys: &Keys, expected: u64) -> bool {
+/// True when `message` echoes `expected.request_id` and (if the allow-list is
+/// non-empty) carries an allowed action. Checks the id **before** any
+/// CantDo-specific handling so an uncorrelated `CantDo` is never accepted.
+fn message_matches_expected_reply(message: &Message, expected: &ExpectedReply) -> bool {
+    let inner = message.get_inner_message_kind();
+    if inner.request_id != Some(expected.request_id) {
+        return false;
+    }
+    expected.allowed_actions.is_empty() || expected.allowed_actions.contains(&inner.action)
+}
+
+async fn event_matches_expected_reply(
+    event: &Event,
+    trade_keys: &Keys,
+    expected: &ExpectedReply,
+) -> bool {
     let mut one = BTreeSet::new();
     one.insert(event.clone());
     let messages = parse_dm_events(one, trade_keys, None, true).await;
     messages
         .first()
-        .is_some_and(|(msg, _, _)| message_echoes_request_id(msg, expected))
+        .is_some_and(|(msg, _, _)| message_matches_expected_reply(msg, expected))
 }
 
 async fn wait_for_reply<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
-    expected_request_id: Option<u64>,
+    expected_reply: Option<ExpectedReply>,
     sent_message: F,
 ) -> anyhow::Result<BTreeSet<Event>>
 where
@@ -319,7 +344,7 @@ where
     // When correlating by request_id we may skip the first matching kind-14
     // (unrelated push to this trade key), so keep the REQ open for the full
     // wait window instead of closing after one event.
-    let opts = if expected_request_id.is_some() {
+    let opts = if expected_reply.is_some() {
         SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitDurationAfterEOSE(
             super::events::FETCH_EVENTS_TIMEOUT,
         ))
@@ -365,8 +390,8 @@ where
                     if !is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
                         continue;
                     }
-                    if let Some(expected) = expected_request_id {
-                        if !event_echoes_request_id(&event, &trade_keys, expected).await {
+                    if let Some(ref expected) = expected_reply {
+                        if !event_matches_expected_reply(&event, &trade_keys, expected).await {
                             continue;
                         }
                     }
@@ -646,14 +671,100 @@ mod tests {
         ));
     }
 
+    fn user_info_expected(request_id: u64) -> ExpectedReply {
+        ExpectedReply {
+            request_id,
+            allowed_actions: vec![Action::UserInfo, Action::CantDo],
+        }
+    }
+
+    fn user_info_message(request_id: Option<u64>) -> Message {
+        Message::Restore(MessageKind::new(
+            None,
+            request_id,
+            None,
+            Action::UserInfo,
+            Some(Payload::UserInfo(UserInfo::default())),
+        ))
+    }
+
+    fn cant_do_message(request_id: Option<u64>) -> Message {
+        Message::CantDo(MessageKind::new(
+            None,
+            request_id,
+            None,
+            Action::CantDo,
+            Some(Payload::CantDo(Some(CantDoReason::InvalidAction))),
+        ))
+    }
+
+    fn rate_message(request_id: Option<u64>) -> Message {
+        Message::Order(MessageKind::new(None, request_id, None, Action::Rate, None))
+    }
+
     #[test]
-    fn message_echoes_request_id_requires_exact_match() {
-        let matching = sample_protocol_message(Some(42));
-        let other = sample_protocol_message(Some(7));
-        let missing = sample_protocol_message(None);
-        assert!(message_echoes_request_id(&matching, 42));
-        assert!(!message_echoes_request_id(&other, 42));
-        assert!(!message_echoes_request_id(&missing, 42));
+    fn correlated_user_info_accepts_matching_id() {
+        let expected = user_info_expected(42);
+        assert!(message_matches_expected_reply(
+            &user_info_message(Some(42)),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn correlated_user_info_rejects_mismatched_or_missing_id() {
+        let expected = user_info_expected(42);
+        assert!(!message_matches_expected_reply(
+            &user_info_message(Some(7)),
+            &expected
+        ));
+        assert!(!message_matches_expected_reply(
+            &user_info_message(None),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn correlated_cant_do_accepted_only_with_matching_id() {
+        let expected = user_info_expected(42);
+        assert!(
+            message_matches_expected_reply(&cant_do_message(Some(42)), &expected),
+            "CantDo must be accepted when it echoes the request_id"
+        );
+        assert!(
+            !message_matches_expected_reply(&cant_do_message(Some(7)), &expected),
+            "uncorrelated CantDo must be skipped (validate_response would \
+             short-circuit on CantDo before checking the id)"
+        );
+        assert!(!message_matches_expected_reply(
+            &cant_do_message(None),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn unrelated_action_with_matching_id_is_skipped() {
+        let expected = user_info_expected(42);
+        assert!(
+            !message_matches_expected_reply(&rate_message(Some(42)), &expected),
+            "stale/concurrent reply with a different action must not win the wait"
+        );
+    }
+
+    #[test]
+    fn empty_allow_list_matches_any_action_with_request_id() {
+        let expected = ExpectedReply {
+            request_id: 42,
+            allowed_actions: vec![],
+        };
+        assert!(message_matches_expected_reply(
+            &rate_message(Some(42)),
+            &expected
+        ));
+        assert!(!message_matches_expected_reply(
+            &rate_message(Some(7)),
+            &expected
+        ));
     }
 
     #[test]
