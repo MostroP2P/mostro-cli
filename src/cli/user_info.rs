@@ -6,10 +6,17 @@ use crate::{
     cli::Context,
     parser::common::{print_key_value, print_section_header},
     parser::{dms::print_commands_results, parse_dm_events},
-    util::{send_dm, wait_for_dm},
+    util::{ensure_first_contact_pow, send_dm, wait_for_dm_matching},
 };
 
 /// Ask Mostro for the reputation it holds for our identity key.
+///
+/// Sent from a trade key with the identity proof (Mostro rejects identity ==
+/// sender). Because that trade key is not in an active order/dispute, the
+/// daemon's `pow_first_contact` lane applies: [`ensure_first_contact_pow`]
+/// fails fast when configured `POW` is too low. The reply is correlated with
+/// [`wait_for_dm_matching`] so an unrelated DM to the same trade key cannot
+/// be mistaken for this request's `UserInfo` / `CantDo` answer.
 pub async fn execute_user_info(ctx: &Context) -> Result<()> {
     let request_id = Uuid::new_v4().as_u128() as u64;
     let kind = MessageKind::new(None, Some(request_id), None, Action::UserInfo, None);
@@ -29,6 +36,10 @@ pub async fn execute_user_info(ctx: &Context) -> Result<()> {
 
     // The reputation belongs to the identity key, so the request is sent from
     // a trade key and carries the identity proof; Mostro rejects identity == sender.
+    // That trade key is not in an active order/dispute, so Mostro's
+    // pow_first_contact lane applies — fail fast if POW is too low.
+    ensure_first_contact_pow(ctx).await?;
+
     let sent_message = send_dm(
         &ctx.client,
         &ctx.identity_keys,
@@ -39,13 +50,23 @@ pub async fn execute_user_info(ctx: &Context) -> Result<()> {
         false,
     );
 
-    let recv_event = wait_for_dm(ctx, Some(&ctx.trade_keys), sent_message).await?;
+    // Correlate by request_id: keep waiting past unrelated Mostro DMs to this
+    // trade key until UserInfo/CantDo echoes the id we sent.
+    let recv_event =
+        wait_for_dm_matching(ctx, Some(&ctx.trade_keys), request_id, sent_message).await?;
 
     let messages = parse_dm_events(recv_event, &ctx.trade_keys, None, true).await;
     let (message, _, _) = messages
         .first()
         .ok_or_else(|| anyhow::anyhow!("No response received from Mostro"))?;
     let message = message.get_inner_message_kind();
+    if message.request_id != Some(request_id) {
+        return Err(anyhow::anyhow!(
+            "Received response with mismatched request_id. Expected: {}, Got: {:?}",
+            request_id,
+            message.request_id
+        ));
+    }
     match &message.action {
         Action::UserInfo | Action::CantDo => print_commands_results(message, ctx).await,
         other => Err(anyhow::anyhow!(

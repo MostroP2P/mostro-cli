@@ -181,6 +181,42 @@ impl std::fmt::Display for PowRequirementUnmet {
 
 impl std::error::Error for PowRequirementUnmet {}
 
+/// Fail fast when configured `POW` is below Mostro's advertised first-contact
+/// difficulty.
+///
+/// Actions such as [`Action::UserInfo`] are sent from a trade key that is not
+/// yet in Mostro's active-order/dispute cache, so the daemon applies the
+/// `pow_first_contact` lane and silently drops under-mined events. The generic
+/// [`wait_for_dm`] probe only reads the base `pow` tag, which can be lower.
+/// Call this before `send_dm` on first-contact flows so the user gets a
+/// [`PowRequirementUnmet`] retry hint instead of a timeout.
+pub async fn ensure_first_contact_pow(ctx: &crate::cli::Context) -> Result<()> {
+    let Some(required) =
+        super::events::fetch_pow_first_contact_with(ctx.client.clone(), ctx.mostro_pubkey).await
+    else {
+        // Info event unreachable or missing tags — fall through; wait_for_dm
+        // still has its base-`pow` postflight probe.
+        return Ok(());
+    };
+    let configured = parse_pow_env()?;
+    if required > configured {
+        return Err(PowRequirementUnmet {
+            required,
+            configured,
+        }
+        .into());
+    }
+    Ok(())
+}
+
+/// Wait for the next Mostro kind-14 reply tagged to the trade key.
+///
+/// Returns the first kind-14 authored by Mostro and tagged to the trade key
+/// (ignoring the outbound request's own event id). Does **not** decrypt or
+/// correlate by `request_id` — use [`wait_for_dm_matching`] when the request
+/// carried an id and unrelated DMs to the same key must be skipped. On
+/// timeout, may surface [`PowRequirementUnmet`] via the concurrent base-`pow`
+/// probe (see `docs/pow_error_handling.md`).
 pub async fn wait_for_dm<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
@@ -189,9 +225,32 @@ pub async fn wait_for_dm<F>(
 where
     F: std::future::Future<Output = Result<()>> + Send,
 {
-    wait_for_reply(ctx, order_trade_keys, async move {
+    wait_for_reply(ctx, order_trade_keys, None, async move {
         sent_message.await.map(|()| None)
     })
+    .await
+}
+
+/// Like [`wait_for_dm`], but keeps listening until a decryptable Mostro reply
+/// echoes `expected_request_id`. Unrelated DMs to the same trade key are
+/// skipped so a racing protocol push cannot be mistaken for this request's
+/// answer. The REQ stays open for [`super::events::FETCH_EVENTS_TIMEOUT`]
+/// after EOSE so a skipped first event does not close the subscription.
+pub async fn wait_for_dm_matching<F>(
+    ctx: &crate::cli::Context,
+    order_trade_keys: Option<&Keys>,
+    expected_request_id: u64,
+    sent_message: F,
+) -> anyhow::Result<BTreeSet<Event>>
+where
+    F: std::future::Future<Output = Result<()>> + Send,
+{
+    wait_for_reply(
+        ctx,
+        order_trade_keys,
+        Some(expected_request_id),
+        async move { sent_message.await.map(|()| None) },
+    )
     .await
 }
 
@@ -207,7 +266,7 @@ pub async fn wait_for_reply_to<F>(
 where
     F: std::future::Future<Output = Result<EventId>> + Send,
 {
-    wait_for_reply(ctx, order_trade_keys, async move {
+    wait_for_reply(ctx, order_trade_keys, None, async move {
         sent_message.await.map(Some)
     })
     .await
@@ -227,23 +286,46 @@ fn is_mostro_reply(
         && Some(event.id) != sent_event_id
 }
 
+/// True when a decrypted protocol message echoes `expected` as its request id.
+fn message_echoes_request_id(message: &Message, expected: u64) -> bool {
+    message.get_inner_message_kind().request_id == Some(expected)
+}
+
+async fn event_echoes_request_id(event: &Event, trade_keys: &Keys, expected: u64) -> bool {
+    let mut one = BTreeSet::new();
+    one.insert(event.clone());
+    let messages = parse_dm_events(one, trade_keys, None, true).await;
+    messages
+        .first()
+        .is_some_and(|(msg, _, _)| message_echoes_request_id(msg, expected))
+}
+
 async fn wait_for_reply<F>(
     ctx: &crate::cli::Context,
     order_trade_keys: Option<&Keys>,
+    expected_request_id: Option<u64>,
     sent_message: F,
 ) -> anyhow::Result<BTreeSet<Event>>
 where
     F: std::future::Future<Output = Result<Option<EventId>>> + Send,
 {
-    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys);
+    let trade_keys = order_trade_keys.unwrap_or(&ctx.trade_keys).clone();
     let trade_pubkey = trade_keys.public_key();
     // Kind 14 is shared with NIP-17 peer chat, so pin the author to Mostro's
     // key to keep the reply unambiguous.
     let accepted_kind = nostr_sdk::prelude::Kind::PrivateDirectMessage;
     let mostro_pubkey = ctx.mostro_pubkey;
     let mut notifications = ctx.client.notifications();
-    let opts =
-        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1));
+    // When correlating by request_id we may skip the first matching kind-14
+    // (unrelated push to this trade key), so keep the REQ open for the full
+    // wait window instead of closing after one event.
+    let opts = if expected_request_id.is_some() {
+        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitDurationAfterEOSE(
+            super::events::FETCH_EVENTS_TIMEOUT,
+        ))
+    } else {
+        SubscribeAutoCloseOptions::default().exit_policy(ReqExitPolicy::WaitForEventsAfterEOSE(1))
+    };
     let subscription = Filter::new()
         .pubkey(trade_pubkey)
         .kind(accepted_kind)
@@ -280,9 +362,15 @@ where
                     // Rejects other kinds, kind-14s not authored by Mostro
                     // (e.g. NIP-17 peer chat tagged to this trade key) and
                     // the echo of our own request.
-                    if is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
-                        return Ok(*event);
+                    if !is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
+                        continue;
                     }
+                    if let Some(expected) = expected_request_id {
+                        if !event_echoes_request_id(&event, &trade_keys, expected).await {
+                            continue;
+                        }
+                    }
+                    return Ok(*event);
                 }
                 Some(_) => continue,
                 None => {
@@ -556,6 +644,16 @@ mod tests {
             mostro.public_key(),
             Some(request.id)
         ));
+    }
+
+    #[test]
+    fn message_echoes_request_id_requires_exact_match() {
+        let matching = sample_protocol_message(Some(42));
+        let other = sample_protocol_message(Some(7));
+        let missing = sample_protocol_message(None);
+        assert!(message_echoes_request_id(&matching, 42));
+        assert!(!message_echoes_request_id(&other, 42));
+        assert!(!message_echoes_request_id(&missing, 42));
     }
 
     #[test]
