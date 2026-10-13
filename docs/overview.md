@@ -8,6 +8,7 @@ The CLI is heavily inspired by the Mostro backend documentation (`mostro/docs` i
 
 - **Order lifecycle**: create, take, cancel, dispute, and settle orders using `mostro_core` types and the Mostro protocol.
 - **Direct messaging**: send and receive Nostr DMs between users, admins, and solvers over kind-14 NIP-44 envelopes, including encrypted attachments.
+- **Identity / reputation**: local mnemonic identity; `getuserinfo` asks Mostro for the reputation it holds for that key (first-contact PoW + `request_id`-correlated reply).
 - **Local persistence**: keep a local cache of orders and a deterministic identity in a SQLite database (`mcli.db`) under the CLI data directory.
 - **Admin / solver tooling**: expose admin-only and solver-only flows (e.g. taking disputes, adding solvers, admin DMs) when run with the proper keys.
 
@@ -35,6 +36,8 @@ This docs folder is optimized for AI-assisted development:
 - **`commands.md`**: One-stop reference for all CLI commands, arguments, and their handler functions. Useful when adding, renaming, or refactoring commands.
 - **`architecture.md`**: Overview of module structure and main data / control flows.
 - **`database.md`**: SQLite schema (`orders`, `users`), how they are used, and migration notes.
+- **`pow_error_handling.md`**: Base `pow` timeout probe plus first-contact (`pow_first_contact`) preflight used by `getuserinfo`.
+- **`TRANSPORT_V2_SPEC.md`**: Kind-14 NIP-44 transport, receive waits, and PoW testing notes.
 
 If you add new subcommands, modules, or tables, please also update the relevant markdown file so that future contributors (and AI tools) have an up-to-date view of the system.
 

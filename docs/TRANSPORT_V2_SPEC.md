@@ -66,7 +66,9 @@ unwrap_chat_message}` instead of this dispatcher.
   `wrap_chat_message`.
 - **Receive:** `wait_for_dm` subscribes on kind 14 and pins
   `author = mostro_pubkey` so the Mostro reply is never confused with peer
-  chat on the same kind.
+  chat on the same kind. Flows that must not accept a racing DM
+  (`getuserinfo`) use `wait_for_dm_matching` to decrypt and wait until the
+  inner `request_id` (and allowed action) match.
 - **Unwrap:** `parse_dm_events` with `mostro_protocol: true` decodes via
   `unwrap_incoming`; the peer-chat listing path uses `unwrap_chat_message`.
 - **Listing / follow-up fetches:** `create_filter` for the `DirectMessages*`
@@ -93,7 +95,10 @@ once at startup when `--transport` / `TRANSPORT` is unset:
 - Run the CLI with `--transport nip44` (or omit it: auto-detect from the
   `protocol_version` info tag).
 - The daemon's first-contact PoW lane (`pow_first_contact`) is testable by
-  combining `--transport nip44` with `--pow <bits>` on the CLI.
+  combining `--transport nip44` with `--pow <bits>` on the CLI. `getuserinfo`
+  also preflights via `ensure_first_contact_pow` (reads advertised
+  `max(pow, pow_first_contact)` from kind 38385) and fails with
+  `PowRequirementUnmet` when `POW` is too low.
 - Against a `transport = "nip44"` daemon, a full
   `new-order → take → add-invoice → fiat-sent → release` round-trip should
   succeed. Choosing nip44 is what arms the daemon's anti-spam gates (they

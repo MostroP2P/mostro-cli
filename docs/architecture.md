@@ -36,7 +36,11 @@ This document describes the internal structure of `mostro-cli`, how major module
     - `net`: Nostr network connection setup.
     - `storage`: thin storage helpers for orders and DMs.
     - `types`: small shared enums/wrappers.
-  - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, `wait_for_dm`, etc.) so other modules can import from `crate::util` directly.
+  - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, `wait_for_dm`, `wait_for_dm_matching`, `ensure_first_contact_pow`, `PowRequirementUnmet`, etc.) so other modules can import from `crate::util` directly.
+  - **Messaging wait helpers** (`messaging.rs`):
+    - `wait_for_dm` — first Mostro kind-14 tagged to the trade key (no `request_id` decrypt).
+    - `wait_for_dm_matching` — keeps listening until a decryptable reply echoes `expected_request_id` and (optionally) an allowed action; used by `getuserinfo` for `UserInfo` / `CantDo`.
+    - `ensure_first_contact_pow` — preflight against kind-38385 `pow_first_contact` (via `events::fetch_pow_first_contact_with`) before first-contact sends.
 
 - **`src/util/storage.rs`**
   - `save_order(order, trade_keys, request_id, trade_index, pool)`:
@@ -95,7 +99,7 @@ This document describes the internal structure of `mostro-cli`, how major module
 
 Each file in `src/cli/` encapsulates the logic of a specific feature or a group of related commands:
 
-- Order-related: `add_invoice.rs`, `list_orders.rs`, `new_order.rs`, `take_order.rs`, `orders_info.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (reputation lookup: sent from a trade key with the identity proof, reply read with the trade key).
+- Order-related: `add_invoice.rs`, `list_orders.rs`, `new_order.rs`, `take_order.rs`, `orders_info.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
