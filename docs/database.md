@@ -84,6 +84,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 
 - **Usage**:
   - Many command handlers persist or update orders via `util::save_order`, which internally calls `Order::new` and updates `User::last_trade_index`.
+  - A taker's row is created from the node's reply when it carries the order (`add-invoice`, `pay-invoice`, `pay-bond-invoice`). A `takesell` that already carried the invoice is answered with `waiting-seller-to-pay` and no order, so `execute_take_order` saves the book's copy of the order itself, in `waiting-payment` (#204).
 
 #### `users`
 

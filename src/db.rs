@@ -334,6 +334,15 @@ impl User {
     }
 }
 
+/// Whether `error` is sqlx's "no rows returned": how [`Order::get_by_id`]
+/// reports an order that is not in the local database.
+pub fn is_row_not_found(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<sqlx::Error>(),
+        Some(sqlx::Error::RowNotFound)
+    )
+}
+
 #[derive(Debug, Default, Clone, sqlx::FromRow)]
 pub struct Order {
     pub id: Option<String>,
