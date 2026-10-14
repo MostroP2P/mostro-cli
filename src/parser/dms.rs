@@ -10,7 +10,7 @@ use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
-    db::{Order, User},
+    db::{is_row_not_found, Order, User},
     parser::common::{
         format_timestamp, print_amount_info, print_fiat_code, print_order_count,
         print_payment_method, print_premium, print_required_amount, print_section_header,
@@ -646,24 +646,36 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                 Err(anyhow::anyhow!("No order found in message"))
             }
         }
-        // this is the case where the buyer adds an invoice to a takesell order
+        // The buyer's invoice is in: after `addinvoice`, or as the reply to a
+        // takesell that carried it.
         Action::WaitingSellerToPay => {
             println!("⏳ Waiting for Seller Payment");
             println!("═══════════════════════════════════════");
             if let Some(order_id) = &message.id {
                 println!("📋 Order ID: {}", order_id);
-                let mut order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
-                match order
-                    .set_status(Status::WaitingPayment.to_string())
-                    .save(&ctx.pool)
-                    .await
-                {
-                    Ok(_) => {
+                match Order::get_by_id(&ctx.pool, &order_id.to_string()).await {
+                    Ok(mut order) => {
+                        match order
+                            .set_status(Status::WaitingPayment.to_string())
+                            .save(&ctx.pool)
+                            .await
+                        {
+                            Ok(_) => {
+                                println!("📊 Status: Waiting for Payment");
+                                println!("💡 The seller needs to pay the invoice to continue");
+                                println!("✅ Order status updated successfully!");
+                            }
+                            Err(e) => println!("❌ Failed to update order status: {}", e),
+                        }
+                    }
+                    // A takesell that carried the invoice: this reply has no
+                    // order and nothing saved it yet. The take saves it once
+                    // this returns (#204).
+                    Err(e) if is_row_not_found(&e) => {
                         println!("📊 Status: Waiting for Payment");
                         println!("💡 The seller needs to pay the invoice to continue");
-                        println!("✅ Order status updated successfully!");
                     }
-                    Err(e) => println!("❌ Failed to update order status: {}", e),
+                    Err(e) => return Err(e),
                 }
                 Ok(())
             } else {
