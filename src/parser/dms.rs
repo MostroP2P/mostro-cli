@@ -1357,6 +1357,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn waiting_seller_to_pay_for_an_order_not_saved_yet_is_not_an_error() {
+        // The node's reply to a takesell that carried the invoice (#204): it
+        // has no payload, and no row exists yet for the order just taken.
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let ctx = test_ctx(memory_pool().await, &mostro, &trade).await;
+        let reply = MessageKind::new(
+            Some(uuid::Uuid::new_v4()),
+            Some(1),
+            Some(1),
+            Action::WaitingSellerToPay,
+            None,
+        );
+
+        let result = print_commands_results(&reply, &ctx).await;
+
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
     async fn persist_stores_the_other_trade_key_from_mostro() {
         let mostro = Keys::generate();
         let trade = Keys::generate();
