@@ -143,7 +143,9 @@ pub async fn execute_take_order(
     // The node answers a takesell that carried the invoice with
     // waiting-seller-to-pay and no order (#204), so no reply above saved it.
     if action == Action::TakeSell && invoice.is_some() {
-        save_taken_sell_order(order_id, amount, request_id, ctx).await?;
+        save_taken_sell_order(order_id, amount, request_id, ctx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Mostro accepted the take of {order_id}, but {e}"))?;
     }
 
     Ok(())

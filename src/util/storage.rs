@@ -10,6 +10,13 @@ use crate::db::{Order, User};
 use crate::util::messaging::get_admin_keys;
 use crate::util::send_dm;
 
+/// Saves `order` with the keys of the trade that made or took it, and records
+/// `trade_index` as the last one used.
+///
+/// Both writes are what the next command relies on: a missing row leaves the
+/// trade unusable from this client, and a stale index makes the next order
+/// reuse a key the node has already seen. So either failure is an error,
+/// never just a printed line.
 pub async fn save_order(
     order: SmallOrder,
     trade_keys: &Keys,
@@ -17,23 +24,22 @@ pub async fn save_order(
     trade_index: i64,
     pool: &SqlitePool,
 ) -> Result<()> {
-    if let Ok(order) = Order::new(pool, order, trade_keys, Some(request_id as i64)).await {
-        if let Some(order_id) = order.id {
-            println!("Order {} created", order_id);
-        } else {
-            println!("Warning: The newly created order has no ID.");
-        }
-
-        match User::get(pool).await {
-            Ok(mut user) => {
-                user.set_last_trade_index(trade_index);
-                if let Err(e) = user.save(pool).await {
-                    println!("Failed to update user: {}", e);
-                }
-            }
-            Err(e) => println!("Failed to get user: {}", e),
-        }
+    let order = Order::new(pool, order, trade_keys, Some(request_id as i64))
+        .await
+        .map_err(|e| anyhow::anyhow!("could not save the order locally: {e}"))?;
+    if let Some(order_id) = order.id {
+        println!("Order {} created", order_id);
+    } else {
+        println!("Warning: The newly created order has no ID.");
     }
+
+    let mut user = User::get(pool).await.map_err(|e| {
+        anyhow::anyhow!("could not load the user to record trade index {trade_index}: {e}")
+    })?;
+    user.set_last_trade_index(trade_index);
+    user.save(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("could not record trade index {trade_index}: {e}"))?;
     Ok(())
 }
 
