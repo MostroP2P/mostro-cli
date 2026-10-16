@@ -75,10 +75,13 @@ colliding shorts. Clap ignore_errors can stop before a later output flag.
 **Decision**: Full Clap parsing remains authoritative. Use a metadata-led
 bootstrap over OsString only for output intent/resolvable command identity.
 Respect scopes, arities, attached/variadic/hyphen values, shorts and terminators.
-Never remove tokens or infer commands from value text. Missing/invalid/conflicting
-output declarations or ambiguous recovery use safe stderr/exit 2; otherwise an
-explicit JSON request receives an invocation envelope. Reject duplicate output
-declarations rather than invent last-value precedence.
+Never remove tokens or infer commands from value text. Missing/invalid/duplicate
+output declarations use empty stdout and safe stderr/exit 2. Other argument
+errors preserve clear JSON intent, with null command identity when unresolved;
+there is no catch-all fallback for recovery-helper limitations. Reject even
+identical duplicate declarations rather than invent first/last-value precedence.
+The [CLI contract](contracts/cli.md#streams-and-exit-codes) supplies the normative
+decision table for the parser proof and integration tests.
 
 **Rationale**: Naive scans confuse message text with flags; raw Clap diagnostics
 can echo secrets. Prove this boundary with adversarial grammar tests first.

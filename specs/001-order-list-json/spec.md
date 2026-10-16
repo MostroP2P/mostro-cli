@@ -11,6 +11,12 @@
 **Input**: Pilot from the agreed AI-ready CLI roadmap: canonical `order list`,
 human/JSON output, structured errors, and offline schema discovery.
 
+## Clarifications
+
+### Session 2026-10-16
+
+- Q: When may malformed arguments produce stderr instead of JSON? -> A: A clear JSON selection still requires a JSON error for unrelated argument failures. Missing, invalid or duplicate output declarations use the stderr fallback; option-like value text and tokens after `--` do not select output. Help/version and process-failure exceptions remain documented separately.
+
 ## User Scenarios & Testing
 
 ### User Story 1 - Read Orders Without Parsing Tables (Priority: P1)
@@ -61,6 +67,9 @@ files, then exercise invalid arguments and failed reads with controlled inputs.
 2. **Given** an invalid side/status or missing configuration, **when** JSON output is requested, **then** the CLI returns a structured error and a nonzero exit without publishing a trade.
 3. **Given** a read timeout, **when** listing terminates, **then** it reports a read error, not an empty success or an uncertain financial mutation.
 4. **Given** an unmigrated command, **when** JSON is requested, **then** it returns `output_not_supported` before command execution or context initialization.
+5. **Given** exactly one valid JSON output declaration in an option position, **when** another argument or the command name is invalid, **then** it returns a JSON `invalid_arguments` error with exit 2, using a null command name when unresolved.
+6. **Given** a missing or invalid output value, or duplicate output declarations even with identical values, **when** parsing fails without a help/version result, **then** stdout is empty and a safe diagnostic uses stderr with exit 2.
+7. **Given** text resembling an output flag inside an argument value or after `--`, **when** output selection is determined, **then** that text neither selects JSON nor overrides a real output declaration.
 
 ### Edge Cases
 
@@ -79,7 +88,7 @@ files, then exercise invalid arguments and failed reads with controlled inputs.
 - **FR-002**: Support global `--output human|json`, defaulting to human regardless of terminal detection, in both flag positions. Listing must never prompt.
 - **FR-003**: JSON must contain one versioned outcome with canonical command `order.list`, status, data, structured error, warnings, and metadata; success contains an orders collection even when empty.
 - **FR-004**: Both renderings must describe the same selected orders. Diagnostic output must not contaminate the JSON document, including during startup and verbose execution.
-- **FR-005**: Validation/configuration/read failures must have stable error codes and nonzero exits. A read-only timeout is an error. Help/version and invalid output selection have explicitly documented exceptions; externally killed processes cannot guarantee a final document.
+- **FR-005**: Validation/configuration/read failures must have stable error codes and nonzero exits. A read-only timeout is an error. A clear JSON selection requires a JSON error even when other arguments or the command name are invalid. Missing, invalid or duplicate output declarations use empty stdout and safe stderr with exit 2; option-like value text and tokens after `--` are not declarations. Follow the [CLI contract](contracts/cli.md#streams-and-exit-codes) decision table, including help/version and process-failure exceptions; externally killed processes cannot guarantee a final document.
 - **FR-006**: Listing must not publish trade mutations, update stored orders, or advance the trade index. Ordinary responses and errors must not expose private keys, mnemonics, or administrative tokens.
 - **FR-007**: Schema discovery must work offline without identity creation and truthfully advertise implemented JSON coverage, inputs, and result/error shapes. Unmigrated commands requesting JSON must fail before side effects.
 - **FR-008**: Document field units, required versus nullable values, ordering, timestamps, identifier encodings, and lossless large-number handling. Identify snapshot limits without claiming complete relay history.
@@ -95,7 +104,7 @@ files, then exercise invalid arguments and failed reads with controlled inputs.
 
 ### Measurable Outcomes
 
-- **SC-001**: Every success, empty-book, controlled-failure, startup, and verbose JSON scenario produces exactly one valid document without prompts or human-table fragments.
+- **SC-001**: Every success, empty-book, controlled-failure, startup, and verbose scenario with valid JSON selection produces exactly one valid document without prompts or human-table fragments, subject only to the documented help/version and process-failure exceptions. Output-selection failures follow FR-005 instead; unrelated argument errors do not waive the JSON guarantee.
 - **SC-002**: Human and machine results agree on all selected order identities and business fields across the fixture matrix; listing produces zero trade mutations and zero trade-index changes.
 - **SC-003**: Offline discovery succeeds with no node configuration and creates no identity files; agents can determine pilot inputs and supported result versions without scraping help text.
 - **SC-004**: All invalid-input and failed-read cases return a nonzero exit and a documented error; empty books remain successful results.

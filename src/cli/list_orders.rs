@@ -2,9 +2,17 @@ use crate::cli::Context;
 use crate::parser::common::{print_key_value, print_section_header};
 use crate::parser::orders::print_orders_table;
 use crate::util::{fetch_events_list, ListKind};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use mostro_core::prelude::*;
 use std::str::FromStr;
+
+pub fn parse_status_filter(status: Option<&str>) -> Result<Status> {
+    match status {
+        Some(value) => Status::from_str(value)
+            .map_err(|error| anyhow!("Not valid status '{}': {:?}", value, error)),
+        None => Ok(Status::Pending),
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_list_orders(
@@ -16,17 +24,9 @@ pub async fn execute_list_orders(
     // Used to get upper currency string to check against a list of tickers
     let mut upper_currency: Option<String> = None;
     // Default status is pending
-    let mut status_checked: Option<Status> = Some(Status::Pending);
+    let status_checked = Some(parse_status_filter(status.as_deref())?);
     // Default kind is none
     let mut kind_checked: Option<mostro_core::order::Kind> = None;
-
-    // Parse and validate status from CLI string
-    if let Some(s) = status {
-        status_checked = Some(
-            Status::from_str(s)
-                .map_err(|e| anyhow::anyhow!("Not valid status '{}': {:?}", s, e))?,
-        );
-    }
 
     print_section_header("📋 List Orders");
 

@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashSet};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
@@ -18,7 +18,13 @@ use crate::{
     },
     util::{fetch_bond_claim_window_days, save_order},
 };
+#[cfg(test)]
+use rstest::rstest;
 use serde_json;
+#[cfg(test)]
+use sqlx::query;
+#[cfg(test)]
+use uuid::Uuid;
 
 /// Handle new order creation display
 fn handle_new_order_display(order: &mostro_core::order::SmallOrder) {
@@ -665,7 +671,11 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
                                 println!("💡 The seller needs to pay the invoice to continue");
                                 println!("✅ Order status updated successfully!");
                             }
-                            Err(e) => println!("❌ Failed to update order status: {}", e),
+                            Err(error) => {
+                                return Err(anyhow!(error).context(
+                                    "Mostro reported WaitingSellerToPay, but saving the local order status failed",
+                                ));
+                            }
                         }
                     }
                     // A takesell that carried the invoice: this reply has no
@@ -886,25 +896,21 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
             }
         }
         Action::LastTradeIndex => {
-            if let Some(last_trade_index) = message.trade_index {
-                print_section_header("🔢 Last Trade Index Updated");
-                print_trade_index(last_trade_index as u64);
-                match User::get(&ctx.pool).await {
-                    Ok(mut user) => {
-                        user.set_last_trade_index(last_trade_index);
-                        if let Err(e) = user.save(&ctx.pool).await {
-                            println!("❌ Failed to update user: {}", e);
-                        } else {
-                            print_success_message("Trade index synchronized successfully!");
-                        }
-                    }
-                    Err(_) => {
-                        println!("⚠️  Warning: Last trade index but received unexpected payload structure: {:#?}", message.payload);
-                    }
-                }
-            } else {
-                println!("⚠️  Warning: Last trade index but received unexpected payload structure: {:#?}", message.payload);
-            }
+            let last_trade_index = message
+                .trade_index
+                .ok_or_else(|| anyhow!("Mostro reply is missing the last trade index"))?;
+            let mut user = User::get(&ctx.pool).await.map_err(|error| {
+                anyhow!(error)
+                    .context("Failed to load the local user for trade-index synchronization")
+            })?;
+            user.set_last_trade_index(last_trade_index);
+            user.save(&ctx.pool).await.map_err(|error| {
+                anyhow!(error)
+                    .context("Mostro returned the trade index, but saving it locally failed")
+            })?;
+            print_section_header("🔢 Last Trade Index Updated");
+            print_trade_index(last_trade_index as u64);
+            print_success_message("Trade index synchronized successfully!");
             Ok(())
         }
         Action::UserInfo => match &message.payload {
@@ -1304,6 +1310,12 @@ mod tests {
                 expires_at INTEGER,
                 solver_pubkey TEXT
             );
+            CREATE TABLE users (
+                i0_pubkey TEXT PRIMARY KEY,
+                mnemonic TEXT NOT NULL,
+                last_trade_index INTEGER,
+                created_at INTEGER NOT NULL
+            );
             "#,
         )
         .execute(&pool)
@@ -1366,6 +1378,117 @@ mod tests {
             Action::AdminTookDispute,
             Some(Payload::Peer(Peer::new(solver.to_string(), None))),
         )
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    #[tokio::test]
+    async fn waiting_seller_to_pay_reports_persistence_result(#[case] reject_update: bool) {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        let order_id = Uuid::new_v4();
+        let (small, _) = order_message(
+            order_id,
+            &trade.public_key(),
+            &Keys::generate().public_key(),
+        );
+        Order::new(&pool, small, &trade, Some(1)).await.unwrap();
+        if reject_update {
+            query(
+                "CREATE TRIGGER reject_order_update BEFORE UPDATE ON orders
+                 BEGIN SELECT RAISE(ABORT, 'injected order update failure'); END",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let message = MessageKind::new(
+            Some(order_id),
+            Some(1),
+            None,
+            Action::WaitingSellerToPay,
+            None,
+        );
+
+        let result = print_commands_results(&message, &ctx).await;
+        let stored = Order::get_by_id(&pool, &order_id.to_string())
+            .await
+            .unwrap();
+
+        if reject_update {
+            let error = result.expect_err("a failed status update must not report success");
+            assert!(format!("{error:#}").contains("injected order update failure"));
+            assert_eq!(stored.status, Some(Status::Pending.to_string()));
+        } else {
+            result.unwrap();
+            assert_eq!(stored.status, Some(Status::WaitingPayment.to_string()));
+        }
+    }
+
+    #[rstest]
+    #[case(true, false)]
+    #[case(true, true)]
+    #[case(false, false)]
+    #[tokio::test]
+    async fn last_trade_index_reports_persistence_result(
+        #[case] create_user: bool,
+        #[case] reject_update: bool,
+    ) {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        if create_user {
+            query(
+                "INSERT INTO users (i0_pubkey, mnemonic, last_trade_index, created_at)
+                 VALUES (?, 'not-a-mnemonic-test-fixture', 3, 0)",
+            )
+            .bind(trade.public_key().to_hex())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        if reject_update {
+            query(
+                "CREATE TRIGGER reject_user_update BEFORE UPDATE ON users
+                 BEGIN SELECT RAISE(ABORT, 'injected user update failure'); END",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let message = MessageKind::new(None, Some(1), Some(7), Action::LastTradeIndex, None);
+
+        let result = print_commands_results(&message, &ctx).await;
+
+        if reject_update {
+            let error = result.expect_err("a failed index update must not report success");
+            assert!(format!("{error:#}").contains("injected user update failure"));
+            assert_eq!(User::get(&pool).await.unwrap().last_trade_index, Some(3));
+        } else if !create_user {
+            let error = result.expect_err("a missing local user must not report success");
+            assert!(error.to_string().contains("local user"));
+        } else {
+            result.unwrap();
+            assert_eq!(User::get(&pool).await.unwrap().last_trade_index, Some(7));
+        }
+    }
+
+    #[tokio::test]
+    async fn last_trade_index_rejects_missing_index() {
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let ctx = test_ctx(memory_pool().await, &mostro, &trade).await;
+        let message = MessageKind::new(None, Some(1), None, Action::LastTradeIndex, None);
+
+        let error = print_commands_results(&message, &ctx)
+            .await
+            .expect_err("a reply without its trade index must not report success");
+
+        assert!(error.to_string().contains("trade index"));
     }
 
     #[tokio::test]

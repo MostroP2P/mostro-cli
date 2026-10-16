@@ -2,6 +2,116 @@
 
 This document describes the internal structure of `mostro-cli`, how major modules interact, and the main data/control flows. It is intentionally high-level to stay stable across refactors.
 
+### Production Inventory: 2026-10-16
+
+**Status**: Measured T002 baseline after T003's small characterization-helper
+extractions, not a completed modularity migration. The
+[constitution](../.specify/memory/constitution.md) owns the size/import rules;
+[pilot tasks](../specs/001-order-list-json/tasks.md) and the
+[roadmap](../../mcp/plan-aiReadyMostroCli.prompt.md) own the migration sequence.
+
+The inventory covers all 42 handwritten files under `src/`, enumerated separately
+from the six integration-test files. Physical lines include comments and blanks.
+Only trailing `#[cfg(test)] mod tests` sections and their attributes are excluded,
+plus the three two-line cfg(test) imports in `parser/dms.rs`. The counter checked
+that every excluded test module ends at the file's last nonblank line; empty test
+modules are excluded too. Platform-specific production code remains counted on
+Windows. This snapshot's rule is not a general Rust parser or a future CI gate.
+
+Totals: **8,854 physical lines, 1,411 test-only lines, 7,443 production lines**.
+Five files exceed 400 production lines. No oversized production section was
+grown by T003; its touched command/query files remain below the limit.
+
+| Source under src/ | Physical | Test-only | Production |
+| --- | ---: | ---: | ---: |
+| cli.rs | 873 | 63 | 810 |
+| db.rs | 873 | 178 | 695 |
+| error.rs | 42 | 0 | 42 |
+| lib.rs | 8 | 0 | 8 |
+| main.rs | 13 | 0 | 13 |
+| nip33.rs | 93 | 0 | 93 |
+| rpc.rs | 547 | 186 | 361 |
+| cli/add_bond_invoice.rs | 106 | 0 | 106 |
+| cli/add_invoice.rs | 93 | 0 | 93 |
+| cli/adm_send_dm.rs | 37 | 0 | 37 |
+| cli/conversation_key.rs | 31 | 0 | 31 |
+| cli/dispute_chat.rs | 51 | 0 | 51 |
+| cli/dm_to_user.rs | 79 | 29 | 50 |
+| cli/get_dm.rs | 69 | 0 | 69 |
+| cli/get_dm_user.rs | 147 | 0 | 147 |
+| cli/last_trade_index.rs | 89 | 0 | 89 |
+| cli/list_disputes.rs | 21 | 0 | 21 |
+| cli/list_orders.rs | 74 | 0 | 74 |
+| cli/maintenance.rs | 268 | 70 | 198 |
+| cli/new_order.rs | 201 | 0 | 201 |
+| cli/orders_info.rs | 74 | 0 | 74 |
+| cli/rate_user.rs | 80 | 0 | 80 |
+| cli/restore.rs | 76 | 0 | 76 |
+| cli/send_admin_dm_attach.rs | 313 | 0 | 313 |
+| cli/send_dm.rs | 70 | 0 | 70 |
+| cli/send_msg.rs | 173 | 0 | 173 |
+| cli/take_dispute.rs | 463 | 60 | 403 |
+| cli/take_order.rs | 141 | 0 | 141 |
+| cli/user_info.rs | 57 | 0 | 57 |
+| lightning/mod.rs | 13 | 0 | 13 |
+| parser/common.rs | 185 | 0 | 185 |
+| parser/disputes.rs | 130 | 2 | 128 |
+| parser/dms.rs | 1609 | 411 | 1198 |
+| parser/mod.rs | 16 | 0 | 16 |
+| parser/orders.rs | 298 | 2 | 296 |
+| util/events.rs | 380 | 74 | 306 |
+| util/messaging.rs | 823 | 336 | 487 |
+| util/misc.rs | 83 | 0 | 83 |
+| util/mod.rs | 20 | 0 | 20 |
+| util/net.rs | 52 | 0 | 52 |
+| util/storage.rs | 65 | 0 | 65 |
+| util/types.rs | 18 | 0 | 18 |
+
+#### Import Findings
+
+Four function-local production imports remain: `OpenOptionsExt` in
+[db.rs](../src/db.rs#L112), `StatusCode` in
+[send_admin_dm_attach.rs](../src/cli/send_admin_dm_attach.rs#L72), and
+`DirBuilderExt` / `PermissionsExt` in [misc.rs](../src/util/misc.rs#L69).
+Move platform-specific imports to the file top with their platform guards during
+the owning migration, not unconditionally on Windows.
+
+Qualified paths also remain in production instead of imported symbols. Examples
+include `sqlx::query` in db, `std::error::Error` in error, environment calls in rpc,
+order types in nip33 and parser files, `anyhow::anyhow!` throughout command
+helpers, `reqwest::get` in new_order, and duration/chrono/SDK paths in events.
+Messaging, misc and net retain qualified helper calls as well. These are import
+debt, not a reason to introduce duplicate wrappers. Use aliases for the distinct
+SDK/core Event and Kind types when their files migrate.
+
+Test-module imports remain inside cli, db, rpc, dm_to_user, maintenance,
+take_dispute, dms, events and messaging. DB tests additionally have function-local
+atomic/permission imports. They are excluded from production size, not exempt
+from import cleanup; dedicated test modules/files can retain access to private
+helpers without moving tests into production. Existing facade reexports in
+parser/mod.rs and util/mod.rs should be reviewed with their migration rather than
+mistaken for command-local imports.
+
+T003 moved the events module's type import above its constants and the integration
+test's function-local imports to the file top. The broader findings remain open;
+this inventory is not an assertion that all import rules already pass.
+
+#### Planned Ownership Splits
+
+| Oversized file | Planned split and gate |
+| --- | --- |
+| cli.rs (810) | T011: small facade plus args, command definitions, context initialization and temporary legacy dispatch; split command families further if needed |
+| db.rs (695) | Roadmap effects phase: connection/migrations and focused user/order persistence modules behind the db facade; no storage migration in the listing pilot |
+| parser/dms.rs (1198) | Roadmap effects/messaging phases: decode/correlation to msg, reply-driven writes to commands/apply, presentation to parse_human |
+| util/messaging.rs (487) | Roadmap shared-messaging phase: private Session, send_msg and receive_msg, with focused private helpers as needed |
+| cli/take_dispute.rs (403) | Roadmap dispute/admin phase: separate validation, command orchestration and rendering into their owning modules |
+
+Freeze these production sections at or below this snapshot until their planned
+split. A prerequisite repair that needs more space must first extract the touched
+responsibility without changing behavior. Never shorten formatting or hide code
+in test modules to meet the limit. T050 adds automated checks for migrated files;
+the complete refactor must eliminate every legacy violation.
+
 ### Entry point and CLI wiring
 
 - **`src/main.rs`**

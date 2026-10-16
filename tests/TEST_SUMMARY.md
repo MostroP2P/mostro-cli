@@ -1,6 +1,156 @@
 # Test Suite Summary
 
-This document provides a comprehensive overview of the unit tests generated for the changes in this branch compared to `main`.
+This document records current refactor evidence followed by the historical test
+inventory. Historical totals and coverage descriptions are not verification of
+the current checkout or the planned JSON pilot.
+
+## Refactor Baseline Intake: 2026-10-16
+
+**Scope**: T001 of the [order-list task list](../specs/001-order-list-json/tasks.md).
+This is a documentation and source-inspection checkpoint, not a Cargo test run.
+
+### Checkout Snapshot Before T001 Edits
+
+Git status was checked in both repositories on native Windows using Git Bash.
+Both remain on `develop`; no branch switch, staging, commit or remote operation
+was performed during this intake.
+
+| Repository | Observed working tree |
+| --- | --- |
+| mostro-cli | Seven modified, unstaged files below; no staged or untracked files |
+| mcp | No staged changes; three untracked files: AGENTS.md, mostro-cli-mcp.code-workspace, plan-aiReadyMostroCli.prompt.md |
+
+CLI files already modified at intake:
+
+- [src/parser/dms.rs](../src/parser/dms.rs)
+- [spec.md](../specs/001-order-list-json/spec.md)
+- [plan.md](../specs/001-order-list-json/plan.md)
+- [tasks.md](../specs/001-order-list-json/tasks.md)
+- [research.md](../specs/001-order-list-json/research.md)
+- [quickstart.md](../specs/001-order-list-json/quickstart.md)
+- [contracts/cli.md](../specs/001-order-list-json/contracts/cli.md)
+
+Preserve these changes. The feature-document edits include the approved A1
+output-selection clarification and U1 generated-command-reference decision.
+This snapshot predates the T001 summary and task-status edits themselves.
+
+### Prior Evidence And Current Inspection
+
+Earlier session results, also recorded in the
+[cross-repository roadmap](../../mcp/plan-aiReadyMostroCli.prompt.md), are inherited
+evidence only: native Windows `cargo test --locked` passed 151 tests, followed by
+successful formatting, all-target/all-feature Clippy with warnings denied, and
+debug build checks. After the earlier import cleanup, 18 parser unit cases,
+formatting and Clippy were reported passing again. These results predate this
+intake and later user edits; none has been rerun as part of T001.
+
+Current source inspection of [dms.rs](../src/parser/dms.rs) confirms that
+WaitingSellerToPay propagates a failed local status save and LastTradeIndex
+rejects missing data/user or failed persistence before printing success. The
+two waiting-seller cases, three trade-index persistence cases and missing-index
+case remain present with in-memory failure injection. Presence is not runtime
+verification; T004 must rerun them against the then-current checkout. No Rust
+source was edited during this intake.
+
+The earlier native Windows MCP test-compilation failure remains an unverified
+baseline blocker: its stdio fixture uses Unix-only PermissionsExt/from_mode.
+It was not rerun or repaired here. Linux runtime, declared MSRVs, the full
+command/output/post-state matrix and CLI/core/daemon regtest compatibility remain
+unverified. No live relays, trades, real identity databases or secrets were used.
+
+### Intake Checks And Next Gate
+
+- Spec Kit prerequisite discovery passed with `--json --require-tasks --include-tasks` and resolved the existing order-list feature; its feature identifier is not the Git branch name.
+- The specification-quality checklist has 16 checked items and none unchecked. It is a requirements-review gate, not implementation acceptance.
+- Existing ignore files cover the Cargo target directory, local environment/editor files, Spec Kit feature pointer and Python caches; no ignore-file change was needed for this documentation-only task.
+- No extension hooks were found. Before editing, this historical summary already had 93 Markdown diagnostics; unrelated formatting is left unchanged.
+- Next are T002 (production-size/import inventory) and T003 (listing characterization). T004-T010 still govern the baseline gate before pilot production work; no JSON command is implemented by T001.
+
+## T002 And T003 Verification: 2026-10-16
+
+**Scope**: Production-size/import inventory and existing listing behavior, not
+the JSON pilot. See the [measured architecture inventory](../docs/architecture.md#production-inventory-2026-10-16)
+for all 42 source files, five oversized modules and planned ownership splits.
+
+Characterization reuses [parser_orders.rs](parser_orders.rs) and
+[integration_tests.rs](integration_tests.rs): 38 parser cases and 12 integration
+cases now pass, up from 11 and 4 respectively (35 additional cases).
+
+| Behavior | Evidence |
+| --- | --- |
+| Latest state before status/side/currency filtering | Older matching events cannot resurrect an order whose newest state no longer matches |
+| Duplicates and timestamp ties | Deduplicated event IDs; lowest event ID wins same-order equal-time ties; cross-order ties assert membership, not unstable order |
+| Decoder permissiveness | Missing/invalid identity or side skips; absent status differs from invalid status; missing/bad numeric fields, partial/reversed ranges and signed i64 extremes retain existing behavior |
+| Filters and defaults | Real command helper defaults to pending, accepts status case variants and rejects padding; reducer currency matching remains exact, including empty strings |
+| Query construction | Injected UTC clock verifies the exact seven-day boundary; actual create_filter path verifies author, kind 38383, z=order, limit 50 and absence of extra fields such as until |
+| Human output | Empty-book wording, ID, side, status, sats/market, currency, fixed/range fiat, joined payment method, premium and UTC event date/time |
+
+Two behavior-preserving testability extractions were made:
+`parse_status_filter` is used by the existing list command, and
+`create_seven_days_filter_at` receives the clock while existing order/dispute
+query paths continue to pass `Utc::now()`. No new command, dependency, transport,
+storage effect or JSON interface was introduced. The DM parser's existing edits
+were not changed. New fixtures use generated signing keys, fixed timestamps and
+in-memory contexts without relay connections or identity initialization.
+
+The first reducer characterization passed on existing behavior. Initial new
+table assertions failed because the tests assumed a uniform border separator,
+then because they treated colored cells as plain strings. Only those assertions
+were corrected against the existing comfy-table preset and colored output;
+these were test defects, not production bugs.
+
+Executed on native Windows, host `x86_64-pc-windows-msvc`, with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0 (c980f4866), from Git Bash:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders --test integration_tests` | PASS: 38 + 12 = 50 cases |
+| `cargo fmt --all -- --check` | PASS after formatting only the four touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 186 tests; no failed or ignored cases |
+| `cargo build --locked` | PASS |
+
+The full run includes the six existing DM persistence regression cases. At the
+T003 handoff, T004 remained pending as the next explicit checkpoint; its fresh
+focused results follow below. Linux, MSRV, MCP fixture migration, the complete command/state matrix and
+regtest compatibility remain outside this increment. T010's baseline gate is
+still open. No commits, public-node trades or real identity reads were performed.
+
+## T004 Persistence Checkpoint: 2026-10-16
+
+**Scope**: Rerun the existing WaitingSellerToPay and LastTradeIndex regressions
+against the current checkout after the T003 handoff and subsequent user edits.
+The current handlers and fixtures in [dms.rs](../src/parser/dms.rs) were inspected
+before execution. All six cases passed without modifying Rust source or tests.
+
+Executed on native Windows (`x86_64-pc-windows-msvc`) using rustc/Cargo 1.97.0
+from Git Bash. The repository remains on `develop`, with existing unstaged
+changes preserved. The fixtures use generated keys, in-memory SQLite and
+synthetic user data; their clients are constructed without connecting to relays.
+Save failures are injected with SQLite BEFORE UPDATE triggers. No real identity
+database, private credentials or live trades are involved.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib parser::dms::tests::waiting_seller_to_pay_reports_persistence_result` | PASS: 2 cases, 0 failures |
+| `cargo test --locked --lib parser::dms::tests::last_trade_index` | PASS: 4 cases, 0 failures |
+
+| Regression case | Verified assertion |
+| --- | --- |
+| WaitingSellerToPay successful save | Returns success and stores waiting-payment status |
+| WaitingSellerToPay rejected save | Returns an error retaining the injected cause; stored status stays pending |
+| LastTradeIndex successful save | Returns success and changes the stored index from 3 to 7 |
+| LastTradeIndex rejected save | Returns an error retaining the injected cause; stored index stays 3 |
+| LastTradeIndex missing user | Returns an explicit local-user error instead of success |
+| LastTradeIndex missing index | Returns an explicit trade-index error instead of success |
+
+These are passing regressions for already-correct fixes, not newly reproduced
+production defects. T004 does not alter the recent listing-test/query-helper
+edits, add tests or repeat the historical fixes. Only evidence and task/plan
+status are updated. The T003 full-suite/fmt/Clippy/build results remain historical
+to that increment; they were not rerun or claimed as fresh checks for this
+documentation-only checkpoint. Linux, MSRV and daemon compatibility remain
+unverified. T005 is next and T010's baseline gate is still open.
 
 ## Overview
 

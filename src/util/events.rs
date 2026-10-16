@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 
@@ -6,10 +7,10 @@ use crate::db::User;
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use crate::util::messaging::get_admin_keys;
 
+use super::types::{Event, ListKind};
+
 pub const FETCH_EVENTS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const FAKE_SINCE: i64 = 2880;
-
-use super::types::{Event, ListKind};
 
 fn create_fake_timestamp() -> Result<Timestamp> {
     let fake_since_time = chrono::Utc::now()
@@ -19,8 +20,13 @@ fn create_fake_timestamp() -> Result<Timestamp> {
     Ok(Timestamp::from(fake_since_time))
 }
 
-fn create_seven_days_filter(value: String, pubkey: PublicKey, event_kind: u16) -> Result<Filter> {
-    let since_time = chrono::Utc::now()
+pub fn create_seven_days_filter_at(
+    value: String,
+    pubkey: PublicKey,
+    event_kind: u16,
+    now: DateTime<Utc>,
+) -> Result<Filter> {
+    let since_time = now
         .checked_sub_signed(chrono::Duration::days(7))
         .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
         .timestamp() as u64;
@@ -40,12 +46,18 @@ pub fn create_filter(
     mostro_pubkey: PublicKey,
 ) -> Result<Filter> {
     match list_kind {
-        ListKind::Orders => {
-            create_seven_days_filter("order".to_string(), pubkey, NOSTR_ORDER_EVENT_KIND)
-        }
-        ListKind::Disputes => {
-            create_seven_days_filter("dispute".to_string(), pubkey, NOSTR_DISPUTE_EVENT_KIND)
-        }
+        ListKind::Orders => create_seven_days_filter_at(
+            "order".to_string(),
+            pubkey,
+            NOSTR_ORDER_EVENT_KIND,
+            Utc::now(),
+        ),
+        ListKind::Disputes => create_seven_days_filter_at(
+            "dispute".to_string(),
+            pubkey,
+            NOSTR_DISPUTE_EVENT_KIND,
+            Utc::now(),
+        ),
         ListKind::DirectMessagesAdmin | ListKind::DirectMessagesUser => {
             let fake_timestamp = create_fake_timestamp()?;
             // Mostro→user/admin DMs are protocol-v2 kind 14, authored by

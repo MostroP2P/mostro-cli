@@ -60,9 +60,9 @@ their module filter during each increment, before broad gates.
 | Excess unique events, lag or disconnect before EOSE | Bounded failure, never truncated success | FR-005/008 |
 | Output flag at root/intermediate/leaf and equals form | One JSON object; no prompt/human fragments | FR-002/004, SC-001 |
 | Default or explicit human, redirected stdout | Human listing retained; same selected fields as JSON | FR-002/004, SC-002 |
-| Missing/invalid args with resolvable JSON intent | Exit 2, invalid_arguments, safe command identity | FR-005, SC-004 |
+| Missing/invalid args with clear JSON intent, including unknown command names | Exit 2, JSON invalid_arguments, resolved or null command identity; no stderr-only fallback | FR-005, SC-001/004 |
 | Flags/command names inside values, hyphen values, short clusters, variadic values, `--` | Bootstrap agrees with Clap grammar; no false JSON/command detection | FR-002/005 |
-| Invalid/missing/duplicate output or ambiguous recovery | Exit 2, empty stdout, safe stderr | FR-005 |
+| Invalid/missing/duplicate output, including identical duplicate declarations | Exit 2, empty stdout, safe stderr; apply every [contract decision-table case](contracts/cli.md#streams-and-exit-codes) | FR-005 |
 | Valid help/version with output json | Conventional text exception, exit 0 | FR-005 |
 | Missing/invalid public config | Exit 1, configuration_missing/invalid, no connection/state | FR-005/006 |
 | Registered legacy JSON, including RPC and secret-export paths | Exit 2, output_not_supported before initialization/RPC | FR-006/007 |
