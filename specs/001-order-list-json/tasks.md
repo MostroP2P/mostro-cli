@@ -10,8 +10,8 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Branch**: `develop` | **Generated**: 2026-10-16
 
-**Status**: Setup T001-T003 and persistence checkpoint T004 are complete;
-T005-T055 remain pending. Checked
+**Status**: Setup T001-T003 and baseline checkpoints T004-T005 are complete;
+T006-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -61,7 +61,7 @@ to migrate write workflows or implement the later write executor.
 ### Inherited Baseline Gate
 
 - [x] T004 Rerun the existing WaitingSellerToPay and LastTradeIndex persistence regressions in `src/parser/dms.rs` against the current checkout; retain successful-save and failure evidence in `tests/TEST_SUMMARY.md` without redoing already-correct fixes or reverting user edits. (depends on T002, T003)
-- [ ] T005 Add closed-stdin, real blank Enter, rejection and unknown-fiat regression coverage in `tests/cli_functions.rs` for `src/cli/new_order.rs`; reproduce false approval/exit success, make only the bounded confirmation/error repair or necessary size-preserving extraction, and rerun it without live publication or introducing this pilot's deferred write JSON interface. (depends on T004)
+- [x] T005 Add closed-stdin, real blank Enter, rejection and unknown-fiat regression coverage in `tests/cli_functions.rs` for `src/cli/new_order.rs`; reproduce false approval/exit success, make only the bounded confirmation/error repair or necessary size-preserving extraction, and rerun it without live publication or introducing this pilot's deferred write JSON interface. (depends on T004)
 - [ ] T006 Add synthetic take-sell-with-invoice post-accept-save failure coverage in `tests/cli_functions.rs` for `src/cli/take_order.rs`; retain accepted-but-not-saved evidence and original cause, repair only a demonstrated local defect, and rerun without retries, real invoices or a new persistence model. (depends on T005)
 - [ ] T007 Add unrelated-kind-14-before-matching-reply coverage in `tests/integration_tests.rs` for `src/util/messaging.rs`; compare existing wait/correlation helpers, demonstrate any unsafe result, make the smallest existing-helper/caller correction and rerun; stop with this prerequisite blocked if correctness requires the later write-executor migration. (depends on T006)
 - [ ] T008 Complete the existing-command success/failure/human-output/post-state matrix in `tests/TEST_SUMMARY.md`, using `docs/commands.md` and `../mcp/plan-aiReadyMostroCli.prompt.md` as the command inventory and isolated fake transports/databases for evidence; identify each unverified row explicitly. (depends on T007)
@@ -235,4 +235,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. All tasks remain unchecked.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Five tasks are checked;
+50 remain pending.

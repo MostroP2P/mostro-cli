@@ -4,15 +4,36 @@ use crate::parser::common::{
 };
 use crate::parser::orders::print_order_preview;
 use crate::util::{print_dm_events, send_dm, uppercase_first, wait_for_dm};
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
+use chrono::{Duration, Utc};
+use mostro_core::order::Kind as OrderKind;
 use mostro_core::prelude::*;
+use reqwest::get;
 use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
-use std::process;
 use std::str::FromStr;
 use uuid::Uuid;
 
 pub type FiatNames = HashMap<String, String>;
+
+pub fn validate_market_fiat(fiat_code: &str, fiat_names: &FiatNames) -> Result<()> {
+    if !fiat_names.contains_key(fiat_code) {
+        bail!("{} is not present in the fiat market, please specify an amount with -a flag to fix the rate", fiat_code);
+    }
+    Ok(())
+}
+
+pub fn confirm_new_order(mut input: impl BufRead) -> Result<()> {
+    let mut user_input = String::new();
+    if input.read_line(&mut user_input)? == 0 {
+        bail!("No order confirmation received: stdin reached EOF");
+    }
+    match user_input.to_lowercase().as_str().trim_end() {
+        "y" | "" => Ok(()),
+        "n" => bail!("Order cancelled"),
+        _ => bail!("Invalid order confirmation; enter y or n"),
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_new_order(
@@ -33,25 +54,17 @@ pub async fn execute_new_order(
     if *amount == 0 {
         // Get Fiat list
         let api_req_string = "https://api.yadio.io/currencies".to_string();
-        let fiat_list_check = reqwest::get(api_req_string)
-            .await?
-            .json::<FiatNames>()
-            .await?
-            .contains_key(&fiat_code);
-        if !fiat_list_check {
-            println!("{} is not present in the fiat market, please specify an amount with -a flag to fix the rate", fiat_code);
-            process::exit(0);
-        }
+        let fiat_names = get(api_req_string).await?.json::<FiatNames>().await?;
+        validate_market_fiat(&fiat_code, &fiat_names)?;
     }
     let kind = uppercase_first(kind);
     // New check against strings
-    let kind_checked = mostro_core::order::Kind::from_str(&kind)
-        .map_err(|_| anyhow::anyhow!("Invalid order kind"))?;
+    let kind_checked = OrderKind::from_str(&kind).map_err(|_| anyhow!("Invalid order kind"))?;
     let expires_at = match *expiration_days {
         0 => None,
         _ => {
-            let now = chrono::Utc::now();
-            let expires_at = now + chrono::Duration::days(*expiration_days);
+            let now = Utc::now();
+            let expires_at = now + Duration::days(*expiration_days);
             Some(expires_at.timestamp())
         }
     };
@@ -88,26 +101,10 @@ pub async fn execute_new_order(
 
     // Print order preview
     let ord_preview = print_order_preview(order_content.clone())
-        .map_err(|e| anyhow::anyhow!("Failed to generate order preview: {}", e))?;
+        .map_err(|error| anyhow!("Failed to generate order preview: {}", error))?;
     println!("{ord_preview}");
-    let mut user_input = String::new();
-    let _input = stdin();
     stdout().flush()?;
-
-    let mut answer = stdin().lock();
-    answer.read_line(&mut user_input)?;
-
-    match user_input.to_lowercase().as_str().trim_end() {
-        "y" | "" => {}
-        "n" => {
-            println!("Ok you have cancelled the order, create another one please");
-            process::exit(0);
-        }
-        &_ => {
-            println!("Can't get what you're sayin!");
-            process::exit(0);
-        }
-    };
+    confirm_new_order(stdin().lock())?;
     let request_id = Uuid::new_v4().as_u128() as u64;
     // Create NewOrder message
     let message = Message::new_order(
@@ -178,7 +175,7 @@ pub async fn execute_new_order(
     // Serialize the message
     let message_json = message
         .as_json()
-        .map_err(|_| anyhow::anyhow!("Failed to serialize message"))?;
+        .map_err(|_| anyhow!("Failed to serialize message"))?;
 
     // Send the DM
     let sent_message = send_dm(

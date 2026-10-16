@@ -1,5 +1,124 @@
+use mostro_client::cli::new_order::{confirm_new_order, validate_market_fiat, FiatNames};
 use mostro_core::prelude::*;
+use rstest::rstest;
+use std::env::{current_exe, temp_dir, var, var_os};
+use std::fs::{create_dir, read_dir, remove_dir_all};
+use std::io::stdin;
+use std::path::PathBuf;
+use std::process::{exit, Stdio};
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+use tokio::time::timeout;
 use uuid::Uuid;
+
+struct PreflightSandbox(PathBuf);
+
+impl Drop for PreflightSandbox {
+    fn drop(&mut self) {
+        let _ = remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn new_order_preflight_child() {
+    let Ok(scenario) = var("MOSTRO_TEST_PREFLIGHT") else {
+        return;
+    };
+    let fiat_names = FiatNames::from([("USD".to_string(), "US Dollar".to_string())]);
+    let result = match scenario.as_str() {
+        "confirm" => confirm_new_order(stdin().lock()),
+        "known-fiat" => validate_market_fiat("USD", &fiat_names),
+        "unknown-fiat" => validate_market_fiat("UNKNOWN", &fiat_names),
+        _ => panic!("unexpected preflight scenario"),
+    };
+    match result {
+        Ok(()) => println!("PREFLIGHT_APPROVED"),
+        Err(error) => {
+            eprintln!("{error}");
+            exit(1);
+        }
+    }
+}
+
+#[rstest]
+#[case::closed_stdin("confirm", None, Some("confirmation"))]
+#[case::empty_pipe("confirm", Some(""), Some("confirmation"))]
+#[case::blank_enter("confirm", Some("\n"), None)]
+#[case::windows_enter("confirm", Some("\r\n"), None)]
+#[case::yes("confirm", Some("y\n"), None)]
+#[case::uppercase_yes("confirm", Some("Y\n"), None)]
+#[case::rejection("confirm", Some("n\n"), Some("cancelled"))]
+#[case::uppercase_rejection("confirm", Some("N\n"), Some("cancelled"))]
+#[case::invalid_answer("confirm", Some("maybe\n"), Some("confirmation"))]
+#[case::known_fiat("known-fiat", None, None)]
+#[case::unknown_fiat("unknown-fiat", None, Some("-a"))]
+#[tokio::test]
+async fn new_order_preflight_process(
+    #[case] scenario: &str,
+    #[case] input: Option<&str>,
+    #[case] expected_error: Option<&str>,
+) {
+    let sandbox_path = temp_dir().join(format!("mostro-preflight-{}", Uuid::new_v4()));
+    create_dir(&sandbox_path).unwrap();
+    let sandbox = PreflightSandbox(sandbox_path);
+    let mut command = Command::new(current_exe().unwrap());
+    command
+        .args(["--exact", "new_order_preflight_child", "--nocapture"])
+        .env_clear()
+        .env("MOSTRO_TEST_PREFLIGHT", scenario)
+        .env("HOME", &sandbox.0)
+        .env("USERPROFILE", &sandbox.0)
+        .env("MCLI_DIR", &sandbox.0)
+        .current_dir(&sandbox.0)
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    for name in ["SYSTEMROOT", "WINDIR"] {
+        if let Some(value) = var_os(name) {
+            command.env(name, value);
+        }
+    }
+    let mut child = command.spawn().unwrap();
+    if let Some(input) = input {
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .await
+            .unwrap();
+    }
+    if timeout(Duration::from_secs(40), child.wait())
+        .await
+        .is_err()
+    {
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        panic!("preflight child exceeded its deadline");
+    }
+    let output = child.wait_with_output().await.unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(read_dir(&sandbox.0).unwrap().next().is_none());
+    assert_eq!(
+        output.status.code(),
+        Some(if expected_error.is_some() { 1 } else { 0 }),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_eq!(
+        stdout.contains("PREFLIGHT_APPROVED"),
+        expected_error.is_none()
+    );
+    if let Some(message) = expected_error {
+        assert!(stderr.contains(message), "stderr: {stderr}");
+    }
+}
 
 // Test rate_user helper function
 #[test]

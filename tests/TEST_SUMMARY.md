@@ -152,6 +152,64 @@ to that increment; they were not rerun or claimed as fresh checks for this
 documentation-only checkpoint. Linux, MSRV and daemon compatibility remain
 unverified. T005 is next and T010's baseline gate is still open.
 
+## T005 New-Order Preflight: 2026-10-16
+
+**Scope**: Bounded confirmation and unknown-market-fiat repair in
+[new_order.rs](../src/cli/new_order.rs), tested through
+[cli_functions.rs](cli_functions.rs). Started from clean CLI commit `443dc56`
+on `develop`; no Git mutations, MCP changes or new dependencies were made.
+
+The real handler now delegates to `confirm_new_order` and
+`validate_market_fiat`. An initial behavior-preserving extraction exposed the
+existing checks to an isolated subprocess: 6 of 11 cases failed because closed
+stdin and an empty pipe were approved, while rejection, invalid input and unknown
+fiat terminated with exit 0. Real LF/CRLF Enter, lowercase/uppercase `y`, and
+known fiat already passed. After the repair the same 11 cases passed; they
+passed again after tightening fixture cleanup and checking for filesystem effects.
+
+| Input | Verified preflight result after repair |
+| --- | --- |
+| Closed stdin and an empty, closed pipe | Error containing confirmation context; child exits 1 without approval |
+| Real blank Enter, both LF and CRLF | Returns success and reaches the approval marker |
+| `y` and `Y` | Returns success and reaches the approval marker |
+| `n` and `N` | Cancellation error; child exits 1 without approval |
+| Unrecognized answer | Confirmation error; child exits 1 without approval |
+| Known synthetic market fiat | Returns success |
+| Unknown synthetic market fiat | Error retaining the explicit-amount `-a` hint; child exits 1 without approval |
+
+The confirmation helper checks the zero-byte EOF result before interpreting the
+answer. Both helpers return errors rather than terminating the process. Source
+inspection confirms the handler calls them with `?` before publication,
+`Commands::run` propagates the handler result, and `main` prints errors to stderr
+and exits 1. The existing nonzero-amount bypass is unchanged. The production file
+has 198 physical/production lines, below the 400-line limit.
+
+The child is the existing integration-test executable running only its preflight
+entrypoint, not the full CLI. It has an allow-listed environment (only necessary
+Windows system paths plus fixture values), a unique temporary cwd/HOME/USERPROFILE/
+MCLI_DIR, captured streams, a 40-second watchdog, kill/reap cleanup and no shell.
+Each child leaves its fixture directory empty, and the parent removes that
+directory after completion. The fiat list is in memory; no HTTP server, Yadio
+request, Nostr client, real identity, invoice, DB or publication is involved.
+This does not establish full-command startup, network or persistence behavior.
+
+Executed on native Windows (`x86_64-pc-windows-msvc`) with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0 (c980f4866), from Git Bash:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions new_order_preflight_process` before repair | Expected RED: 6 failed, 5 passed |
+| Same focused command immediately after repair and after fixture cleanup changes | PASS: 11 cases on each run |
+| `cargo fmt --all -- --check` | PASS after formatting only the two touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 198 tests, including 42 CLI cases (11 new regressions and one child entrypoint); no failures or ignored cases |
+| `cargo build --locked` | PASS |
+
+No `--yes`, write JSON, retry, transport or persistence-model changes were added.
+T001-T005 are complete; T006 is next. Linux, MSRV, the complete command/state
+matrix and daemon compatibility remain unverified; T010's baseline gate remains
+open. The JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

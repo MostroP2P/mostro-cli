@@ -75,9 +75,9 @@ they are not pilot acceptance.
 6. Run focused/required gates and native Windows/Linux acceptance; record actual evidence.
 
 The [task list](tasks.md) assigns test-first dependencies and carries these
-baseline prerequisites explicitly. Setup T001-T003 and persistence checkpoint
-T004 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t004-persistence-checkpoint-2026-10-16);
-T005-T055 remain pending and the baseline gate is still open.
+baseline prerequisites explicitly. Setup T001-T003 and baseline checkpoints
+T004-T005 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t005-new-order-preflight-2026-10-16);
+T006-T055 remain pending and the baseline gate is still open.
 
 ## Execution Design
 
@@ -168,7 +168,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T004 as complete; its checkboxes track
+The task list records T001-T005 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
