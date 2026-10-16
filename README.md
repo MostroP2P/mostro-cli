@@ -35,7 +35,7 @@ A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P
 
 ## Requirements
 
-- **Rust 1.86 or higher.** That is the minimum the CI verifies a build against. Note that `rust-toolchain.toml` pins `1.89.0` as the development toolchain, so building from a clone with `rustup` installed will fetch 1.89 regardless; 1.86 is the floor for `cargo install mostro-cli`.
+- **Rust:** the declared minimum is 1.86; `rust-toolchain.toml` pins 1.97.0 for development. The current refactor checkpoint was tested on native Windows with 1.97.0; minimum-version and Linux verification remain separate gates. For a development checkout without trade credentials, follow the [Linux/WSL laptop setup](docs/ai-development.md#resume-on-another-linuxwsl-laptop).
 - **A Mostro node to connect to** — its pubkey is mandatory configuration. See [Choosing a Mostro instance](#choosing-a-mostro-instance).
 - A **Lightning wallet** to pay/receive hold invoices and regular invoices.
 - Network access to public Nostr relays.

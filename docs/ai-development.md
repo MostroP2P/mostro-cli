@@ -90,3 +90,175 @@ The ordinary prerequisite check requires a technical plan. Until `/speckit-plan`
 runs, a missing-plan error is expected; do not create an empty plan to bypass it.
 Checked specification-quality items are documentation review, not evidence that
 the feature works. Record code-test results separately when implementation lands.
+
+## Resume On Another Linux/WSL Laptop
+
+This is a development handoff, not a trading-identity migration or a compatible
+CLI/MCP release pair. At the 2026-10-16 checkpoint, T001-T005 are complete and
+T006 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
+[test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
+JSON pilot, full baseline gate, Linux runtime and declared MSRVs remain unverified.
+
+### Install The Local Tools
+
+For WSL, install Ubuntu under WSL2 and the Microsoft WSL extension in Windows
+VS Code. Run every shell command below inside Linux, not PowerShell or Git Bash.
+Keep the checkout under the Linux home directory rather than `/mnt/c`. For native
+Linux, install [VS Code](https://code.visualstudio.com/) normally. Install GitHub
+Copilot and rust-analyzer in the active Linux/WSL extension host, sign into your
+GitHub account, and trust only your own reviewed workspace.
+
+On Ubuntu/Debian, run these package commands yourself; sudo may request your
+local password. Other distributions need equivalent development packages.
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake pkg-config libssl-dev git curl ca-certificates python3 python3-venv pipx
+pipx install uv
+pipx ensurepath
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+```
+
+Install Rust using the official [rustup installer](https://rustup.rs/) if rustup
+is not already available. Then install the checkpoint toolchain and Python:
+
+```bash
+rustup toolchain install 1.97.0 --profile minimal --component clippy --component rustfmt --component rust-analyzer
+uv python install 3.11
+uv tool install --python 3.11 specify-cli==1.2.0
+```
+
+The CLI's toolchain file may additionally download its declared rust-docs and
+wasm target components. Do not change the pin or lockfiles to hide an unavailable
+toolchain. Docker Compose and jq are only needed for later, explicitly authorized
+regtest work, not this handoff or T006. No live node, wallet or identity is needed.
+
+### Clone Both Repositories
+
+These are the configured origins for this handoff. The publishing laptop must
+push both `develop` branches before these commands can retrieve the checkpoint.
+
+```bash
+mkdir -p "$HOME/src/mostro-dev"
+cd "$HOME/src/mostro-dev"
+git clone --branch develop https://github.com/MostroP2P/mostro-cli.git mostro-cli
+git clone --branch develop https://github.com/MostroP2P/mcp.git mcp
+cd mostro-cli
+git status --short --branch
+git log -1 --oneline
+git -C ../mcp status --short --branch
+git -C ../mcp log -1 --oneline
+```
+
+For existing clean clones, use `git switch develop` and
+`git pull --ff-only origin develop` in each repository instead of cloning over
+them. Preserve local work first; never reset it to force the handoff.
+
+### Restore Spec Kit And Open The Workspace
+
+The checked-in scaffold already contains the skills, templates, Python scripts,
+constitution, specification, plan, tasks, research and contracts. Do not run
+`specify init`, regenerate the feature, install optional extensions or create a
+feature-named branch merely to resume.
+
+From the CLI repository root:
+
+```bash
+uv venv --python 3.11 .venv
+source .venv/bin/activate
+specify check
+SPECIFY_FEATURE_DIRECTORY=specs/001-order-list-json python .specify/scripts/python/check_prerequisites.py --json --require-tasks --include-tasks
+python .specify/scripts/python/resolve_template.py constitution-template --json
+python .specify/scripts/python/check_prerequisites.py --json --require-tasks --include-tasks
+code ../mcp/mostro-cli-mcp.code-workspace
+```
+
+The explicit feature-directory invocation writes the ignored local
+`.specify/feature.json` pointer; the second prerequisite invocation checks that
+selection without the environment override. Expect FEATURE_DIR to resolve to
+this clone's `specs/001-order-list-json`, not a Windows path. `.venv` is also
+ignored. Activate it in each new CLI terminal; alternatively run the scripts
+with `uv run --no-project --python 3.11 python` instead of `python`.
+
+In WSL, `code` must open a WSL-connected window. Both folders should appear in
+Explorer. If `code` is unavailable, open the workspace using VS Code's Open
+Folder/Workspace command in the Linux/WSL window. The workspace's Windows-only
+terminal preferences do not configure Linux terminals. No MCP server starts
+automatically; opening the repository is not consent to execute its tools.
+
+### Verify The Destination Checkout
+
+Run from the CLI root before changing code:
+
+```bash
+rustc -Vv
+cargo -V
+cargo test --locked --test cli_functions new_order_preflight_process
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
+cargo build --locked
+```
+
+At this checkpoint Windows passed 11 preflight regressions and 198 total tests,
+plus fmt, Clippy and build. These are reference counts, not proof of a Linux run.
+Record the destination results and stop on unexpected failures. The tests use
+isolated fixtures; do not replace them with live trades or real identity data.
+
+Check MCP separately using the same explicitly selected development toolchain:
+
+```bash
+cd ../mcp
+cargo +1.97.0 fmt --all -- --check
+cargo +1.97.0 clippy --locked --all-targets --all-features -- -D warnings
+cargo +1.97.0 test --locked
+cargo +1.97.0 build --locked
+cd ../mostro-cli
+```
+
+MCP's handoff checks on Windows passed formatting and binary build. Unit tests
+passed 40 cases and failed 7 in the existing `/bin/sh` fixture launcher; full
+tests and all-target Clippy could not compile the Unix-only permissions fixture.
+Linux is the intended runtime for these fixtures, but a passing run must still
+be recorded. These existing failures are not repaired by the documentation handoff.
+Do not run ignored regtest tests or `regtest/devenv.sh clean` as setup. Keep
+`MOSTRO_MCP_ALLOW_WRITES` unset. T005 intentionally rejects closed-stdin new-order
+confirmation, so the existing MCP cannot create an order by relying on the old
+EOF-approval bug; do not bypass that fix or assume write compatibility.
+
+### Configure Git Access And Signing
+
+Authenticate to GitHub on the destination through VS Code or your chosen Git
+credential manager. Never put tokens in clone URLs, shell history or repository
+files. Set your own Git author name/email. For signed development commits,
+configure a signing key on that laptop; Git configuration and SSH keys are not
+transferred by cloning. With an SSH signing key, set `gpg.format=ssh`,
+`user.signingkey` to its public-key path and `commit.gpgsign=true`. Register the
+public key as a signing key in GitHub. Local signature verification additionally
+needs an allowed-signers file; do not mistake signing success for verified trust.
+Enter key passphrases directly in your terminal, never in Copilot chat.
+
+### Resume Prompt
+
+In Copilot Agent chat with both repositories open:
+
+```text
+Continue mostro-cli on develop, implementing T006 only from
+specs/001-order-list-json/tasks.md. Read AGENTS.md and the constitution first,
+then the existing plan and tests/TEST_SUMMARY.md. T001-T005 are complete;
+T010's baseline gate is still open and the JSON pilot is unimplemented.
+Use the existing Spec Kit feature; do not regenerate its artifacts.
+Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.
+Read the cross-repository roadmap in ../mcp/plan-aiReadyMostroCli.prompt.md.
+Preserve local edits. Reproduce any defect with isolated fixtures, then make
+the bounded repair and run the focused and required gates. Do not access real
+identities, publish trades, retry uncertain writes, change MCP code, or perform
+Git mutations without fresh authorization. Record Linux results separately
+from the earlier Windows evidence.
+```
+
+Git transfers source and committed documentation, not chat history, session
+memory, installed tools, VS Code sign-in, build caches or machine-local settings.
+Do not copy `.env`, `.mcli`, SQLite identity databases, private keys or regtest
+volumes as part of this development setup. The tracked task list and evidence
+are the handoff; keep them current after each completed task.
