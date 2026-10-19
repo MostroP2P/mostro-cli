@@ -206,9 +206,46 @@ Executed on native Windows (`x86_64-pc-windows-msvc`) with rustc 1.97.0
 | `cargo build --locked` | PASS |
 
 No `--yes`, write JSON, retry, transport or persistence-model changes were added.
-T001-T005 are complete; T006 is next. Linux, MSRV, the complete command/state
+T001-T005 are complete; T006 follows below. Linux, MSRV, the complete command/state
 matrix and daemon compatibility remain unverified; T010's baseline gate remains
 open. The JSON pilot is still unimplemented.
+
+## T006 Takesell Post-Accept Save: 2026-10-16
+
+**Scope**: Spec Kit alignment for take-sell-with-invoice post-accept-save failure
+coverage in [cli_functions.rs](cli_functions.rs) against
+[take_order.rs](../src/cli/take_order.rs). The production defect (success after a
+failed local save) was already fixed on `main` (#205); this increment does not
+change the persistence model.
+
+`save_taken_sell_order` and `accepted_take_local_save_failed` are public so the
+integration tests can exercise the same path `execute_take_order` uses after a
+correlated reply. Two synthetic in-memory cases refuse the order insert (`disk
+full` trigger) or drop the `users` table before the index write. Each wraps the
+save error with the accepted-take helper and asserts both the
+`Mostro accepted the take of …` status and the original cause. No Nostr publish,
+real invoice, retry or live node is involved. The book is unreachable (offline
+client), so the helper saves id and trade keys only — the same post-accept path.
+
+Focused regressions previously living only under `take_order`'s `#[cfg(test)]`
+were moved into `cli_functions` to match the task path; successful-save unit
+cases remain in `take_order.rs`.
+
+Executed on native Linux (`x86_64-unknown-linux-gnu`) with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0, after rebasing `develop` onto `origin/main`:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions takesell_post_accept` | PASS: 2 cases |
+| `cargo test --locked --lib take_order` | PASS: 5 remaining unit cases |
+| `cargo fmt --all -- --check` | PASS after formatting the two touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 215 tests across lib and integration suites; no failures or ignored cases |
+| `cargo build --locked` | PASS |
+
+T001-T006 are complete; T007 is next. Linux/WSL regtest, MSRV and the full
+command/state matrix remain unverified; T010's baseline gate remains open. The
+JSON pilot is still unimplemented.
 
 ## Overview
 
