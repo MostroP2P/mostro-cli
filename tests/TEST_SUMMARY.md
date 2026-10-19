@@ -247,6 +247,65 @@ T001-T006 are complete; T007 is next. Linux/WSL regtest, MSRV and the full
 command/state matrix remain unverified; T010's baseline gate remains open. The
 JSON pilot is still unimplemented.
 
+## T007 Unrelated-Kind-14 Reply Correlation: 2026-10-19
+
+**Scope**: Prove that the reply wait in [messaging.rs](../src/util/messaging.rs)
+skips an unrelated kind-14 reaching the trade key before the correlated reply,
+through new coverage in [integration_tests.rs](integration_tests.rs). This is a
+baseline-gate prerequisite, not JSON-pilot work.
+
+The two wait paths were compared. The correlating path (`wait_for_dm_matching`
+→ `wait_for_reply`, used by `getuserinfo`) keeps the REQ open for the full
+window and filters each event by `is_mostro_reply` then
+`event_matches_expected_reply` (decrypt → `message_matches_expected_reply`:
+request_id first, then action allow-list). Its message-level predicates were
+already unit-tested, but the event-level path (decrypt + parse) had no isolated
+test. The per-event decision was extracted, behavior-preserving, into a public
+`select_reply_event` helper (composing the existing predicates); `ExpectedReply`
+gained a public `new` constructor. The wait loop now calls the extracted
+helper, so the integration tests exercise the exact production decision.
+
+Two synthetic tests build real NIP-44 kind-14 events (Mostro authors/signs and
+addresses them to a generated trade key) and assert:
+
+| Scenario | Result |
+| --- | --- |
+| Unrelated Mostro kind-14 (wrong request_id) arriving first | Skipped; correlated reply that follows is accepted |
+| Same unrelated event under the non-correlating path (`expected = None`) | Accepted (documents why id-bearing flows must correlate) |
+| NIP-17 peer chat from a stranger with a matching id | Skipped (not authored by Mostro) |
+| Our own echoed request (admin-as-Mostro) | Skipped by event id; identical event accepted when not our echo |
+
+The path is already correct, so these are passing characterization tests, not a
+reproduced defect. No production behavior changed. No Nostr client, relay, real
+identity or live node is involved; events are built in memory with generated
+keys.
+
+**Deferred finding (not a T007 change)**: the non-correlating `wait_for_dm`
+closes after the first `is_mostro_reply` kind-14. If an unrelated Mostro kind-14
+to the same trade key arrived first, `validate_response(request_id)` in
+`print_dm_events` rejects it — a safe error, not a false success — and per-order
+trade keys make the collision unlikely. Converting those id-bearing callers
+(`take_order`, `new_order`, `add_invoice`, …) to `wait_for_dm_matching` is a
+cross-command change that belongs with the later write-executor migration, so it
+is recorded here rather than attempted now. End-to-end coverage of the live wait
+loop (notification ordering, EOSE, subscription close) needs the SDK local-relay
+harness built in T013/T015, also outside this baseline checkpoint.
+
+Executed on native Linux (`x86_64-unknown-linux-gnu`) with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test integration_tests correlating_wait` | PASS: 2 cases |
+| `cargo test --locked` | PASS: 217 tests (integration 12 → 14); no failures or ignored cases |
+| `cargo fmt --all -- --check` | PASS after formatting the two touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo build --locked` | PASS |
+
+T001-T007 are complete; T008 is next. Linux/WSL regtest, MSRV and the full
+command/state matrix remain unverified; T010's baseline gate remains open. The
+JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
