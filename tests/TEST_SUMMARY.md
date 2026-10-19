@@ -306,6 +306,89 @@ T001-T007 are complete; T008 is next. Linux/WSL regtest, MSRV and the full
 command/state matrix remain unverified; T010's baseline gate remains open. The
 JSON pilot is still unimplemented.
 
+## T008 Existing-Command State Matrix: 2026-10-19
+
+**Scope**: Catalogue every existing `Commands` variant against the
+success/failure/human-output/post-state dimensions and mark each unverified cell
+explicitly, as a baseline-gate input for T010. Documentation checkpoint — no
+code changed; the evidence basis is the T007 run (`cargo test --locked`, 217
+passing). No live node, real identity or relay was used.
+
+**Inventory source**: `docs/commands.md` plus the authoritative Clap `Commands`
+enum in `src/cli.rs` (33 variants). The roadmap inventory
+`../mcp/plan-aiReadyMostroCli.prompt.md` is **absent on this Linux checkout** and
+could not be cross-referenced; recorded as a known limitation. The enum includes
+`addbondinvoice`, `admsetmaintenance` and `admmaintenancestatus`, which are not
+yet in `docs/commands.md` (doc drift to fix in T049).
+
+**Legend**
+- `F` — isolated-fixture evidence (in-memory SQLite, synthetic signed events,
+  subprocess, or parser fixtures).
+- `P` — payload/parse-only: message construction or argument parsing is
+  verified, but the full request→reply flow is not exercised.
+- `RO` — read-only command; no local writes, covered by pure parser/reducer
+  fixtures.
+- `—` — unverified: no isolated evidence yet (needs the T013 process/transport
+  harness).
+
+| Command | Success | Failure | Human output | Post-state | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| `listorders` | F | F (status validation) | F | RO | `parser_orders.rs` (38); `integration_tests.rs` listing/filter |
+| `neworder` | P + F (preflight) | F (closed-stdin/EOF/`n`/unknown/unknown-fiat) | — | F (no publish/fs effect pre-approval) | `cli_functions.rs` `new_order_preflight_process`, `test_new_order_message_with_trade_index` |
+| `takesell` | P + F (save) | F (post-accept save order/index failure) | — | F | `cli_functions.rs` `takesell_post_accept_*`, take-sell payloads; lib `take_order` |
+| `takebuy` | P | — | — | P (shared `save_order` path) | `cli_functions.rs` `test_take_buy_payload_with_amount`; lib `take_order` |
+| `addinvoice` | — | — | — | — | none |
+| `addbondinvoice` | P (no-reply=success logic) | P (`WaitForDmTimeout` vs `PowRequirementUnmet`) | — | — | lib `messaging` `pow_requirement_unmet_*` |
+| `fiatsent` | P | — | — | — | `cli_functions.rs` `test_send_msg_fiat_sent_action` |
+| `release` | P | — | — | — | `cli_functions.rs` `test_send_msg_release_action` |
+| `cancel` | P | — | — | — | `cli_functions.rs` `test_send_msg_cancel_action` |
+| `ordersinfo` | P | F (empty order-ids) | — | — | `cli_functions.rs` `test_orders_info_*` |
+| `dispute` | P | — | — | — | `cli_functions.rs` `test_send_msg_dispute_action` |
+| `listdisputes` | F | — | F | RO | `parser_disputes.rs` (9) |
+| `getdm` | F (parse) | — | F | RO | `parser_dms.rs` (19) |
+| `getdmuser` | F (kind-14 parse) | — | F | RO | `parser_dms.rs` `parse_dm_events_accepts_wrap_message_output` |
+| `senddm` | P | — | — | — | `cli_functions.rs` `test_dm_message_creation` |
+| `dmtouser` | P (wrap/parse) | — | — | — | lib `messaging` roundtrip; `parser_dms.rs` accepts-wrap |
+| `disputechat` | P (shared kind-14 wrap/parse) | — | — | — | lib `messaging` roundtrip; `parser_dms.rs` |
+| `getadmindm` | F (parse) | — | F | RO | `parser_dms.rs` (shared `execute_get_dm` display) |
+| `admsenddm` | — | — | — | — | none |
+| `sendadmindmattach` | — | — | — | — | none |
+| `conversationkey` | — | — | — | — | none |
+| `getlasttradeindex` | P | F (reply persistence failure) | — | F | `cli_functions.rs` `test_last_trade_index_message`; lib `parser::dms` `last_trade_index` (4) |
+| `getlasttradeprivkey` | — | — | — | — | none |
+| `getuserinfo` | F (id/action correlation, first-contact PoW) | F (PoW unmet, uncorrelated skip) | — | — | `integration_tests.rs` `correlating_wait_*`; lib `messaging` correlation + PoW |
+| `restore` | P | — | P (payload display) | — (known gap, issue #188) | `cli_functions.rs` restore msgs; `parser_dms.rs` restore payload |
+| `admcancel` | P | — | — | — | `cli_functions.rs` `test_dispute_message_cancel` |
+| `admsettle` | P | — | — | — | `cli_functions.rs` `test_dispute_message_settle` |
+| `admcancelpending` | F (pre-context RPC routing) | — | — | — | `cli_functions.rs` `rpc_commands_are_routed_before_the_nostr_context` |
+| `admaddsolver` | P + F (own-echo skip) | — | — | — | `cli_functions.rs` `test_dispute_message_creation_add_solver`; lib `messaging` own-echo skip |
+| `admtakedispute` | P | — | — | — | `cli_functions.rs` `test_dispute_message_take` |
+| `admsetmaintenance` | F (parse + routing) | F (requires `enabled` value) | — | — | `cli_functions.rs` `admsetmaintenance_*`, RPC routing |
+| `admmaintenancestatus` | F (parse + routing) | — | — | — | `cli_functions.rs` `admmaintenancestatus_parses_without_arguments` |
+| `rate` | P | F (rating out of range) | — | — | `cli_functions.rs` rating/payload tests |
+
+**Findings for the T010 gate**
+1. **Systemic gap**: there is no fake-transport harness yet (that is T011-phase
+   T013), so end-to-end request→reply **success** and relay/read **failure** are
+   unverified for essentially every mutating and RPC command. Coverage today is
+   strong at the payload/parse and parser/human-output layers, thin at the
+   full-flow layer.
+2. **Human output** is fixture-verified only for the read/display commands
+   (`listorders`, `listdisputes`, `getdm`/`getdmuser`/`getadmindm`); mutating
+   commands' reply rendering is unverified.
+3. **Post-state** is fixture-verified only where isolated SQLite fixtures exist:
+   takesell post-accept save (success and failure), last-trade-index persistence
+   (via the DM handler) and new-order preflight no-publish/no-fs-effect.
+4. **Known defect**: `restore` does not persist recovered orders (issue #188);
+   its post-state remains an open gap, not a verified row.
+5. **Doc drift**: `docs/commands.md` omits `addbondinvoice`,
+   `admsetmaintenance`, `admmaintenancestatus`; reconcile in T049.
+
+T001-T008 are complete; T009 is next (native Windows/Linux baseline, declared
+MSRV and CLI/core/daemon compatibility). The matrix above shows most
+mutating-command rows stay explicitly unverified until the T013 harness lands;
+T010's baseline gate remains open and the JSON pilot is unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
