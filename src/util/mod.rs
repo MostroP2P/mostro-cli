@@ -11,8 +11,9 @@ pub use events::{
     FETCH_EVENTS_TIMEOUT,
 };
 pub use messaging::{
-    ensure_first_contact_pow, print_dm_events, send_dm, send_dm_with_id, send_plain_text_dm,
-    wait_for_dm, wait_for_dm_matching, wait_for_reply_to, PowRequirementUnmet, WaitForDmTimeout,
+    ensure_first_contact_pow, print_dm_events, select_reply_event, send_dm, send_dm_with_id,
+    send_plain_text_dm, wait_for_dm, wait_for_dm_matching, wait_for_reply_to, ExpectedReply,
+    PowRequirementUnmet, WaitForDmTimeout,
 };
 pub use misc::{ensure_private_dir, get_mcli_path, uppercase_first};
 pub use net::connect_nostr;
