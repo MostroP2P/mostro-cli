@@ -2,8 +2,11 @@ use chrono::DateTime;
 use mostro_client::cli::list_orders::parse_status_filter;
 use mostro_client::cli::Context;
 use mostro_client::util::events::create_seven_days_filter_at;
-use mostro_client::util::{create_filter, ListKind};
+use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
+use mostro_core::prelude::{
+    wrap_message_with, Action, Message, MessageKind, Payload, Transport, UserInfo, WrapOptions,
+};
 use nostr_sdk::prelude::*;
 use rstest::rstest;
 use serde_json::{json, to_value};
@@ -140,5 +143,121 @@ fn direct_messages_filter_is_transport_aware() {
     assert!(
         filter.authors.as_ref().unwrap().contains(&mostro),
         "DM filter must pin author = mostro_pubkey"
+    );
+}
+
+// The reply-wait selection (`src/util/messaging.rs`) must skip an unrelated
+// kind-14 that reaches the trade key before the correlated reply, instead of
+// racing on the first kind-14 it sees. These build real encrypted kind-14
+// events and exercise the same decision the wait loop runs per event.
+
+// Build an encrypted kind-14 the way Mostro sends a reply: `author` signs it
+// (identity == trade == author) and addresses it to our trade key, so the CLI
+// decrypts it with its trade keys on the Mostro-protocol path.
+async fn mostro_kind14(author: &Keys, our_trade: &PublicKey, message: &Message) -> Event {
+    wrap_message_with(
+        Transport::Nip44Direct,
+        message,
+        author,
+        author,
+        *our_trade,
+        WrapOptions::default(),
+    )
+    .await
+    .expect("wrap kind-14 reply")
+}
+
+fn user_info_reply(request_id: u64) -> Message {
+    Message::Restore(MessageKind::new(
+        None,
+        Some(request_id),
+        None,
+        Action::UserInfo,
+        Some(Payload::UserInfo(UserInfo::default())),
+    ))
+}
+
+#[tokio::test]
+async fn correlating_wait_skips_unrelated_kind14_before_matching_reply() {
+    let mostro = Keys::generate();
+    let trade = Keys::generate();
+    let expected = ExpectedReply::new(42, vec![Action::UserInfo, Action::CantDo]);
+
+    // A stale/racing Mostro push with a different request_id reaches the trade
+    // key first; the correlating wait must skip it.
+    let unrelated = mostro_kind14(&mostro, &trade.public_key(), &user_info_reply(7)).await;
+    assert!(
+        !select_reply_event(
+            &unrelated,
+            &trade,
+            mostro.public_key(),
+            None,
+            Some(&expected)
+        )
+        .await,
+        "an unrelated kind-14 (wrong request_id) must not win the wait"
+    );
+
+    // The genuine reply that echoes the request_id is accepted.
+    let matching = mostro_kind14(&mostro, &trade.public_key(), &user_info_reply(42)).await;
+    assert!(
+        select_reply_event(
+            &matching,
+            &trade,
+            mostro.public_key(),
+            None,
+            Some(&expected)
+        )
+        .await,
+        "the reply echoing the request_id must be accepted"
+    );
+
+    // Without correlation (plain wait_for_dm) the same unrelated event would be
+    // accepted — which is why id-bearing flows must use wait_for_dm_matching.
+    assert!(
+        select_reply_event(&unrelated, &trade, mostro.public_key(), None, None).await,
+        "the non-correlating path accepts any Mostro kind-14"
+    );
+}
+
+#[tokio::test]
+async fn correlating_wait_rejects_non_mostro_and_own_echo() {
+    let mostro = Keys::generate();
+    let stranger = Keys::generate();
+    let trade = Keys::generate();
+    let expected = ExpectedReply::new(42, vec![Action::UserInfo]);
+
+    // NIP-17 peer chat from a stranger, tagged to the trade key with a matching
+    // id, is still skipped because it is not authored by Mostro.
+    let peer_chat = mostro_kind14(&stranger, &trade.public_key(), &user_info_reply(42)).await;
+    assert!(
+        !select_reply_event(
+            &peer_chat,
+            &trade,
+            mostro.public_key(),
+            None,
+            Some(&expected)
+        )
+        .await,
+        "a kind-14 not authored by Mostro must be skipped even with a matching id"
+    );
+
+    // The echo of our own request (admin flows author as Mostro) is skipped by
+    // event id, but the identical event is accepted when it is not our echo.
+    let reply = mostro_kind14(&mostro, &trade.public_key(), &user_info_reply(42)).await;
+    assert!(
+        !select_reply_event(
+            &reply,
+            &trade,
+            mostro.public_key(),
+            Some(reply.id),
+            Some(&expected)
+        )
+        .await,
+        "our own echoed request must be skipped by event id"
+    );
+    assert!(
+        select_reply_event(&reply, &trade, mostro.public_key(), None, Some(&expected)).await,
+        "the same reply is accepted when it is not our own echo"
     );
 }
