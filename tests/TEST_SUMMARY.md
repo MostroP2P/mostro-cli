@@ -492,6 +492,54 @@ MSRV item is resolved by the follow-up above.
 T001-T009 are complete; T010 (baseline-gate review) is next. The JSON pilot is
 still unimplemented.
 
+## T010 Baseline Gate Decision: 2026-10-20
+
+**Decision: GO for pilot foundations (T011+), with the recorded exceptions
+below.** This closes the inherited Phase-1 baseline gate for the read-only
+order-list pilot only; it is not acceptance of the pilot or of any write flow.
+
+**Limitation**: the roadmap's own Phase-1 gate text
+(`../mcp/plan-aiReadyMostroCli.prompt.md`) is absent on this checkout, so the
+review uses the criteria restated in T010 and the constitution.
+
+| Criterion | Evidence | Status |
+| --- | --- | --- |
+| Persistence regressions (WaitingSellerToPay, LastTradeIndex) | T004: 6 cases pass | Met |
+| Closed-stdin / EOF confirmation | T005: 11 cases, red before fix, green after | Met |
+| Take-with-invoice post-accept save | T006: 2 failure cases + save unit cases | Met |
+| Correlated reply wait | T007: unrelated kind-14 skipped; non-correlating `wait_for_dm` finding deferred to the write-executor migration | Met |
+| Size/import inventory | T002, `docs/architecture.md` | Met |
+| Command/state matrix | T008: all 33 commands, unverified cells explicit | Met as a record; full-flow rows stay unverified until T013 |
+| Linux baseline, pinned 1.97.0 | T009 and below | Met |
+| Declared MSRV | Raised to 1.94; 1.94.0 check passes, CI now tests it | Met |
+| CLI/core/daemon compatibility | T009 regtest vs mostrod v0.19.3: listing, create, cancel | Met for the pilot's read path; other flows unverified |
+| Native Windows baseline | No Windows host available | **Deferred** (user decision) to T051-T052 |
+
+Code gates on `96aeb77`, native Linux, rustc 1.97.0:
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests, 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+**Recorded exceptions carried forward**
+1. Native Windows baseline is deferred by user decision; it must be run before
+   pilot acceptance in T051-T052 and stays a blocker for SC-005.
+2. Daemon compatibility covers listing, order creation and cancellation only;
+   take/invoice/payment/dispute/admin/RPC/restore remain unverified against a
+   daemon and are outside this read-only pilot.
+3. End-to-end success/failure/post-state for mutating commands remains
+   unverified until the T013 process/transport harness exists.
+4. `restore` post-state is a known defect (issue #188), outside pilot scope.
+5. `listorders` currently creates a DB and identity on first use; the pilot
+   must remove this (FR-006/007, SC-003).
+
+T001-T010 are complete and the baseline gate is closed for the pilot. T011
+(split `src/cli.rs`) is next. The JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

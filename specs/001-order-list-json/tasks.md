@@ -10,8 +10,9 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Branch**: `develop` | **Generated**: 2026-10-16
 
-**Status**: Setup T001-T003 and baseline checkpoints T004-T009 are complete;
-T010-T055 remain pending. Checked
+**Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
+the baseline gate is closed with recorded exceptions (Windows deferred to
+T051-T052). T011-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -66,7 +67,7 @@ to migrate write workflows or implement the later write executor.
 - [x] T007 Add unrelated-kind-14-before-matching-reply coverage in `tests/integration_tests.rs` for `src/util/messaging.rs`; compare existing wait/correlation helpers, demonstrate any unsafe result, make the smallest existing-helper/caller correction and rerun; stop with this prerequisite blocked if correctness requires the later write-executor migration. (depends on T006)
 - [x] T008 Complete the existing-command success/failure/human-output/post-state matrix in `tests/TEST_SUMMARY.md`, using `docs/commands.md` and `../mcp/plan-aiReadyMostroCli.prompt.md` as the command inventory and isolated fake transports/databases for evidence; identify each unverified row explicitly. (depends on T007)
 - [x] T009 Record native Windows/Linux baseline, declared-MSRV checks and CLI/core/daemon compatibility in `tests/TEST_SUMMARY.md`; use `Cargo.toml`, `rust-toolchain.toml` and isolated Linux/WSL `../mcp/regtest/compose.yml` identities only, with no MCP code changes, public trades or unauthorized destructive cleanup; unavailable environments remain blockers. (depends on T008)
-- [ ] T010 Review T004-T009 results against the roadmap Phase 1 gate and record the decision in `tests/TEST_SUMMARY.md`; require completed command/state evidence, resolved regressions, inventory and required compatibility checks, run the constitution's code gates, and stop before pilot work if the gate is not satisfied. (depends on T009)
+- [x] T010 Review T004-T009 results against the roadmap Phase 1 gate and record the decision in `tests/TEST_SUMMARY.md`; require completed command/state evidence, resolved regressions, inventory and required compatibility checks, run the constitution's code gates, and stop before pilot work if the gate is not satisfied. (depends on T009)
 
 ### Shared Pilot Infrastructure
 
