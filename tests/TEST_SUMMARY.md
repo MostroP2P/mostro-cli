@@ -389,6 +389,95 @@ MSRV and CLI/core/daemon compatibility). The matrix above shows most
 mutating-command rows stay explicitly unverified until the T013 harness lands;
 T010's baseline gate remains open and the JSON pilot is unimplemented.
 
+## T009 Platform, MSRV And Compatibility Baseline: 2026-10-20
+
+**Scope**: Record the native platform baseline, the declared-MSRV check and a
+CLI/core/daemon compatibility check, as a T010 input. No Rust source, MCP code,
+dependency or MSRV declaration was changed.
+
+### Linux Baseline (Pinned Toolchain)
+
+Native Linux (`x86_64-unknown-linux-gnu`), rustc/Cargo 1.97.0 from
+`rust-toolchain.toml`, on the T008 checkout (`66bf573`):
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests; no failures or ignored cases |
+| `cargo build --locked` | PASS |
+
+### Windows Baseline
+
+**Blocked**: no native Windows host is available in this environment. The
+earlier Windows results (T001-T005, `x86_64-pc-windows-msvc`) predate T006-T008
+and are not a current Windows baseline. The known MCP Windows test-compilation
+blocker (Unix-only `PermissionsExt` in its stdio fixture) remains unverified.
+
+### Declared MSRV
+
+`Cargo.toml` declares `rust-version = "1.86"`. The locked dependency graph does
+not support it:
+
+| Command | Result |
+| --- | --- |
+| `cargo +1.86.0 check --locked --all-targets --all-features` | **FAIL** at dependency resolution |
+| `cargo +1.93.0 check --locked --all-targets --all-features` | **FAIL** at dependency resolution |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Packages that reject 1.86.0: `sqlx`, `sqlx-core`, `sqlx-macros`,
+`sqlx-macros-core` and `sqlx-sqlite` 0.9.0 (require 1.94.0); dev-dependencies
+`serial_test`/`serial_test_derive` 4.0.1 (require 1.93.1); `tonic`/`tonic-prost`
+0.14.6 (require 1.88). The effective minimum of the locked graph is therefore
+**1.94.0**. The declaration was not changed and no dependency was downgraded;
+whether to raise `rust-version` or pin older dependencies is an open maintainer
+decision, not something this checkpoint may do to make the check pass.
+
+### CLI/Core/Daemon Compatibility (Isolated Regtest)
+
+Stack: `../mcp/regtest/compose.yml` (mostrod **v0.19.3** checksum-verified
+release binary, LND 0.18.3, bitcoind 27.0, nostr-rs-relay 0.9.0) started with
+`devenv.sh up` from a fresh state (no prior containers, volumes or `.state`).
+CLI: this checkout's debug build (mostro-core `=0.17.3`), run as the throwaway
+regtest user `alice` via `devenv.sh cli` with `MCLI_DIR` under the regtest
+`.state` directory and closed stdin except where an answer was piped. Every key
+and coin is a regtest fixture; no public relay, mainnet node or real identity
+was touched.
+
+| Step | Command | Observed result |
+| --- | --- | --- |
+| 1 | `-v listorders` | Exit 0; relay connected; `Transport: nip44 (auto-detected protocol v2)`; empty-book table. First run created `mcli.db` and a new identity. |
+| 2 | `neworder -k sell -a 10000 -c USD -f 10 -m bank` (stdin `y`) | Exit 0; mostrod replied with the new order `ab8f4f36-…`; status Pending; trade index 1; order saved locally |
+| 3 | `listorders` | Exit 0; the order listed as `sell`/`pending`/10000 sats/USD 10/bank |
+| 4 | `cancel -o ab8f4f36-…` | Exit 0; mostrod confirmed `Canceled`; local row deleted, as `Action::Canceled` handling intends |
+| 5 | `listorders` / `listorders -s canceled` | Pending book empty; order listed as `canceled` |
+| Post-state | `sqlite3` on alice's `mcli.db` | `orders` empty; `users.last_trade_index` = 1 |
+
+This shows the current CLI and mostro-core 0.17.3 interoperate with mostrod
+v0.19.3 for transport auto-detection, public listing, order creation, request/
+reply correlation and cancellation. It does **not** cover take/invoice/payment,
+dispute, admin, RPC or restore flows; those remain unverified against a daemon.
+The stack was then stopped with `devenv.sh down` (containers removed, volumes and
+regtest identities kept); no `clean`/volume wipe was performed. The MCP
+repository's working tree is unchanged.
+
+**Pilot-relevant observation**: today's `listorders` initializes the local
+database and creates an identity on first use (step 1). The pilot requires
+listing and discovery to run without identity or DB creation (FR-006/007,
+SC-003), so this is baseline behavior the pilot must change, not a defect fixed
+here.
+
+**Additional doc drift for T049**: actual flags are `--fiatcode`,
+`--fiatamount`, `--paymentmethod` and `--orderid`, while `docs/commands.md`
+documents `--fiat-code`, `--fiat-amount`, `--payment-method` and `--order-id`.
+
+**Open items carried to T010**: native Windows baseline (blocked, no host);
+declared MSRV 1.86 does not hold (effective 1.94.0, decision pending); daemon
+compatibility verified only for the listing/create/cancel subset.
+
+T001-T009 are complete; T010 (baseline-gate review) is next. The JSON pilot is
+still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

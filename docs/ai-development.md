@@ -94,11 +94,12 @@ the feature works. Record code-test results separately when implementation lands
 ## Resume On Another Linux/WSL Laptop
 
 This is a development handoff, not a trading-identity migration or a compatible
-CLI/MCP release pair. At the 2026-10-19 checkpoint, T001-T008 are complete and
-T009 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
+CLI/MCP release pair. At the 2026-10-20 checkpoint, T001-T009 are complete and
+T010 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
 [test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
-JSON pilot, full baseline gate, declared MSRV and regtest compatibility remain
-unverified.
+JSON pilot and full baseline gate remain unverified; the declared MSRV 1.86 does
+not hold for the locked graph (effective 1.94.0), and regtest compatibility is
+verified only for listing, order creation and cancellation.
 
 ### Install The Local Tools
 
@@ -132,7 +133,7 @@ uv tool install --python 3.11 specify-cli==1.2.0
 The CLI's toolchain file may additionally download its declared rust-docs and
 wasm target components. Do not change the pin or lockfiles to hide an unavailable
 toolchain. Docker Compose and jq are only needed for later, explicitly authorized
-regtest work, not this handoff or T009. No live node, wallet or identity is needed.
+regtest work, not this handoff or T010. No live node, wallet or identity is needed.
 
 ### Clone Both Repositories
 
@@ -244,9 +245,9 @@ Enter key passphrases directly in your terminal, never in Copilot chat.
 In Copilot Agent chat with both repositories open:
 
 ```text
-Continue mostro-cli on develop, implementing T009 only from
+Continue mostro-cli on develop, implementing T010 only from
 specs/001-order-list-json/tasks.md. Read AGENTS.md and the constitution first,
-then the existing plan and tests/TEST_SUMMARY.md. T001-T008 are complete;
+then the existing plan and tests/TEST_SUMMARY.md. T001-T009 are complete;
 T010's baseline gate is still open and the JSON pilot is unimplemented.
 Use the existing Spec Kit feature; do not regenerate its artifacts.
 Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.
