@@ -112,6 +112,8 @@ internal changes; floats lose precision; stricter tags exceed scope.
 
 **Evidence**: [manifest](../../Cargo.toml) includes Clap/Serde; derive currently
 arrives through feature unification. No schemars/schema validator is in the CLI lock.
+T012 applied this decision; see the
+[test summary](../../tests/TEST_SUMMARY.md#t012-dependencies-2026-10-20).
 
 **Decision**: Explicit Serde derive; propose schemars 1.2.3, defaults off,
 derive/std only. Its minimum is 1.74; verify the resolved graph against 1.94.

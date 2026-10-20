@@ -581,6 +581,41 @@ legacy files still exceed 400 production lines (`db.rs`, `parser/dms.rs`,
 T001-T011 are complete. T012 (Serde/schemars dependencies) is next. The JSON
 pilot is still unimplemented.
 
+## T012 Dependencies: 2026-10-20
+
+Manifest changes only; no Rust source uses the new crates yet. Native Linux,
+rustc 1.97.0, base `3a53e90`.
+
+| Change | Why |
+| --- | --- |
+| `serde` gains explicit `derive` | Derive previously arrived only through feature unification |
+| `schemars = 1.2.3`, defaults off, `derive` + `std` | Generate JSON Schemas from DTOs (research section 6) |
+| Dev-only `nostr-sdk` feature `local-relay` | In-process `LocalRelay`/`MockRelay` for T013-T015: empty relay (EOSE), rejecting `QueryPolicy` (CLOSED), `unresponsive_connection` (silent), `shutdown` (disconnect) |
+
+`Cargo.lock` was updated by a plain `cargo check`, not `cargo update`. It adds
+exactly 8 packages and changes or removes none: btreecap 0.1.0, dyn-clone
+1.0.20, nostr-memory 0.45.2, ref-cast 1.0.27, ref-cast-impl 1.0.27, schemars
+1.2.3, schemars_derive 1.2.3, serde_derive_internals 0.30.0. Their highest
+declared minimum Rust is 1.85 (nostr-memory), below the project's 1.94.
+
+| Check | Result |
+| --- | --- |
+| `cargo tree -e normal,build -i nostr-memory` | Nothing: the fixture crate is absent from the shipped graph |
+| Production nostr-sdk features | `default`, `ring`, `rustls-tls-webpki-roots` (unchanged) |
+| Dev nostr-sdk features | Same plus `local-relay` |
+| schemars features | `derive`, `std` only |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests, 0 failed (unchanged) |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS (compiles the dev fixture graph) |
+
+The fixtures are compiled but not yet exercised; T013 builds the harness and
+T015 proves each notification case.
+
+T001-T012 are complete. T013 (portable process harness) is next. The JSON pilot
+is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

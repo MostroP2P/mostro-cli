@@ -22,7 +22,7 @@ context initialization or other effects. MCP stays a separate, unchanged client.
 
 **Language/Version**: Rust 2021; declared minimum 1.94 (raised from 1.86 after T009 showed the locked graph needs it); pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
 
-**Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Proposed addition: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas. Verify the resolved graph against MSRV.
+**Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Added in T012: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas; resolved graph checked against MSRV 1.94.
 
 **Storage**: None for listing/discovery; no DB opening, identity files or migrations. Existing SQLx storage remains on legacy paths.
 
@@ -77,9 +77,9 @@ they are not pilot acceptance.
 The [task list](tasks.md) assigns test-first dependencies and carries these
 baseline prerequisites explicitly. Setup T001-T003 and baseline checkpoints
 T004-T010 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t010-baseline-gate-decision-2026-10-20);
-the baseline gate is closed with recorded exceptions. Foundation T011 is
-recorded in [the test summary](../../tests/TEST_SUMMARY.md#t011-cli-module-split-2026-10-20);
-T012-T055 remain pending.
+the baseline gate is closed with recorded exceptions. Foundations T011-T012 are
+recorded in [the test summary](../../tests/TEST_SUMMARY.md#t012-dependencies-2026-10-20);
+T013-T055 remain pending.
 
 ## Execution Design
 
@@ -170,7 +170,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T011 as complete; its checkboxes track
+The task list records T001-T012 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
