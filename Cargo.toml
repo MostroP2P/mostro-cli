@@ -2,7 +2,7 @@
 name = "mostro-cli"
 version = "0.16.3"
 edition = "2021"
-rust-version = "1.86"
+rust-version = "1.94"
 license = "GPL-3.0-only"
 authors = [
   "Francisco Calderón <fjcalderon@gmail.com>",

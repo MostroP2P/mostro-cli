@@ -1,7 +1,7 @@
 # Mostro CLI 🧌
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-yellow.svg)](LICENSE)
-[![Rust Version](https://img.shields.io/badge/rust-1.86%2B-blue.svg)](https://www.rust-lang.org)
+[![Rust Version](https://img.shields.io/badge/rust-1.94%2B-blue.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/crates/v/mostro-cli)](https://crates.io/crates/mostro-cli)
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/MostroP2P/mostro-cli)
@@ -35,7 +35,7 @@ A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P
 
 ## Requirements
 
-- **Rust:** the declared minimum is 1.86; `rust-toolchain.toml` pins 1.97.0 for development. The current refactor checkpoint was tested on native Windows with 1.97.0; minimum-version and Linux verification remain separate gates. For a development checkout without trade credentials, follow the [Linux/WSL laptop setup](docs/ai-development.md#resume-on-another-linuxwsl-laptop).
+- **Rust:** the declared minimum is 1.94 (required by the locked `sqlx` 0.9 dependency graph); `rust-toolchain.toml` pins 1.97.0 for development. The current refactor checkpoint was tested on native Linux with 1.97.0 and checked against 1.94.0; native Windows verification remains a separate gate. For a development checkout without trade credentials, follow the [Linux/WSL laptop setup](docs/ai-development.md#resume-on-another-linuxwsl-laptop).
 - **A Mostro node to connect to** — its pubkey is mandatory configuration. See [Choosing a Mostro instance](#choosing-a-mostro-instance).
 - A **Lightning wallet** to pay/receive hold invoices and regular invoices.
 - Network access to public Nostr relays.

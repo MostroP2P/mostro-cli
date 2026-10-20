@@ -51,16 +51,17 @@ jobs:
         run: cargo build --release
 
   msrv:
-    name: MSRV build (1.97.0)
+    name: MSRV build (1.94.0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.97.0
+          toolchain: 1.94.0
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with: { cache-on-failure: true }
+      # `+1.94.0` overrides rust-toolchain.toml, which pins the newer dev toolchain.
       - name: cargo build (MSRV)
-        run: cargo build --all-features
+        run: cargo +1.94.0 build --locked --all-features
 
