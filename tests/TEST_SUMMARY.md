@@ -540,6 +540,47 @@ Code gates on `96aeb77`, native Linux, rustc 1.97.0:
 T001-T010 are complete and the baseline gate is closed for the pilot. T011
 (split `src/cli.rs`) is next. The JSON pilot is still unimplemented.
 
+## T011 CLI Module Split: 2026-10-20
+
+The 810-line production section of `src/cli.rs` was split without behavior
+change. Native Linux, rustc 1.97.0, base `c2a745e`.
+
+| File | Owns | Production lines |
+| --- | --- | ---: |
+| `src/cli.rs` | Facade: subcommand modules, `Cli`/`Commands`/`Context` re-exports, `run()` | 57 |
+| `src/cli/args.rs` | `Cli` and the fiat-range parser | 75 |
+| `src/cli/commands.rs` | `Commands` enum (33 variants) | 300 |
+| `src/cli/context.rs` | `Context`, env mirroring, config validation, `init_context`, transport detection, admin check | 214 |
+| `src/cli/legacy.rs` | `Commands::run_rpc` and `Commands::run` dispatch | 197 |
+
+Moved code was compared line by line, in order, against `HEAD:src/cli.rs`
+after mapping new top-of-file imports back to the old inline paths. The only
+layout difference is one `ADMIN_NSEC` `map_err` call that rustfmt now keeps on
+one line. Inline paths, the `take_dispute::*` glob and the core/SDK preludes
+became explicit imports. External paths `crate::cli::{Cli, Commands, Context,
+run}` are unchanged, and the three setup-message unit tests moved with their
+code to `cli::context::tests`.
+
+| Check | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` after each of the four extractions | PASS: 44 each time |
+| Root and all 33 subcommand `--help` outputs, plus `--version` | Byte-identical before/after |
+| `listorders` with empty `HOME` and no config | Exit 1 with `MOSTRO_PUBKEY not set.`; no file created |
+| `admmaintenancestatus` with no Nostr config | Routed to admin RPC before context (connect error, no config error) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests, 0 failed (unchanged) |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-features` | PASS |
+
+No characterization test was added: existing RPC-routing, parsing and setup
+tests already pin the moved behavior, and none fail before the split. Four
+legacy files still exceed 400 production lines (`db.rs`, `parser/dms.rs`,
+`util/messaging.rs`, `cli/take_dispute.rs`); none was touched.
+
+T001-T011 are complete. T012 (Serde/schemars dependencies) is next. The JSON
+pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

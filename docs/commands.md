@@ -1,6 +1,6 @@
 ## CLI Commands Reference
 
-This document lists all `mostro-cli` subcommands defined in `src/cli.rs`, their main arguments, and the Rust handler that implements each command. Use this when wiring new commands or changing existing flows.
+This document lists all `mostro-cli` subcommands defined in `src/cli/commands.rs`, their main arguments, and the Rust handler that implements each command. Use this when wiring new commands or changing existing flows.
 
 All commands are part of the `Commands` enum and are dispatched via `Commands::run(&self, ctx: &Context)`.
 
@@ -247,8 +247,8 @@ settable via the matching env var):
 
 If you add a new variant to the `Commands` enum:
 
-1. Add the subcommand and its arguments in `src/cli.rs`.
+1. Add the subcommand and its arguments in `src/cli/commands.rs`.
 2. Add its handler function in an appropriate `src/cli/*.rs` module.
-3. Extend the `Commands::run` match to call the handler.
+3. Extend the `Commands::run` match in `src/cli/legacy.rs` to call the handler.
 4. Update this `commands.md` file so documentation stays in sync for humans and AI tools.
 

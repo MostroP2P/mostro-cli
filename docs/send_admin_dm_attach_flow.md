@@ -5,7 +5,7 @@ This document explains the full flow for the `sendadmindmattach` command: from C
 ### 1. CLI entrypoint
 
 - **Command**: `sendadmindmattach` *(admin only)*
-- **Defined in**: `src/cli.rs` (`Commands::SendAdminDmAttach`)
+- **Defined in**: `src/cli/commands.rs` (`Commands::SendAdminDmAttach`)
 - **Documented in**: `docs/commands.md`
 - **Args**:
   - `--pubkey <NPUB/HEX>`: Admin / solver recipient pubkey.
@@ -14,7 +14,7 @@ This document explains the full flow for the `sendadmindmattach` command: from C
 - **Handler**:
   - `execute_send_admin_dm_attach(PublicKey::from_str(pubkey)?, ctx, order_id, file)` in `src/cli/send_admin_dm_attach.rs`.
 
-The global `Context` (`src/cli.rs`) provides:
+The global `Context` (`src/cli/context.rs`) provides:
 
 - `identity_keys: Keys`: user’s i0 identity keys.
 - `trade_keys: Keys`: current per‑trade keys.
