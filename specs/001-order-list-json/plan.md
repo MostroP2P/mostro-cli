@@ -20,7 +20,7 @@ context initialization or other effects. MCP stays a separate, unchanged client.
 
 ## Technical Context
 
-**Language/Version**: Rust 2021; declared minimum 1.86; pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
+**Language/Version**: Rust 2021; declared minimum 1.94 (raised from 1.86 after T009 showed the locked graph needs it); pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
 
 **Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Proposed addition: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas. Verify the resolved graph against MSRV.
 

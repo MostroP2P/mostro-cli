@@ -114,7 +114,7 @@ internal changes; floats lose precision; stricter tags exceed scope.
 arrives through feature unification. No schemars/schema validator is in the CLI lock.
 
 **Decision**: Explicit Serde derive; propose schemars 1.2.3, defaults off,
-derive/std only. Its minimum is 1.74; verify the resolved graph against 1.86.
+derive/std only. Its minimum is 1.74; verify the resolved graph against 1.94.
 Primitive DTOs avoid UUID/chrono schema features. Generate Draft 2020-12 schemas
 and Clap/shared-validator input metadata. schema_version is string `1`, separate
 from package version. No extra runtime validator crate just for generation tests.

@@ -106,10 +106,10 @@ cargo test --locked
 cargo build --locked
 ```
 
-Check the declared minimum separately with the installed Rust 1.86.0 toolchain:
+Check the declared minimum separately with the installed Rust 1.94.0 toolchain:
 
 ```sh
-cargo +1.86.0 check --locked --all-targets --all-features
+cargo +1.94.0 check --locked --all-targets --all-features
 ```
 
 Report missing toolchains, pre-existing failures and native-platform gaps; do not

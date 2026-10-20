@@ -471,9 +471,23 @@ here.
 `--fiatamount`, `--paymentmethod` and `--orderid`, while `docs/commands.md`
 documents `--fiat-code`, `--fiat-amount`, `--payment-method` and `--order-id`.
 
+**MSRV follow-up (maintainer decision, 2026-10-20)**: the declared minimum was
+raised to `rust-version = "1.94"` to match the locked graph; no dependency
+changed and `Cargo.lock` is unchanged. The CI `msrv` job previously ran the
+1.97.0 development toolchain (and `rust-toolchain.toml` would override an
+installed toolchain anyway); it now runs `cargo +1.94.0 build --locked
+--all-features`. Re-verified on native Linux:
+
+| Command | Result |
+| --- | --- |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+| `cargo +1.94.0 build --locked --all-features` (CI command) | PASS |
+| `cargo +1.93.0 check --locked --all-targets --all-features` | Rejected: `mostro-cli@0.16.3 requires rustc 1.94` |
+| `cargo test --locked` (1.97.0) | PASS: 217 tests |
+
 **Open items carried to T010**: native Windows baseline (blocked, no host);
-declared MSRV 1.86 does not hold (effective 1.94.0, decision pending); daemon
-compatibility verified only for the listing/create/cancel subset.
+daemon compatibility verified only for the listing/create/cancel subset. The
+MSRV item is resolved by the follow-up above.
 
 T001-T009 are complete; T010 (baseline-gate review) is next. The JSON pilot is
 still unimplemented.

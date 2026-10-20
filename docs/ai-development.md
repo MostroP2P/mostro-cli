@@ -97,8 +97,8 @@ This is a development handoff, not a trading-identity migration or a compatible
 CLI/MCP release pair. At the 2026-10-20 checkpoint, T001-T009 are complete and
 T010 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
 [test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
-JSON pilot and full baseline gate remain unverified; the declared MSRV 1.86 does
-not hold for the locked graph (effective 1.94.0), and regtest compatibility is
+JSON pilot and full baseline gate remain unverified; the declared MSRV is 1.94
+(raised from 1.86 to match the locked graph), and regtest compatibility is
 verified only for listing, order creation and cancellation.
 
 ### Install The Local Tools
