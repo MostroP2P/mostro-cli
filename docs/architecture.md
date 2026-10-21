@@ -141,7 +141,7 @@ the complete refactor must eliminate every legacy violation.
 - **`src/cli/commands.rs`**: the `Commands` enum containing all subcommands and their structured arguments.
 - **`src/cli/legacy.rs`**: `Commands::run_rpc` and `Commands::run`, the temporary dispatch that maps each variant to its `execute_*` handler.
 - **`src/cli/context.rs`**: `Context` (Nostr client, keys, trade index, DB pool, optional admin context keys, and Mostro pubkey) and its initialization.
-- **`src/cli/invocation.rs`**: `parse_invocation`, which lets Clap parse argv and, on argument errors, recovers the `--output` declaration and resolved command path from Clap metadata. Not yet called by `run()`.
+- **`src/cli/invocation.rs`**: `parse_invocation`, which lets Clap parse argv and, on argument errors, recovers the `--output` declaration and resolved command path from Clap metadata. `run()` calls it on `args_os()` before any effect; rejected invocations exit 2 with its fixed `diagnostic()` text.
   - `init_context()`:
     - Sets environment variables from CLI flags (e.g. `MOSTRO_PUBKEY`, `RELAYS`, `POW`, `SECRET`).
     - Connects to SQLite via `db::connect()`.

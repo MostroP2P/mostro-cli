@@ -879,6 +879,79 @@ Limitations:
 T001-T016 are complete. T017 (fallible parsing and output selection) is next.
 The JSON pilot is still unimplemented.
 
+## T017 Fallible Parsing And Output Selection: 2026-10-21
+
+Changed `src/cli/args.rs`, `src/cli/invocation.rs` and `src/cli.rs`; tests in
+`tests/cli_functions.rs` and `tests/order_list_process.rs`. Native Linux,
+rustc 1.97.0, base `04b319f`, code commit `bdf0685`.
+
+Behaviour of the real binary:
+- `Cli` declares `--output <human|json>`: global, long only (no colliding
+  short), case-sensitive, default human. Every subcommand accepts it.
+- `run()` parses `env::args_os()` through T014's `parse_invocation` instead of
+  `Cli::parse()`, before the crypto provider, RPC routing or `init_context`.
+- Clap's own help/version result prints text and exits 0, also with
+  `--output json`. A bare `mostro-cli` still prints help on stderr with exit 2.
+- Argument errors exit 2 with fixed stderr: `error: <Clap's fixed kind
+  description>` plus a `--help` hint. Clap's message, which echoes tokens such
+  as an unknown flag, is never printed.
+- A missing, invalid or repeated `--output` exits 2 with empty stdout and
+  `error: --output takes `human` or `json` and may be given only once`.
+- `--output json` is rejected with exit 2 before any effect, both for valid
+  legacy invocations and for argument errors. T018 replaces these stderr
+  rejections with `output_not_supported`/`invalid_arguments` envelopes once the
+  canonical-name registry exists.
+- `invocation.rs` now takes exit and error codes from `outcome`
+  (`json_error_code` returns `ErrorCode`), as T016 noted.
+
+| Test | Proves |
+| --- | --- |
+| `real_cli_declares_a_global_case_sensitive_output` (unit) | The real `Cli` declares `--output` globally with values human/json, no short, no ignore-case; every subcommand except Clap's generated `help` accepts it; root and leaf positions bind; `JSON` is invalid |
+| `rejections_keep_the_clap_kind_and_a_safe_diagnostic` (unit) | Unknown flag, unknown subcommand, invalid and duplicate `--output` keep Clap's kind; diagnostics start with `error: `, name the problem and omit the sentinel |
+| `argument_errors_exit_2_with_safe_stderr_before_any_effect` | Five human-mode and invalid-selection cases: exit 2, empty stdout, sentinel-free stderr, no files, zero relay connections |
+| `json_intent_never_runs_a_legacy_command` | `--output json listorders`, `listorders --output=json` and JSON with an unknown command exit 2 with no files and zero connections |
+| `help_and_version_stay_text_on_stdout` | Five help/version forms, including with `--output json`: exit 0, text on stdout, empty stderr |
+| `bare_invocation_still_prints_help_on_stderr` | No arguments: exit 2, help on stderr, as before T017 |
+
+The T014 fixture no longer adds its own `--output`; all 10 T014 tests pass
+against the real global argument.
+
+Checks that the tests are not vacuous:
+- Red run against a stub (an empty `diagnostic()`, no `--output` in `Cli`):
+  2 of 12 unit tests and 2 of 13 process tests failed.
+  `json_intent_never_runs_a_legacy_command` and
+  `bare_invocation_still_prints_help_on_stderr` passed, because the old binary
+  rejected the unknown `--output` and already printed help; they guard
+  behaviour that the new parser could break.
+- Mutation (reverted): binding a `--output json` invocation and running it as
+  human made `json_intent_never_runs_a_legacy_command` fail, so the test does
+  catch a JSON request reaching a legacy command.
+- 5 consecutive runs of `order_list_process`: 5/5 pass.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions output_intent` | PASS: 12 tests |
+| `cargo test --locked --test order_list_process` | PASS: 13 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 250 tests (244 + 6), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `src/cli.rs` 89, `src/cli/args.rs` 80,
+`src/cli/invocation.rs` 257.
+
+Limitations:
+- Human-mode argument errors lose Clap's detailed text (for example the name
+  of the unknown flag and "did you mean" hints), because the contract forbids
+  raw argument values in diagnostics.
+- JSON error envelopes are not printed yet (T018).
+- `order list` and the `--mostro-pubkey` rename are not implemented; `order list`
+  is still a test fixture grammar.
+
+T001-T017 are complete. T018 (registry, capability guard and output boundary)
+is next. The JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
