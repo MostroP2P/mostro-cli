@@ -684,6 +684,80 @@ Limitations:
 T001-T013 are complete. T014 (adversarial output-intent tests) is next. The
 JSON pilot is still unimplemented.
 
+## T014 Output-Intent Recovery: 2026-10-21
+
+New module `src/cli/invocation.rs` (236 lines) and the `output_intent` module
+in `tests/cli_functions.rs`. Native Linux, rustc 1.97.0, Clap 4.6.7, base
+`216cb95`, code commit `95b6633`.
+
+`parse_invocation(command, argv)` lets Clap parse first. Clap decides help and
+version (`DisplayHelp`/`DisplayVersion` become `Text`); every other result is
+either `Parsed` with the bound output mode or `Rejected` with a recovered
+`ArgumentFailure { output, command }`. Recovery walks argv using only Clap
+metadata: long names and aliases, shorts, `get_num_args`,
+`allow_hyphen_values`, `allow_negative_numbers` and subcommand names. It never
+strips tokens, never runs a command, and treats option values as values. The
+helper is not wired into `run()`; T017 integrates it.
+
+The tests run against `Cli::command()` plus a fixture: a global `--output`
+(`human|json`) and an `order list` subcommand with `--side`, `--currency` and
+`--status`. The real pilot grammar arrives in T017.
+
+| Test | Proves |
+| --- | --- |
+| `contract_decision_table_rows` | All 12 malformed-argv rows of [the CLI contract](../specs/001-order-list-json/contracts/cli.md#streams-and-exit-codes): output selection, `invalid_arguments`/exit 2, resolved or null command |
+| `output_is_selected_at_every_depth_and_defaults_to_human` | Root, intermediate, leaf and `=` forms; no declaration means human |
+| `values_resembling_flags_or_commands_are_not_declarations` | `-m=--output=json`, `--message=--output=json` and variadic `senddm -m order list` stay values; root `-m order` hides `list`; `-m --output=json` is a declaration |
+| `arities_and_hyphen_values_follow_clap` | Hyphen-allowed `--premium` takes `-5` and swallows `--output`; missing values at root (`--pow`) and leaf (`--currency`, `--side`) leave the declaration standing |
+| `short_clusters_and_colliding_shorts_follow_scope` | `-vs`, `-vm <key>`, `-vm--output=json`, `-m=--output=json`, unknown `-vx`; leaf `-m` (message) is not root `-m` (pubkey) |
+| `duplicate_and_missing_declarations_are_invalid` | Identical same-level, `=` form and root plus intermediate duplicates; missing, empty and flag-followed values |
+| `terminator_ends_option_parsing` | `--output json` after `--` is not a declaration |
+| `clap_decides_help_and_version_precedence` | `--help` anywhere is text with exit 0; `--output bogus --help` is an argument error because Clap says so |
+| `non_unicode_values_keep_json_intent` (Unix) | Invalid UTF-8 values are rejected without losing JSON intent |
+| `failures_carry_no_argument_text` | Failures carry only the mode and command names, never argument values |
+
+Clap 4.6.7 behaviour found by direct probes before writing the tests:
+- `--output` at two levels parses in Clap, but same-level duplicates fail with
+  `ArgumentConflict`. The helper rejects both, because the contract forbids any
+  duplicate declaration.
+- `--message=a b` ends the occurrence at the attached value. `-m=hello` and
+  `-mhello` both bind `hello`.
+- A missing value is `InvalidValue`; a flag-looking next token is not consumed,
+  except by `allow_hyphen_values` options such as `--premium`, which take
+  `--output` as their value.
+- A variadic option takes command-looking words but stops at flags.
+- `--output json order` gives `DisplayHelpOnMissingArgumentOrSubcommand`, which
+  is an argument error here, not the help exception.
+- `-c -5` is `UnknownArgument` (negative numbers are not allowed there).
+
+Checks that the tests are not vacuous:
+- Red run with a stub that always returned human and no command: 9 of 10
+  failed (`failures_carry_no_argument_text` passed trivially).
+- Three temporary mutations, each reverted: ignoring `allow_hyphen_values`
+  failed 1 test; continuing past `--` failed 2; accepting the first of several
+  declarations failed 2.
+- For every `Parsed` case the test compares the helper's mode with the value
+  Clap actually bound.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions output_intent` | PASS: 10 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 233 tests (223 + 10), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- Recovery is checked against a fixture grammar; T017 must rerun these tests
+  against the real `order list` and global `--output`.
+- Exit codes and stream content are asserted at the helper level
+  (`ARGUMENT_ERROR_EXIT`, `json_error_code`); process-level streams are covered
+  when T017 wires the helper and later process tests use the T013 harness.
+
+T001-T014 are complete. T015 (SDK notification observability) is next. The
+JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

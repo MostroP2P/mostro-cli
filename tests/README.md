@@ -12,11 +12,12 @@ This directory contains comprehensive unit and integration tests for the Mostro 
    - Mostro identification
    - Edge cases and error handling
 
-2. **`cli_functions.rs`** (26 tests)
+2. **`cli_functions.rs`** (54 tests)
    - CLI command logic
    - Message creation and serialization
    - Payload validation
    - Action handling
+   - Output-intent recovery from malformed argv (`output_intent`, 10 tests)
 
 3. **`util_misc.rs`** (13 tests)
    - Utility function tests
