@@ -1836,6 +1836,8 @@ dependencies = [
  "comfy-table",
  "dirs",
  "futures",
+ "hyper",
+ "hyper-util",
  "lightning-invoice",
  "lnurl-rs",
  "log",
@@ -1858,6 +1860,7 @@ dependencies = [
  "tokio-test",
  "tonic",
  "tonic-prost",
+ "tungstenite",
  "uuid",
 ]
 

@@ -112,3 +112,10 @@ rstest = "0.27.0"
 # In-process loopback relays (LocalRelay/MockRelay) for process tests; never
 # enabled in the shipped binary.
 nostr-sdk = { version = "0.45.3", features = ["local-relay"] }
+# Loopback WebSocket upgrade in front of LocalRelay, so the harness owns an
+# OS-assigned port instead of the SDK's probe-then-bind port pick.
+hyper = { version = "1.8.1", features = ["server", "http1"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
+tungstenite = { version = "0.28.0", default-features = false, features = [
+  "handshake",
+] }
