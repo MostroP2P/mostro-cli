@@ -616,6 +616,74 @@ T015 proves each notification case.
 T001-T012 are complete. T013 (portable process harness) is next. The JSON pilot
 is still unimplemented.
 
+## T013 Process Harness: 2026-10-21
+
+New target `tests/order_list_process.rs`. Native Linux, rustc 1.97.0, base
+`7bd66d7`. Windows is not run (deferred to T051-T052).
+
+| Requirement | How the harness meets it |
+| --- | --- |
+| Generated keys | `Keys::generate()` for the Mostro pubkey and seeded events |
+| Loopback, OS-assigned port | Harness binds `127.0.0.1:0` itself and keeps the listener |
+| Readiness signal | The listener is bound when `LoopbackRelay::start` returns; no sleep or polling |
+| SDK fixtures, no handwritten framing | hyper WebSocket upgrade, tungstenite `derive_accept_key`, then `LocalRelay::take_connection` |
+| Allow-listed environment | `env_clear()`, then only `SYSTEMROOT` (when present) plus sandbox variables and the test's node config |
+| Isolated HOME/USERPROFILE/MCLI_DIR/cwd | Per-test directory under the system temp dir, created fresh and removed on drop, including on panic |
+| Closed stdin, captured streams | `Stdio::null()` stdin; stdout and stderr piped and read concurrently |
+| 40-second watchdog, guaranteed reap | `timeout` around `wait()`; on expiry `kill()` (which also waits); `kill_on_drop` as a fallback |
+| Relay cleanup | Dropping `LoopbackRelay` aborts its accept task and all sessions and shuts the relay down |
+
+**Design decision (user, 2026-10-21)**: nostr-sdk's `LocalRelay` picks its own
+port by probing a random port, dropping the probe and binding again, which is the
+guessed-port race the quickstart forbids. Its test option for an unresponsive
+relay is crate-private. The harness therefore owns the listener and adds
+dev-only hyper 1.8.1 (`server`, `http1`), hyper-util 0.1.20 (`tokio`) and
+tungstenite 0.28.0 (`handshake`). All three were already locked; `Cargo.lock`
+gains only three entries in mostro-cli's own dependency list, with no package
+added or changed. Production-graph features of all three crates are identical
+before and after. A `Silent` backend (upgrade completed, never answered) stands
+in for the private unresponsive option.
+
+| Test | Proves |
+| --- | --- |
+| `child_environment_is_allow_listed_and_sandboxed` | Child variables are only the allow list; sandbox paths and cwd are inside the sandbox |
+| `sandbox_is_removed_on_drop` | Sandbox directories and their files are deleted |
+| `parent_config_does_not_leak_into_the_child` | Exit 1 `MOSTRO_PUBKEY not set`, empty stdout, no files in home/mcli/cwd |
+| `loopback_relay_serves_sdk_clients_on_an_os_assigned_port` | Nonzero loopback port; an SDK client fetches exactly the seeded event over one connection |
+| `child_reaches_the_loopback_relay_with_sandboxed_storage` | `listorders` exits 0 against the loopback relay; HOME untouched |
+| `watchdog_kills_and_reaps_a_hung_child` | Against a silent relay, a 2-second limit kills the child and leaves no running process |
+
+Checks that the tests are not vacuous:
+- With `MOSTRO_PUBKEY`, `RELAYS`, `MOSTRO_RPC_TOKEN` and `ADMIN_NSEC` planted in
+  the parent, the leak test still passes.
+- With `env_clear()` removed (temporary mutation, reverted), the same test fails:
+  the child used the parent's config instead of failing on missing config.
+- 10 consecutive runs of the target: 10/10 pass, about 2 s each. No
+  `mcli-process-*` directory remained in the temp dir.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process` | PASS: 6 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 223 tests (217 + 6), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- `child_reaches_the_loopback_relay_with_sandboxed_storage` runs today's
+  `listorders`, which still creates a database in the sandbox `MCLI_DIR`. The
+  test asserts only that HOME stays untouched, so it keeps passing when the pilot
+  removes that side effect.
+- On Windows, `dirs::home_dir` uses the known-folder API rather than
+  `USERPROFILE`, so `MCLI_DIR` is the variable that actually isolates storage
+  there. Native Windows runs remain T051-T052.
+- EOSE-empty, CLOSED, disconnect and silent-relay observability belongs to
+  T015. This harness only provides the fixtures.
+
+T001-T013 are complete. T014 (adversarial output-intent tests) is next. The
+JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
