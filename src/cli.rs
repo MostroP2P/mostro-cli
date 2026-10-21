@@ -6,6 +6,7 @@ pub mod dispute_chat;
 pub mod dm_to_user;
 pub mod get_dm;
 pub mod get_dm_user;
+pub mod invocation;
 pub mod last_trade_index;
 pub mod list_disputes;
 pub mod list_orders;
