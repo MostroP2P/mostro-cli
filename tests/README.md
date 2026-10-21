@@ -38,11 +38,12 @@ This directory contains comprehensive unit and integration tests for the Mostro 
    - Context creation
    - Integration scenarios
 
-7. **`order_list_process.rs`** (6 tests)
+7. **`order_list_process.rs`** (9 tests)
    - Runs the real `mostro-cli` binary as a child process
    - Allow-listed child environment; sandboxed `HOME`/`USERPROFILE`/`MCLI_DIR` and working directory, removed on drop
    - Closed stdin, captured stdout/stderr, 40-second parent watchdog that kills and reaps
    - In-process nostr-sdk `LocalRelay` behind a loopback listener on an OS-assigned port (no public relays)
+   - EOSE-empty, CLOSED, silent and disconnect relay fixtures with per-relay completion observation
 
 ## Running Tests
 

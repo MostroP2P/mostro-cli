@@ -758,6 +758,61 @@ Limitations:
 T001-T014 are complete. T015 (SDK notification observability) is next. The
 JSON pilot is still unimplemented.
 
+## T015 Notification Observability: 2026-10-21
+
+Three tests added to `tests/order_list_process.rs` (9 in total). Native
+Linux, rustc 1.97.0, nostr-sdk 0.45.4, base `3bdb671`, test commit `828dbdb`.
+The result and its design constraints are recorded in
+[research §2](../specs/001-order-list-json/research.md#2-empty-results-and-completion).
+No production code changed.
+
+| Fixture | How it is built |
+| --- | --- |
+| EOSE-empty | Default `LocalRelay` with no events |
+| CLOSED | `LocalRelay` whose `QueryPolicy` rejects every REQ with prefix `restricted` and message `queries disabled` |
+| Silent | `Backend::Silent`: WebSocket accepted, never answered |
+| Disconnect | `LocalRelay` whose `QueryPolicy` signals the REQ and never answers; the test then drops the endpoint and its connections |
+
+| Test | Proves |
+| --- | --- |
+| `convenience_fetch_reports_success_for_every_failure` | `fetch_events` returns `Ok` with no events for all four fixtures |
+| `explicit_subscription_distinguishes_completion_per_relay` | One explicit subscription over two seeded relays (same event), EOSE-empty, CLOSED and silent relays: EOSE with the event from both seeded relays, EOSE empty, CLOSED with its message, no signal; `Output::success` lists all five |
+| `disconnect_before_eose_is_observed_per_relay` | The relay's own stream reports the disconnect before any EOSE |
+
+Measured `fetch_events` times with a 2-second timeout (temporary probe,
+reverted): EOSE-empty 0.7 ms, CLOSED 0.5 ms, disconnect 0.5 ms, silent 2.0 s.
+All four returned `Ok(0 events)`.
+
+Checks that the tests are not vacuous:
+- Each failure fixture is the same in both tests, and the subscription test
+  shows each one produces a different signal, so the fetch result hides a
+  real difference.
+- The disconnect test cannot pass unless the relay actually received the
+  REQ: the endpoint is dropped only on that signal, and the test would hang
+  otherwise.
+- Counting events from `RelayNotification::Event` instead of raw
+  `RelayMessage::Event` (temporary mutation, reverted) made one seeded relay
+  report EOSE with no events.
+- 10 consecutive runs of the target: 10/10 pass, about 2 s each. No sandbox
+  directory remained.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process` | PASS: 9 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 236 tests (233 + 3), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- SDK-level only. No production collection exists yet; the CLI child is not
+  exercised against these fixtures until the pilot adapter is built.
+- Reconnect and resubscription behaviour after a disconnect was not tested.
+- Windows runs remain T051-T052.
+
+T001-T015 are complete. T016 is next. The JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

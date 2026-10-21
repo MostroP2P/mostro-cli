@@ -51,6 +51,40 @@ cannot expose swallowed failures. Partial success with warnings is not chosen.
 Prove EOSE-empty, CLOSED and silent-relay cases first; if notifications cannot
 expose them, revise the adapter instead of weakening the contract.
 
+**T015 result (2026-10-21, runtime evidence)**: Notifications expose every case,
+so the decision stands without a design correction. Against loopback fixtures
+in `tests/order_list_process.rs`:
+
+- `fetch_events(...).timeout(2s)` returns `Ok` with no events for an EOSE-empty
+  relay, a CLOSED rejection and a disconnect before EOSE, each in under 1 ms,
+  and for a silent relay after the full timeout. Success from the convenience
+  fetch therefore proves nothing about completion.
+- `subscribe(...).with_id(id)` reports every relay in `Output::success`,
+  including relays that never answer, so the subscribe output is not
+  completion either.
+- Each relay's own `Relay::notifications()` stream, armed before the REQ,
+  separates EOSE (with that relay's events), CLOSED (with its message),
+  disconnect (`RelayStatus` change) and silence (no terminal signal by the
+  deadline). One subscription across five relays got the right answer from
+  each.
+
+The adapter must follow these constraints, which refine the decision above:
+
+- Track completion on per-relay streams. `Client::notifications()` names the
+  relay on EOSE and CLOSED but drops `RelayStatus`, so a disconnect is not
+  visible there.
+- Arm streams before sending the REQ. A stream only sees notifications sent
+  after it was created.
+- Count a relay's events from `RelayMessage::Event` frames, not
+  `RelayNotification::Event`. The latter is sent only the first time the
+  client stores an event, so a second relay's copy is missed (shown by a
+  reverted mutation).
+- Match on `Disconnected`, `Terminated` and `Shutdown` explicitly;
+  `RelayStatus::is_disconnected` is crate-private.
+- Silence is only detectable by the read deadline. Freeze each relay at its
+  first terminal signal; whether the SDK resubscribes after a reconnect was
+  not tested.
+
 ## 3. Public Reads Without Identity
 
 **Evidence**: [startup](../../src/cli.rs) initializes full Context;
