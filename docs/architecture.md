@@ -209,6 +209,8 @@ the complete refactor must eliminate every legacy violation.
     - `common.rs`: shared parsing helpers.
     - `mod.rs`: module glue.
 
+- **`src/outcome.rs`**: the machine-readable outcome envelope (contract v1). `Envelope::ok` and `Envelope::error` are the only constructors, so status, data and error agree; error and warning codes carry fixed messages and exit statuses; `ExecutionMeta` holds the write-stage fields and optional snapshot. Not yet used by any command.
+
 - **Peer / solver chat** (`src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
   - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`.
   - Attachment encryption still uses ECDH (`derive_shared_key_bytes`) for the Blossom blob only; the metadata DM is the same kind-14 chat envelope.

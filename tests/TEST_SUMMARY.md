@@ -813,6 +813,72 @@ Limitations:
 
 T001-T015 are complete. T016 is next. The JSON pilot is still unimplemented.
 
+## T016 Outcome Envelope: 2026-10-21
+
+New module `src/outcome.rs` (254 production lines, plus its `#[cfg(test)]`
+module). Native Linux, rustc 1.97.0, base `186978d`, code commit `c94f1fb`.
+Nothing calls it yet; T018 wires it to the output boundary.
+
+Design:
+- `Envelope<D, S>` has private fields. `Envelope::ok(command, data, ...)` and
+  `Envelope::error(command_or_null, code, ...)` are the only constructors, so
+  status, data and error cannot conflict, and neither emits `uncertain`.
+  `D` and `S` stay generic until ListData, Snapshot and DiscoveryData land
+  (T022, T026, T042).
+- No field is skipped when empty; null keys and the `[]` warnings array are
+  always serialized.
+- `ErrorInfo` and `Warning` take their message from the code, so no
+  caller-provided text, raw error chain, argument or URL can reach the wire.
+  `ErrorCode::exit_code` maps argument codes to 2 and all others to 1.
+- `Warnings::add` keeps one warning per code, which aggregates repeated
+  invalid timestamps.
+- `ExecutionMeta::read` sets all three stages to `not_applicable`;
+  `ExecutionMeta::not_executed` sets `not_attempted`/`unknown`/`not_attempted`
+  with a null snapshot. The full roadmap stage enums and `Status::Uncertain`
+  exist for schema reservation only.
+
+| Test | Proves |
+| --- | --- |
+| `success_examples_are_reproduced` | `large_amount_success` and `empty_success` from [examples.json](../specs/001-order-list-json/contracts/examples.json) serialize identically, exit 0 |
+| `error_examples_are_reproduced` | `partial_relay_timeout`, `invalid_arguments` and `unsupported_secret_command` serialize identically with their exits |
+| `every_key_is_present_and_null_when_empty` | All 7 envelope keys and 4 meta keys present; null command, data, error and snapshot; `schema_version` is the string `"1"` |
+| `status_data_and_error_always_agree` | Every error code yields status `error`, data null, a `{code, message}` object and the contract exit |
+| `error_codes_and_messages_follow_the_contract` | The 9 codes serialize to the contract names; messages are distinct, ASCII, sentence-shaped and free of URLs, braces and secret markers |
+| `warnings_aggregate_by_code_and_never_serialize_as_null` | Empty warnings serialize as `[]`; repeated codes aggregate; a cleanup warning keeps the original error |
+| `stages_follow_the_data_model` | Read and not-executed stage combinations |
+| `reserved_stage_sets_match_the_roadmap` | Every publication, daemon-acceptance and persistence value serializes to its roadmap name |
+
+The contract-name tests use exhaustive `match` tables, so a new code or stage
+fails to compile until its contract name is added.
+
+Checks that the tests are not vacuous:
+- Red run with `todo!()` constructors: 7 of 8 failed.
+  `reserved_stage_sets_match_the_roadmap` passed, since it checks only derived
+  serde names.
+- Two temporary mutations, each reverted: omitting a null snapshot failed 3
+  tests; removing warning aggregation failed 1.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib outcome` | PASS: 8 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 244 tests (236 + 8), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- `src/cli/invocation.rs` still defines its own `ARGUMENT_ERROR_EXIT` and
+  `invalid_arguments` string; T017 should reuse the outcome constants when it
+  integrates the helper.
+- Canonical command names are not validated here; the T018 registry supplies
+  them.
+- Messages for codes without a contract example are proposed prose. Only the
+  codes are stable for matching.
+
+T001-T016 are complete. T017 (fallible parsing and output selection) is next.
+The JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
