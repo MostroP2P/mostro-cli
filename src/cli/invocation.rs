@@ -3,12 +3,10 @@ use clap::{Arg, ArgMatches, Command, ValueEnum};
 use std::ffi::OsString;
 use std::str::from_utf8;
 
+use crate::outcome::ErrorCode;
+
 /// Long name of the global output option.
 pub const OUTPUT_LONG: &str = "output";
-/// Exit code for every argument error, whatever the output mode.
-pub const ARGUMENT_ERROR_EXIT: i32 = 2;
-/// Stable error code of a JSON argument-error envelope.
-pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum OutputMode {
@@ -35,7 +33,8 @@ pub enum Invocation {
     /// Clap displayed help or version: print it as text and exit 0, even when
     /// JSON was selected.
     Text(clap::Error),
-    /// Argument error: exit [`ARGUMENT_ERROR_EXIT`] without running anything.
+    /// Argument error: exit [`crate::outcome::ARGUMENT_ERROR_EXIT`] without
+    /// running anything.
     Rejected(ArgumentFailure),
 }
 
@@ -46,13 +45,33 @@ pub struct ArgumentFailure {
     pub output: OutputSelection,
     /// Leaf command path such as `["order", "list"]`; `None` when unresolved.
     pub command: Option<Vec<String>>,
+    /// Clap's classification; its fixed description never contains argv.
+    pub kind: ErrorKind,
 }
 
 impl ArgumentFailure {
     /// Error code for a JSON envelope; `None` means empty stdout and a safe
     /// stderr diagnostic instead.
-    pub fn json_error_code(&self) -> Option<&'static str> {
-        (self.output == OutputSelection::Mode(OutputMode::Json)).then_some(INVALID_ARGUMENTS)
+    pub fn json_error_code(&self) -> Option<ErrorCode> {
+        (self.output == OutputSelection::Mode(OutputMode::Json))
+            .then_some(ErrorCode::InvalidArguments)
+    }
+
+    /// Safe stderr text: fixed prose only, never argv or Clap's own message.
+    pub fn diagnostic(&self) -> String {
+        match self.output {
+            OutputSelection::Invalid => {
+                format!(
+                    "error: --{OUTPUT_LONG} takes `human` or `json` and may be given only once\n"
+                )
+            }
+            OutputSelection::Mode(_) => format!(
+                "error: {}\n\nFor more information, try '--help'.\n",
+                self.kind
+                    .as_str()
+                    .unwrap_or("the command arguments are invalid")
+            ),
+        }
     }
 }
 
@@ -87,11 +106,13 @@ where
             OutputSelection::Invalid => Invocation::Rejected(ArgumentFailure {
                 output: OutputSelection::Invalid,
                 command: scan.command,
+                kind: ErrorKind::ArgumentConflict,
             }),
         },
-        Err(_) => Invocation::Rejected(ArgumentFailure {
+        Err(error) => Invocation::Rejected(ArgumentFailure {
             output: scan.output,
             command: scan.command,
+            kind: error.kind(),
         }),
     }
 }

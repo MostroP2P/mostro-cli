@@ -613,14 +613,14 @@ mod maintenance_commands {
 
 // ── output-intent recovery on malformed argv (contracts/cli.md) ────────────
 mod output_intent {
-    use clap::builder::{EnumValueParser, PossibleValuesParser};
+    use clap::builder::PossibleValuesParser;
     use clap::error::ErrorKind;
     use clap::{Arg, ArgMatches, Command, CommandFactory};
     use mostro_client::cli::invocation::{
-        parse_invocation, ArgumentFailure, Invocation, OutputMode, OutputSelection,
-        INVALID_ARGUMENTS, OUTPUT_LONG,
+        parse_invocation, ArgumentFailure, Invocation, OutputMode, OutputSelection, OUTPUT_LONG,
     };
     use mostro_client::cli::Cli;
+    use mostro_client::outcome::ErrorCode;
     use std::ffi::OsString;
 
     const STATUSES: [&str; 17] = [
@@ -656,8 +656,8 @@ mod output_intent {
         InvalidSelection,
     }
 
-    /// Today's `Cli` plus the pilot grammar T017/T030 add to it: a global
-    /// `--output` and `order list`.
+    /// The real `Cli`, with its global `--output`, plus the `order list`
+    /// grammar the pilot adds.
     fn pilot_grammar() -> Command {
         let list = Command::new("list")
             .arg(
@@ -673,19 +673,12 @@ mod output_intent {
                     .ignore_case(true)
                     .value_parser(PossibleValuesParser::new(STATUSES)),
             );
-        Cli::command()
-            .arg(
-                Arg::new(OUTPUT_LONG)
-                    .long(OUTPUT_LONG)
-                    .global(true)
-                    .value_parser(EnumValueParser::<OutputMode>::new()),
-            )
-            .subcommand(
-                Command::new("order")
-                    .subcommand_required(true)
-                    .arg_required_else_help(true)
-                    .subcommand(list),
-            )
+        Cli::command().subcommand(
+            Command::new("order")
+                .subcommand_required(true)
+                .arg_required_else_help(true)
+                .subcommand(list),
+        )
     }
 
     fn invoke_os(suffix: Vec<OsString>) -> Invocation {
@@ -713,7 +706,7 @@ mod output_intent {
                 assert_eq!(failure.command, command, "{label}");
                 assert_eq!(
                     failure.json_error_code(),
-                    Some(INVALID_ARGUMENTS),
+                    Some(ErrorCode::InvalidArguments),
                     "{label}"
                 );
             }
@@ -1078,8 +1071,9 @@ mod output_intent {
         let failure = ArgumentFailure {
             output: OutputSelection::Mode(OutputMode::Json),
             command: None,
+            kind: ErrorKind::InvalidValue,
         };
-        assert_eq!(failure.json_error_code(), Some(INVALID_ARGUMENTS));
+        assert_eq!(failure.json_error_code(), Some(ErrorCode::InvalidArguments));
         let Invocation::Rejected(failure) = invoke(&[
             "--output",
             "json",
@@ -1092,5 +1086,104 @@ mod output_intent {
             panic!("expected an argument error");
         };
         assert!(!format!("{failure:?}").contains("secret-sentinel"));
+    }
+
+    fn invoke_real(suffix: &[&str]) -> Invocation {
+        let argv = std::iter::once("mostro-cli").chain(suffix.iter().copied());
+        parse_invocation(Cli::command(), argv)
+    }
+
+    #[test]
+    fn real_cli_declares_a_global_case_sensitive_output() {
+        let mut command = Cli::command();
+        command.build();
+        let output = command
+            .get_arguments()
+            .find(|arg| arg.get_id() == OUTPUT_LONG)
+            .expect("--output is declared");
+        assert_eq!(output.get_long(), Some(OUTPUT_LONG));
+        assert_eq!(output.get_short(), None);
+        assert!(output.is_global_set());
+        assert!(!output.is_ignore_case_set());
+        let values: Vec<String> = output
+            .get_possible_values()
+            .iter()
+            .map(|value| value.get_name().to_string())
+            .collect();
+        assert_eq!(values, ["human", "json"]);
+        // Clap's generated `help` subcommand takes command names only.
+        for subcommand in command
+            .get_subcommands()
+            .filter(|sub| sub.get_name() != "help")
+        {
+            assert!(
+                subcommand
+                    .get_arguments()
+                    .any(|arg| arg.get_id() == OUTPUT_LONG),
+                "{} lacks --output",
+                subcommand.get_name()
+            );
+        }
+
+        let rows: [(&[&str], OutputMode); 4] = [
+            (&["listorders"], OutputMode::Human),
+            (&["listorders", "--output", "json"], OutputMode::Json),
+            (&["--output=json", "listorders"], OutputMode::Json),
+            (&["--output", "human", "listorders"], OutputMode::Human),
+        ];
+        for (suffix, mode) in rows {
+            let Invocation::Parsed { matches, output } = invoke_real(suffix) else {
+                panic!("{suffix:?} did not parse");
+            };
+            assert_eq!(output, mode, "{suffix:?}");
+            assert_eq!(clap_view(&matches).0.unwrap_or(OutputMode::Human), mode);
+        }
+        let Invocation::Rejected(failure) = invoke_real(&["--output", "JSON", "listorders"]) else {
+            panic!("--output is case-sensitive");
+        };
+        assert_eq!(failure.output, OutputSelection::Invalid);
+    }
+
+    #[test]
+    fn rejections_keep_the_clap_kind_and_a_safe_diagnostic() {
+        let rows: [(&[&str], ErrorKind, &str); 4] = [
+            (
+                &["listorders", "--secret-sentinel"],
+                ErrorKind::UnknownArgument,
+                "unexpected argument found",
+            ),
+            (
+                &["secret-sentinel"],
+                ErrorKind::InvalidSubcommand,
+                "unrecognized subcommand",
+            ),
+            (
+                &["--output", "secret-sentinel", "listorders"],
+                ErrorKind::InvalidValue,
+                "--output",
+            ),
+            (
+                &["--output", "json", "--output", "json", "listorders"],
+                ErrorKind::ArgumentConflict,
+                "--output",
+            ),
+        ];
+        for (suffix, kind, mentions) in rows {
+            let Invocation::Rejected(failure) = invoke_real(suffix) else {
+                panic!("{suffix:?} was accepted");
+            };
+            assert_eq!(failure.kind, kind, "{suffix:?}");
+            let text = failure.diagnostic();
+            assert!(text.starts_with("error: "), "{suffix:?}: {text:?}");
+            assert!(text.contains(mentions), "{suffix:?}: {text:?}");
+            assert!(!text.contains("secret-sentinel"), "{suffix:?}: {text:?}");
+        }
+        let Invocation::Rejected(bare) = invoke_real(&[]) else {
+            panic!("a bare invocation is an argument error");
+        };
+        assert_eq!(
+            bare.kind,
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
     }
 }

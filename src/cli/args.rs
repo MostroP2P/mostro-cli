@@ -2,6 +2,7 @@ use anyhow::{anyhow, Error, Result};
 use clap::Parser;
 
 use super::commands::Commands;
+use super::invocation::{OutputMode, OUTPUT_LONG};
 
 #[derive(Parser)]
 #[command(
@@ -40,6 +41,10 @@ pub struct Cli {
     /// nip44.
     #[arg(short, long)]
     pub transport: Option<String>,
+    /// Output format, accepted at any command depth. Defaults to `human`;
+    /// only migrated commands support `json`.
+    #[arg(long = OUTPUT_LONG, global = true, value_enum)]
+    pub output: Option<OutputMode>,
 }
 
 // Check range with two values value

@@ -31,15 +31,40 @@ pub use args::Cli;
 pub use commands::Commands;
 pub use context::Context;
 
-use anyhow::Result;
-use clap::Parser;
+use std::{env, process};
 
+use anyhow::{anyhow, Result};
+use clap::error::ErrorKind;
+use clap::{CommandFactory, FromArgMatches};
+
+use crate::outcome::ARGUMENT_ERROR_EXIT;
 use crate::util::net::install_rustls_crypto_provider;
 use context::init_context;
+use invocation::{parse_invocation, Invocation, OutputMode, OutputSelection};
+
+const JSON_NOT_SUPPORTED: &str = "error: JSON output is not supported for this command\n";
 
 pub async fn run() -> Result<()> {
+    let cli = match parse_invocation(Cli::command(), env::args_os()) {
+        Invocation::Parsed {
+            matches,
+            output: OutputMode::Human,
+        } => Cli::from_arg_matches(&matches)
+            .map_err(|_| anyhow!("internal error: parsed arguments could not be bound"))?,
+        Invocation::Parsed {
+            output: OutputMode::Json,
+            ..
+        } => reject(JSON_NOT_SUPPORTED),
+        Invocation::Text(display) => display.exit(),
+        Invocation::Rejected(failure)
+            if failure.kind == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                && failure.output == OutputSelection::Mode(OutputMode::Human) =>
+        {
+            reject(&Cli::command().render_help().to_string())
+        }
+        Invocation::Rejected(failure) => reject(&failure.diagnostic()),
+    };
     install_rustls_crypto_provider();
-    let cli = Cli::parse();
 
     // Daemon-local gRPC commands: no relays, keys or database involved.
     if let Some(cmd) = &cli.command {
@@ -55,4 +80,10 @@ pub async fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Report an argument error on stderr and exit before any effect.
+fn reject(diagnostic: &str) -> ! {
+    eprint!("{diagnostic}");
+    process::exit(ARGUMENT_ERROR_EXIT)
 }

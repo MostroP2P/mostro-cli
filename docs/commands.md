@@ -19,6 +19,14 @@ settable via the matching env var):
   `protocol_version` tag on its kind-38385 info event (a node that advertises
   nothing is treated as `nip44`). A v1 node is an error.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
+- `--output <human|json>`: output format, accepted before, between or after
+  command words (case-sensitive, default `human`, no environment variable).
+  No command supports `json` yet: selecting it exits 2 before anything runs.
+  A missing, invalid or repeated `--output` also exits 2 with nothing on stdout.
+
+Argument errors exit 2 and print a fixed description on stderr, such as
+`error: unexpected argument found`, without echoing the arguments given.
+`--help` and `--version` print text and exit 0 even with `--output json`.
 
 ### Orders
 

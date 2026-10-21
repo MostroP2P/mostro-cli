@@ -685,3 +685,108 @@ async fn disconnect_before_eose_is_observed_per_relay() {
     assert_eq!(completions, vec![Completion::Disconnected]);
     client.shutdown().await;
 }
+
+/// Text that must never be echoed back by a rejected invocation.
+const SENTINEL: &str = "secret-sentinel-7f3a";
+
+/// Run `args` with node configuration pointing at `endpoint`, so any network
+/// or storage effect of a rejected invocation is observable.
+async fn run_configured(args: &[&str], endpoint: &LoopbackRelay) -> (Captured, Sandbox) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut command = sandbox.command(args);
+    set_node_env(&mut command, &Keys::generate(), &[endpoint]);
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    (run, sandbox)
+}
+
+fn assert_no_effects(sandbox: &Sandbox, label: &str) {
+    for dir in [sandbox.home(), sandbox.mcli_dir(), sandbox.cwd()] {
+        assert!(is_empty_dir(&dir), "{label}: {dir:?} was written");
+    }
+}
+
+#[tokio::test]
+async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
+    let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
+        .await
+        .unwrap();
+    let unknown_flag = format!("--{SENTINEL}");
+    let rows: [&[&str]; 5] = [
+        &["listorders", &unknown_flag],
+        &[SENTINEL],
+        &["--output", SENTINEL, "listorders"],
+        &["--output", "json", "--output", "json", "listorders"],
+        &["--output", "human", "listorders", &unknown_flag],
+    ];
+    for args in rows {
+        let label = format!("{args:?}");
+        let (run, sandbox) = run_configured(args, &endpoint).await;
+        let stderr = run.stderr_text();
+        assert_eq!(run.code(), Some(2), "{label}: {stderr}");
+        assert!(run.stdout.is_empty(), "{label}: {}", run.stdout_text());
+        assert!(stderr.starts_with("error: "), "{label}: {stderr}");
+        assert!(!stderr.contains(SENTINEL), "{label}: {stderr}");
+        assert_no_effects(&sandbox, &label);
+    }
+    assert_eq!(endpoint.connections(), 0);
+}
+
+#[tokio::test]
+async fn json_intent_never_runs_a_legacy_command() {
+    let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
+        .await
+        .unwrap();
+    let rows: [&[&str]; 3] = [
+        &["--output", "json", "listorders"],
+        &["listorders", "--output=json"],
+        &["--output", "json", SENTINEL],
+    ];
+    for args in rows {
+        let label = format!("{args:?}");
+        let (run, sandbox) = run_configured(args, &endpoint).await;
+        assert_eq!(run.code(), Some(2), "{label}: {}", run.stderr_text());
+        assert!(!run.stdout_text().contains(SENTINEL), "{label}");
+        assert!(!run.stderr_text().contains(SENTINEL), "{label}");
+        assert!(!run.stdout_text().contains("List Orders"), "{label}");
+        assert_no_effects(&sandbox, &label);
+    }
+    assert_eq!(endpoint.connections(), 0);
+}
+
+#[tokio::test]
+async fn help_and_version_stay_text_on_stdout() {
+    let endpoint = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let rows: [&[&str]; 5] = [
+        &["--help"],
+        &["--output", "json", "--help"],
+        &["listorders", "--output", "json", "--help"],
+        &["--version"],
+        &["--output", "json", "--version"],
+    ];
+    for args in rows {
+        let label = format!("{args:?}");
+        let (run, sandbox) = run_configured(args, &endpoint).await;
+        let stdout = run.stdout_text();
+        assert_eq!(run.code(), Some(0), "{label}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{label}: {}", run.stderr_text());
+        assert!(stdout.contains("mostro-cli"), "{label}: {stdout}");
+        assert!(!stdout.starts_with('{'), "{label}: {stdout}");
+        assert_no_effects(&sandbox, &label);
+    }
+    assert_eq!(endpoint.connections(), 0);
+}
+
+#[tokio::test]
+async fn bare_invocation_still_prints_help_on_stderr() {
+    let endpoint = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let (run, sandbox) = run_configured(&[], &endpoint).await;
+    assert_eq!(run.code(), Some(2), "{}", run.stderr_text());
+    assert!(run.stdout.is_empty(), "{}", run.stdout_text());
+    assert!(
+        run.stderr_text().contains("Usage:"),
+        "{}",
+        run.stderr_text()
+    );
+    assert_no_effects(&sandbox, "bare");
+    assert_eq!(endpoint.connections(), 0);
+}
