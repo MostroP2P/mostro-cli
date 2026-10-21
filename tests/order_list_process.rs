@@ -8,14 +8,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ffi::OsStr;
+use std::future::{pending, Future};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::{ExitStatus, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, io, process};
 
+use futures::future::join_all;
+use futures::{Stream, StreamExt};
 use hyper::body::Incoming;
 use hyper::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
 use hyper::server::conn::http1;
@@ -23,11 +27,16 @@ use hyper::service::service_fn;
 use hyper::upgrade::{self, OnUpgrade};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use nostr_sdk::prelude::{Client, EventBuilder, Filter, FinalizeEvent, Keys, Kind, LocalRelay};
+use nostr_sdk::prelude::{
+    Client, Event, EventBuilder, EventId, Filter, FinalizeEvent, Keys, Kind, LocalRelay,
+    MachineReadablePrefix, QueryPolicy, QueryPolicyResult, RelayMessage, RelayNotification,
+    RelayStatus, SubscriptionId,
+};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::Notify;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::timeout;
 use tungstenite::handshake::derive_accept_key;
@@ -169,7 +178,7 @@ async fn accept_loop(listener: TcpListener, backend: Backend, connections: Arc<A
 }
 
 async fn session(stream: TcpStream, remote: SocketAddr, backend: Backend) {
-    let (upgrades, mut pending) = unbounded_channel();
+    let (upgrades, mut queued) = unbounded_channel();
     let service = service_fn(move |request| handshake(request, upgrades.clone()));
     let served = http1::Builder::new()
         .serve_connection(TokioIo::new(stream), service)
@@ -178,7 +187,7 @@ async fn session(stream: TcpStream, remote: SocketAddr, backend: Backend) {
     if served.is_err() {
         return;
     }
-    let Some(on_upgrade) = pending.recv().await else {
+    let Some(on_upgrade) = queued.recv().await else {
         return;
     };
     let Ok(upgraded) = on_upgrade.await else {
@@ -190,7 +199,7 @@ async fn session(stream: TcpStream, remote: SocketAddr, backend: Backend) {
         }
         Backend::Silent => {
             let _held_open = upgraded;
-            std::future::pending::<()>().await;
+            pending::<()>().await;
         }
     }
 }
@@ -289,6 +298,193 @@ where
 
 fn is_empty_dir(path: &Path) -> bool {
     fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none())
+}
+
+/// How long a test waits for one relay's answer to a subscription.
+const OBSERVE: Duration = Duration::from_secs(2);
+
+/// Relay behaviours a read must tell apart.
+#[derive(Clone, Copy, Debug)]
+enum Fixture {
+    /// Answers with EOSE and no events.
+    Empty,
+    /// Answers every REQ with CLOSED.
+    Closed,
+    /// Accepts the WebSocket, then never answers.
+    Silent,
+    /// Receives the REQ, then the connection drops before EOSE.
+    Disconnect,
+}
+
+#[derive(Debug)]
+struct RejectQueries;
+
+impl QueryPolicy for RejectQueries {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        Box::pin(async {
+            QueryPolicyResult::reject(MachineReadablePrefix::Restricted, "queries disabled")
+        })
+    }
+}
+
+/// Signals that a REQ arrived and never answers it.
+#[derive(Debug)]
+struct HoldQueries {
+    received: Arc<Notify>,
+}
+
+impl QueryPolicy for HoldQueries {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        self.received.notify_one();
+        Box::pin(pending())
+    }
+}
+
+/// The endpoint for `fixture` and the signal that it is holding a REQ, which
+/// only `Disconnect` ever sends.
+async fn start_fixture(fixture: Fixture) -> (LoopbackRelay, Arc<Notify>) {
+    let held = Arc::new(Notify::new());
+    let backend = match fixture {
+        Fixture::Empty => Backend::Relay(Box::default()),
+        Fixture::Closed => Backend::Relay(Box::new(
+            LocalRelay::builder().query_policy(RejectQueries).build(),
+        )),
+        Fixture::Silent => Backend::Silent,
+        Fixture::Disconnect => Backend::Relay(Box::new(
+            LocalRelay::builder()
+                .query_policy(HoldQueries {
+                    received: Arc::clone(&held),
+                })
+                .build(),
+        )),
+    };
+    (LoopbackRelay::start(backend).await.unwrap(), held)
+}
+
+async fn seeded_endpoint(event: &Event) -> LoopbackRelay {
+    let relay = LocalRelay::new();
+    relay.add_event(event.clone()).await.unwrap();
+    LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+        .await
+        .unwrap()
+}
+
+/// Run `work` while `endpoint` serves; for `Disconnect`, drop the endpoint,
+/// and with it every connection, as soon as it holds a REQ.
+async fn run_against<F: Future>(
+    fixture: Fixture,
+    endpoint: LoopbackRelay,
+    held: Arc<Notify>,
+    work: F,
+) -> F::Output {
+    let serve = async move {
+        if matches!(fixture, Fixture::Disconnect) {
+            held.notified().await;
+            drop(endpoint);
+            None
+        } else {
+            Some(endpoint)
+        }
+    };
+    let (output, _serving) = tokio::join!(work, serve);
+    output
+}
+
+async fn connected_client(urls: &[&str]) -> Client {
+    let client = Client::default();
+    for url in urls {
+        client.add_relay(*url).await.unwrap();
+    }
+    let connected = client.try_connect().timeout(Duration::from_secs(5)).await;
+    assert!(connected.failed.is_empty(), "{:?}", connected.failed);
+    client
+}
+
+/// What one relay did with one subscription, judged from its own
+/// notification stream.
+#[derive(Debug, PartialEq, Eq)]
+enum Completion {
+    /// EOSE, with the IDs of the events this relay sent before it.
+    Eose(BTreeSet<EventId>),
+    /// CLOSED, with the relay's message.
+    Closed(String),
+    /// The connection ended before a terminal message.
+    Disconnected,
+    /// Nothing terminal within `OBSERVE`.
+    NoSignal,
+}
+
+async fn completion<S>(mut notifications: S, id: &SubscriptionId) -> Completion
+where
+    S: Stream<Item = RelayNotification> + Unpin,
+{
+    let watch = async {
+        let mut events = BTreeSet::new();
+        while let Some(notification) = notifications.next().await {
+            match notification {
+                // `RelayNotification::Event` is sent only for events new to
+                // the client, so a second relay's copy would be missed.
+                RelayNotification::Message { message } => match *message {
+                    RelayMessage::Event {
+                        subscription_id,
+                        event,
+                    } if *subscription_id == *id => {
+                        events.insert(event.id);
+                    }
+                    RelayMessage::EndOfStoredEvents(subscription_id) if *subscription_id == *id => {
+                        return Completion::Eose(events);
+                    }
+                    RelayMessage::Closed {
+                        subscription_id,
+                        message,
+                    } if *subscription_id == *id => {
+                        return Completion::Closed(message.into_owned());
+                    }
+                    _ => {}
+                },
+                RelayNotification::RelayStatus {
+                    status:
+                        RelayStatus::Disconnected | RelayStatus::Terminated | RelayStatus::Shutdown,
+                } => return Completion::Disconnected,
+                _ => {}
+            }
+        }
+        Completion::Disconnected
+    };
+    timeout(OBSERVE, watch)
+        .await
+        .unwrap_or(Completion::NoSignal)
+}
+
+/// Relays a subscription was sent to, and each relay's completion in `urls`
+/// order. Every relay's stream is armed before the REQ goes out.
+async fn subscribe_and_observe(
+    client: &Client,
+    urls: &[&str],
+    id: &SubscriptionId,
+) -> (usize, Vec<Completion>) {
+    let mut armed = Vec::new();
+    for url in urls {
+        let relay = client.relay(*url).await.unwrap().expect("relay was added");
+        armed.push(relay.notifications());
+    }
+    let output = client
+        .subscribe(Filter::new().kind(Kind::TextNote))
+        .with_id(id.clone())
+        .await
+        .unwrap();
+    assert!(output.failed.is_empty(), "{:?}", output.failed);
+    let completions = join_all(armed.into_iter().map(|stream| completion(stream, id))).await;
+    let _ = client.unsubscribe(id).await;
+    (output.success.len(), completions)
 }
 
 #[test]
@@ -408,4 +604,84 @@ async fn watchdog_kills_and_reaps_a_hung_child() {
     assert!(run.reaped);
     assert!(endpoint.connections() >= 1);
     assert!(started.elapsed() < limit + Duration::from_secs(5));
+}
+
+#[tokio::test]
+async fn convenience_fetch_reports_success_for_every_failure() {
+    for fixture in [
+        Fixture::Empty,
+        Fixture::Closed,
+        Fixture::Silent,
+        Fixture::Disconnect,
+    ] {
+        let (endpoint, held) = start_fixture(fixture).await;
+        let client = connected_client(&[endpoint.url.as_str()]).await;
+
+        let fetch = async {
+            client
+                .fetch_events(Filter::new().kind(Kind::TextNote))
+                .timeout(OBSERVE)
+                .await
+        };
+        let fetched = run_against(fixture, endpoint, held, fetch).await;
+
+        assert_eq!(
+            fetched.map(|events| events.len()).ok(),
+            Some(0),
+            "{fixture:?}"
+        );
+        client.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn explicit_subscription_distinguishes_completion_per_relay() {
+    let seeded = EventBuilder::new(Kind::TextNote, "order")
+        .finalize(&Keys::generate())
+        .unwrap();
+    let endpoints = [
+        seeded_endpoint(&seeded).await,
+        seeded_endpoint(&seeded).await,
+        start_fixture(Fixture::Empty).await.0,
+        start_fixture(Fixture::Closed).await.0,
+        start_fixture(Fixture::Silent).await.0,
+    ];
+    let urls: Vec<&str> = endpoints
+        .iter()
+        .map(|endpoint| endpoint.url.as_str())
+        .collect();
+    let client = connected_client(&urls).await;
+    let id = SubscriptionId::new("order-list-probe");
+
+    let (subscribed, completions) = subscribe_and_observe(&client, &urls, &id).await;
+
+    // The REQ counts as sent everywhere, including where it never completes.
+    assert_eq!(subscribed, urls.len());
+    let seeded_ids = BTreeSet::from([seeded.id]);
+    assert_eq!(completions[0], Completion::Eose(seeded_ids.clone()));
+    assert_eq!(completions[1], Completion::Eose(seeded_ids));
+    assert_eq!(completions[2], Completion::Eose(BTreeSet::new()));
+    assert!(
+        matches!(&completions[3], Completion::Closed(message) if message.contains("queries disabled")),
+        "{:?}",
+        completions[3]
+    );
+    assert_eq!(completions[4], Completion::NoSignal);
+    client.shutdown().await;
+}
+
+#[tokio::test]
+async fn disconnect_before_eose_is_observed_per_relay() {
+    let (endpoint, held) = start_fixture(Fixture::Disconnect).await;
+    let url = endpoint.url.clone();
+    let urls = [url.as_str()];
+    let client = connected_client(&urls).await;
+    let id = SubscriptionId::new("order-list-probe");
+
+    let observe = subscribe_and_observe(&client, &urls, &id);
+    let (subscribed, completions) = run_against(Fixture::Disconnect, endpoint, held, observe).await;
+
+    assert_eq!(subscribed, 1);
+    assert_eq!(completions, vec![Completion::Disconnected]);
+    client.shutdown().await;
 }
