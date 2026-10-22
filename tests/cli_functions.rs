@@ -1187,3 +1187,114 @@ mod output_intent {
         );
     }
 }
+
+mod registry {
+    use clap::CommandFactory;
+    use mostro_client::cli::{lookup, Cli, JsonSupport, REGISTRY};
+    use mostro_client::outcome::ExecutionMeta;
+    use std::collections::BTreeSet;
+
+    /// Canonical names approved on 2026-10-22, in subcommand order.
+    const APPROVED: [(&str, &str); 33] = [
+        ("listorders", "order.list"),
+        ("neworder", "order.new"),
+        ("takesell", "order.take-sell"),
+        ("takebuy", "order.take-buy"),
+        ("addinvoice", "order.add-invoice"),
+        ("addbondinvoice", "bond.add-invoice"),
+        ("getdm", "message.list"),
+        ("getdmuser", "chat.history"),
+        ("disputechat", "dispute.chat"),
+        ("getadmindm", "admin.message-list"),
+        ("senddm", "message.send"),
+        ("dmtouser", "chat.send"),
+        ("fiatsent", "order.fiat-sent"),
+        ("release", "order.release"),
+        ("cancel", "order.cancel"),
+        ("rate", "order.rate"),
+        ("restore", "account.restore"),
+        ("dispute", "dispute.open"),
+        ("admcancel", "admin.cancel"),
+        ("admsettle", "admin.settle"),
+        ("listdisputes", "dispute.list"),
+        ("admsetmaintenance", "maintenance.set"),
+        ("admmaintenancestatus", "maintenance.status"),
+        ("admcancelpending", "maintenance.cancel-pending"),
+        ("admaddsolver", "admin.add-solver"),
+        ("admtakedispute", "admin.take-dispute"),
+        ("admsenddm", "admin.message-send"),
+        ("sendadmindmattach", "admin.message-attach"),
+        ("conversationkey", "account.conversation-key"),
+        ("getlasttradeindex", "account.trade-index"),
+        ("getlasttradeprivkey", "account.trade-key"),
+        ("getuserinfo", "account.info"),
+        ("ordersinfo", "order.info"),
+    ];
+
+    fn path(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn registry_matches_the_approved_mapping() {
+        let actual: Vec<(&str, &str)> = REGISTRY
+            .iter()
+            .map(|entry| (entry.cli_name, entry.canonical))
+            .collect();
+        assert_eq!(actual, APPROVED);
+    }
+
+    #[test]
+    fn every_subcommand_is_registered_exactly_once() {
+        let subcommands: BTreeSet<String> = Cli::command()
+            .get_subcommands()
+            .map(|sub| sub.get_name().to_string())
+            .collect();
+        let registered: BTreeSet<String> = REGISTRY
+            .iter()
+            .map(|entry| entry.cli_name.to_string())
+            .collect();
+        assert_eq!(registered, subcommands);
+        assert_eq!(registered.len(), REGISTRY.len());
+        let canonical: BTreeSet<&str> = REGISTRY.iter().map(|entry| entry.canonical).collect();
+        assert_eq!(
+            canonical.len(),
+            REGISTRY.len(),
+            "canonical names must be unique"
+        );
+    }
+
+    #[test]
+    fn canonical_names_are_dotted_lowercase() {
+        let lowercase =
+            |word: &str| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase());
+        for entry in REGISTRY {
+            let (noun, verb) = entry.canonical.split_once('.').expect("one dot");
+            assert!(lowercase(noun), "{}", entry.canonical);
+            assert!(verb.split('-').all(lowercase), "{}", entry.canonical);
+        }
+    }
+
+    #[test]
+    fn no_command_supports_json_yet() {
+        for entry in REGISTRY {
+            assert_eq!(entry.json, JsonSupport::Unsupported, "{}", entry.cli_name);
+            assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
+        }
+    }
+
+    #[test]
+    fn lookup_resolves_only_registered_leaves() {
+        assert_eq!(
+            lookup(&path(&["neworder"])).map(|e| e.canonical),
+            Some("order.new")
+        );
+        assert_eq!(
+            lookup(&path(&["getlasttradeprivkey"])).map(|e| e.canonical),
+            Some("account.trade-key")
+        );
+        for unresolved in [&[][..], &["nosuch"], &["help"], &["order", "list"]] {
+            assert_eq!(lookup(&path(unresolved)), None, "{unresolved:?}");
+        }
+    }
+}

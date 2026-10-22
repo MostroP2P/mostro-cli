@@ -247,6 +247,26 @@ impl<D, S> Envelope<D, S> {
         self.status
     }
 
+    pub fn command(&self) -> Option<&'static str> {
+        self.command
+    }
+
+    /// An `internal_error` outcome for the same command, stages and warnings,
+    /// without data or snapshot, for when this outcome cannot be serialized.
+    pub fn as_internal_error(&self) -> Envelope<(), ()> {
+        Envelope::error(
+            self.command,
+            ErrorCode::InternalError,
+            self.warnings.clone(),
+            ExecutionMeta {
+                publication: self.meta.publication,
+                daemon_acceptance: self.meta.daemon_acceptance,
+                persistence: self.meta.persistence,
+                snapshot: None,
+            },
+        )
+    }
+
     pub fn exit_code(&self) -> i32 {
         self.error.map_or(0, |error| error.code.exit_code())
     }

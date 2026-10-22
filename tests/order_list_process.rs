@@ -32,6 +32,7 @@ use nostr_sdk::prelude::{
     MachineReadablePrefix, QueryPolicy, QueryPolicyResult, RelayMessage, RelayNotification,
     RelayStatus, SubscriptionId,
 };
+use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
@@ -732,22 +733,69 @@ async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
 }
 
 #[tokio::test]
-async fn json_intent_never_runs_a_legacy_command() {
+async fn json_intent_gets_one_error_envelope_before_any_effect() {
     let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
         .await
         .unwrap();
-    let rows: [&[&str]; 3] = [
-        &["--output", "json", "listorders"],
-        &["listorders", "--output=json"],
-        &["--output", "json", SENTINEL],
+    let unknown_flag = format!("--{SENTINEL}");
+    let rows: [(&[&str], Value, &str); 6] = [
+        (
+            &["--output", "json", "listorders"],
+            json!("order.list"),
+            "output_not_supported",
+        ),
+        (
+            &["listorders", "--output=json"],
+            json!("order.list"),
+            "output_not_supported",
+        ),
+        (
+            &["--output", "json", "getlasttradeprivkey"],
+            json!("account.trade-key"),
+            "output_not_supported",
+        ),
+        (
+            &["--output", "json", SENTINEL],
+            Value::Null,
+            "invalid_arguments",
+        ),
+        (
+            &["--output", "json", "neworder", &unknown_flag],
+            json!("order.new"),
+            "invalid_arguments",
+        ),
+        (&["--output", "json"], Value::Null, "invalid_arguments"),
     ];
-    for args in rows {
+    for (args, command, code) in rows {
         let label = format!("{args:?}");
         let (run, sandbox) = run_configured(args, &endpoint).await;
+        let stdout = run.stdout_text();
         assert_eq!(run.code(), Some(2), "{label}: {}", run.stderr_text());
-        assert!(!run.stdout_text().contains(SENTINEL), "{label}");
-        assert!(!run.stderr_text().contains(SENTINEL), "{label}");
-        assert!(!run.stdout_text().contains("List Orders"), "{label}");
+        assert!(run.stderr.is_empty(), "{label}: {}", run.stderr_text());
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{label}: {stdout}"
+        );
+        assert!(!stdout.contains(SENTINEL), "{label}: {stdout}");
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(
+            outcome,
+            json!({
+                "schema_version": "1",
+                "command": command,
+                "status": "error",
+                "data": null,
+                "error": {"code": code, "message": outcome["error"]["message"]},
+                "warnings": [],
+                "meta": {
+                    "publication": "not_attempted",
+                    "daemon_acceptance": "unknown",
+                    "persistence": "not_attempted",
+                    "snapshot": null,
+                },
+            }),
+            "{label}"
+        );
         assert_no_effects(&sandbox, &label);
     }
     assert_eq!(endpoint.connections(), 0);
