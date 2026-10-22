@@ -24,7 +24,9 @@ grown by T003; its touched command/query files remain below the limit.
 
 T019 recount: at `07f2595` this rule gives 600 production lines for
 `util/messaging.rs`, 704 for `db.rs` and 1210 for `parser/dms.rs`, not the
-values below. T007 (`0f2b644`) then grew `util/messaging.rs` to 639. See the
+values below. T007 (`0f2b644`) then grew `util/messaging.rs` to 639; `cdb1d35`
+moved reply correlation to `util/reply.rs` (90), leaving `util/messaging.rs` at
+556. See the
 [T019 evidence](../tests/TEST_SUMMARY.md#t019-foundation-gate-2026-10-22).
 
 | Source under src/ | Physical | Test-only | Production |
@@ -163,12 +165,14 @@ the complete refactor must eliminate every legacy violation.
     - `messaging`: higher-level DM helpers (kind-14 NIP-44 wraps, wait-for-reply, admin keys, ECDH shared-secret bytes for attachment encryption).
     - `misc`: small helpers such as `get_mcli_path` and string utilities.
     - `net`: Nostr network connection setup.
+    - `reply`: reply correlation (`select_reply_event`, `ExpectedReply`): whether a kind-14 is Mostro's answer to our request.
     - `storage`: thin storage helpers for orders and DMs.
     - `types`: small shared enums/wrappers.
   - Re-exports commonly used symbols (`create_filter`, `send_dm`, `connect_nostr`, `save_order`, `wait_for_dm`, `wait_for_dm_matching`, `ensure_first_contact_pow`, `PowRequirementUnmet`, etc.) so other modules can import from `crate::util` directly.
   - **Messaging wait helpers** (`messaging.rs`):
     - `wait_for_dm` — first Mostro kind-14 tagged to the trade key (no `request_id` decrypt).
     - `wait_for_dm_matching` — keeps listening until a decryptable reply echoes `expected_request_id` and (optionally) an allowed action; used by `getuserinfo` for `UserInfo` / `CantDo`.
+    - Both use `reply::select_reply_event` for the per-event decision.
     - `ensure_first_contact_pow` — preflight against kind-38385 `pow_first_contact` (via `events::fetch_pow_first_contact_with`) before first-contact sends.
 
 - **`src/util/storage.rs`**

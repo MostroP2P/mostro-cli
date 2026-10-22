@@ -1106,7 +1106,22 @@ counted with the T002 rule at the inventory commit `07f2595` and at HEAD:
   `messaging.rs`, `db.rs` and `dms.rs`. Those numbers do not match the files at
   `07f2595`, which did not change `messaging.rs`.
 
-Both are open. No file touched by T011-T019 exceeds the limit.
+The `messaging.rs` growth is resolved by `cdb1d35`
+(`refactor: move reply correlation to util::reply`). It moves `is_mostro_reply`,
+`ExpectedReply`, the message/event matchers, `select_reply_event` and their 8
+unit tests into the new `src/util/reply.rs`:
+- The moved production and test blocks are byte-identical to the originals
+  (checked with `diff`).
+- `wait_for_dm_matching` now builds its criteria with `ExpectedReply::new`.
+- `crate::util` re-exports keep the public paths, so `tests/integration_tests.rs`
+  is unchanged.
+- Production lines: `util/messaging.rs` 556 (below its 600 baseline),
+  `util/reply.rs` 90.
+- Gates after the move: fmt, clippy, `cargo test --locked` (259 passed, 0
+  failed), build and the 1.94.0 check all pass.
+
+The inventory-table mismatch is still open. No file touched by T011-T019
+exceeds the limit.
 
 T001-T019 are complete. US1 starts at T020. The JSON pilot is still
 unimplemented: no command runs in JSON mode yet.
