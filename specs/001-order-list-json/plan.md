@@ -78,8 +78,9 @@ The [task list](tasks.md) assigns test-first dependencies and carries these
 baseline prerequisites explicitly. Setup T001-T003 and baseline checkpoints
 T004-T010 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t010-baseline-gate-decision-2026-10-20);
 the baseline gate is closed with recorded exceptions. Foundations T011-T019 are
-recorded in [the test summary](../../tests/TEST_SUMMARY.md#t019-foundation-gate-2026-10-22);
-T020-T055 remain pending.
+recorded in [the test summary](../../tests/TEST_SUMMARY.md#t019-foundation-gate-2026-10-22),
+and US1 test task T020 in [its section](../../tests/TEST_SUMMARY.md#t020-order-list-contract-tests-2026-10-22);
+T021-T055 remain pending.
 
 ## Execution Design
 
@@ -170,7 +171,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T019 as complete; its checkboxes track
+The task list records T001-T020 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

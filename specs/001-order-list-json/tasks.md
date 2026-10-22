@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019 are complete; T020-T055 remain pending. Checked
+T051-T052). Foundations T011-T019 and US1 test task T020 are complete; T021-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -92,7 +92,7 @@ exit/status agreement, bounded completion and zero trade EVENT/DB effects.
 
 ### US1 Tests First
 
-- [ ] T020 [P] [US1] Extend `tests/parser_orders.rs` with PublicOrder/ListData contract expectations: latest-before-filter, same-ID lowest-event-ID ties, unspecified cross-ID tie order, absent/invalid status, malformed tags, signed i64 extremes, zero market price, incomplete ranges, canonical IDs, timestamp overflow and normalized filters; use `specs/001-order-list-json/contracts/examples.json` as proposed cases, not captured runtime evidence. (depends on T019)
+- [x] T020 [P] [US1] Extend `tests/parser_orders.rs` with PublicOrder/ListData contract expectations: latest-before-filter, same-ID lowest-event-ID ties, unspecified cross-ID tie order, absent/invalid status, malformed tags, signed i64 extremes, zero market price, incomplete ranges, canonical IDs, timestamp overflow and normalized filters; use `specs/001-order-list-json/contracts/examples.json` as proposed cases, not captured runtime evidence. (depends on T019)
 - [ ] T021 [P] [US1] Add collector contract tests in `tests/integration_tests.rs` for author/kind/z/since/limit, SDK verification, explicit IDs, all-relay EOSE, duplicate URLs/events, late/unrelated events, partial failure, notification lag, disconnect, cap overflow, cancellation and bounded cleanup; inject time/transport rather than waiting on public relays. (depends on T019)
 
 ### Models And Implementation

@@ -134,7 +134,10 @@ optionality for other callers. Map explicit public fields, premium, fixed/range
 amounts and time. Monetary i64 values are decimal strings; zero sats means
 market-priced. Pair nullable UTC RFC3339 created_at with lossless signed
 created_at_unix. Invalid calendar conversion retains the integer, adds one safe
-warning and keeps the human Invalid date display.
+warning and keeps the human Invalid date display. Nostr event times are
+unsigned; decoding saturates values above i64::MAX instead of wrapping, so a
+far-future event stays the latest state and renders as Invalid date (decided
+2026-10-22, T020).
 
 **Rationale**: Filter invariants resolve missing status without inventing active
 status in JSON or exposing future secret-bearing core fields.

@@ -1126,6 +1126,77 @@ exceeds the limit.
 T001-T019 are complete. US1 starts at T020. The JSON pilot is still
 unimplemented: no command runs in JSON mode yet.
 
+## T020 Order-List Contract Tests: 2026-10-22
+
+Native Linux, rustc 1.97.0. Base `7c1213f`. Commits `32ca095` (test),
+`8323ddd` (fix), `613e69f` (contract tests and skeleton). Tracked in
+[#209](https://github.com/MostroP2P/mostro-cli/issues/209).
+
+Two decisions taken with the user on 2026-10-22:
+- Test-first across tasks: a compile-only skeleton lands with the tests, and
+  each new test is `#[ignore = "red until T0xx"]`. Every commit builds and the
+  gates stay green; the implementing task removes its ignores.
+- Event times above `i64::MAX` seconds saturate instead of wrapping (recorded
+  in the data model and research §5).
+
+### Timestamp regression
+
+`parse_orders_events` converted the event time with `as i64`. A signed event
+dated `u64::MAX` became `-1`, so an older `pending` state won the latest-state
+reduction and the human table showed a 1969 date.
+`event_times_beyond_i64_saturate_instead_of_wrapping` failed on `7c1213f`
+(`left: Some(Pending)`, `right: Some(Canceled)`). The fix in
+`src/parser/orders.rs` uses `i64::try_from(...).unwrap_or(i64::MAX)`, and the
+test passes. The same `as i64` pattern in `parser/disputes.rs` and
+`cli/get_dm_user.rs` is outside this feature and unchanged.
+
+### Contract tests
+
+`mod list_contract` in `tests/parser_orders.rs` targets two seams:
+`outcome::order::{ListOrdersInput, PublicOrder, ListData}`, with
+`ListData::from_selected` for already-selected rows, and
+`commands::order::list::select_orders` for events to `ListData`. The DTOs use
+core `Kind` and `Status`, so there is no second status enum.
+
+| Ignored until | Cases | Covers |
+| --- | ---: | --- |
+| T022 | 26 | Default pending filters; case-insensitive side/status without trimming; `invalid_arguments` for untrimmed, empty, unknown and `all`; currency uppercased, not trimmed, empty kept; all 17 statuses through an exhaustive `match` on core `Status`; lowercase node hex; canonical UUID; empty `orders`; reducer order kept; `internal_error` for missing id/side/status/time or a row not matching the filters |
+| T023 | 10 | Decimal strings at `i64::MIN`/`i64::MAX`/negative/zero; zero sats kept; nullable and unordered range endpoints with the fixed amount retained |
+| T024 | 12 | Fiat code and payment text as received, including empty and control characters; RFC3339 `Z` times and null outside years 0000-9999 (both boundaries, `i64::MIN`/`i64::MAX`); one aggregate `invalid_event_timestamp` warning; `examples.json` `large_amount_success` and `empty_success` data reproduced exactly |
+| T028 | 10 | Latest state before filtering; same-order ties keep the lowest event id; cross-order ties unordered; absent status matches no status filter; invalid status is pending; malformed events skipped; simple-form uppercase UUID made canonical; `u64::MAX` events saturate with one warning; normalized currency filter |
+
+`examples.json` is a proposed contract; reproducing its data shows the DTOs
+match it, not that a runtime produced it.
+
+Checks that the tests are not vacuous:
+- Red: `cargo test --test parser_orders -- --ignored` fails 58 of 58 against
+  the stubs.
+- Achievable: a throwaway prototype of `parse`, `from_selected` and
+  `select_orders` (delegating to `parse_orders_events`) passed 58 of 58, so
+  the expectations are consistent.
+- Nine prototype mutations were all caught: trimming side/status, empty
+  currency to null, no four-digit year bound, `+00:00` instead of `Z`, no
+  invariant check, no timestamp warning, dropped range minimum, uppercase node
+  hex, and selection without the status filter.
+- The stubs were restored from copies and checked with `cmp`; both files
+  still contain only `todo!()` bodies.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders` | PASS: 39 passed, 58 ignored |
+| `cargo test --locked --test parser_orders -- --ignored` | FAIL as intended: 0 of 58 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 260 passed (259 + 1), 0 failed, 58 ignored |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `src/outcome/order.rs` 86, `src/commands/order/list.rs` 19,
+`src/outcome.rs` 276, `src/parser/orders.rs` 296.
+
+T001-T020 are complete. T021 (collector contract tests) is next; T022 needs
+both T020 and T021. The JSON pilot is still unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
