@@ -689,13 +689,18 @@ async fn disconnect_before_eose_is_observed_per_relay() {
 
 /// Text that must never be echoed back by a rejected invocation.
 const SENTINEL: &str = "secret-sentinel-7f3a";
+const ORDER_ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
 
-/// Run `args` with node configuration pointing at `endpoint`, so any network
-/// or storage effect of a rejected invocation is observable.
+/// Run `args` with node and daemon-RPC configuration pointing at `endpoint`,
+/// so any network or storage effect of a rejected invocation is observable.
 async fn run_configured(args: &[&str], endpoint: &LoopbackRelay) -> (Captured, Sandbox) {
     let sandbox = Sandbox::new().unwrap();
     let mut command = sandbox.command(args);
     set_node_env(&mut command, &Keys::generate(), &[endpoint]);
+    let rpc_url = endpoint.url.replacen("ws://", "http://", 1);
+    command
+        .env("MOSTRO_RPC_URL", rpc_url)
+        .env("MOSTRO_RPC_TOKEN", SENTINEL);
     let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
     (run, sandbox)
 }
@@ -738,7 +743,7 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
         .await
         .unwrap();
     let unknown_flag = format!("--{SENTINEL}");
-    let rows: [(&[&str], Value, &str); 6] = [
+    let rows: [(&[&str], Value, &str); 8] = [
         (
             &["--output", "json", "listorders"],
             json!("order.list"),
@@ -765,6 +770,16 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
             "invalid_arguments",
         ),
         (&["--output", "json"], Value::Null, "invalid_arguments"),
+        (
+            &["--output", "json", "admmaintenancestatus"],
+            json!("maintenance.status"),
+            "output_not_supported",
+        ),
+        (
+            &["admcancelpending", "--orderid", ORDER_ID, "--output=json"],
+            json!("maintenance.cancel-pending"),
+            "output_not_supported",
+        ),
     ];
     for (args, command, code) in rows {
         let label = format!("{args:?}");
@@ -799,6 +814,16 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
         assert_no_effects(&sandbox, &label);
     }
     assert_eq!(endpoint.connections(), 0);
+}
+
+/// Positive control: the same configuration does reach the endpoint when an
+/// RPC command runs in human mode, so zero connections above is meaningful.
+#[tokio::test]
+async fn human_rpc_command_reaches_the_configured_daemon() {
+    let endpoint = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let (run, _sandbox) = run_configured(&["admmaintenancestatus"], &endpoint).await;
+    assert_ne!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(endpoint.connections() >= 1);
 }
 
 #[tokio::test]
