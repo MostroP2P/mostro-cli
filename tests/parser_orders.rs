@@ -401,6 +401,25 @@ fn rows_sort_newest_first_without_promising_cross_order_tie_order() {
     );
 }
 
+#[test]
+fn event_times_beyond_i64_saturate_instead_of_wrapping() {
+    let order_id = Uuid::new_v4();
+    let older = listing_event(order_id, 1_700_000_000, "sell", "pending", "USD");
+    let far_future = listing_event(order_id, u64::MAX, "sell", "canceled", "USD");
+    let events = BTreeSet::from([older, far_future]);
+
+    let latest = parse_orders_events(events.clone(), None, None, None);
+    assert_eq!(latest.len(), 1);
+    assert_eq!(latest[0].status, Some(Status::Canceled));
+    assert_eq!(latest[0].created_at, Some(i64::MAX));
+    assert!(parse_orders_events(events, None, Some(Status::Pending), None).is_empty());
+
+    let table =
+        print_orders_table(latest.into_iter().map(ParsedEvent::SmallOrder).collect()).unwrap();
+    assert!(table.contains("Invalid date"));
+    assert!(!table.contains("1969"));
+}
+
 #[rstest]
 #[case(None, Some("sell"))]
 #[case(Some("invalid-id"), Some("sell"))]
