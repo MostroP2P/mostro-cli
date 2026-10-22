@@ -596,3 +596,573 @@ fn human_table_retains_order_business_fields_and_utc_event_time() {
         assert!(table.contains(heading), "missing heading: {heading}");
     }
 }
+
+/// `order.list` DTO and selection contract from
+/// `specs/001-order-list-json/data-model.md`. The examples file is a proposed
+/// contract, not captured runtime output. Each test is ignored until the task
+/// in its reason implements the behavior; that task removes the attribute.
+mod list_contract {
+    use super::*;
+    use mostro_client::commands::order::list::select_orders;
+    use mostro_client::outcome::order::{ListData, ListOrdersInput};
+    use mostro_client::outcome::ErrorCode;
+    use serde_json::{json, Value};
+
+    const NODE_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+    const EXAMPLES: &str = include_str!("../specs/001-order-list-json/contracts/examples.json");
+
+    /// The data-model status set, in its documented order.
+    const STATUS_SET: [&str; 17] = [
+        "active",
+        "canceled",
+        "canceled-by-admin",
+        "settled-by-admin",
+        "completed-by-admin",
+        "dispute",
+        "expired",
+        "fiat-sent",
+        "settled-hold-invoice",
+        "pending",
+        "success",
+        "waiting-buyer-invoice",
+        "waiting-payment",
+        "waiting-taker-bond",
+        "waiting-maker-bond",
+        "cooperatively-canceled",
+        "in-progress",
+    ];
+
+    /// No wildcard arm: a status added to the pinned core fails to compile
+    /// here until the contract decides its wire name.
+    fn wire_name(status: Status) -> &'static str {
+        match status {
+            Status::Active => "active",
+            Status::Canceled => "canceled",
+            Status::CanceledByAdmin => "canceled-by-admin",
+            Status::SettledByAdmin => "settled-by-admin",
+            Status::CompletedByAdmin => "completed-by-admin",
+            Status::Dispute => "dispute",
+            Status::Expired => "expired",
+            Status::FiatSent => "fiat-sent",
+            Status::SettledHoldInvoice => "settled-hold-invoice",
+            Status::Pending => "pending",
+            Status::Success => "success",
+            Status::WaitingBuyerInvoice => "waiting-buyer-invoice",
+            Status::WaitingPayment => "waiting-payment",
+            Status::WaitingTakerBond => "waiting-taker-bond",
+            Status::WaitingMakerBond => "waiting-maker-bond",
+            Status::CooperativelyCanceled => "cooperatively-canceled",
+            Status::InProgress => "in-progress",
+        }
+    }
+
+    fn node() -> PublicKey {
+        PublicKey::from_hex(NODE_HEX).unwrap()
+    }
+
+    fn filters(
+        side: Option<&str>,
+        currency: Option<&str>,
+        status: Option<&str>,
+    ) -> ListOrdersInput {
+        ListOrdersInput::parse(side, currency, status).unwrap()
+    }
+
+    fn pending() -> ListOrdersInput {
+        filters(None, None, None)
+    }
+
+    fn selected(created_at: i64) -> SmallOrder {
+        SmallOrder {
+            id: Some(Uuid::from_u128(1)),
+            kind: Some(OrderKind::Sell),
+            status: Some(Status::Pending),
+            fiat_code: "USD".to_string(),
+            created_at: Some(created_at),
+            ..SmallOrder::default()
+        }
+    }
+
+    fn mapped(filters: ListOrdersInput, orders: &[SmallOrder]) -> (Value, Value) {
+        let (data, warnings) = ListData::from_selected(&node(), filters, orders).unwrap();
+        (
+            serde_json::to_value(data).unwrap(),
+            serde_json::to_value(warnings).unwrap(),
+        )
+    }
+
+    fn row(order: SmallOrder) -> Value {
+        mapped(pending(), &[order]).0["orders"][0].clone()
+    }
+
+    fn selection(
+        filters: ListOrdersInput,
+        events: impl IntoIterator<Item = Event>,
+    ) -> (Value, Value) {
+        let (data, warnings) =
+            select_orders(&node(), filters, events.into_iter().collect()).unwrap();
+        (
+            serde_json::to_value(data).unwrap(),
+            serde_json::to_value(warnings).unwrap(),
+        )
+    }
+
+    fn ids(data: &Value) -> Vec<&str> {
+        data["orders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|order| order["id"].as_str().unwrap())
+            .collect()
+    }
+
+    fn timestamp_warnings(warnings: &Value) -> usize {
+        warnings
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|warning| warning["code"] == "invalid_event_timestamp")
+            .count()
+    }
+
+    fn example(name: &str) -> Value {
+        let examples: Value = serde_json::from_str(EXAMPLES).unwrap();
+        examples["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == name)
+            .unwrap()["stdout"]
+            .clone()
+    }
+
+    #[test]
+    #[ignore = "red until T022"]
+    fn default_filters_are_pending_with_null_side_and_currency() {
+        assert_eq!(
+            serde_json::to_value(pending()).unwrap(),
+            json!({ "side": null, "currency": null, "status": "pending" })
+        );
+    }
+
+    #[rstest]
+    #[case(Some("sell"), None, json!("sell"), json!("pending"))]
+    #[case(Some("SELL"), None, json!("sell"), json!("pending"))]
+    #[case(Some("Buy"), None, json!("buy"), json!("pending"))]
+    #[case(None, Some("PENDING"), json!(null), json!("pending"))]
+    #[case(None, Some("Canceled-By-Admin"), json!(null), json!("canceled-by-admin"))]
+    #[ignore = "red until T022"]
+    fn side_and_status_are_case_insensitive(
+        #[case] side: Option<&str>,
+        #[case] status: Option<&str>,
+        #[case] wire_side: Value,
+        #[case] wire_status: Value,
+    ) {
+        let input = serde_json::to_value(filters(side, None, status)).unwrap();
+        assert_eq!(
+            (&input["side"], &input["status"]),
+            (&wire_side, &wire_status)
+        );
+    }
+
+    #[rstest]
+    #[case(Some(" sell"), None)]
+    #[case(Some("sell "), None)]
+    #[case(Some(""), None)]
+    #[case(Some("both"), None)]
+    #[case(None, Some(" pending"))]
+    #[case(None, Some("pending\n"))]
+    #[case(None, Some(""))]
+    #[case(None, Some("all"))]
+    #[ignore = "red until T022"]
+    fn untrimmed_or_unknown_side_and_status_are_invalid_arguments(
+        #[case] side: Option<&str>,
+        #[case] status: Option<&str>,
+    ) {
+        assert_eq!(
+            ListOrdersInput::parse(side, None, status),
+            Err(ErrorCode::InvalidArguments)
+        );
+    }
+
+    #[rstest]
+    #[case("usd", "USD")]
+    #[case("Eur", "EUR")]
+    #[case(" usd", " USD")]
+    #[case("", "")]
+    #[ignore = "red until T022"]
+    fn currency_is_uppercased_without_trimming_or_nulling(
+        #[case] requested: &str,
+        #[case] normalized: &str,
+    ) {
+        let input = filters(None, Some(requested), None);
+        assert_eq!(input.currency(), Some(normalized));
+        assert_eq!(serde_json::to_value(input).unwrap()["currency"], normalized);
+    }
+
+    #[test]
+    #[ignore = "red until T022"]
+    fn every_core_status_is_a_canonical_filter_and_wire_value() {
+        for name in STATUS_SET {
+            for spelling in [name.to_string(), name.to_uppercase()] {
+                let input = filters(None, None, Some(&spelling));
+                assert_eq!(wire_name(input.status()), name);
+                assert_eq!(serde_json::to_value(&input).unwrap()["status"], name);
+            }
+            let status: Status = name.parse().unwrap();
+            let order = SmallOrder {
+                status: Some(status),
+                ..selected(1_700_000_000)
+            };
+            let (data, _) = mapped(filters(None, None, Some(name)), &[order]);
+            assert_eq!(data["orders"][0]["status"], name);
+        }
+    }
+
+    #[test]
+    #[ignore = "red until T022"]
+    fn list_data_carries_node_hex_filters_and_canonical_identity() {
+        let order = SmallOrder {
+            id: Some(Uuid::parse_str("00000000-0000-4000-8000-00000000000A").unwrap()),
+            ..selected(1_700_000_000)
+        };
+        let (data, warnings) = mapped(pending(), &[order]);
+        assert_eq!(data["node_pubkey"], NODE_HEX);
+        assert_eq!(data["filters"], serde_json::to_value(pending()).unwrap());
+        assert_eq!(
+            data["orders"][0]["id"],
+            "00000000-0000-4000-8000-00000000000a"
+        );
+        assert_eq!(data["orders"][0]["side"], "sell");
+        assert_eq!(data["orders"][0]["status"], "pending");
+        assert_eq!(warnings, json!([]));
+
+        let (empty, warnings) = mapped(pending(), &[]);
+        assert_eq!(empty["orders"], json!([]));
+        assert_eq!(warnings, json!([]));
+    }
+
+    #[test]
+    #[ignore = "red until T022"]
+    fn rows_keep_the_reducer_order() {
+        let newer = SmallOrder {
+            id: Some(Uuid::from_u128(2)),
+            ..selected(1_700_000_001)
+        };
+        let (data, _) = mapped(pending(), &[newer, selected(1_700_000_000)]);
+        assert_eq!(
+            ids(&data),
+            [
+                "00000000-0000-0000-0000-000000000002",
+                "00000000-0000-0000-0000-000000000001"
+            ]
+        );
+    }
+
+    #[rstest]
+    #[case(pending(), SmallOrder { id: None, ..selected(1_700_000_000) })]
+    #[case(pending(), SmallOrder { kind: None, ..selected(1_700_000_000) })]
+    #[case(pending(), SmallOrder { status: None, ..selected(1_700_000_000) })]
+    #[case(pending(), SmallOrder { created_at: None, ..selected(1_700_000_000) })]
+    #[case(pending(), SmallOrder { status: Some(Status::Active), ..selected(1_700_000_000) })]
+    #[case(filters(Some("buy"), None, None), selected(1_700_000_000))]
+    #[case(filters(None, Some("eur"), None), selected(1_700_000_000))]
+    #[ignore = "red until T022"]
+    fn rows_breaking_the_selection_invariants_are_internal_errors(
+        #[case] filters: ListOrdersInput,
+        #[case] order: SmallOrder,
+    ) {
+        assert_eq!(
+            ListData::from_selected(&node(), filters, &[order]).map(|_| ()),
+            Err(ErrorCode::InternalError)
+        );
+    }
+
+    #[rstest]
+    #[case(i64::MIN, "-9223372036854775808")]
+    #[case(i64::MAX, "9223372036854775807")]
+    #[case(-5, "-5")]
+    #[case(0, "0")]
+    #[case(15_000, "15000")]
+    #[ignore = "red until T023"]
+    fn money_fields_are_canonical_signed_decimal_strings(
+        #[case] value: i64,
+        #[case] decimal: &str,
+    ) {
+        let order = row(SmallOrder {
+            amount: value,
+            fiat_amount: value,
+            premium: value,
+            min_amount: Some(value),
+            max_amount: Some(value),
+            ..selected(1_700_000_000)
+        });
+        for field in [
+            "sats_amount",
+            "fiat_amount",
+            "premium_percent",
+            "fiat_amount_min",
+            "fiat_amount_max",
+        ] {
+            assert_eq!(order[field], decimal, "{field}");
+        }
+    }
+
+    #[test]
+    #[ignore = "red until T023"]
+    fn zero_sats_stays_the_market_priced_zero() {
+        assert_eq!(row(selected(1_700_000_000))["sats_amount"], "0");
+    }
+
+    #[rstest]
+    #[case(None, None, json!(null), json!(null))]
+    #[case(Some(100), None, json!("100"), json!(null))]
+    #[case(None, Some(200), json!(null), json!("200"))]
+    #[case(Some(200), Some(100), json!("200"), json!("100"))]
+    #[ignore = "red until T023"]
+    fn incomplete_or_unordered_ranges_stay_as_decoded(
+        #[case] minimum: Option<i64>,
+        #[case] maximum: Option<i64>,
+        #[case] wire_min: Value,
+        #[case] wire_max: Value,
+    ) {
+        let order = row(SmallOrder {
+            fiat_amount: 7,
+            min_amount: minimum,
+            max_amount: maximum,
+            ..selected(1_700_000_000)
+        });
+        assert_eq!(order["fiat_amount"], "7");
+        assert_eq!(
+            (&order["fiat_amount_min"], &order["fiat_amount_max"]),
+            (&wire_min, &wire_max)
+        );
+    }
+
+    #[test]
+    #[ignore = "red until T024"]
+    fn public_text_is_kept_as_received() {
+        for (fiat, payment) in [("", ""), ("usd", "wire,cash"), ("USD", "\u{1b}[31mred")] {
+            let order = row(SmallOrder {
+                fiat_code: fiat.to_string(),
+                payment_method: payment.to_string(),
+                ..selected(1_700_000_000)
+            });
+            assert_eq!(order["fiat_currency"], fiat);
+            assert_eq!(order["payment_method"], payment);
+        }
+    }
+
+    #[rstest]
+    #[case(1_700_000_000, Some("2023-11-14T22:13:20Z"))]
+    #[case(0, Some("1970-01-01T00:00:00Z"))]
+    #[case(-1, Some("1969-12-31T23:59:59Z"))]
+    #[case(253_402_300_799, Some("9999-12-31T23:59:59Z"))]
+    #[case(253_402_300_800, None)]
+    #[case(-62_167_219_200, Some("0000-01-01T00:00:00Z"))]
+    #[case(-62_167_219_201, None)]
+    #[case(i64::MAX, None)]
+    #[case(i64::MIN, None)]
+    #[ignore = "red until T024"]
+    fn event_times_are_utc_rfc3339_within_four_digit_years(
+        #[case] seconds: i64,
+        #[case] rfc3339: Option<&str>,
+    ) {
+        let (data, warnings) = mapped(pending(), &[selected(seconds)]);
+        let order = &data["orders"][0];
+        assert_eq!(order["created_at"], json!(rfc3339));
+        assert_eq!(order["created_at_unix"], seconds.to_string());
+        assert_eq!(
+            timestamp_warnings(&warnings),
+            usize::from(rfc3339.is_none())
+        );
+        assert_eq!(
+            warnings.as_array().unwrap().len(),
+            usize::from(rfc3339.is_none())
+        );
+    }
+
+    #[test]
+    #[ignore = "red until T024"]
+    fn invalid_event_times_share_one_warning_and_keep_their_rows() {
+        let orders: Vec<_> = [i64::MAX, 1_700_000_000, i64::MIN]
+            .into_iter()
+            .zip(1..)
+            .map(|(seconds, id)| SmallOrder {
+                id: Some(Uuid::from_u128(id)),
+                ..selected(seconds)
+            })
+            .collect();
+        let (data, warnings) = mapped(pending(), &orders);
+        assert_eq!(data["orders"].as_array().unwrap().len(), 3);
+        assert_eq!(timestamp_warnings(&warnings), 1);
+        assert_eq!(warnings.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    #[ignore = "red until T024"]
+    fn proposed_examples_are_reproduced_exactly() {
+        let order = SmallOrder {
+            id: Some(Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap()),
+            amount: 9_007_199_254_740_993,
+            fiat_amount: 15_000,
+            payment_method: "synthetic bank transfer".to_string(),
+            premium: -5,
+            ..selected(1_792_108_800)
+        };
+        let (data, warnings) = mapped(filters(Some("sell"), Some("usd"), None), &[order]);
+        let large = example("large_amount_success");
+        assert_eq!(data, large["data"]);
+        assert_eq!(warnings, large["warnings"]);
+
+        let (data, warnings) = mapped(pending(), &[]);
+        let empty = example("empty_success");
+        assert_eq!(data, empty["data"]);
+        assert_eq!(warnings, empty["warnings"]);
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn selection_reduces_to_the_latest_state_before_filtering() {
+        let order_id = Uuid::from_u128(1);
+        let stale_pending = [
+            listing_event(order_id, 1_700_000_000, "sell", "pending", "USD"),
+            listing_event(order_id, 1_700_000_001, "sell", "canceled", "USD"),
+        ];
+        assert_eq!(selection(pending(), stale_pending).0["orders"], json!([]));
+
+        let reopened = [
+            listing_event(order_id, 1_700_000_000, "sell", "canceled", "USD"),
+            listing_event(order_id, 1_700_000_001, "sell", "pending", "USD"),
+        ];
+        let (data, _) = selection(pending(), reopened);
+        assert_eq!(ids(&data), ["00000000-0000-0000-0000-000000000001"]);
+        assert_eq!(data["orders"][0]["created_at_unix"], "1700000001");
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn same_order_time_ties_keep_the_lowest_event_id() {
+        let order_id = Uuid::from_u128(1);
+        let pending_event = listing_event(order_id, 1_700_000_000, "sell", "pending", "USD");
+        let active_event = listing_event(order_id, 1_700_000_000, "sell", "active", "USD");
+        let winner = if pending_event.id < active_event.id {
+            "pending"
+        } else {
+            "active"
+        };
+        for status in ["pending", "active"] {
+            let (data, _) = selection(
+                filters(None, None, Some(status)),
+                [pending_event.clone(), active_event.clone()],
+            );
+            assert_eq!(
+                data["orders"].as_array().unwrap().len(),
+                usize::from(status == winner)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn cross_order_time_ties_have_no_promised_order() {
+        let events = [
+            listing_event(Uuid::from_u128(1), 1_700_000_000, "sell", "pending", "USD"),
+            listing_event(Uuid::from_u128(2), 1_700_000_001, "sell", "pending", "USD"),
+            listing_event(Uuid::from_u128(3), 1_700_000_000, "sell", "pending", "USD"),
+        ];
+        let (data, _) = selection(pending(), events);
+        let rows = ids(&data);
+        assert_eq!(rows[0], "00000000-0000-0000-0000-000000000002");
+        assert_eq!(
+            rows[1..].iter().copied().collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                "00000000-0000-0000-0000-000000000001",
+                "00000000-0000-0000-0000-000000000003"
+            ])
+        );
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn absent_status_never_matches_and_invalid_status_is_pending() {
+        let absent = signed_order_event(
+            1_700_000_000,
+            [
+                Tag::custom("d", [Uuid::from_u128(1).to_string()]),
+                Tag::custom("k", ["sell"]),
+            ],
+        );
+        for status in STATUS_SET {
+            let (data, _) = selection(filters(None, None, Some(status)), [absent.clone()]);
+            assert_eq!(data["orders"], json!([]), "{status}");
+        }
+
+        let invalid = listing_event(Uuid::from_u128(2), 1_700_000_000, "sell", "unknown", "USD");
+        let (data, _) = selection(pending(), [invalid]);
+        assert_eq!(data["orders"][0]["status"], "pending");
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn malformed_events_are_skipped_without_failing_the_read() {
+        let bad_id = signed_order_event(
+            1_700_000_000,
+            [
+                Tag::custom("d", ["not-a-uuid"]),
+                Tag::custom("k", ["sell"]),
+                Tag::custom("s", ["pending"]),
+            ],
+        );
+        let bad_side = listing_event(Uuid::from_u128(2), 1_700_000_000, "both", "pending", "USD");
+        let valid = listing_event(Uuid::from_u128(3), 1_700_000_000, "sell", "pending", "USD");
+        let (data, warnings) = selection(pending(), [bad_id, bad_side, valid]);
+        assert_eq!(ids(&data), ["00000000-0000-0000-0000-000000000003"]);
+        assert_eq!(warnings, json!([]));
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn selected_ids_use_the_canonical_form() {
+        let event = signed_order_event(
+            1_700_000_000,
+            [
+                Tag::custom("d", ["0000000000004000800000000000000A"]),
+                Tag::custom("k", ["sell"]),
+                Tag::custom("s", ["pending"]),
+            ],
+        );
+        let (data, _) = selection(pending(), [event]);
+        assert_eq!(ids(&data), ["00000000-0000-4000-8000-00000000000a"]);
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn far_future_events_saturate_with_one_warning() {
+        let events = [
+            listing_event(Uuid::from_u128(1), u64::MAX, "sell", "pending", "USD"),
+            listing_event(Uuid::from_u128(2), 1_700_000_000, "sell", "pending", "USD"),
+        ];
+        let (data, warnings) = selection(pending(), events);
+        assert_eq!(data["orders"][0]["created_at"], Value::Null);
+        assert_eq!(data["orders"][0]["created_at_unix"], i64::MAX.to_string());
+        assert_eq!(data["orders"][1]["created_at"], "2023-11-14T22:13:20Z");
+        assert_eq!(timestamp_warnings(&warnings), 1);
+    }
+
+    #[test]
+    #[ignore = "red until T028"]
+    fn currency_filter_matches_exactly_after_normalization() {
+        let events = [
+            listing_event(Uuid::from_u128(1), 1_700_000_000, "sell", "pending", "USD"),
+            listing_event(Uuid::from_u128(2), 1_700_000_000, "sell", "pending", "usd"),
+            listing_event(Uuid::from_u128(3), 1_700_000_000, "buy", "pending", "USD"),
+        ];
+        let (data, _) = selection(filters(Some("SELL"), Some("usd"), None), events);
+        assert_eq!(ids(&data), ["00000000-0000-0000-0000-000000000001"]);
+        assert_eq!(
+            data["filters"],
+            json!({ "side": "sell", "currency": "USD", "status": "pending" })
+        );
+    }
+}
