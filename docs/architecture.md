@@ -22,6 +22,11 @@ Totals: **8,854 physical lines, 1,411 test-only lines, 7,443 production lines**.
 Five files exceed 400 production lines. No oversized production section was
 grown by T003; its touched command/query files remain below the limit.
 
+T019 recount: at `07f2595` this rule gives 600 production lines for
+`util/messaging.rs`, 704 for `db.rs` and 1210 for `parser/dms.rs`, not the
+values below. T007 (`0f2b644`) then grew `util/messaging.rs` to 639. See the
+[T019 evidence](../tests/TEST_SUMMARY.md#t019-foundation-gate-2026-10-22).
+
 | Source under src/ | Physical | Test-only | Production |
 | --- | ---: | ---: | ---: |
 | cli.rs | 873 | 63 | 810 |

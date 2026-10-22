@@ -1029,6 +1029,88 @@ Limitations:
 T001-T018 are complete. T019 (foundation gate) is next. The JSON pilot is still
 unimplemented.
 
+## T019 Foundation Gate: 2026-10-22
+
+Native Linux, rustc 1.97.0. Base `778063f`; test commit `05bc385`. No
+production code changed.
+
+Before closing the gate, every foundation row of the
+[quickstart acceptance matrix](../specs/001-order-list-json/quickstart.md#acceptance-matrix)
+was matched to a test. One row was only partially proven: "registered legacy
+JSON, including RPC and secret-export paths" had a secret-export case
+(`getlasttradeprivkey`) but no daemon-RPC case. Commit `05bc385` closes it:
+- Rejection runs now also point `MOSTRO_RPC_URL` at the loopback listener and
+  set `MOSTRO_RPC_TOKEN` to the sentinel.
+- `json_intent_gets_one_error_envelope_before_any_effect` gained
+  `admmaintenancestatus` and `admcancelpending` rows (now 8 rows).
+- The new positive control `human_rpc_command_reaches_the_configured_daemon`
+  shows the same configuration does connect in human mode, so zero connections
+  in JSON mode is evidence rather than an unused address.
+
+The `admcancelpending` row first used `--order-id` and got `invalid_arguments`
+instead of `output_not_supported`. The real flag is `--orderid` (`rename_all =
+"lower"` also renames arguments), so the envelope was correct and the test was
+fixed.
+
+Proof obligations passed before user stories:
+
+| Quickstart row | Evidence |
+| --- | --- |
+| Output flag at root/intermediate/leaf and equals form | `output_is_selected_at_every_depth_and_defaults_to_human`, `real_cli_declares_a_global_case_sensitive_output`; process rows with `--output=json` |
+| Missing/invalid args with JSON intent, including unknown command names | `json_intent_gets_one_error_envelope_before_any_effect` (unknown flag, sentinel as command, root without command) |
+| Values, hyphen values, short clusters, variadic values, `--` | `arities_and_hyphen_values_follow_clap`, `short_clusters_and_colliding_shorts_follow_scope`, `terminator_ends_option_parsing` |
+| Invalid/missing/duplicate output | `duplicate_and_missing_declarations_are_invalid`, `argument_errors_exit_2_with_safe_stderr_before_any_effect` |
+| Help/version with output json | `help_and_version_stay_text_on_stdout`, `bare_invocation_still_prints_help_on_stderr` |
+| Registered legacy JSON, including RPC and secret-export | `json_intent_gets_one_error_envelope_before_any_effect`, `human_rpc_command_reaches_the_configured_daemon`, `no_command_supports_json_yet` |
+| Planted secret sentinels in invalid args | Sentinel rows in both process tests (stdout and stderr) |
+| Serialization and failing output writer | `unserializable_outcome_becomes_one_internal_error`, `failed_write_exits_1_and_appends_nothing` |
+| Envelope shape, codes and examples | The 8 `outcome` unit tests, including the `examples.json` reproductions |
+| SDK observability of EOSE, CLOSED, silence and disconnect | `convenience_fetch_reports_success_for_every_failure`, `explicit_subscription_distinguishes_completion_per_relay`, `disconnect_before_eose_is_observed_per_relay` |
+| Harness isolation and watchdog | `child_reaches_the_loopback_relay_with_sandboxed_storage`, `watchdog_kills_and_reaps_a_hung_child` |
+
+Not covered yet; these belong to user stories and nothing here claims them:
+- configuration errors as JSON (T026, T030);
+- listing success, empty, partial and failure outcomes, and the collector
+  (US1, T020-T030);
+- human/JSON field parity and verbose or identity-location streams (US2);
+- removed `listorders`/`--mostropubkey` spellings (US1);
+- offline schema, discovery and generated-schema drift (US3).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` | PASS: 61 tests |
+| `cargo test --locked --test order_list_process` | PASS: 14 tests |
+| `cargo test --locked --lib outcome` | PASS: 10 tests (8 envelope plus 2 matching the filter) |
+| `cargo test --locked --lib parse_machine` | PASS: 3 tests |
+| `order_list_process` 10 consecutive runs | PASS: 10 of 10, no leftover sandbox directories |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 259 tests (258 + 1), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+File-size finding: four legacy files still exceed 400 production lines,
+counted with the T002 rule at the inventory commit `07f2595` and at HEAD:
+
+| File | At `07f2595` | At HEAD |
+| --- | ---: | ---: |
+| `src/parser/dms.rs` | 1210 | 1210 |
+| `src/db.rs` | 704 | 704 |
+| `src/util/messaging.rs` | 600 | 639 |
+| `src/cli/take_dispute.rs` | 403 | 403 |
+
+- `util/messaging.rs` grew by 39 production lines in `0f2b644` (T007's
+  `select_reply_event` extraction). That breaks the constitution's "do not grow
+  legacy production sections" rule and was not reported in T007.
+- The T002 table in `docs/architecture.md` lists 487, 695 and 1198 for
+  `messaging.rs`, `db.rs` and `dms.rs`. Those numbers do not match the files at
+  `07f2595`, which did not change `messaging.rs`.
+
+Both are open. No file touched by T011-T019 exceeds the limit.
+
+T001-T019 are complete. US1 starts at T020. The JSON pilot is still
+unimplemented: no command runs in JSON mode yet.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
