@@ -952,6 +952,83 @@ Limitations:
 T001-T017 are complete. T018 (registry, capability guard and output boundary)
 is next. The JSON pilot is still unimplemented.
 
+## T018 Registry, JSON Guard And Output Boundary: 2026-10-22
+
+Changed `src/cli/commands.rs`, `src/cli.rs`, `src/main.rs`, `src/outcome.rs`;
+new `src/parse_machine.rs`. Native Linux, rustc 1.97.0, base `298f2cc`, code
+commit `a68b697`.
+
+Behaviour:
+- `REGISTRY` lists all 33 subcommands with the canonical names approved on
+  2026-10-22 (recorded in
+  [the CLI contract](../specs/001-order-list-json/contracts/cli.md#canonical-command-names)),
+  all `JsonSupport::Unsupported`. `lookup` resolves a one-word command path.
+- With `--output json`, before RPC routing, environment access or
+  `init_context`:
+  - a valid legacy invocation prints an `output_not_supported` envelope;
+  - an argument error prints an `invalid_arguments` envelope;
+  - root options with no command (`mostro-cli --output json`) print
+    `invalid_arguments` with command null.
+
+  All exit 2, with the canonical name or null and stages
+  `not_attempted`/`unknown`/`not_attempted`.
+- `parse_machine::emit` serializes the whole outcome before writing one line.
+  An unserializable outcome is replaced by an `internal_error` envelope for the
+  same command and stages (exit 1). A failed write exits 1 with a fixed stderr
+  line and appends nothing.
+- `run()` returns the exit status and `main` calls `process::exit` once; the
+  library no longer exits from inside. Help/version use `clap::Error::print`
+  and its exit code.
+
+| Test | Proves |
+| --- | --- |
+| `registry_matches_the_approved_mapping` | The 33 (CLI name, canonical name) pairs equal the approved table, in order |
+| `every_subcommand_is_registered_exactly_once` | Registry and Clap subcommands are the same set; canonical names are unique |
+| `canonical_names_are_dotted_lowercase` | `noun.verb` with lowercase words and kebab-case verbs |
+| `no_command_supports_json_yet` | Every entry is human-only with not-executed stages |
+| `lookup_resolves_only_registered_leaves` | Known one-word paths resolve; empty, unknown, `help` and `order list` do not |
+| `writes_one_json_line_and_returns_the_outcome_exit` (unit) | Exactly one newline-terminated document; exit 0 or 2 from the outcome |
+| `unserializable_outcome_becomes_one_internal_error` (unit) | One `internal_error` document for the same command and stages, exit 1, no serializer text |
+| `failed_write_exits_1_and_appends_nothing` (unit) | A pipe closing after 10 bytes leaves only those bytes; fixed stderr line; exit 1 |
+| `json_intent_gets_one_error_envelope_before_any_effect` (process) | Six JSON invocations, including `getlasttradeprivkey` and an unknown command: exit 2, one exact envelope, empty stderr, no sentinel, no files, zero relay connections |
+
+The process test replaces T017's `json_intent_never_runs_a_legacy_command`,
+which checked only exit 2 and absence of effects.
+
+Checks that the tests are not vacuous:
+- Red run against stubs (empty registry, `lookup` returning `None`, `emit`
+  writing nothing): 7 of 9 new tests failed. `canonical_names_are_dotted_lowercase`
+  and `no_command_supports_json_yet` passed over the empty registry and check
+  real entries now.
+- Two temporary mutations, each reverted: removing the `internal_error`
+  fallback failed 1 unit test; making `lookup` never resolve failed the
+  process test.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib parse_machine` | PASS: 3 tests |
+| `cargo test --locked --test cli_functions` | PASS: 61 tests |
+| `cargo test --locked --test order_list_process` | PASS: 13 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 258 tests (250 + 8), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `src/cli.rs` 118, `src/cli/commands.rs` 384,
+`src/parse_machine.rs` 50, `src/outcome.rs` 274, `src/main.rs` 14.
+
+Limitations:
+- `src/cli/commands.rs` is close to the 400-line limit; T030 adds `order list`
+  there and will likely need to move the registry into its own module.
+- Configuration and read errors are not emitted as JSON yet; no command runs in
+  JSON mode until T030.
+- Human-mode runtime errors still print `main`'s `eprintln!` text, unchanged
+  legacy behaviour.
+
+T001-T018 are complete. T019 (foundation gate) is next. The JSON pilot is still
+unimplemented.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

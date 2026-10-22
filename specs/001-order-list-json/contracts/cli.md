@@ -121,6 +121,34 @@ order.new for parsed neworder; use null when the path cannot be resolved safely.
 Do not derive identity from arguments that resemble commands. Known order.list
 errors retain order.list. Stage metadata follows the data model even on errors.
 
+### Canonical Command Names
+
+Approved 2026-10-22. The roadmap names command families but no dotted names,
+so this table is the source; `src/cli/commands.rs` implements it and
+`tests/cli_functions.rs` pins it. Names are part of contract v1: renaming one
+requires a new contract version. `order list` replaces `listorders` in T030
+and keeps `order.list`.
+
+| CLI command | Canonical name | CLI command | Canonical name |
+| --- | --- | --- | --- |
+| listorders | order.list | admcancel | admin.cancel |
+| neworder | order.new | admsettle | admin.settle |
+| takesell | order.take-sell | admaddsolver | admin.add-solver |
+| takebuy | order.take-buy | admtakedispute | admin.take-dispute |
+| addinvoice | order.add-invoice | admsenddm | admin.message-send |
+| fiatsent | order.fiat-sent | getadmindm | admin.message-list |
+| release | order.release | sendadmindmattach | admin.message-attach |
+| cancel | order.cancel | dispute | dispute.open |
+| rate | order.rate | listdisputes | dispute.list |
+| ordersinfo | order.info | disputechat | dispute.chat |
+| addbondinvoice | bond.add-invoice | getdm | message.list |
+| getlasttradeprivkey | account.trade-key | senddm | message.send |
+| getlasttradeindex | account.trade-index | getdmuser | chat.history |
+| getuserinfo | account.info | dmtouser | chat.send |
+| restore | account.restore | admsetmaintenance | maintenance.set |
+| conversationkey | account.conversation-key | admmaintenancestatus | maintenance.status |
+| | | admcancelpending | maintenance.cancel-pending |
+
 No pilot path returns uncertain or automatically retries. In particular, a
 timeout with partial events is error/data null, not an empty or partial success.
 

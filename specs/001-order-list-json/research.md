@@ -168,7 +168,8 @@ schema generator adds maintenance. Planning examples are proposed, not coverage.
 ## 7. Metadata And Compatibility
 
 **Decision**: One capability registry owns canonical names, Clap paths, JSON
-support/result schemas. Legacy commands report roadmap canonical names and
+support/result schemas. Legacy commands report the canonical names approved in
+[the CLI contract](contracts/cli.md#canonical-command-names) and
 output_not_supported; unresolved paths use command null. Read-only metadata is
 not_applicable for publication/acceptance/persistence. Legacy rejection uses
 not_attempted/unknown/not_attempted. Diagnostics are allow-listed, never raw

@@ -21,11 +21,15 @@ settable via the matching env var):
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
 - `--output <human|json>`: output format, accepted before, between or after
   command words (case-sensitive, default `human`, no environment variable).
-  No command supports `json` yet: selecting it exits 2 before anything runs.
-  A missing, invalid or repeated `--output` also exits 2 with nothing on stdout.
+  No command supports `json` yet: selecting it prints one JSON error outcome
+  (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
+  and exits 2 before anything runs. The outcome's `command` is the canonical
+  name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
+  or null when the command cannot be resolved.
+  A missing, invalid or repeated `--output` exits 2 with nothing on stdout.
 
-Argument errors exit 2 and print a fixed description on stderr, such as
-`error: unexpected argument found`, without echoing the arguments given.
+In human mode, argument errors exit 2 and print a fixed description on stderr,
+such as `error: unexpected argument found`, without echoing the arguments given.
 `--help` and `--version` print text and exit 0 even with `--output json`.
 
 ### Orders

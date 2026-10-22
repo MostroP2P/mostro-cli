@@ -12,12 +12,13 @@ This directory contains comprehensive unit and integration tests for the Mostro 
    - Mostro identification
    - Edge cases and error handling
 
-2. **`cli_functions.rs`** (56 tests)
+2. **`cli_functions.rs`** (61 tests)
    - CLI command logic
    - Message creation and serialization
    - Payload validation
    - Action handling
    - Output-intent recovery from malformed argv (`output_intent`, 12 tests)
+   - Command registry and approved canonical names (`registry`, 5 tests)
 
 3. **`util_misc.rs`** (13 tests)
    - Utility function tests
@@ -45,6 +46,7 @@ This directory contains comprehensive unit and integration tests for the Mostro 
    - In-process nostr-sdk `LocalRelay` behind a loopback listener on an OS-assigned port (no public relays)
    - EOSE-empty, CLOSED, silent and disconnect relay fixtures with per-relay completion observation
    - Argument-error, `--output` and help/version exits, streams and absence of effects
+   - JSON rejection envelopes on stdout before any effect
 
 ## Running Tests
 

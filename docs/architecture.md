@@ -209,7 +209,11 @@ the complete refactor must eliminate every legacy violation.
     - `common.rs`: shared parsing helpers.
     - `mod.rs`: module glue.
 
-- **`src/outcome.rs`**: the machine-readable outcome envelope (contract v1). `Envelope::ok` and `Envelope::error` are the only constructors, so status, data and error agree; error and warning codes carry fixed messages and exit statuses; `ExecutionMeta` holds the write-stage fields and optional snapshot. Not yet used by any command.
+- **`src/outcome.rs`**: the machine-readable outcome envelope (contract v1). `Envelope::ok` and `Envelope::error` are the only constructors, so status, data and error agree; error and warning codes carry fixed messages and exit statuses; `ExecutionMeta` holds the write-stage fields and optional snapshot. Used for JSON rejections; no command produces a success yet.
+
+- **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line to stdout, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
+
+- **Command registry** (`REGISTRY` and `lookup` in `src/cli/commands.rs`): every subcommand's canonical name and JSON support. `run()` uses it to name the command in JSON rejections before RPC routing or context initialization.
 
 - **Peer / solver chat** (`src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
   - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`.
