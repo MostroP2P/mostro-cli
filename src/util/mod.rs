@@ -7,8 +7,8 @@ pub mod types;
 
 // Re-export commonly used items to preserve existing import paths
 pub use events::{
-    create_filter, fetch_bond_claim_window_days, fetch_events_list, fetch_required_pow,
-    FETCH_EVENTS_TIMEOUT,
+    create_filter, fetch_bond_claim_window_days, fetch_events_list, fetch_newest_rates_event,
+    fetch_required_pow, market_price_check, MarketPriceCheck, FETCH_EVENTS_TIMEOUT,
 };
 pub use messaging::{
     ensure_first_contact_pow, print_dm_events, send_dm, send_dm_with_id, send_plain_text_dm,

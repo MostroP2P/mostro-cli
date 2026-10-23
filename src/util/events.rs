@@ -184,6 +184,72 @@ async fn fetch_newest_info_event(
     let filter = Filter::new()
         .author(mostro_pubkey)
         .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_INFO_EVENT_KIND));
+    fetch_newest_event(client, filter).await
+}
+
+/// Kind of the node's exchange-rates event (NIP-78 application data,
+/// `d = mostro-rates`), per the protocol's "Other events" page.
+pub const NOSTR_RATES_EVENT_KIND: u16 = 30078;
+const RATES_EVENT_D_TAG: &str = "mostro-rates";
+
+/// What the node's exchange-rates event says about pricing a currency at
+/// market, for `neworder -a 0`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MarketPriceCheck {
+    /// The node quotes the code: the order can be sent.
+    Quoted,
+    /// The node publishes rates and the code is not among them: it would
+    /// refuse the order for lack of a rate.
+    NotQuoted,
+    /// No readable rates event (the node may not publish one, or the relays
+    /// may not have it): send the order and let the node decide.
+    NoRates,
+}
+
+/// Pure: decide whether `fiat_code` has a market price on the node, from its
+/// newest `mostro-rates` event. The lookup is upper-cased, as the daemon
+/// publishes the codes. Split out so it is unit testable without a relay.
+pub fn market_price_check(
+    event: Option<&nostr_sdk::prelude::Event>,
+    fiat_code: &str,
+) -> MarketPriceCheck {
+    let Some(rates) = event.and_then(read_rates_from_event) else {
+        return MarketPriceCheck::NoRates;
+    };
+    if rates.contains_key(&fiat_code.to_uppercase()) {
+        MarketPriceCheck::Quoted
+    } else {
+        MarketPriceCheck::NotQuoted
+    }
+}
+
+/// Pure: the `{"BTC": {"<code>": <price>}}` table of a rates event, or
+/// `None` when the content is not in that shape.
+fn read_rates_from_event(
+    event: &nostr_sdk::prelude::Event,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let content: serde_json::Value = serde_json::from_str(&event.content).ok()?;
+    content.get("BTC")?.as_object().cloned()
+}
+
+/// Fetch the node's newest exchange-rates event (kind 30078,
+/// `d = mostro-rates`, authored by the node). Best-effort: any relay error
+/// degrades to `None`, which [`market_price_check`] reads as "no rates".
+pub async fn fetch_newest_rates_event(
+    client: Client,
+    mostro_pubkey: PublicKey,
+) -> Option<nostr_sdk::prelude::Event> {
+    let filter = Filter::new()
+        .author(mostro_pubkey)
+        .kind(nostr_sdk::prelude::Kind::Custom(NOSTR_RATES_EVENT_KIND))
+        .identifier(RATES_EVENT_D_TAG);
+    fetch_newest_event(client, filter).await
+}
+
+/// The newest revision of an addressable event matching `filter`, picked by
+/// `created_at` explicitly: a lagging relay (or several relays at once) can
+/// still surface an older copy.
+async fn fetch_newest_event(client: Client, filter: Filter) -> Option<nostr_sdk::prelude::Event> {
     let events = client
         .fetch_events(filter)
         .timeout(FETCH_EVENTS_TIMEOUT)
@@ -420,10 +486,13 @@ mod tests {
     }
 
     fn make_rates_event(keys: &Keys, content: &str) -> nostr_sdk::prelude::Event {
-        EventBuilder::new(nostr_sdk::prelude::Kind::Custom(NOSTR_RATES_EVENT_KIND), content)
-            .tags(vec![Tag::identifier(RATES_EVENT_D_TAG)])
-            .finalize(keys)
-            .expect("sign rates event")
+        EventBuilder::new(
+            nostr_sdk::prelude::Kind::Custom(NOSTR_RATES_EVENT_KIND),
+            content,
+        )
+        .tags(vec![Tag::identifier(RATES_EVENT_D_TAG)])
+        .finalize(keys)
+        .expect("sign rates event")
     }
 
     #[test]
