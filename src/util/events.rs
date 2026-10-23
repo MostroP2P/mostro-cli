@@ -418,4 +418,58 @@ mod tests {
         // weird value, fall back to generic timeout" behavior.
         assert_eq!(parse("999"), None);
     }
+
+    fn make_rates_event(keys: &Keys, content: &str) -> nostr_sdk::prelude::Event {
+        EventBuilder::new(nostr_sdk::prelude::Kind::Custom(NOSTR_RATES_EVENT_KIND), content)
+            .tags(vec![Tag::identifier(RATES_EVENT_D_TAG)])
+            .finalize(keys)
+            .expect("sign rates event")
+    }
+
+    #[test]
+    fn market_price_allowed_when_rates_event_quotes_the_code() {
+        let keys = Keys::generate();
+        let event = make_rates_event(&keys, r#"{"BTC":{"USD":100000.0,"USDT":100000.0}}"#);
+        assert_eq!(
+            market_price_check(Some(&event), "USDT"),
+            MarketPriceCheck::Quoted
+        );
+    }
+
+    #[test]
+    fn market_price_refused_when_rates_event_lacks_the_code() {
+        let keys = Keys::generate();
+        let event = make_rates_event(&keys, r#"{"BTC":{"USD":100000.0}}"#);
+        assert_eq!(
+            market_price_check(Some(&event), "USDT"),
+            MarketPriceCheck::NotQuoted
+        );
+    }
+
+    #[test]
+    fn market_price_allowed_when_node_publishes_no_rates() {
+        assert_eq!(market_price_check(None, "USDT"), MarketPriceCheck::NoRates);
+    }
+
+    #[test]
+    fn market_price_lookup_upper_cases_the_code() {
+        let keys = Keys::generate();
+        let event = make_rates_event(&keys, r#"{"BTC":{"USDT":100000.0}}"#);
+        assert_eq!(
+            market_price_check(Some(&event), "usdt"),
+            MarketPriceCheck::Quoted
+        );
+    }
+
+    #[test]
+    fn market_price_treats_unreadable_rates_as_absent() {
+        // A rates event the CLI cannot read says nothing about the code:
+        // send the order and let the node decide, as with no event.
+        let keys = Keys::generate();
+        let event = make_rates_event(&keys, "not json");
+        assert_eq!(
+            market_price_check(Some(&event), "USDT"),
+            MarketPriceCheck::NoRates
+        );
+    }
 }
