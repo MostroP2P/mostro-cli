@@ -22,11 +22,11 @@ context initialization or other effects. MCP stays a separate, unchanged client.
 
 **Language/Version**: Rust 2021; declared minimum 1.94 (raised from 1.86 after T009 showed the locked graph needs it); pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
 
-**Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Added in T012: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas; resolved graph checked against MSRV 1.94.
+**Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Added in T012: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas; resolved graph checked against MSRV 1.94. Dev-only, already locked: hyper 1.8.1 (`server`, `http1`), hyper-util 0.1.20 (`tokio`) and tungstenite 0.28.0 (`handshake`) since T013, so the harness owns an OS-assigned loopback listener instead of `LocalRelay`'s probe-then-bind port; nostr-memory 0.45.2 since T021, to serve a forged event for the signature-verification test.
 
 **Storage**: None for listing/discovery; no DB opening, identity files or migrations. Existing SQLx storage remains on legacy paths.
 
-**Testing**: Existing Rust tests, rstest/serial_test, portable subprocess fixtures and SDK-provided loopback/transport fixtures. Dev-enable SDK `local-relay` only as needed; no shell or handwritten websocket fixtures.
+**Testing**: Existing Rust tests, rstest/serial_test, portable subprocess fixtures and SDK `LocalRelay` fixtures behind the harness-owned loopback listener in `tests/order_list_process.rs`. Dev-enable SDK `local-relay` only as needed; no shell or handwritten websocket fixtures.
 
 **Target Platform**: Native Windows and Linux; financial regtest remains Linux/WSL and is not exercised by this read-only pilot.
 
@@ -79,8 +79,12 @@ baseline prerequisites explicitly. Setup T001-T003 and baseline checkpoints
 T004-T010 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t010-baseline-gate-decision-2026-10-20);
 the baseline gate is closed with recorded exceptions. Foundations T011-T019 are
 recorded in [the test summary](../../tests/TEST_SUMMARY.md#t019-foundation-gate-2026-10-22),
-and US1 test task T020 in [its section](../../tests/TEST_SUMMARY.md#t020-order-list-contract-tests-2026-10-22);
-T021-T055 remain pending.
+and US1 test tasks T020 and T021 in [their](../../tests/TEST_SUMMARY.md#t020-order-list-contract-tests-2026-10-22)
+[sections](../../tests/TEST_SUMMARY.md#t021-collector-contract-tests-2026-10-23),
+and DTO mapping T022-T024 in [its section](../../tests/TEST_SUMMARY.md#t022-t024-order-list-dto-mapping-2026-10-23),
+and public configuration T025 in [its section](../../tests/TEST_SUMMARY.md#t025-public-configuration-and-session-2026-10-23),
+and the collector T026 in [its section](../../tests/TEST_SUMMARY.md#t026-collector-2026-10-23);
+T027-T055 remain pending.
 
 ## Execution Design
 
@@ -117,6 +121,15 @@ Private `msg::Session` owns the client/public configuration. Reuse connection/TL
 and ephemeral authentication; retain legacy Context until later migration.
 The list wrapper calls only `fetch_msg`. Reuse kind 38383, author, `#z=order`,
 seven-day `since`, limit 50 and no `until`.
+
+`msg` is a public module with a narrow surface: `PublicReadConfig`,
+`ReadLimits`, `fetch_msg` and its result types. No client, relay or session
+handle is exported, so process tests can drive the collector without a raw-client
+accessor. The caller builds the filter, which fixes the query clock.
+`ReadLimits` carries the connect/read/cleanup budgets, the unique-event cap and
+the per-relay notification capacity; its default is the production 10/15/1
+seconds, 10,000 events and the SDK's 2,048 notifications. Tests shrink these
+instead of waiting on production budgets.
 
 Arm notifications before subscribing; track relay/subscription IDs. Accept only
 matching, SDK-verified events satisfying the requested filter; dedup event IDs
@@ -171,7 +184,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T020 as complete; its checkboxes track
+The task list records T001-T026 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
@@ -203,7 +216,7 @@ tests/
   cli_functions.rs            # reuse argument tests
   parser_orders.rs            # reuse selection fixtures
   integration_tests.rs        # reuse filter tests
-  order_list_process.rs       # one portable process/relay test home
+  order_list_process.rs       # one portable process/relay test home, incl. collector contract
 ```
 
 **Structure decision**: These are responsibilities, not mandatory empty files.

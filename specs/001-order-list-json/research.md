@@ -85,6 +85,26 @@ The adapter must follow these constraints, which refine the decision above:
   first terminal signal; whether the SDK resubscribes after a reconnect was
   not tested.
 
+**T021 result (2026-10-23, source reading plus a throwaway prototype)**: four
+more constraints for T026, each pinned by an ignored contract test:
+
+- `Relay::notifications()` skips `broadcast` lag errors silently ("Skip errors
+  for now" in the SDK stream wrapper), so lag cannot be observed. A lagged
+  receiver still yields the newest `capacity` notifications, so the collector
+  fails a relay that produces `ReadLimits::notification_capacity`
+  notifications before its EOSE. The SDK default of 2,048 is far above the
+  roughly 2 x 50 + 1 a compliant relay sends.
+- The SDK verifies signatures before emitting `RelayMessage::Event`, so forged
+  events never reach the collector. It does not check the subscription filter
+  unless `verify_subscriptions` is on, so the collector matches each event
+  against its filter itself.
+- `LocalRelay::add_event` verifies events; a forged fixture needs a
+  `nostr-memory` store passed to `LocalRelayBuilder::database`.
+  `LocalRelay::notify_event` reaches only live subscriptions, which are
+  registered after EOSE, so it produces a deterministic post-EOSE event.
+- Dropping the last `Client` handle closed the prototype's connections; the
+  cancellation test fails if the client is leaked.
+
 ## 3. Public Reads Without Identity
 
 **Evidence**: [startup](../../src/cli.rs) initializes full Context;

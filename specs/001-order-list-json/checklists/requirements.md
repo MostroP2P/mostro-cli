@@ -35,7 +35,8 @@
 
 This is the built-in specification-quality review, not implementation approval
 or a runtime test report. The [technical plan](../plan.md) now records the design,
-research, contracts and validation procedure. The [task list](../tasks.md) is
-generated but unexecuted; no pilot implementation has been created. All feature
+research, contracts and validation procedure. Execution progress lives in the
+[task list](../tasks.md) and its evidence in `tests/TEST_SUMMARY.md`; checked
+tasks prove only their recorded scope. All feature
 acceptance criteria remain unverified until code and tests land; the roadmap's
 remaining baseline gates still apply.

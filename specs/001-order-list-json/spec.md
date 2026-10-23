@@ -84,7 +84,7 @@ files, then exercise invalid arguments and failed reads with controlled inputs.
 
 ### Functional Requirements
 
-- **FR-001**: Provide `order list` with `--side`, `--currency`, and `--status` filters. Preserve existing listing defaults, event selection, and latest-state reduction. Remove the replaced `listorders` spelling without a compatibility adapter.
+- **FR-001**: Provide `order list` with `--side`, `--currency`, and `--status` filters. Preserve existing listing defaults, event selection, and latest-state reduction. Remove the replaced `listorders` spelling and the root `--mostropubkey` spelling (replaced by `--mostro-pubkey`) without a compatibility adapter.
 - **FR-002**: Support global `--output human|json`, defaulting to human regardless of terminal detection, in both flag positions. Listing must never prompt.
 - **FR-003**: JSON must contain one versioned outcome with canonical command `order.list`, status, data, structured error, warnings, and metadata; success contains an orders collection even when empty.
 - **FR-004**: Both renderings must describe the same selected orders. Diagnostic output must not contaminate the JSON document, including during startup and verbose execution.

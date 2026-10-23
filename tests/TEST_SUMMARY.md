@@ -1197,6 +1197,300 @@ Production lines: `src/outcome/order.rs` 86, `src/commands/order/list.rs` 19,
 T001-T020 are complete. T021 (collector contract tests) is next; T022 needs
 both T020 and T021. The JSON pilot is still unimplemented.
 
+## T021 Collector Contract Tests: 2026-10-23
+
+Native Windows (`x86_64-pc-windows-msvc`), rustc 1.97.0, base `e8711d1`. This
+is the first native Windows run since T005; Linux was not rerun. Nothing is
+committed.
+
+Before T021, the Spec Kit artifacts were reconciled with a cross-artifact
+analysis. The fixes:
+- T021 moves to `tests/order_list_process.rs`, which already holds the relay
+  harness.
+- `msg` becomes a narrow public module so the tests can call `fetch_msg`.
+- `ReadLimits` lets tests inject the time budgets, the event cap and the
+  notification capacity.
+- The canonical-name table in the contract no longer claims the roadmap lacks
+  dotted names; the roadmap now links to that table.
+- The task counts, the plan's dependency list, the quickstart and the checklist
+  were brought up to date.
+
+New compile-only stubs, following the T020 convention:
+
+| File | Stub | Implemented by |
+| --- | --- | --- |
+| `src/msg/mod.rs` | `PublicReadConfig::new` (`todo!`); `ReadLimits` with its production `Default` | T025 |
+| `src/msg/receive_msg.rs` | `fetch_msg`, `Fetched`, `FetchFailure` | T026 |
+| `src/outcome/order.rs` | `Snapshot`, `CompletionPolicy`; RFC3339 serializer is `todo!` | T026 |
+
+Eleven tests in `tests/order_list_process.rs`, each
+`#[ignore = "red until T026"]`. All use generated keys, loopback relays and a
+fixed query clock (2026-10-16T00:00:00Z):
+
+| Test | Proves |
+| --- | --- |
+| `collector_sends_the_requested_filter_once_and_returns_its_events` | One REQ per relay, carrying exactly the author/kind/z/since/limit filter; events and a complete snapshot returned |
+| `events_failing_verification_or_the_filter_are_dropped` | A forged event, another author, another kind, another `z` and an event before `since`, served by a relay that ignores the filter, are all excluded |
+| `duplicate_relays_and_events_count_once` | Trimmed, empty and duplicate relay entries make 2 relays with one connection each; a shared event counts once |
+| `a_closed_relay_fails_the_whole_read` | CLOSED is `relay_read_failed`; no events returned |
+| `a_relay_disconnecting_before_eose_fails_the_read` | Disconnect before EOSE is `relay_read_failed` |
+| `a_silent_relay_times_out_and_cleanup_stays_bounded` | `read_timeout` with counts 2/1/1 (the `partial_relay_timeout` example); elapsed time bounded by read plus cleanup; the answering relay's connection closes |
+| `an_unreachable_relay_fails_before_the_query` | A listener that never accepts gives `relay_connection_failed` with a null snapshot, within the connect budget |
+| `events_after_a_relays_eose_are_ignored` | An event delivered to the first relay's live subscription after its EOSE is not returned, while a second relay is still pending |
+| `a_relay_filling_its_notification_buffer_fails_the_read` | 20 events succeed by default; with capacity 8 the read fails as `relay_read_failed` with no completed relay |
+| `exceeding_the_event_cap_fails_without_truncating` | Cap 4 succeeds with 4 events; cap 3 gives `read_limit_exceeded` with `received_events` 3 |
+| `cancelling_a_read_closes_its_connections` | Dropping the read while a relay holds its REQ closes the other relay's connection |
+
+The harness gained per-listener open-session counting (`wait_idle`) and three
+query policies: `RecordQueries`, `IgnoreFilter` and `Gate`. A new dev
+dependency, `nostr-memory` 0.45.2, provides the store for the forged-event
+relay. It was already locked through `local-relay`; `Cargo.lock` gains only
+its entry in mostro-cli's dependency list. SDK findings that shape T026 are in
+[research §2](../specs/001-order-list-json/research.md#2-empty-results-and-completion).
+
+Checks that the tests are not vacuous:
+- Red run against the stubs: `cargo test --locked --test order_list_process
+  -- --ignored` fails 11 of 11.
+- Achievable: a throwaway prototype of `PublicReadConfig::new`, `fetch_msg`
+  and the snapshot serializer passed 11 of 11. It also passed 10 consecutive
+  runs, leaving no `mcli-process-*` directories.
+- Six prototype mutations, each reverted, were caught by the tests listed:
+  - Not freezing a relay at its EOSE: the late-event test.
+  - Skipping the local filter match: the verification/filter test.
+  - Removing the notification-capacity rule: the buffer test.
+  - Leaking the client on drop: the cancellation and unreachable-relay tests.
+  - Not deduplicating relay URLs: the duplicate test.
+  - Returning partial success on timeout: the silent-relay test.
+- A seventh mutation, dropping the explicit shutdown-on-drop guard, was not
+  caught. Dropping the last `Client` handle already closes its connections,
+  so the guard is not required.
+- The stubs were restored from saved copies and their hashes compared. The
+  prototype is not in the tree.
+
+Limitations:
+- Waiting for the late event uses a 300 ms pause. A shorter pause can only let
+  a broken collector pass, never fail a correct one. The EOSE-freeze mutation
+  was caught with the pause.
+- The `cleanup_incomplete` warning after a successful read is not exercised:
+  no fixture can stall the SDK's unsubscribe and shutdown.
+- The silent-relay and unreachable-relay tests assert that the answering
+  relay's connection closes. They do not observe the silent endpoint, which
+  never notices its peer leave.
+- `watchdog_kills_and_reaps_a_hung_child` failed once, after 7 s, while another
+  cargo build ran concurrently. It passed in the clean full run below; run
+  cargo jobs one at a time on loaded Windows hosts.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process` | PASS: 14 passed, 11 ignored |
+| `cargo test --locked --test order_list_process -- --ignored` | FAIL as intended: 0 of 11 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 256 passed, 0 failed, 69 ignored (58 from T020, 11 from T021) |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The Windows total (256) is below Linux's 260 at T020 because Windows skips
+`non_unicode_values_keep_json_intent` (Unix-only) and runs different
+platform-specific cases. This is the native Windows result for the current
+tree; T051-T052 still own the full platform acceptance.
+
+Production lines: `src/msg/mod.rs` 67, `src/msg/receive_msg.rs` 67,
+`src/outcome/order.rs` 116.
+
+T001-T021 are complete. T022 (ListOrdersInput/ListData) is next. The JSON
+pilot is still unimplemented.
+
+## T022-T024 Order-List DTO Mapping: 2026-10-23
+
+Native Windows, rustc 1.97.0, base `e8711d1` plus the uncommitted T021 work.
+Linux was not rerun.
+
+T022's tests call `ListData::from_selected`, which serializes whole rows, so
+the money fields (T023) and the text and time fields (T024) cannot stay
+`todo!` while T022 passes. The user chose to implement the three tasks as one
+increment, removing each task's ignores and recording them separately here.
+
+Changed only `src/outcome/order.rs` (185 production lines):
+- `ListOrdersInput::parse` reuses core `Kind::from_str` and `Status::from_str`.
+  Both are case-insensitive and untrimmed; no second status enum. Status
+  defaults to pending, and an unknown, padded, empty or `all` value is
+  `invalid_arguments`. Currency is uppercased only.
+- `ListData::from_selected` keeps the reducer order and maps each row's
+  explicit public fields:
+  - Node key as lowercase hex.
+  - The UUID's canonical lowercase hyphenated form.
+  - Core side and status.
+  - i64 amounts, range endpoints and premium through `to_string`: canonical,
+    lossless, with no float.
+  - Fiat code and payment method as received.
+  - `created_at_unix` as the decimal event time.
+  - `created_at` as UTC RFC3339 with `Z`, or null outside years 0000-9999.
+- A row missing id, side, status or event time, or not matching the filters,
+  is `internal_error`. Out-of-range times add one aggregate
+  `invalid_event_timestamp` warning.
+
+| Ignored until | Cases | Now |
+| --- | ---: | --- |
+| T022 | 26 | pass, ignores removed |
+| T023 | 10 | pass, ignores removed |
+| T024 | 12 | pass, ignores removed; `large_amount_success` and `empty_success` data reproduced exactly |
+| T028 | 8 | still ignored; fail at the `select_orders` stub |
+
+The run counted 50 T022-T024 cases and 8 T028 cases. T020's table (48 and 10)
+put two cases in the wrong group; the 58-case total is unchanged. The red
+evidence is T020's run against the stubs.
+
+Mutation checks on the real code, each reverted:
+- Skipping the filter-invariant check failed 3 internal-error cases.
+- Widening the year bound to 99999 failed the year-10000 case.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders list_contract -- --ignored` (before removing ignores) | 50 passed; 8 T028 cases fail at the stub |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | **FAIL**, see the next note. With `--no-fail-fast`: 305 passed, 1 failed, 19 ignored (11 T021, 8 T028); `parser_orders` 89 passed, 8 ignored |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+**Windows failure outside this change**: `watchdog_kills_and_reaps_a_hung_child`
+failed in two consecutive full runs, taking about 7 s against a bound of 2 s
+plus 5 s. Run alone, it passed 3 of 3 times in about 2.1 s. Its time bound
+includes spawning the child, and the target spawns many `mostro-cli`
+children in parallel. On this Windows host that contention, possibly with
+on-access scanning of the freshly linked binary, pushes the spawn past the
+bound. The T021 full run passed it. No code it exercises changed in this
+increment. It stays an open Windows gate failure, not fixed here.
+
+T001-T024 are complete. T025 (public configuration and private Session) is
+next. The JSON pilot is still unimplemented: no command uses these types yet.
+
+## T025 Public Configuration And Session: 2026-10-23
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T024. Linux was not
+rerun.
+
+Changed `src/msg/mod.rs` (166 production lines) and `src/util/net.rs`:
+- `PublicReadConfig::resolve(cli_pubkey, cli_relays, env)` gives CLI values
+  precedence and asks `env` only for values the CLI did not supply. An empty or
+  invalid CLI value never falls back, and nothing calls `set_var`.
+- Missing or blank values are `configuration_missing`; an unparsable key or
+  relay URL is `configuration_invalid`. Keys use the existing SDK parser, so
+  hex and npub are both accepted. `env` is a parameter, so tests need no
+  process environment and production passes a reader of the real one.
+- `PublicReadConfig::new` replaces the T021 stub: it trims entries, drops empty
+  ones, validates `ws`/`wss` URLs and deduplicates by `RelayUrl` equality,
+  which compares normalized URLs.
+- Two helpers are now shared with the legacy `connect_nostr`, which uses them
+  instead of its own copies: `relay_entries` (the comma split) and
+  `ephemeral_client` (rustls provider plus a NIP-42 authenticator with fresh
+  in-memory keys).
+- `Session` is private to `msg`, with no client accessor. `Session::connect`
+  adds every relay without automatic reconnection, applying the connect
+  budget and notification capacity from `ReadLimits`. Any unconnected relay is
+  `relay_connection_failed`. Its first production caller is `fetch_msg` in
+  T026, so until then it carries
+  `#[cfg_attr(not(test), allow(dead_code, reason = ...))]`, which T026 must
+  remove. `expect` was tried first, but rustc 1.94 reported the expectation
+  as unfulfilled where 1.97 did not.
+- No database, identity, admin credential, `MCLI_DIR` or DM protocol probe is
+  touched.
+
+| Test (`msg::tests`) | Proves |
+| --- | --- |
+| `cli_values_win_and_environment_fills_the_rest` | CLI key with env relays; with both CLI values the environment is never consulted, and an invalid env key is not read |
+| `empty_or_invalid_cli_values_do_not_fall_back` | Empty, blank or invalid CLI key or relays, `https://` and unparsable URLs give missing or invalid despite valid env values |
+| `missing_values_are_configuration_missing` | Either or both absent |
+| `npub_is_accepted_and_kept_as_the_same_key` | npub input yields the same key |
+| `relays_are_trimmed_and_deduplicated_after_normalization` | `wss://Relay.Example:443` and `wss://relay.example/` count once; blank entries dropped; order kept |
+| `only_public_variables_are_read` | With `ADMIN_NSEC`/`MOSTRO_RPC_TOKEN` sentinels present, only `MOSTRO_PUBKEY` and `RELAYS` are requested; the config's Debug output has no sentinel |
+| `an_unanswered_relay_fails_the_session_within_the_budget` | A listener that never accepts gives `relay_connection_failed` within the connect budget |
+
+Tests and code landed together. Two mutations, each reverted, failed 2 of the
+7 tests:
+- Letting an empty CLI key fall back to the environment.
+- Dropping relay deduplication.
+
+T021's collector tests now get past `PublicReadConfig::new` and stop at the
+`fetch_msg` stub, so they stay ignored until T026.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib msg` | PASS: 7 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | 312 passed, 1 failed (`watchdog_kills_and_reaps_a_hung_child`), 19 ignored |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS, no warnings after the `allow` change |
+| `cargo test --locked --test order_list_process` three times in a row | Run 1 FAIL (watchdog, 10.3 s); runs 2 and 3 PASS (14 passed, about 2.7 s) |
+
+The watchdog failure repeats the T022-T024 note and narrows its cause. It
+fails only on the first process run after `mostro-cli.exe` is relinked, and
+then the whole target takes about 10 s instead of 2.7 s. That points to
+slow first spawns of a fresh binary on this Windows host, not to this change.
+It remains open.
+
+T001-T025 are complete. T026 (`fetch_msg` and the snapshot) is next. The JSON
+pilot is still unimplemented.
+
+## T026 Collector: 2026-10-23
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T025. Linux was not
+rerun.
+
+`fetch_msg` in `src/msg/receive_msg.rs` (249 production lines) replaces the
+T021 stub, following the constraints in
+[research §2](../specs/001-order-list-json/research.md#2-empty-results-and-completion):
+- A filter without `since` or `limit` is `internal_error` before any
+  connection, so every read is bounded.
+- It opens a `Session` (T025), which connects every relay within the connect
+  budget. A failure there is `relay_connection_failed` with a null snapshot.
+- It arms each relay's notification stream before sending one REQ with a
+  generated subscription id, and observes the streams merged until every relay
+  reaches EOSE or the read deadline passes. The deadline starts before the REQ.
+- Per relay:
+  - EVENT frames for this subscription are kept only if they match the filter;
+    the SDK has already verified them.
+  - Duplicates across relays count once.
+  - EOSE freezes the relay, and later frames from it are ignored.
+  - CLOSED or a disconnect, terminate or shutdown status is `relay_read_failed`.
+  - Reaching `notification_capacity` notifications before EOSE is
+    `relay_read_failed`, because the SDK drops lagged notifications silently.
+- More than `max_unique_events` unique events is `read_limit_exceeded`. A
+  deadline is `read_timeout`, and all streams ending is `relay_read_failed`.
+  Nothing is retried, and a failure returns no events.
+- Cleanup unsubscribes and shuts the client down within the cleanup budget. If
+  it times out or the unsubscribe fails, a `cleanup_incomplete` warning is
+  added without replacing an original error.
+- `Snapshot::new` and the RFC3339 serializer replace their stubs. The
+  serializer reuses T024's four-digit-year helper; an unrepresentable time
+  fails serialization (so the output boundary emits `internal_error`) rather
+  than writing a wrong date.
+- `Session`'s temporary `allow(dead_code)` from T025 is removed.
+
+The 11 T021 tests pass and their ignores are removed. Two mutations, each
+reverted, failed the expected tests:
+- Not freezing a relay at EOSE failed the late-event test.
+- Skipping the local filter match failed the verification/filter test.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process -- --ignored` (before removing ignores) | PASS: 11 of 11 |
+| `cargo fmt --all -- --check` | PASS after applying rustfmt's layout |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | 323 passed, 1 failed (`watchdog_kills_and_reaps_a_hung_child`), 8 ignored (T028) |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+| `cargo test --locked --test order_list_process` twice | Run 1 FAIL (watchdog, 10.3 s); run 2 PASS: 25 of 25 in 3.0 s |
+
+The watchdog failure follows the same first-run-after-relink pattern recorded
+for T025. It does not exercise `fetch_msg`.
+
+T001-T026 are complete. T027 (moving the order reducer into `msg::orders`) is
+next. The JSON pilot is still unimplemented: no command calls `fetch_msg`
+yet.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

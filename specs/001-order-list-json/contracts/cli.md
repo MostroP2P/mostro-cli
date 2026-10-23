@@ -123,8 +123,11 @@ errors retain order.list. Stage metadata follows the data model even on errors.
 
 ### Canonical Command Names
 
-Approved 2026-10-22. The roadmap names command families but no dotted names,
-so this table is the source; `src/cli/commands.rs` implements it and
+Approved 2026-10-22 and reaffirmed 2026-10-23. The roadmap's command table
+proposes future noun/verb invocation paths; these dotted names are identifiers
+only and, where they differ from those paths (for example `order.take-sell`
+versus `order take --side sell`), this table is the source. The roadmap links
+here. `src/cli/commands.rs` implements it and
 `tests/cli_functions.rs` pins it. Names are part of contract v1: renaming one
 requires a new contract version. `order list` replaces `listorders` in T030
 and keeps `order.list`.
