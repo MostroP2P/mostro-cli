@@ -3,16 +3,16 @@ use crate::parser::common::{
     create_emoji_field_row, create_field_value_header, create_standard_table,
 };
 use crate::parser::orders::print_order_preview;
-use crate::util::{print_dm_events, send_dm, uppercase_first, wait_for_dm};
+use crate::util::{
+    fetch_newest_rates_event, market_price_check, print_dm_events, send_dm, uppercase_first,
+    wait_for_dm, MarketPriceCheck,
+};
 use anyhow::Result;
 use mostro_core::prelude::*;
-use std::collections::HashMap;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process;
 use std::str::FromStr;
 use uuid::Uuid;
-
-pub type FiatNames = HashMap<String, String>;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_new_order(
@@ -28,19 +28,17 @@ pub async fn execute_new_order(
 ) -> Result<()> {
     // Uppercase currency
     let fiat_code = fiat_code.to_uppercase();
-    // Check if fiat currency selected is available on Yadio and eventually force user to set amount
-    // this is in the case of crypto <--> crypto offer for example
+    // A market order needs a rate the node has. Its newest `mostro-rates`
+    // event says which codes it quotes; a node that publishes none decides
+    // for itself. A stablecoin (USDT, USDC, DOC) is quoted only by a node
+    // that opted in, so this is where such an order is refused early.
     if *amount == 0 {
-        // Get Fiat list
-        let api_req_string = "https://api.yadio.io/currencies".to_string();
-        let fiat_list_check = reqwest::get(api_req_string)
-            .await?
-            .json::<FiatNames>()
-            .await?
-            .contains_key(&fiat_code);
-        if !fiat_list_check {
-            println!("{} is not present in the fiat market, please specify an amount with -a flag to fix the rate", fiat_code);
-            process::exit(0);
+        let rates = fetch_newest_rates_event(ctx.client.clone(), ctx.mostro_pubkey).await;
+        if market_price_check(rates.as_ref(), &fiat_code) == MarketPriceCheck::NotQuoted {
+            return Err(anyhow::anyhow!(
+                "{fiat_code} is not quoted at market price by this Mostro node, \
+                 pass an amount in sats with the -a flag to fix the rate"
+            ));
         }
     }
     let kind = uppercase_first(kind);

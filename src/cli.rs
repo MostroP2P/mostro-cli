@@ -132,7 +132,9 @@ pub enum Commands {
         #[arg(short, long)]
         #[clap(default_value_t = 0)]
         amount: i64,
-        /// Currency selected
+        /// Fiat currency code, or a stablecoin code from the protocol
+        /// book's list (USDT, USDC, DOC). For a stablecoin, name the
+        /// network in the payment method: -m "USDT (Tron)"
         #[arg(short = 'c', long)]
         fiat_code: String,
         /// Fiat amount
