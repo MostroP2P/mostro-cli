@@ -737,7 +737,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T022"]
     fn default_filters_are_pending_with_null_side_and_currency() {
         assert_eq!(
             serde_json::to_value(pending()).unwrap(),
@@ -751,7 +750,6 @@ mod list_contract {
     #[case(Some("Buy"), None, json!("buy"), json!("pending"))]
     #[case(None, Some("PENDING"), json!(null), json!("pending"))]
     #[case(None, Some("Canceled-By-Admin"), json!(null), json!("canceled-by-admin"))]
-    #[ignore = "red until T022"]
     fn side_and_status_are_case_insensitive(
         #[case] side: Option<&str>,
         #[case] status: Option<&str>,
@@ -774,7 +772,6 @@ mod list_contract {
     #[case(None, Some("pending\n"))]
     #[case(None, Some(""))]
     #[case(None, Some("all"))]
-    #[ignore = "red until T022"]
     fn untrimmed_or_unknown_side_and_status_are_invalid_arguments(
         #[case] side: Option<&str>,
         #[case] status: Option<&str>,
@@ -790,7 +787,6 @@ mod list_contract {
     #[case("Eur", "EUR")]
     #[case(" usd", " USD")]
     #[case("", "")]
-    #[ignore = "red until T022"]
     fn currency_is_uppercased_without_trimming_or_nulling(
         #[case] requested: &str,
         #[case] normalized: &str,
@@ -801,7 +797,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T022"]
     fn every_core_status_is_a_canonical_filter_and_wire_value() {
         for name in STATUS_SET {
             for spelling in [name.to_string(), name.to_uppercase()] {
@@ -820,7 +815,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T022"]
     fn list_data_carries_node_hex_filters_and_canonical_identity() {
         let order = SmallOrder {
             id: Some(Uuid::parse_str("00000000-0000-4000-8000-00000000000A").unwrap()),
@@ -843,7 +837,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T022"]
     fn rows_keep_the_reducer_order() {
         let newer = SmallOrder {
             id: Some(Uuid::from_u128(2)),
@@ -867,7 +860,6 @@ mod list_contract {
     #[case(pending(), SmallOrder { status: Some(Status::Active), ..selected(1_700_000_000) })]
     #[case(filters(Some("buy"), None, None), selected(1_700_000_000))]
     #[case(filters(None, Some("eur"), None), selected(1_700_000_000))]
-    #[ignore = "red until T022"]
     fn rows_breaking_the_selection_invariants_are_internal_errors(
         #[case] filters: ListOrdersInput,
         #[case] order: SmallOrder,
@@ -884,7 +876,6 @@ mod list_contract {
     #[case(-5, "-5")]
     #[case(0, "0")]
     #[case(15_000, "15000")]
-    #[ignore = "red until T023"]
     fn money_fields_are_canonical_signed_decimal_strings(
         #[case] value: i64,
         #[case] decimal: &str,
@@ -909,7 +900,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T023"]
     fn zero_sats_stays_the_market_priced_zero() {
         assert_eq!(row(selected(1_700_000_000))["sats_amount"], "0");
     }
@@ -919,7 +909,6 @@ mod list_contract {
     #[case(Some(100), None, json!("100"), json!(null))]
     #[case(None, Some(200), json!(null), json!("200"))]
     #[case(Some(200), Some(100), json!("200"), json!("100"))]
-    #[ignore = "red until T023"]
     fn incomplete_or_unordered_ranges_stay_as_decoded(
         #[case] minimum: Option<i64>,
         #[case] maximum: Option<i64>,
@@ -940,7 +929,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T024"]
     fn public_text_is_kept_as_received() {
         for (fiat, payment) in [("", ""), ("usd", "wire,cash"), ("USD", "\u{1b}[31mred")] {
             let order = row(SmallOrder {
@@ -963,7 +951,6 @@ mod list_contract {
     #[case(-62_167_219_201, None)]
     #[case(i64::MAX, None)]
     #[case(i64::MIN, None)]
-    #[ignore = "red until T024"]
     fn event_times_are_utc_rfc3339_within_four_digit_years(
         #[case] seconds: i64,
         #[case] rfc3339: Option<&str>,
@@ -983,7 +970,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T024"]
     fn invalid_event_times_share_one_warning_and_keep_their_rows() {
         let orders: Vec<_> = [i64::MAX, 1_700_000_000, i64::MIN]
             .into_iter()
@@ -1000,7 +986,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T024"]
     fn proposed_examples_are_reproduced_exactly() {
         let order = SmallOrder {
             id: Some(Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap()),

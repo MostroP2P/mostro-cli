@@ -13,11 +13,13 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{ExitStatus, Stdio};
+use std::slice::from_ref;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, io, process};
 
+use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use futures::{Stream, StreamExt};
 use hyper::body::Incoming;
@@ -27,10 +29,16 @@ use hyper::service::service_fn;
 use hyper::upgrade::{self, OnUpgrade};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use mostro_client::msg::{fetch_msg, FetchFailure, PublicReadConfig, ReadLimits};
+use mostro_client::outcome::order::Snapshot;
+use mostro_client::outcome::ErrorCode;
+use mostro_client::util::events::create_seven_days_filter_at;
+use mostro_core::prelude::NOSTR_ORDER_EVENT_KIND;
+use nostr_memory::MemoryDatabase;
 use nostr_sdk::prelude::{
     Client, Event, EventBuilder, EventId, Filter, FinalizeEvent, Keys, Kind, LocalRelay,
-    MachineReadablePrefix, QueryPolicy, QueryPolicyResult, RelayMessage, RelayNotification,
-    RelayStatus, SubscriptionId,
+    MachineReadablePrefix, NostrDatabase, QueryPolicy, QueryPolicyResult, RelayMessage,
+    RelayNotification, RelayStatus, SubscriptionId, Tag, Timestamp,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -39,8 +47,9 @@ use tokio::process::Command;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Notify;
 use tokio::task::{JoinHandle, JoinSet};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tungstenite::handshake::derive_accept_key;
+use uuid::Uuid;
 
 /// Parent-side limit for one child run.
 const WATCHDOG: Duration = Duration::from_secs(40);
@@ -132,6 +141,8 @@ enum Backend {
 struct LoopbackRelay {
     url: String,
     connections: Arc<AtomicUsize>,
+    open: Arc<AtomicUsize>,
+    ended: Arc<Notify>,
     backend: Backend,
     accept: JoinHandle<()>,
 }
@@ -141,14 +152,22 @@ impl LoopbackRelay {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let url = format!("ws://{}", listener.local_addr()?);
         let connections = Arc::new(AtomicUsize::new(0));
+        let open = Arc::new(AtomicUsize::new(0));
+        let ended = Arc::new(Notify::new());
         let accept = tokio::spawn(accept_loop(
             listener,
             backend.clone(),
-            Arc::clone(&connections),
+            Sessions {
+                accepted: Arc::clone(&connections),
+                open: Arc::clone(&open),
+                ended: Arc::clone(&ended),
+            },
         ));
         Ok(Self {
             url,
             connections,
+            open,
+            ended,
             backend,
             accept,
         })
@@ -157,6 +176,21 @@ impl LoopbackRelay {
     /// TCP connections accepted so far.
     fn connections(&self) -> usize {
         self.connections.load(Ordering::SeqCst)
+    }
+
+    /// Whether every accepted connection ended within `limit`. A `Silent`
+    /// session never notices its peer closing, so use this on relays only.
+    async fn wait_idle(&self, limit: Duration) -> bool {
+        let idle = async {
+            loop {
+                let ended = self.ended.notified();
+                if self.open.load(Ordering::SeqCst) == 0 {
+                    return;
+                }
+                ended.await;
+            }
+        };
+        timeout(limit, idle).await.is_ok()
     }
 }
 
@@ -170,11 +204,26 @@ impl Drop for LoopbackRelay {
     }
 }
 
-async fn accept_loop(listener: TcpListener, backend: Backend, connections: Arc<AtomicUsize>) {
+/// Connection counters shared by a listener and its sessions.
+struct Sessions {
+    accepted: Arc<AtomicUsize>,
+    open: Arc<AtomicUsize>,
+    ended: Arc<Notify>,
+}
+
+async fn accept_loop(listener: TcpListener, backend: Backend, counters: Sessions) {
     let mut sessions = JoinSet::new();
     while let Ok((stream, remote)) = listener.accept().await {
-        connections.fetch_add(1, Ordering::SeqCst);
-        sessions.spawn(session(stream, remote, backend.clone()));
+        counters.accepted.fetch_add(1, Ordering::SeqCst);
+        counters.open.fetch_add(1, Ordering::SeqCst);
+        let open = Arc::clone(&counters.open);
+        let ended = Arc::clone(&counters.ended);
+        let backend = backend.clone();
+        sessions.spawn(async move {
+            session(stream, remote, backend).await;
+            open.fetch_sub(1, Ordering::SeqCst);
+            ended.notify_waiters();
+        });
     }
 }
 
@@ -862,4 +911,471 @@ async fn bare_invocation_still_prints_help_on_stderr() {
     );
     assert_no_effects(&sandbox, "bare");
     assert_eq!(endpoint.connections(), 0);
+}
+
+// Collector contract (T021), implemented by `fetch_msg` in T026.
+
+/// The fixed query clock, 2026-10-16T00:00:00Z, and its seven-day `since`.
+const QUERY_AT: u64 = 1_792_108_800;
+const QUERY_SINCE: &str = "2026-10-09T00:00:00Z";
+const HOUR: u64 = 3_600;
+const PRODUCTION_CAP: usize = 10_000;
+
+/// The order-book filter the list command sends, at the fixed clock.
+fn order_filter(mostro: &Keys) -> Filter {
+    let at = DateTime::<Utc>::from_timestamp(i64::try_from(QUERY_AT).unwrap(), 0).unwrap();
+    create_seven_days_filter_at(
+        "order".to_string(),
+        mostro.public_key(),
+        NOSTR_ORDER_EVENT_KIND,
+        at,
+    )
+    .unwrap()
+}
+
+fn book_event(author: &Keys, kind: Kind, z: &str, created_at: u64) -> Event {
+    EventBuilder::new(kind, "")
+        .tags([
+            Tag::custom("d", [Uuid::new_v4().to_string()]),
+            Tag::custom("z", [z]),
+        ])
+        .custom_created_at(Timestamp::from(created_at))
+        .finalize(author)
+        .unwrap()
+}
+
+/// A matching public order event `hours` before the query time.
+fn order_event(mostro: &Keys, hours: u64) -> Event {
+    book_event(
+        mostro,
+        Kind::Custom(NOSTR_ORDER_EVENT_KIND),
+        "order",
+        QUERY_AT - hours * HOUR,
+    )
+}
+
+/// `event` with its content changed after signing, so it no longer verifies.
+fn forged(event: &Event) -> Event {
+    let mut json: Value = serde_json::from_str(&event.as_json()).unwrap();
+    json["content"] = json!("forged");
+    let forged = Event::from_json(json.to_string()).unwrap();
+    assert!(forged.verify().is_err());
+    forged
+}
+
+async fn serve(relay: LocalRelay, events: &[Event]) -> LoopbackRelay {
+    for event in events {
+        relay.add_event(event.clone()).await.unwrap();
+    }
+    LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+        .await
+        .unwrap()
+}
+
+fn read_config(mostro: &Keys, relays: &[&str]) -> PublicReadConfig {
+    PublicReadConfig::new(mostro.public_key(), &relays.join(",")).unwrap()
+}
+
+fn quick_limits() -> ReadLimits {
+    ReadLimits {
+        connect: Duration::from_secs(2),
+        read: Duration::from_secs(2),
+        cleanup: Duration::from_secs(1),
+        ..ReadLimits::default()
+    }
+}
+
+fn ids<'a>(events: impl IntoIterator<Item = &'a Event>) -> BTreeSet<EventId> {
+    events.into_iter().map(|event| event.id).collect()
+}
+
+/// The snapshot as JSON, after checking the fields that do not vary.
+fn snapshot_json(snapshot: &Snapshot, cap: usize) -> Value {
+    let json = serde_json::to_value(snapshot).unwrap();
+    assert_eq!(json["since"], QUERY_SINCE, "{json}");
+    assert_eq!(json["until"], Value::Null, "{json}");
+    assert_eq!(json["per_relay_limit"], 50, "{json}");
+    assert_eq!(json["max_unique_events"], cap, "{json}");
+    assert_eq!(json["completion_policy"], "all_relays_eose", "{json}");
+    assert_eq!(json["complete_history"], false, "{json}");
+    let observed_at = json["observed_at"].as_str().expect("observed_at string");
+    assert!(observed_at.ends_with('Z'), "{json}");
+    assert!(DateTime::parse_from_rfc3339(observed_at).is_ok(), "{json}");
+    json
+}
+
+fn assert_counts(json: &Value, configured: usize, completed: usize, received: usize) {
+    assert_eq!(json["configured_relays"], configured, "{json}");
+    assert_eq!(json["completed_relays"], completed, "{json}");
+    assert_eq!(json["received_events"], received, "{json}");
+}
+
+/// The failure's snapshot JSON; a query that started always has one.
+fn failure_snapshot(failure: &FetchFailure, cap: usize) -> Value {
+    snapshot_json(failure.snapshot().expect("query started"), cap)
+}
+
+/// Records every REQ filter it admits.
+#[derive(Debug, Default)]
+struct RecordQueries {
+    seen: Arc<Mutex<Vec<Filter>>>,
+}
+
+impl QueryPolicy for RecordQueries {
+    fn admit_query<'a>(
+        &'a self,
+        query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        self.seen.lock().unwrap().push(query.clone());
+        Box::pin(async { QueryPolicyResult::Accept })
+    }
+}
+
+/// Answers every REQ with its whole store, ignoring the requested filter.
+#[derive(Debug)]
+struct IgnoreFilter;
+
+impl QueryPolicy for IgnoreFilter {
+    fn admit_query<'a>(
+        &'a self,
+        query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        *query = Filter::new();
+        Box::pin(async { QueryPolicyResult::Accept })
+    }
+}
+
+/// Signals each REQ, then answers it only once released.
+#[derive(Clone, Debug, Default)]
+struct Gate {
+    received: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl QueryPolicy for Gate {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        self.received.notify_one();
+        Box::pin(async {
+            self.release.notified().await;
+            QueryPolicyResult::Accept
+        })
+    }
+}
+
+#[tokio::test]
+async fn collector_sends_the_requested_filter_once_and_returns_its_events() {
+    let mostro = Keys::generate();
+    let events = [order_event(&mostro, 1), order_event(&mostro, 2)];
+    let recorder = RecordQueries::default();
+    let seen = Arc::clone(&recorder.seen);
+    let relay = serve(
+        LocalRelay::builder().query_policy(recorder).build(),
+        &events,
+    )
+    .await;
+    let filter = order_filter(&mostro);
+
+    let fetched = fetch_msg(
+        &read_config(&mostro, &[&relay.url]),
+        filter.clone(),
+        &quick_limits(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(*seen.lock().unwrap(), vec![filter]);
+    assert_eq!(ids(fetched.events()), ids(&events));
+    assert!(fetched.warnings().is_empty());
+    let snapshot = snapshot_json(fetched.snapshot(), PRODUCTION_CAP);
+    assert_counts(&snapshot, 1, 1, 2);
+    assert_eq!(relay.connections(), 1);
+}
+
+#[tokio::test]
+async fn events_failing_verification_or_the_filter_are_dropped() {
+    let mostro = Keys::generate();
+    let order_kind = Kind::Custom(NOSTR_ORDER_EVENT_KIND);
+    let valid = order_event(&mostro, 1);
+    let unrelated = [
+        forged(&order_event(&mostro, 2)),
+        order_event(&Keys::generate(), 3),
+        book_event(&mostro, Kind::TextNote, "order", QUERY_AT - HOUR),
+        book_event(&mostro, order_kind, "dispute", QUERY_AT - HOUR),
+        book_event(&mostro, order_kind, "order", QUERY_AT - 8 * 24 * HOUR),
+    ];
+    let database = MemoryDatabase::unbounded();
+    for event in unrelated.iter().chain([&valid]) {
+        database.save_event(event).await.unwrap();
+    }
+    let relay = LocalRelay::builder()
+        .database(database)
+        .query_policy(IgnoreFilter)
+        .build();
+    let relay = LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+        .await
+        .unwrap();
+
+    let fetched = fetch_msg(
+        &read_config(&mostro, &[&relay.url]),
+        order_filter(&mostro),
+        &quick_limits(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(ids(fetched.events()), BTreeSet::from([valid.id]));
+    let snapshot = snapshot_json(fetched.snapshot(), PRODUCTION_CAP);
+    assert_counts(&snapshot, 1, 1, 1);
+}
+
+#[tokio::test]
+async fn duplicate_relays_and_events_count_once() {
+    let mostro = Keys::generate();
+    let shared = order_event(&mostro, 1);
+    let only_first = order_event(&mostro, 2);
+    let first = serve(LocalRelay::new(), &[shared.clone(), only_first.clone()]).await;
+    let second = serve(LocalRelay::new(), from_ref(&shared)).await;
+    let relays = format!(
+        " {first} ,{first},,{second}",
+        first = first.url,
+        second = second.url
+    );
+    let config = PublicReadConfig::new(mostro.public_key(), &relays).unwrap();
+    assert_eq!(config.relays().len(), 2);
+
+    let fetched = fetch_msg(&config, order_filter(&mostro), &quick_limits())
+        .await
+        .unwrap();
+
+    assert_eq!(ids(fetched.events()), ids([&shared, &only_first]));
+    let snapshot = snapshot_json(fetched.snapshot(), PRODUCTION_CAP);
+    assert_counts(&snapshot, 2, 2, 2);
+    assert_eq!((first.connections(), second.connections()), (1, 1));
+}
+
+#[tokio::test]
+async fn a_closed_relay_fails_the_whole_read() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &[order_event(&mostro, 1)]).await;
+    let (closed, _) = start_fixture(Fixture::Closed).await;
+
+    let failure = fetch_msg(
+        &read_config(&mostro, &[&answering.url, &closed.url]),
+        order_filter(&mostro),
+        &quick_limits(),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(failure.code(), ErrorCode::RelayReadFailed);
+    let snapshot = failure_snapshot(&failure, PRODUCTION_CAP);
+    assert_eq!(snapshot["configured_relays"], 2, "{snapshot}");
+    // The read may fail before or after the answering relay's EOSE.
+    assert!(
+        snapshot["completed_relays"].as_u64().unwrap() <= 1,
+        "{snapshot}"
+    );
+}
+
+#[tokio::test]
+async fn a_relay_disconnecting_before_eose_fails_the_read() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &[order_event(&mostro, 1)]).await;
+    let (dropping, held) = start_fixture(Fixture::Disconnect).await;
+    let config = read_config(&mostro, &[&answering.url, &dropping.url]);
+    let limits = quick_limits();
+
+    let read = fetch_msg(&config, order_filter(&mostro), &limits);
+    let failure = run_against(Fixture::Disconnect, dropping, held, read)
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.code(), ErrorCode::RelayReadFailed);
+    let snapshot = failure_snapshot(&failure, PRODUCTION_CAP);
+    assert_eq!(snapshot["configured_relays"], 2, "{snapshot}");
+    assert!(
+        snapshot["completed_relays"].as_u64().unwrap() <= 1,
+        "{snapshot}"
+    );
+}
+
+#[tokio::test]
+async fn a_silent_relay_times_out_and_cleanup_stays_bounded() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &[order_event(&mostro, 1)]).await;
+    let (silent, _) = start_fixture(Fixture::Silent).await;
+    let limits = ReadLimits {
+        read: Duration::from_millis(500),
+        cleanup: Duration::from_millis(500),
+        ..quick_limits()
+    };
+
+    let started = Instant::now();
+    let failure = fetch_msg(
+        &read_config(&mostro, &[&answering.url, &silent.url]),
+        order_filter(&mostro),
+        &limits,
+    )
+    .await
+    .unwrap_err();
+    let elapsed = started.elapsed();
+
+    // Cleanup never replaces the original error.
+    assert_eq!(failure.code(), ErrorCode::ReadTimeout);
+    let snapshot = failure_snapshot(&failure, PRODUCTION_CAP);
+    assert_counts(&snapshot, 2, 1, 1);
+    assert!(
+        elapsed >= limits.read && elapsed < limits.read + limits.cleanup + OBSERVE,
+        "{elapsed:?}"
+    );
+    assert!(answering.wait_idle(limits.cleanup + OBSERVE).await);
+}
+
+#[tokio::test]
+async fn an_unreachable_relay_fails_before_the_query() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &[order_event(&mostro, 1)]).await;
+    // Bound but never accepted: the WebSocket handshake can only time out.
+    let unanswered = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let unanswered_url = format!("ws://{}", unanswered.local_addr().unwrap());
+    let limits = ReadLimits {
+        connect: Duration::from_millis(500),
+        cleanup: Duration::from_millis(500),
+        ..quick_limits()
+    };
+
+    let started = Instant::now();
+    let failure = fetch_msg(
+        &read_config(&mostro, &[&answering.url, &unanswered_url]),
+        order_filter(&mostro),
+        &limits,
+    )
+    .await
+    .unwrap_err();
+    let elapsed = started.elapsed();
+
+    assert_eq!(failure.code(), ErrorCode::RelayConnectionFailed);
+    assert!(failure.snapshot().is_none());
+    assert!(
+        elapsed < limits.connect + limits.cleanup + OBSERVE,
+        "{elapsed:?}"
+    );
+    assert!(answering.wait_idle(limits.cleanup + OBSERVE).await);
+}
+
+#[tokio::test]
+async fn events_after_a_relays_eose_are_ignored() {
+    let mostro = Keys::generate();
+    let stored = order_event(&mostro, 1);
+    let late = order_event(&mostro, 2);
+    let other = order_event(&mostro, 3);
+    let (first_gate, second_gate) = (Gate::default(), Gate::default());
+    let first_relay = LocalRelay::builder()
+        .query_policy(first_gate.clone())
+        .build();
+    let first = serve(first_relay.clone(), from_ref(&stored)).await;
+    let second = serve(
+        LocalRelay::builder()
+            .query_policy(second_gate.clone())
+            .build(),
+        from_ref(&other),
+    )
+    .await;
+    let config = read_config(&mostro, &[&first.url, &second.url]);
+    let limits = quick_limits();
+
+    let read = fetch_msg(&config, order_filter(&mostro), &limits);
+    let drive = async {
+        first_gate.received.notified().await;
+        // Never stored, so only the live subscription registered after the
+        // first relay's EOSE can deliver it.
+        assert!(first_relay.notify_event(late.clone()));
+        first_gate.release.notify_one();
+        second_gate.received.notified().await;
+        // Lets the late event arrive before the read can finish; a shorter
+        // wait only makes the test less sensitive, never wrong.
+        sleep(Duration::from_millis(300)).await;
+        second_gate.release.notify_one();
+    };
+    let (fetched, ()) = tokio::join!(read, drive);
+    let fetched = fetched.unwrap();
+
+    assert_eq!(ids(fetched.events()), ids([&stored, &other]));
+    let snapshot = snapshot_json(fetched.snapshot(), PRODUCTION_CAP);
+    assert_counts(&snapshot, 2, 2, 2);
+}
+
+#[tokio::test]
+async fn a_relay_filling_its_notification_buffer_fails_the_read() {
+    let mostro = Keys::generate();
+    let events: Vec<Event> = (1..=20).map(|hours| order_event(&mostro, hours)).collect();
+    let relay = serve(LocalRelay::new(), &events).await;
+    let config = read_config(&mostro, &[&relay.url]);
+
+    let fetched = fetch_msg(&config, order_filter(&mostro), &quick_limits())
+        .await
+        .unwrap();
+    assert_eq!(fetched.events().len(), 20);
+
+    let tiny = ReadLimits {
+        notification_capacity: 8,
+        ..quick_limits()
+    };
+    let failure = fetch_msg(&config, order_filter(&mostro), &tiny)
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.code(), ErrorCode::RelayReadFailed);
+    let snapshot = failure_snapshot(&failure, PRODUCTION_CAP);
+    assert_eq!(snapshot["configured_relays"], 1, "{snapshot}");
+    assert_eq!(snapshot["completed_relays"], 0, "{snapshot}");
+}
+
+#[tokio::test]
+async fn exceeding_the_event_cap_fails_without_truncating() {
+    let mostro = Keys::generate();
+    let events: Vec<Event> = (1..=4).map(|hours| order_event(&mostro, hours)).collect();
+    let relay = serve(LocalRelay::new(), &events).await;
+    let config = read_config(&mostro, &[&relay.url]);
+    let capped = |max_unique_events| ReadLimits {
+        max_unique_events,
+        ..quick_limits()
+    };
+
+    let fetched = fetch_msg(&config, order_filter(&mostro), &capped(4))
+        .await
+        .unwrap();
+    assert_counts(&snapshot_json(fetched.snapshot(), 4), 1, 1, 4);
+
+    let failure = fetch_msg(&config, order_filter(&mostro), &capped(3))
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.code(), ErrorCode::ReadLimitExceeded);
+    let snapshot = failure_snapshot(&failure, 3);
+    assert_eq!(snapshot["received_events"], 3, "{snapshot}");
+}
+
+#[tokio::test]
+async fn cancelling_a_read_closes_its_connections() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &[order_event(&mostro, 1)]).await;
+    let (holding, held) = start_fixture(Fixture::Disconnect).await;
+    let config = read_config(&mostro, &[&answering.url, &holding.url]);
+    let limits = quick_limits();
+
+    tokio::select! {
+        result = fetch_msg(&config, order_filter(&mostro), &limits) => {
+            panic!("the read finished while a relay held its REQ: {result:?}")
+        }
+        () = held.notified() => {}
+    }
+
+    assert!(answering.wait_idle(OBSERVE).await);
 }
