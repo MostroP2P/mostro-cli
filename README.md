@@ -263,12 +263,20 @@ This is the seller flow when you create the order (maker, sell).
    ```
 
    - `-k sell` — you are selling sats.
-   - `-c usd` — fiat currency code.
+   - `-c usd` — fiat currency code, or a stablecoin code from the [protocol book's list](https://mostro.network/protocol/stablecoins.html) (`usdt`, `usdc`, `doc`).
    - `-f 100` — fiat amount (use `-f 100-500` for a range order).
    - `-m "wise,strike"` — comma-separated payment methods.
    - `-a 0` — sats amount (`0` = market price at trade time).
    - `-p 2` — optional price premium percentage.
    - `--expiration-days N` — optional custom expiration.
+
+   To sell sats for a stablecoin, use its code and name the network in the payment method:
+
+   ```bash
+   mostro-cli neworder -k sell -c usdt -f 100 -m "USDT (Tron)"
+   ```
+
+   A transfer sent on the wrong network can be lost, so always name it in `-m`. Market price (`-a 0`) works only on a node that quotes the coin in its exchange-rates event; otherwise pass `-a <sats>` to fix the amount. The buyer should paste the transaction id in the chat: it is what a solver checks in a dispute.
 
 2. **Mostro replies with a hold invoice.** Pay it with your Lightning wallet. Funds are locked, not transferred yet.
 
