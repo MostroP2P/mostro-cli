@@ -1439,6 +1439,10 @@ async fn cancelling_a_read_closes_its_connections() {
 
 /// A published order state `hours` before the query time.
 fn listing(mostro: &Keys, id: u128, hours: u64, side: &str, status: &str) -> Event {
+    listing_at(mostro, id, QUERY_AT - hours * HOUR, side, status)
+}
+
+fn listing_at(mostro: &Keys, id: u128, created_at: u64, side: &str, status: &str) -> Event {
     EventBuilder::new(Kind::Custom(NOSTR_ORDER_EVENT_KIND), "")
         .tags([
             Tag::custom("d", [Uuid::from_u128(id).to_string()]),
@@ -1451,7 +1455,7 @@ fn listing(mostro: &Keys, id: u128, hours: u64, side: &str, status: &str) -> Eve
             Tag::custom("premium", ["1"]),
             Tag::custom("z", ["order"]),
         ])
-        .custom_created_at(Timestamp::from(QUERY_AT - hours * HOUR))
+        .custom_created_at(Timestamp::from(created_at))
         .finalize(mostro)
         .unwrap()
 }
@@ -1565,4 +1569,264 @@ async fn listing_failure_keeps_the_snapshot_and_returns_no_rows() {
         outcome["meta"]["snapshot"]["configured_relays"], 2,
         "{outcome}"
     );
+}
+
+// `order list` binary matrix (T031): the real child against loopback relays,
+// on the real clock.
+
+/// The book every successful binary case reads: orders 1 and 2 are pending,
+/// order 3 was pending but its latest state is canceled. Order events are
+/// addressable, so the relay itself keeps only order 3's newest state.
+fn live_book(mostro: &Keys) -> Vec<Event> {
+    let ago = |hours: u64| Timestamp::now().as_secs() - hours * HOUR;
+    vec![
+        listing_at(mostro, 1, ago(1), "sell", "pending"),
+        listing_at(mostro, 2, ago(2), "buy", "pending"),
+        listing_at(mostro, 3, ago(3), "sell", "pending"),
+        listing_at(mostro, 3, ago(2), "sell", "canceled"),
+    ]
+}
+
+async fn run_listing(
+    sandbox: &Sandbox,
+    args: &[&str],
+    mostro: &Keys,
+    relays: &[&LoopbackRelay],
+) -> Captured {
+    let mut command = sandbox.command(args);
+    set_node_env(&mut command, mostro, relays);
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped, "{args:?}: child was not reaped");
+    assert!(run.status.is_some(), "{args:?}: watchdog fired");
+    run
+}
+
+/// The one JSON document on stdout, fully consumed, whose status agrees with
+/// the exit code.
+fn one_document(run: &Captured) -> Value {
+    let stdout = run.stdout_text();
+    assert!(
+        stdout.ends_with('\n') && stdout.lines().count() == 1,
+        "{stdout}"
+    );
+    // `from_str` rejects anything after the document except whitespace.
+    let outcome: Value = serde_json::from_str(&stdout).unwrap();
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+    let exit = run.code().unwrap();
+    let expected_status = if exit == 0 { "ok" } else { "error" };
+    assert_eq!(outcome["status"], expected_status, "exit {exit}: {outcome}");
+    assert_eq!(outcome["schema_version"], "1", "{outcome}");
+    assert_read_stages(&outcome);
+    outcome
+}
+
+fn row_ids(outcome: &Value) -> Vec<String> {
+    outcome["data"]["orders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|order| order["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Every event the relay stores; a listing must not add any.
+async fn stored_ids(relay: &LoopbackRelay) -> BTreeSet<EventId> {
+    let client = connected_client(&[relay.url.as_str()]).await;
+    let events = client
+        .fetch_events(Filter::new())
+        .timeout(OBSERVE)
+        .await
+        .unwrap();
+    client.shutdown().await;
+    ids(events.iter())
+}
+
+#[tokio::test]
+async fn order_list_binary_selects_rows_in_both_modes() {
+    let mostro = Keys::generate();
+    let book = live_book(&mostro);
+    let relay = serve(LocalRelay::new(), &book).await;
+    let stored = stored_ids(&relay).await;
+    let sandbox = Sandbox::new().unwrap();
+
+    let run = run_listing(
+        &sandbox,
+        &["--output", "json", "order", "list"],
+        &mostro,
+        &[&relay],
+    )
+    .await;
+    assert_eq!(run.code(), Some(0));
+    let outcome = one_document(&run);
+    assert_eq!(
+        row_ids(&outcome),
+        [
+            Uuid::from_u128(1).to_string(),
+            Uuid::from_u128(2).to_string()
+        ]
+    );
+    assert_eq!(outcome["data"]["node_pubkey"], mostro.public_key().to_hex());
+    assert_eq!(outcome["warnings"], json!([]));
+    assert_counts(&outcome["meta"]["snapshot"], 1, 1, stored.len());
+
+    let run = run_listing(
+        &sandbox,
+        &["order", "list", "--side", "sell"],
+        &mostro,
+        &[&relay],
+    )
+    .await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+    let table = run.stdout_text();
+    assert!(table.contains(&Uuid::from_u128(1).to_string()), "{table}");
+    for absent in [2, 3] {
+        assert!(
+            !table.contains(&Uuid::from_u128(absent).to_string()),
+            "{table}"
+        );
+    }
+
+    assert_eq!(
+        stored_ids(&relay).await,
+        stored,
+        "the listing published an event"
+    );
+    assert_no_effects(&sandbox, "fresh identity location");
+}
+
+#[tokio::test]
+async fn order_list_binary_empty_results_are_successes() {
+    let mostro = Keys::generate();
+    let book = live_book(&mostro);
+    let seeded = serve(LocalRelay::new(), &book).await;
+    let stored = stored_ids(&seeded).await;
+    let (empty, _) = start_fixture(Fixture::Empty).await;
+    let rows: [(&[&str], &LoopbackRelay, usize); 2] = [
+        (
+            &["--output", "json", "order", "list", "--currency", "eur"],
+            &seeded,
+            stored.len(),
+        ),
+        (&["--output", "json", "order", "list"], &empty, 0),
+    ];
+    for (args, relay, received) in rows {
+        let sandbox = Sandbox::new().unwrap();
+        let run = run_listing(&sandbox, args, &mostro, &[relay]).await;
+        assert_eq!(run.code(), Some(0), "{args:?}");
+        let outcome = one_document(&run);
+        assert_eq!(outcome["data"]["orders"], json!([]), "{args:?}");
+        assert_counts(&outcome["meta"]["snapshot"], 1, 1, received);
+        assert_no_effects(&sandbox, &format!("{args:?}"));
+    }
+    assert_eq!(stored_ids(&seeded).await, stored);
+}
+
+#[tokio::test]
+async fn order_list_binary_read_failures_return_no_rows() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let (closed, _) = start_fixture(Fixture::Closed).await;
+    let json = ["--output", "json", "order", "list"];
+    let rows: [&[&LoopbackRelay]; 2] = [&[&closed], &[&answering, &closed]];
+    for relays in rows {
+        let sandbox = Sandbox::new().unwrap();
+        let run = run_listing(&sandbox, &json, &mostro, relays).await;
+        assert_eq!(run.code(), Some(1));
+        let outcome = one_document(&run);
+        assert_eq!(outcome["error"]["code"], "relay_read_failed", "{outcome}");
+        assert_eq!(outcome["data"], Value::Null, "{outcome}");
+        let snapshot = &outcome["meta"]["snapshot"];
+        assert_eq!(snapshot["configured_relays"], relays.len(), "{outcome}");
+        assert_no_effects(&sandbox, "read failure");
+    }
+
+    let sandbox = Sandbox::new().unwrap();
+    let run = run_listing(
+        &sandbox,
+        &["order", "list"],
+        &mostro,
+        &[&answering, &closed],
+    )
+    .await;
+    assert_eq!(run.code(), Some(1));
+    assert!(run.stdout.is_empty(), "{}", run.stdout_text());
+    assert_eq!(
+        run.stderr_text(),
+        "error: A configured relay failed during the public order read.\n"
+    );
+}
+
+#[tokio::test]
+async fn order_list_binary_times_out_on_a_silent_relay() {
+    let mostro = Keys::generate();
+    let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let sandbox = Sandbox::new().unwrap();
+    let started = Instant::now();
+
+    let run = run_listing(
+        &sandbox,
+        &["--output", "json", "order", "list"],
+        &mostro,
+        &[&silent],
+    )
+    .await;
+
+    // Production budgets: 15 s read plus at most 1 s cleanup, after connecting.
+    let defaults = ReadLimits::default();
+    assert!(
+        started.elapsed() >= defaults.read,
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(run.code(), Some(1));
+    let outcome = one_document(&run);
+    assert_eq!(outcome["error"]["code"], "read_timeout", "{outcome}");
+    assert_counts(&outcome["meta"]["snapshot"], 1, 0, 0);
+    assert_no_effects(&sandbox, "timeout");
+}
+
+#[tokio::test]
+async fn order_list_binary_ignores_existing_and_unusable_identity_locations() {
+    let mostro = Keys::generate();
+    let relay = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let json = ["--output", "json", "order", "list"];
+
+    let existing = Sandbox::new().unwrap();
+    let database = existing.mcli_dir().join("mcli.db");
+    fs::write(&database, b"synthetic identity store").unwrap();
+    let run = run_listing(&existing, &json, &mostro, &[&relay]).await;
+    assert_eq!(run.code(), Some(0));
+    assert_eq!(
+        one_document(&run)["data"]["orders"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(fs::read(&database).unwrap(), b"synthetic identity store");
+    let entries: Vec<_> = fs::read_dir(existing.mcli_dir()).unwrap().collect();
+    assert_eq!(entries.len(), 1, "only the existing store may be present");
+
+    // MCLI_DIR naming a regular file cannot hold an identity database.
+    let unusable = Sandbox::new().unwrap();
+    let blocker = unusable.cwd().join("not-a-directory");
+    fs::write(&blocker, b"x").unwrap();
+    let mut command = unusable.command(json);
+    set_node_env(&mut command, &mostro, &[&relay]);
+    command.env("MCLI_DIR", &blocker);
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped);
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(
+        one_document(&run)["data"]["orders"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(fs::read(&blocker).unwrap(), b"x");
+    for dir in [unusable.home(), unusable.mcli_dir()] {
+        assert!(is_empty_dir(&dir), "{dir:?} was written");
+    }
 }
