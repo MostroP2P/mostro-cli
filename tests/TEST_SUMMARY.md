@@ -1705,6 +1705,51 @@ Documentation (`docs/commands.md`, `README.md`) still shows `listorders` and
 T001-T030 are complete. T031 (binary success/failure/identity matrix for
 `order list`) is next.
 
+## T031 Order-List Binary Matrix: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T030 (pushed as
+`cce8203`/`5e301fc`). Linux was not rerun. Test-only change in
+`tests/order_list_process.rs`; no production code changed.
+
+Every case runs the real `mostro-cli` child against loopback relays on the
+real clock, with the existing sandbox (allow-listed environment, isolated
+HOME/USERPROFILE/MCLI_DIR/cwd, closed stdin, captured streams, 40-second
+watchdog). Each run asserts the child exited and was reaped. JSON runs go
+through `one_document`: exactly one newline-terminated line, parsed whole by
+Serde (anything after the document fails), empty stderr, `status` agreeing
+with the exit code, schema version 1 and read stages `not_applicable`.
+
+| Test | Cases |
+| --- | --- |
+| `order_list_binary_selects_rows_in_both_modes` | JSON success: pending rows 1 and 2 newest first, order 3 hidden by its later canceled state, node key, no warnings, snapshot counts; human `--side sell` lists only order 1; the relay stores exactly the same events afterwards (no EVENT published); fresh HOME, MCLI_DIR and cwd stay empty |
+| `order_list_binary_empty_results_are_successes` | Filtered-empty (`--currency eur` over a non-empty book) and EOSE-empty relay: exit 0, `orders: []`, received counts 3 and 0 |
+| `order_list_binary_read_failures_return_no_rows` | CLOSED alone and answering+CLOSED (partial failure): exit 1, `relay_read_failed`, data null, snapshot kept with configured relay count; human mode prints exactly the fixed stderr line with empty stdout |
+| `order_list_binary_times_out_on_a_silent_relay` | Silent relay at production budgets: exit 1 after at least the 15-second read budget, `read_timeout`, snapshot 1 configured / 0 completed / 0 received |
+| `order_list_binary_ignores_existing_and_unusable_identity_locations` | An existing synthetic `mcli.db` is left byte-identical and alone; `MCLI_DIR` naming a regular file still lists successfully and leaves the file and HOME untouched |
+
+Finding while writing the tests: kind 38383 is addressable, so `LocalRelay`
+keeps only the newest state per `d` tag. The first run expected 4 received
+events and got 3; the tests now take the relay's stored set as the baseline
+instead of the seeded list. This is relay behavior, not a CLI defect.
+
+Not covered here: NIP-42 AUTH. The loopback relays do not request it, so
+"AUTH allowed" is not exercised; the no-EVENT check compares stored events
+before and after each run. Exit 2 binary cases remain in
+`order_list_json_uses_read_stages` and `argument_errors_exit_2_with_safe_stderr_before_any_effect`.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process order_list_binary` | PASS: 5 of 5 in 15.2 s (first run: 2 failed on the addressable-event count, fixed in the test) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 97, cli_functions 61, integration 14, order_list_process 34 (15.9 s), disputes 9, dms 19, parser_orders 98, util 15; the watchdog test also passed on this first run |
+| `cargo test --locked --test order_list_process` second run | PASS: 34 of 34 in 16.0 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T031 are complete. T032 (allow-listed diagnostics and verbose behavior
+on the migrated path) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
