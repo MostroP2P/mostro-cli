@@ -14,6 +14,31 @@ use serde::{Serialize, Serializer};
 
 use super::{ErrorCode, WarningCode, Warnings};
 
+/// Accepted `--side` values, matched case-insensitively.
+pub const SIDES: [&str; 2] = ["buy", "sell"];
+
+/// Accepted `--status` values: every pinned core status, matched
+/// case-insensitively.
+pub const STATUSES: [&str; 17] = [
+    "active",
+    "canceled",
+    "canceled-by-admin",
+    "settled-by-admin",
+    "completed-by-admin",
+    "dispute",
+    "expired",
+    "fiat-sent",
+    "settled-hold-invoice",
+    "pending",
+    "success",
+    "waiting-buyer-invoice",
+    "waiting-payment",
+    "waiting-taker-bond",
+    "waiting-maker-bond",
+    "cooperatively-canceled",
+    "in-progress",
+];
+
 /// Normalized `order list` filters, serialized as `ListData.filters`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ListOrdersInput {

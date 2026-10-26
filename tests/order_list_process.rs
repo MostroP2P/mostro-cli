@@ -574,14 +574,17 @@ fn sandbox_is_removed_on_drop() {
 async fn parent_config_does_not_leak_into_the_child() {
     let sandbox = Sandbox::new().unwrap();
 
-    let run = run_with_watchdog(sandbox.command(["listorders"]), WATCHDOG)
+    let run = run_with_watchdog(sandbox.command(["order", "list"]), WATCHDOG)
         .await
         .unwrap();
 
     assert!(run.reaped);
     assert_eq!(run.code(), Some(1), "stderr: {}", run.stderr_text());
     assert!(run.stdout.is_empty(), "stdout: {}", run.stdout_text());
-    assert!(run.stderr_text().contains("MOSTRO_PUBKEY not set"));
+    assert_eq!(
+        run.stderr_text(),
+        "error: Required node configuration is missing.\n"
+    );
     for dir in [sandbox.home(), sandbox.mcli_dir(), sandbox.cwd()] {
         assert!(is_empty_dir(&dir), "{dir:?} was written");
     }
@@ -628,7 +631,7 @@ async fn child_reaches_the_loopback_relay_with_sandboxed_storage() {
     let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
         .await
         .unwrap();
-    let mut command = sandbox.command(["listorders"]);
+    let mut command = sandbox.command(["order", "list"]);
     set_node_env(&mut command, &Keys::generate(), &[&endpoint]);
 
     let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
@@ -636,15 +639,18 @@ async fn child_reaches_the_loopback_relay_with_sandboxed_storage() {
     assert!(run.reaped);
     assert_eq!(run.code(), Some(0), "stderr: {}", run.stderr_text());
     assert!(run.stdout_text().contains("List Orders"));
+    assert!(run.stdout_text().contains("No offers found"));
     assert!(endpoint.connections() >= 1);
-    assert!(is_empty_dir(&sandbox.home()), "HOME was written");
+    for dir in [sandbox.home(), sandbox.mcli_dir(), sandbox.cwd()] {
+        assert!(is_empty_dir(&dir), "{dir:?} was written");
+    }
 }
 
 #[tokio::test]
 async fn watchdog_kills_and_reaps_a_hung_child() {
     let sandbox = Sandbox::new().unwrap();
     let endpoint = LoopbackRelay::start(Backend::Silent).await.unwrap();
-    let mut command = sandbox.command(["listorders"]);
+    let mut command = sandbox.command(["order", "list"]);
     set_node_env(&mut command, &Keys::generate(), &[&endpoint]);
     let limit = Duration::from_secs(2);
 
@@ -767,12 +773,13 @@ async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
         .await
         .unwrap();
     let unknown_flag = format!("--{SENTINEL}");
-    let rows: [&[&str]; 5] = [
-        &["listorders", &unknown_flag],
+    let rows: [&[&str]; 6] = [
+        &["order", "list", &unknown_flag],
         &[SENTINEL],
-        &["--output", SENTINEL, "listorders"],
-        &["--output", "json", "--output", "json", "listorders"],
-        &["--output", "human", "listorders", &unknown_flag],
+        &["--output", SENTINEL, "order", "list"],
+        &["--output", "json", "--output", "json", "order", "list"],
+        &["--output", "human", "order", "list", &unknown_flag],
+        &["listorders"],
     ];
     for args in rows {
         let label = format!("{args:?}");
@@ -793,16 +800,21 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
         .await
         .unwrap();
     let unknown_flag = format!("--{SENTINEL}");
-    let rows: [(&[&str], Value, &str); 8] = [
+    let rows: [(&[&str], Value, &str); 9] = [
         (
-            &["--output", "json", "listorders"],
-            json!("order.list"),
+            &["--output", "json", "listdisputes"],
+            json!("dispute.list"),
             "output_not_supported",
         ),
         (
-            &["listorders", "--output=json"],
-            json!("order.list"),
+            &["listdisputes", "--output=json"],
+            json!("dispute.list"),
             "output_not_supported",
+        ),
+        (
+            &["--output", "json", "listorders"],
+            Value::Null,
+            "invalid_arguments",
         ),
         (
             &["--output", "json", "getlasttradeprivkey"],
@@ -866,6 +878,45 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
     assert_eq!(endpoint.connections(), 0);
 }
 
+/// `order list` owns its JSON: argument errors keep `order.list` with read
+/// stages, and a valid invocation reads the configured relay.
+#[tokio::test]
+async fn order_list_json_uses_read_stages() {
+    let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
+        .await
+        .unwrap();
+    let rows: [(&[&str], i32, &str); 3] = [
+        (
+            &["--output", "json", "order", "list", "--side", "both"],
+            2,
+            "invalid_arguments",
+        ),
+        (
+            &["order", "--output=json", "list", "--kind", "sell"],
+            2,
+            "invalid_arguments",
+        ),
+        (&["order", "list", "--output", "json"], 0, "ok"),
+    ];
+    for (args, exit, code) in rows {
+        let label = format!("{args:?}");
+        let (run, sandbox) = run_configured(args, &endpoint).await;
+        assert_eq!(run.code(), Some(exit), "{label}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{label}: {}", run.stderr_text());
+        let stdout = run.stdout_text();
+        assert_eq!(stdout.lines().count(), 1, "{label}: {stdout}");
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(outcome["command"], "order.list", "{label}");
+        let status = outcome["error"]["code"].as_str().unwrap_or("ok");
+        assert_eq!(status, code, "{label}: {outcome}");
+        for stage in ["publication", "daemon_acceptance", "persistence"] {
+            assert_eq!(outcome["meta"][stage], "not_applicable", "{label}");
+        }
+        assert_no_effects(&sandbox, &label);
+    }
+    assert_eq!(endpoint.connections(), 1);
+}
+
 /// Positive control: the same configuration does reach the endpoint when an
 /// RPC command runs in human mode, so zero connections above is meaningful.
 #[tokio::test]
@@ -882,7 +933,7 @@ async fn help_and_version_stay_text_on_stdout() {
     let rows: [&[&str]; 5] = [
         &["--help"],
         &["--output", "json", "--help"],
-        &["listorders", "--output", "json", "--help"],
+        &["order", "list", "--output", "json", "--help"],
         &["--version"],
         &["--output", "json", "--version"],
     ];

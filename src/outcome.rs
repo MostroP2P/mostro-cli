@@ -260,6 +260,14 @@ impl<D, S> Envelope<D, S> {
         self.command
     }
 
+    pub fn data(&self) -> Option<&D> {
+        self.data.as_ref()
+    }
+
+    pub fn error_code(&self) -> Option<ErrorCode> {
+        self.error.map(|error| error.code)
+    }
+
     /// An `internal_error` outcome for the same command, stages and warnings,
     /// without data or snapshot, for when this outcome cannot be serialized.
     pub fn as_internal_error(&self) -> Envelope<(), ()> {

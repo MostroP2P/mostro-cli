@@ -28,7 +28,7 @@ pub struct Cli {
     #[arg(short, long)]
     pub verbose: bool,
     #[arg(short, long)]
-    pub mostropubkey: Option<String>,
+    pub mostro_pubkey: Option<String>,
     #[arg(short, long)]
     pub relays: Option<String>,
     #[arg(short, long)]

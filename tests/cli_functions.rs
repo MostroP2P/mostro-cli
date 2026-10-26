@@ -613,35 +613,16 @@ mod maintenance_commands {
 
 // ── output-intent recovery on malformed argv (contracts/cli.md) ────────────
 mod output_intent {
-    use clap::builder::PossibleValuesParser;
     use clap::error::ErrorKind;
-    use clap::{Arg, ArgMatches, Command, CommandFactory};
+    use clap::{ArgMatches, Command, CommandFactory};
     use mostro_client::cli::invocation::{
         parse_invocation, ArgumentFailure, Invocation, OutputMode, OutputSelection, OUTPUT_LONG,
     };
     use mostro_client::cli::Cli;
+    use mostro_client::outcome::order::{SIDES, STATUSES};
     use mostro_client::outcome::ErrorCode;
     use std::ffi::OsString;
 
-    const STATUSES: [&str; 17] = [
-        "active",
-        "canceled",
-        "canceled-by-admin",
-        "settled-by-admin",
-        "completed-by-admin",
-        "dispute",
-        "expired",
-        "fiat-sent",
-        "settled-hold-invoice",
-        "pending",
-        "success",
-        "waiting-buyer-invoice",
-        "waiting-payment",
-        "waiting-taker-bond",
-        "waiting-maker-bond",
-        "cooperatively-canceled",
-        "in-progress",
-    ];
     const PUBKEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
     const ORDER: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
 
@@ -656,29 +637,9 @@ mod output_intent {
         InvalidSelection,
     }
 
-    /// The real `Cli`, with its global `--output`, plus the `order list`
-    /// grammar the pilot adds.
+    /// The real `Cli`, including its `order list` grammar.
     fn pilot_grammar() -> Command {
-        let list = Command::new("list")
-            .arg(
-                Arg::new("side")
-                    .long("side")
-                    .ignore_case(true)
-                    .value_parser(PossibleValuesParser::new(["buy", "sell"])),
-            )
-            .arg(Arg::new("currency").long("currency"))
-            .arg(
-                Arg::new("status")
-                    .long("status")
-                    .ignore_case(true)
-                    .value_parser(PossibleValuesParser::new(STATUSES)),
-            );
-        Cli::command().subcommand(
-            Command::new("order")
-                .subcommand_required(true)
-                .arg_required_else_help(true)
-                .subcommand(list),
-        )
+        Cli::command()
     }
 
     fn invoke_os(suffix: Vec<OsString>) -> Invocation {
@@ -758,6 +719,37 @@ mod output_intent {
     const ORDER_LIST: Option<&[&str]> = Some(&["order", "list"]);
 
     #[test]
+    fn every_side_and_status_spelling_parses_and_removed_spellings_fail() {
+        let order_list = vec!["order".to_string(), "list".to_string()];
+        for value in SIDES {
+            for spelling in [value.to_string(), value.to_uppercase()] {
+                let suffix = ["order", "list", "--side", spelling.as_str()];
+                assert_eq!(parsed(&suffix), (OutputMode::Human, order_list.clone()));
+            }
+        }
+        for value in STATUSES {
+            for spelling in [value.to_string(), value.to_uppercase()] {
+                let suffix = ["order", "list", "--status", spelling.as_str()];
+                assert_eq!(parsed(&suffix), (OutputMode::Human, order_list.clone()));
+            }
+        }
+        check(&[
+            (&["order", "list", "--side", " sell"], Expect::Human),
+            (&["order", "list", "--status", "all"], Expect::Human),
+            (&["order", "list", "--kind", "sell"], Expect::Human),
+            (&["listorders"], Expect::Human),
+            (&["--mostropubkey", PUBKEY, "order", "list"], Expect::Human),
+            (&["--output", "json", "listorders"], Expect::Json(None)),
+            (
+                &["--output", "json", "order", "list", "--kind", "sell"],
+                Expect::Json(ORDER_LIST),
+            ),
+        ]);
+        let suffix = ["--mostro-pubkey", PUBKEY, "order", "list"];
+        assert_eq!(parsed(&suffix), (OutputMode::Human, order_list));
+    }
+
+    #[test]
     fn contract_decision_table_rows() {
         check(&[
             (
@@ -829,10 +821,13 @@ mod output_intent {
             parsed(&["order", "list", "--output", "human"]),
             (OutputMode::Human, order_list)
         );
-        let legacy = vec!["listorders".to_string()];
-        assert_eq!(parsed(&["listorders"]), (OutputMode::Human, legacy.clone()));
+        let legacy = vec!["listdisputes".to_string()];
         assert_eq!(
-            parsed(&["--output", "json", "listorders"]),
+            parsed(&["listdisputes"]),
+            (OutputMode::Human, legacy.clone())
+        );
+        assert_eq!(
+            parsed(&["--output", "json", "listdisputes"]),
             (OutputMode::Json, legacy)
         );
         // Case-sensitive: only the lowercase spellings select a mode.
@@ -1126,10 +1121,10 @@ mod output_intent {
         }
 
         let rows: [(&[&str], OutputMode); 4] = [
-            (&["listorders"], OutputMode::Human),
-            (&["listorders", "--output", "json"], OutputMode::Json),
-            (&["--output=json", "listorders"], OutputMode::Json),
-            (&["--output", "human", "listorders"], OutputMode::Human),
+            (&["order", "list"], OutputMode::Human),
+            (&["order", "list", "--output", "json"], OutputMode::Json),
+            (&["--output=json", "order", "list"], OutputMode::Json),
+            (&["--output", "human", "order", "list"], OutputMode::Human),
         ];
         for (suffix, mode) in rows {
             let Invocation::Parsed { matches, output } = invoke_real(suffix) else {
@@ -1138,7 +1133,8 @@ mod output_intent {
             assert_eq!(output, mode, "{suffix:?}");
             assert_eq!(clap_view(&matches).0.unwrap_or(OutputMode::Human), mode);
         }
-        let Invocation::Rejected(failure) = invoke_real(&["--output", "JSON", "listorders"]) else {
+        let Invocation::Rejected(failure) = invoke_real(&["--output", "JSON", "order", "list"])
+        else {
             panic!("--output is case-sensitive");
         };
         assert_eq!(failure.output, OutputSelection::Invalid);
@@ -1148,7 +1144,7 @@ mod output_intent {
     fn rejections_keep_the_clap_kind_and_a_safe_diagnostic() {
         let rows: [(&[&str], ErrorKind, &str); 4] = [
             (
-                &["listorders", "--secret-sentinel"],
+                &["order", "list", "--secret-sentinel"],
                 ErrorKind::UnknownArgument,
                 "unexpected argument found",
             ),
@@ -1158,12 +1154,12 @@ mod output_intent {
                 "unrecognized subcommand",
             ),
             (
-                &["--output", "secret-sentinel", "listorders"],
+                &["--output", "secret-sentinel", "order", "list"],
                 ErrorKind::InvalidValue,
                 "--output",
             ),
             (
-                &["--output", "json", "--output", "json", "listorders"],
+                &["--output", "json", "--output", "json", "order", "list"],
                 ErrorKind::ArgumentConflict,
                 "--output",
             ),
@@ -1189,71 +1185,81 @@ mod output_intent {
 }
 
 mod registry {
-    use clap::CommandFactory;
+    use clap::{Command, CommandFactory};
     use mostro_client::cli::{lookup, Cli, JsonSupport, REGISTRY};
     use mostro_client::outcome::ExecutionMeta;
     use std::collections::BTreeSet;
 
-    /// Canonical names approved on 2026-10-22, in subcommand order.
-    const APPROVED: [(&str, &str); 33] = [
-        ("listorders", "order.list"),
-        ("neworder", "order.new"),
-        ("takesell", "order.take-sell"),
-        ("takebuy", "order.take-buy"),
-        ("addinvoice", "order.add-invoice"),
-        ("addbondinvoice", "bond.add-invoice"),
-        ("getdm", "message.list"),
-        ("getdmuser", "chat.history"),
-        ("disputechat", "dispute.chat"),
-        ("getadmindm", "admin.message-list"),
-        ("senddm", "message.send"),
-        ("dmtouser", "chat.send"),
-        ("fiatsent", "order.fiat-sent"),
-        ("release", "order.release"),
-        ("cancel", "order.cancel"),
-        ("rate", "order.rate"),
-        ("restore", "account.restore"),
-        ("dispute", "dispute.open"),
-        ("admcancel", "admin.cancel"),
-        ("admsettle", "admin.settle"),
-        ("listdisputes", "dispute.list"),
-        ("admsetmaintenance", "maintenance.set"),
-        ("admmaintenancestatus", "maintenance.status"),
-        ("admcancelpending", "maintenance.cancel-pending"),
-        ("admaddsolver", "admin.add-solver"),
-        ("admtakedispute", "admin.take-dispute"),
-        ("admsenddm", "admin.message-send"),
-        ("sendadmindmattach", "admin.message-attach"),
-        ("conversationkey", "account.conversation-key"),
-        ("getlasttradeindex", "account.trade-index"),
-        ("getlasttradeprivkey", "account.trade-key"),
-        ("getuserinfo", "account.info"),
-        ("ordersinfo", "order.info"),
+    /// Canonical names approved on 2026-10-22, in subcommand order. T030
+    /// replaced `listorders` with `order list`, keeping `order.list`.
+    const APPROVED: [(&[&str], &str); 33] = [
+        (&["order", "list"], "order.list"),
+        (&["neworder"], "order.new"),
+        (&["takesell"], "order.take-sell"),
+        (&["takebuy"], "order.take-buy"),
+        (&["addinvoice"], "order.add-invoice"),
+        (&["addbondinvoice"], "bond.add-invoice"),
+        (&["getdm"], "message.list"),
+        (&["getdmuser"], "chat.history"),
+        (&["disputechat"], "dispute.chat"),
+        (&["getadmindm"], "admin.message-list"),
+        (&["senddm"], "message.send"),
+        (&["dmtouser"], "chat.send"),
+        (&["fiatsent"], "order.fiat-sent"),
+        (&["release"], "order.release"),
+        (&["cancel"], "order.cancel"),
+        (&["rate"], "order.rate"),
+        (&["restore"], "account.restore"),
+        (&["dispute"], "dispute.open"),
+        (&["admcancel"], "admin.cancel"),
+        (&["admsettle"], "admin.settle"),
+        (&["listdisputes"], "dispute.list"),
+        (&["admsetmaintenance"], "maintenance.set"),
+        (&["admmaintenancestatus"], "maintenance.status"),
+        (&["admcancelpending"], "maintenance.cancel-pending"),
+        (&["admaddsolver"], "admin.add-solver"),
+        (&["admtakedispute"], "admin.take-dispute"),
+        (&["admsenddm"], "admin.message-send"),
+        (&["sendadmindmattach"], "admin.message-attach"),
+        (&["conversationkey"], "account.conversation-key"),
+        (&["getlasttradeindex"], "account.trade-index"),
+        (&["getlasttradeprivkey"], "account.trade-key"),
+        (&["getuserinfo"], "account.info"),
+        (&["ordersinfo"], "order.info"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| name.to_string()).collect()
     }
 
+    /// Every executable leaf path, skipping Clap's generated `help`.
+    fn leaves(command: &Command, prefix: &[String], out: &mut BTreeSet<Vec<String>>) {
+        for sub in command.get_subcommands().filter(|s| s.get_name() != "help") {
+            let mut here = prefix.to_vec();
+            here.push(sub.get_name().to_string());
+            if sub.has_subcommands() {
+                leaves(sub, &here, out);
+            } else {
+                out.insert(here);
+            }
+        }
+    }
+
     #[test]
     fn registry_matches_the_approved_mapping() {
-        let actual: Vec<(&str, &str)> = REGISTRY
+        let actual: Vec<(&[&str], &str)> = REGISTRY
             .iter()
-            .map(|entry| (entry.cli_name, entry.canonical))
+            .map(|entry| (entry.path, entry.canonical))
             .collect();
         assert_eq!(actual, APPROVED);
     }
 
     #[test]
     fn every_subcommand_is_registered_exactly_once() {
-        let subcommands: BTreeSet<String> = Cli::command()
-            .get_subcommands()
-            .map(|sub| sub.get_name().to_string())
-            .collect();
-        let registered: BTreeSet<String> = REGISTRY
-            .iter()
-            .map(|entry| entry.cli_name.to_string())
-            .collect();
+        let mut subcommands = BTreeSet::new();
+        leaves(&Cli::command(), &[], &mut subcommands);
+        let registered: BTreeSet<Vec<String>> =
+            REGISTRY.iter().map(|entry| path(entry.path)).collect();
         assert_eq!(registered, subcommands);
         assert_eq!(registered.len(), REGISTRY.len());
         let canonical: BTreeSet<&str> = REGISTRY.iter().map(|entry| entry.canonical).collect();
@@ -1276,10 +1282,15 @@ mod registry {
     }
 
     #[test]
-    fn no_command_supports_json_yet() {
+    fn only_order_list_supports_json() {
         for entry in REGISTRY {
-            assert_eq!(entry.json, JsonSupport::Unsupported, "{}", entry.cli_name);
-            assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
+            if entry.canonical == "order.list" {
+                assert_eq!(entry.json, JsonSupport::Read);
+                assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
+            } else {
+                assert_eq!(entry.json, JsonSupport::Unsupported, "{}", entry.canonical);
+                assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
+            }
         }
     }
 
@@ -1290,10 +1301,22 @@ mod registry {
             Some("order.new")
         );
         assert_eq!(
+            lookup(&path(&["order", "list"])).map(|e| e.canonical),
+            Some("order.list")
+        );
+        assert_eq!(
             lookup(&path(&["getlasttradeprivkey"])).map(|e| e.canonical),
             Some("account.trade-key")
         );
-        for unresolved in [&[][..], &["nosuch"], &["help"], &["order", "list"]] {
+        for unresolved in [
+            &[][..],
+            &["nosuch"],
+            &["help"],
+            &["order"],
+            &["listorders"],
+            &["list"],
+            &["order", "list", "extra"],
+        ] {
             assert_eq!(lookup(&path(unresolved)), None, "{unresolved:?}");
         }
     }

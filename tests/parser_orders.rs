@@ -604,7 +604,7 @@ fn human_table_retains_order_business_fields_and_utc_event_time() {
 mod list_contract {
     use super::*;
     use mostro_client::commands::order::list::select_orders;
-    use mostro_client::outcome::order::{ListData, ListOrdersInput};
+    use mostro_client::outcome::order::{ListData, ListOrdersInput, SIDES, STATUSES};
     use mostro_client::outcome::ErrorCode;
     use serde_json::{json, Value};
 
@@ -734,6 +734,12 @@ mod list_contract {
             .find(|case| case["name"] == name)
             .unwrap()["stdout"]
             .clone()
+    }
+
+    #[test]
+    fn cli_status_values_are_the_data_model_set() {
+        assert_eq!(STATUSES, STATUS_SET);
+        assert_eq!(SIDES, ["buy", "sell"]);
     }
 
     #[test]
