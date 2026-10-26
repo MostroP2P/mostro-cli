@@ -315,6 +315,8 @@ impl Captured {
 /// Run a child to completion, or kill and reap it once `limit` elapses.
 async fn run_with_watchdog(mut command: Command, limit: Duration) -> io::Result<Captured> {
     let mut child = command.spawn()?;
+    // A piped stdin is closed at once; the child must never wait for input.
+    drop(child.stdin.take());
     let stdout = read_all(child.stdout.take());
     let stderr = read_all(child.stderr.take());
     let status = match timeout(limit, child.wait()).await {
@@ -660,7 +662,11 @@ async fn watchdog_kills_and_reaps_a_hung_child() {
     assert!(run.status.is_none(), "child exited: {:?}", run.status);
     assert!(run.reaped);
     assert!(endpoint.connections() >= 1);
-    assert!(started.elapsed() < limit + Duration::from_secs(5));
+    assert!(
+        started.elapsed() < limit + Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test]
@@ -1829,6 +1835,156 @@ async fn order_list_binary_ignores_existing_and_unusable_identity_locations() {
     for dir in [unusable.home(), unusable.mcli_dir()] {
         assert!(is_empty_dir(&dir), "{dir:?} was written");
     }
+}
+
+// Human parity (T035): every human invocation shows the JSON business fields.
+
+/// A pending EUR order with explicit sats, fiat tag values and premium.
+fn priced_listing(
+    mostro: &Keys,
+    id: u128,
+    created_at: u64,
+    side: &str,
+    (sats, fiat, premium): (&str, &[&str], &str),
+) -> Event {
+    EventBuilder::new(Kind::Custom(NOSTR_ORDER_EVENT_KIND), "")
+        .tags([
+            Tag::custom("d", [Uuid::from_u128(id).to_string()]),
+            Tag::custom("k", [side]),
+            Tag::custom("s", ["pending"]),
+            Tag::custom("f", ["EUR"]),
+            Tag::custom("amt", [sats]),
+            Tag::custom("fa", fiat.iter().copied()),
+            Tag::custom("pm", ["sepa", "cash"]),
+            Tag::custom("premium", [premium]),
+            Tag::custom("z", ["order"]),
+        ])
+        .custom_created_at(Timestamp::from(created_at))
+        .finalize(mostro)
+        .unwrap()
+}
+
+/// Trimmed cells of each human table row, keyed by order id.
+fn human_rows(table: &str) -> BTreeMap<String, Vec<String>> {
+    table
+        .lines()
+        .filter_map(|line| {
+            let cells: Vec<String> = line
+                .split(['\u{2502}', '\u{2506}'])
+                .map(|cell| cell.trim().to_string())
+                .collect();
+            Uuid::parse_str(cells.get(2)?).ok()?;
+            Some((cells[2].clone(), cells))
+        })
+        .collect()
+}
+
+/// The human cells after id and status that the data model derives from one
+/// JSON order: market for zero sats, `?` for a missing range end, UTC minute.
+fn human_view_of(order: &Value) -> Vec<String> {
+    let text = |field: &str| order[field].as_str().unwrap().to_string();
+    let sats = match text("sats_amount") {
+        zero if zero == "0" => "market".to_string(),
+        sats => sats,
+    };
+    let fiat = match (
+        order["fiat_amount_min"].as_str(),
+        order["fiat_amount_max"].as_str(),
+    ) {
+        (None, None) => text("fiat_amount"),
+        (min, max) => format!("{}-{}", min.unwrap_or("?"), max.unwrap_or("?")),
+    };
+    let created = order["created_at"].as_str().map_or_else(
+        || "Invalid date".to_string(),
+        |at| at[..16].replace('T', " "),
+    );
+    vec![
+        sats,
+        text("fiat_currency"),
+        fiat,
+        text("payment_method"),
+        text("premium_percent"),
+        created,
+    ]
+}
+
+#[tokio::test]
+async fn order_list_human_and_json_describe_the_same_book() {
+    let mostro = Keys::generate();
+    let ago = |hours: u64| Timestamp::now().as_secs() - hours * HOUR;
+    let mut book = live_book(&mostro);
+    book.extend([
+        priced_listing(&mostro, 4, ago(4), "sell", ("21000", &["10", "20"], "-3")),
+        priced_listing(&mostro, 5, ago(5), "buy", ("-5", &["50"], "0")),
+    ]);
+    let relay = serve(LocalRelay::new(), &book).await;
+    let stored = stored_ids(&relay).await;
+    let verbose_line = format!(
+        "verbose: order.list ok; {} events from 1/1 relays\n",
+        stored.len()
+    );
+
+    let fresh = Sandbox::new().unwrap();
+    let existing = Sandbox::new().unwrap();
+    let database = existing.mcli_dir().join("mcli.db");
+    fs::write(&database, b"synthetic identity store").unwrap();
+
+    for sandbox in [&fresh, &existing] {
+        let json = ["--output", "json", "order", "list"];
+        let outcome = one_document(&run_listing(sandbox, &json, &mostro, &[&relay]).await);
+        assert_eq!(
+            row_ids(&outcome),
+            [1, 2, 4, 5].map(|id| Uuid::from_u128(id).to_string())
+        );
+
+        // Piped stdout throughout: the default never depends on a terminal.
+        let human: [(&[&str], &str); 3] = [
+            (&["order", "list"], ""),
+            (&["order", "list", "--output", "human"], ""),
+            (&["--verbose", "order", "list"], &verbose_line),
+        ];
+        let mut tables = Vec::new();
+        for (args, stderr) in human {
+            let run = run_listing(sandbox, args, &mostro, &[&relay]).await;
+            assert_eq!(run.code(), Some(0), "{args:?}: {}", run.stderr_text());
+            assert_eq!(run.stderr_text(), stderr, "{args:?}");
+            tables.push(run.stdout_text());
+        }
+        let mut closed_stdin = sandbox.command(["order", "list"]);
+        set_node_env(&mut closed_stdin, &mostro, &[&relay]);
+        closed_stdin.stdin(Stdio::piped());
+        let run = run_with_watchdog(closed_stdin, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        tables.push(run.stdout_text());
+
+        let table = &tables[0];
+        assert!(tables.iter().all(|other| other == table), "{tables:#?}");
+        assert!(!table.trim_start().starts_with('{'), "{table}");
+        let rows = human_rows(table);
+        let orders = outcome["data"]["orders"].as_array().unwrap();
+        assert_eq!(rows.len(), orders.len(), "{table}");
+        for order in orders {
+            let cells = &rows[order["id"].as_str().unwrap()];
+            assert!(
+                cells[1].contains(order["side"].as_str().unwrap()),
+                "{cells:?}"
+            );
+            assert!(
+                cells[3].contains(order["status"].as_str().unwrap()),
+                "{cells:?}"
+            );
+            assert_eq!(cells[4..10], human_view_of(order), "{table}");
+        }
+    }
+
+    assert_no_effects(&fresh, "fresh identity location");
+    assert_eq!(fs::read(&database).unwrap(), b"synthetic identity store");
+    assert_eq!(fs::read_dir(existing.mcli_dir()).unwrap().count(), 1);
+    for dir in [existing.home(), existing.cwd()] {
+        assert!(is_empty_dir(&dir), "{dir:?} was written");
+    }
+    assert_eq!(stored_ids(&relay).await, stored, "a listing published");
 }
 
 // Diagnostics (T032): verbose and `RUST_LOG=trace` must not leak raw SDK,

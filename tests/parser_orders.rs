@@ -606,6 +606,7 @@ mod list_contract {
     use mostro_client::commands::order::list::select_orders;
     use mostro_client::outcome::order::{ListData, ListOrdersInput, SIDES, STATUSES};
     use mostro_client::outcome::ErrorCode;
+    use mostro_client::parse_human::render_list;
     use serde_json::{json, Value};
 
     const NODE_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
@@ -1147,5 +1148,197 @@ mod list_contract {
             data["filters"],
             json!({ "side": "sell", "currency": "USD", "status": "pending" })
         );
+    }
+
+    /// Human text and JSON of one typed outcome.
+    fn both_views(filters: ListOrdersInput, orders: &[SmallOrder]) -> (String, Value) {
+        let (data, _) = ListData::from_selected(&node(), filters, orders).unwrap();
+        (render_list(&data), serde_json::to_value(&data).unwrap())
+    }
+
+    /// Trimmed cells of the table line holding `id`; index 1 is the side.
+    fn human_cells<'a>(text: &'a str, id: &str) -> Vec<&'a str> {
+        let line = text
+            .lines()
+            .find(|line| line.contains(id))
+            .unwrap_or_else(|| panic!("no row for {id}: {text}"));
+        line.split(['\u{2502}', '\u{2506}'])
+            .map(str::trim)
+            .collect()
+    }
+
+    /// The human display the data model gives each JSON business field.
+    fn expected_cells(order: &Value) -> [String; 8] {
+        let text = |field: &str| order[field].as_str().unwrap().to_string();
+        let sats = match text("sats_amount") {
+            zero if zero == "0" => "market".to_string(),
+            sats => sats,
+        };
+        let fiat = match (
+            order["fiat_amount_min"].as_str(),
+            order["fiat_amount_max"].as_str(),
+        ) {
+            (None, None) => text("fiat_amount"),
+            (min, max) => format!("{}-{}", min.unwrap_or("?"), max.unwrap_or("?")),
+        };
+        let created = order["created_at"].as_str().map_or_else(
+            || "Invalid date".to_string(),
+            |at| at[..16].replace('T', " "),
+        );
+        [
+            text("id"),
+            text("status"),
+            sats,
+            text("fiat_currency"),
+            fiat,
+            text("payment_method"),
+            text("premium_percent"),
+            created,
+        ]
+    }
+
+    #[test]
+    fn human_rows_carry_the_json_business_fields() {
+        let orders = [
+            (1_700_000_000, 12_345, 50, None, None, -3, "sepa"),
+            (1_700_000_100, 0, 0, Some(10), Some(20), 5, "wire,cash"),
+            (-1, -5, -7, Some(-2), None, 0, ""),
+            (253_402_300_799, 1, 1, None, Some(9), -1, "cash"),
+            (253_402_300_800, 2, 2, None, None, 1, "btc"),
+            (i64::MIN, 3, 3, None, None, 2, "eur"),
+        ]
+        .into_iter()
+        .zip(1..)
+        .map(
+            |((at, sats, fiat, min, max, premium, payment), id)| SmallOrder {
+                id: Some(Uuid::from_u128(id)),
+                kind: Some(if id % 2 == 0 {
+                    OrderKind::Buy
+                } else {
+                    OrderKind::Sell
+                }),
+                amount: sats,
+                fiat_amount: fiat,
+                min_amount: min,
+                max_amount: max,
+                premium,
+                payment_method: payment.to_string(),
+                ..selected(at)
+            },
+        )
+        .collect::<Vec<_>>();
+        let (text, json) = both_views(pending(), &orders);
+
+        let rows = json["orders"].as_array().unwrap();
+        assert_eq!(rows.len(), orders.len());
+        for order in rows {
+            let [id, status, rest @ ..] = expected_cells(order);
+            let cells = human_cells(&text, &id);
+            assert!(
+                cells[1].contains(order["side"].as_str().unwrap()),
+                "{cells:?}"
+            );
+            assert_eq!(cells[2], id);
+            assert!(cells[3].contains(&status), "{cells:?}");
+            assert_eq!(&cells[4..10], &rest, "{text}");
+        }
+    }
+
+    #[test]
+    fn human_heading_and_filter_summary_follow_the_typed_filters() {
+        let (text, _) = both_views(pending(), &[selected(1_700_000_000)]);
+        for expected in ["📋 List Orders", "Status Filter: pending", NODE_HEX] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+        assert!(!text.contains("Order Type"), "{text}");
+        assert!(!text.contains("Currency Filter"), "{text}");
+        for heading in [
+            "Kind",
+            "Order Id",
+            "Status",
+            "Amount",
+            "Fiat",
+            "Fiat Amt",
+            "Payment Method",
+            "Premium %",
+            "Created",
+        ] {
+            assert!(text.contains(heading), "missing heading {heading}: {text}");
+        }
+
+        let order = SmallOrder {
+            status: Some(Status::Active),
+            ..selected(1_700_000_000)
+        };
+        let (text, _) = both_views(filters(Some("SELL"), Some("usd"), Some("active")), &[order]);
+        for expected in [
+            "Status Filter: active",
+            "Order Type: sell orders",
+            "Currency Filter: USD",
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+    }
+
+    #[test]
+    fn human_empty_book_keeps_the_existing_wording() {
+        let (text, json) = both_views(filters(Some("buy"), Some("eur"), None), &[]);
+        assert_eq!(json["orders"], json!([]));
+        for expected in [
+            "No Offers",
+            "No offers found with requested parameters",
+            "Order Type: buy orders",
+            "Currency Filter: EUR",
+            NODE_HEX,
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+        assert!(!text.contains("Order Id"), "{text}");
+    }
+
+    #[rstest]
+    #[case(1_700_000_000, "2023-11-14 22:13")]
+    #[case(-1, "1969-12-31 23:59")]
+    #[case(253_402_300_799, "9999-12-31 23:59")]
+    #[case(-62_167_219_200, "0000-01-01 00:00")]
+    #[case(253_402_300_800, "Invalid date")]
+    #[case(-62_167_219_201, "Invalid date")]
+    #[case(i64::MAX, "Invalid date")]
+    #[case(i64::MIN, "Invalid date")]
+    fn human_dates_are_the_utc_minute_or_invalid_date_like_json(
+        #[case] seconds: i64,
+        #[case] shown: &str,
+    ) {
+        let (text, json) = both_views(pending(), &[selected(seconds)]);
+        let [id, .., created] = expected_cells(&json["orders"][0]);
+        assert_eq!(created, shown);
+        assert_eq!(human_cells(&text, &id)[9], shown, "{text}");
+    }
+
+    #[test]
+    fn human_text_escapes_terminal_controls() {
+        let order = SmallOrder {
+            fiat_code: "U\r\u{7}".to_string(),
+            payment_method: "\u{1b}[1m\n\u{9b}".to_string(),
+            ..selected(1_700_000_000)
+        };
+        let (row_text, json) = both_views(pending(), &[order]);
+        assert_eq!(json["orders"][0]["fiat_currency"], "U\r\u{7}");
+        // Short values: a wrapped cell would split across table lines.
+        let cells = human_cells(&row_text, "00000000-0000-0000-0000-000000000001");
+        assert_eq!(cells[5], "U\\r\\u{7}", "{row_text}");
+        assert_eq!(cells[7], "\\u{1b}[1m\\n\\u{9b}", "{row_text}");
+
+        let (filter_text, _) = both_views(filters(None, Some("\u{1b}[2j"), None), &[]);
+        assert!(
+            filter_text.contains("Currency Filter: \\u{1b}[2J"),
+            "{filter_text}"
+        );
+
+        for text in [row_text, filter_text] {
+            for raw in ["\u{1b}[1m", "\u{1b}[2J", "\u{7}", "\u{9b}", "\r"] {
+                assert!(!text.contains(raw), "raw {raw:?} reached the terminal");
+            }
+        }
     }
 }
