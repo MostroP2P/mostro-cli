@@ -1809,6 +1809,73 @@ the SDK print relay URLs. They are not on the migrated path.
 T001-T032 are complete. T033 (US1 focused matrix and internal milestone) is
 next.
 
+## T033 US1 Milestone (Internal): 2026-10-26
+
+Native Windows, rustc 1.97.0, on `develop` at `6c9a670` (T032; T031-T032
+commits not yet pushed). Linux was not rerun. No code changed in this task.
+This is the US1 internal milestone, not pilot or release acceptance: US2
+presentation parity, US3 discovery/schemas and the polish gates remain.
+
+### Coverage Map
+
+| US1 obligation | Automated evidence |
+| --- | --- |
+| Selected fields and encoding | `tests/parser_orders.rs` `list_contract` (98 tests in the file): canonical ids, side, every status, signed i64 money as decimal strings, zero-market sats, nullable range endpoints, received text as-is, UTC RFC3339 or null with one aggregated warning, proposed `examples.json` reproduced |
+| Selection rules | `parser_orders`: latest state before filters, same-time ties keep the lowest event id, unspecified cross-order ties, absent status never matches, malformed events skipped; binary `order_list_binary_selects_rows_in_both_modes` |
+| Empty versus error | Binary: filtered-empty and EOSE-empty are exit 0 with `orders: []`; CLOSED, partial-relay CLOSED and silent-relay timeout are exit 1 with data null and the snapshot kept (`order_list_binary_*`) |
+| Exit codes and envelope | Exit 0/1/2 agree with status; one fully consumed JSON document; read stages `not_applicable`; argument errors keep `order.list` (`order_list_json_uses_read_stages`) |
+| Limits | 7-day author/kind/`z` filter with per-relay limit 50 (`integration_tests` fixed-clock filter, snapshot fields); 10,000-event cap fails without truncation; notification capacity; production 15 s read budget (`order_list_binary_times_out_on_a_silent_relay`) |
+| No effects | No EVENT published (relay store unchanged); fresh HOME/MCLI_DIR/cwd stay empty; existing `mcli.db` byte-identical; unusable `MCLI_DIR` still lists; no relay connection on argument errors |
+| Diagnostics | Planted sentinels in relay URL, CLOSED reason and CLI/env config never reach stdout/stderr under `--verbose` and `RUST_LOG=trace`; exactly one allow-listed verbose line |
+
+### Migrated File Sizes
+
+Production lines before the first `#[cfg(test)]`, against the 400-line limit:
+
+| File | Production lines |
+| --- | --- |
+| `src/cli.rs` | 217 |
+| `src/cli/registry.rs` | 89 |
+| `src/cli/commands.rs` | 313 |
+| `src/commands/order/list.rs` | 83 |
+| `src/msg/mod.rs` | 160 |
+| `src/msg/orders.rs` | 82 |
+| `src/msg/receive_msg.rs` | 249 |
+| `src/outcome.rs` | 295 |
+| `src/outcome/order.rs` | 239 |
+| `src/parse_machine.rs` | 50 |
+| `src/parse_human/order.rs` | 41 |
+| `src/parse_human/table.rs` | 119 |
+| `src/parser/orders.rs` | 122 |
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --no-fail-fast --test parser_orders --test integration_tests --test order_list_process` | parser_orders 98 of 98, integration_tests 14 of 14, order_list_process 34 of 35: `watchdog_kills_and_reaps_a_hung_child` failed its timing bound (two focused runs) |
+| `cargo test --locked --test order_list_process` rerun | PASS: 35 of 35 in 15.9 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 97, cli_functions 61, integration 14, order_list_process 35, disputes 9, dms 19, parser_orders 98, util 15, doctests 0 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+### Open For Later Tasks
+
+- NIP-42 AUTH is not exercised; the loopback relays never request it.
+- Native Linux runs (T052) and CI wiring (T050-T051) are pending.
+- `watchdog_kills_and_reaps_a_hung_child` still fails on some Windows runs
+  (after relinking or under load); reruns pass. It needs a less timing-sensitive
+  bound.
+- Legacy commands still install `pretty_env_logger` under `--verbose`, which
+  can print relay URLs (seen in the T032 mutation).
+- Human mode does not show warnings; full human presentation is T034-T036.
+- `README.md` and `docs/commands.md` still show `listorders` and
+  `--mostropubkey` (T049).
+
+T001-T033 are complete. US2 starts with T034 (renderer parity tests) and T035
+(process parity tests).
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
