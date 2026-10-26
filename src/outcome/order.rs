@@ -61,18 +61,18 @@ impl ListOrdersInput {
 /// One selected order from the public book.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PublicOrder {
-    id: String,
-    side: Kind,
-    status: Status,
-    sats_amount: String,
-    fiat_currency: String,
-    fiat_amount: String,
-    fiat_amount_min: Option<String>,
-    fiat_amount_max: Option<String>,
-    payment_method: String,
-    premium_percent: String,
-    created_at: Option<String>,
-    created_at_unix: String,
+    pub(crate) id: String,
+    pub(crate) side: Kind,
+    pub(crate) status: Status,
+    pub(crate) sats_amount: String,
+    pub(crate) fiat_currency: String,
+    pub(crate) fiat_amount: String,
+    pub(crate) fiat_amount_min: Option<String>,
+    pub(crate) fiat_amount_max: Option<String>,
+    pub(crate) payment_method: String,
+    pub(crate) premium_percent: String,
+    pub(crate) created_at: Option<String>,
+    pub(crate) created_at_unix: String,
 }
 
 impl PublicOrder {
@@ -119,9 +119,9 @@ impl PublicOrder {
 /// `order.list` success data.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ListData {
-    node_pubkey: String,
-    filters: ListOrdersInput,
-    orders: Vec<PublicOrder>,
+    pub(crate) node_pubkey: String,
+    pub(crate) filters: ListOrdersInput,
+    pub(crate) orders: Vec<PublicOrder>,
 }
 
 impl ListData {

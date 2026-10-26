@@ -135,6 +135,13 @@ impl Warnings {
         self.0.iter().any(|warning| warning.code == code)
     }
 
+    /// Record every warning of `other`, still one per code.
+    pub fn merge(&mut self, other: &Warnings) {
+        for warning in &other.0 {
+            self.add(warning.code);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

@@ -11,8 +11,10 @@ use nostr_sdk::prelude::{Client, Keys, PublicKey, RelayUrl, SignerAuthenticator}
 use crate::outcome::ErrorCode;
 use crate::util::net::install_rustls_crypto_provider;
 
+mod orders;
 pub mod receive_msg;
 
+pub(crate) use orders::{reduce_orders, seven_day_filter};
 pub use receive_msg::{fetch_msg, FetchFailure, Fetched};
 
 pub const MOSTRO_PUBKEY_VAR: &str = "MOSTRO_PUBKEY";

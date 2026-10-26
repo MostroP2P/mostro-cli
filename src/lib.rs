@@ -6,6 +6,7 @@ pub mod lightning;
 pub mod msg;
 pub mod nip33;
 pub mod outcome;
+pub mod parse_human;
 pub mod parse_machine;
 pub mod parser;
 pub mod rpc;

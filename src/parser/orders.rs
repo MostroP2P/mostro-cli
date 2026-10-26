@@ -1,17 +1,13 @@
-use std::cmp::Reverse;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
-use crate::parser::common::{apply_kind_color, apply_status_color, create_error_cell};
+use crate::msg::reduce_orders;
+use crate::parse_human::table::{fiat_amount, orders_table as orders_table_text, OrderRow};
+use crate::parser::common::apply_kind_color;
 use crate::util::Event;
 use anyhow::Result;
-use chrono::DateTime;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
-use log::{error, info};
 use mostro_core::prelude::*;
-use uuid::Uuid;
-
-use crate::nip33::order_from_tags;
 
 pub fn parse_orders_events(
     events: BTreeSet<nostr_sdk::prelude::Event>,
@@ -19,59 +15,7 @@ pub fn parse_orders_events(
     status: Option<Status>,
     kind: Option<mostro_core::order::Kind>,
 ) -> Vec<SmallOrder> {
-    // HashMap to store the latest order by id
-    let mut latest_by_id: HashMap<Uuid, SmallOrder> = HashMap::new();
-
-    for event in events.iter() {
-        // Get order from tags
-        let mut order = match order_from_tags(event.tags.clone()) {
-            Ok(o) => o,
-            Err(e) => {
-                error!("{e:?}");
-                continue;
-            }
-        };
-        // Get order id
-        let order_id = match order.id {
-            Some(id) => id,
-            None => {
-                info!("Order ID is none");
-                continue;
-            }
-        };
-        // Check if order kind is none
-        if order.kind.is_none() {
-            info!("Order kind is none");
-            continue;
-        }
-        // Set created at
-        order.created_at = Some(i64::try_from(event.created_at.as_secs()).unwrap_or(i64::MAX));
-        // Update latest order by id
-        latest_by_id
-            .entry(order_id)
-            .and_modify(|existing| {
-                let new_ts = order.created_at.unwrap_or(0);
-                let old_ts = existing.created_at.unwrap_or(0);
-                if new_ts > old_ts {
-                    *existing = order.clone();
-                }
-            })
-            .or_insert(order);
-    }
-
-    let mut requested: Vec<SmallOrder> = latest_by_id
-        .into_values()
-        .filter(|o| status.map(|s| o.status == Some(s)).unwrap_or(true))
-        .filter(|o| currency.as_ref().map(|c| o.fiat_code == *c).unwrap_or(true))
-        .filter(|o| {
-            kind.as_ref()
-                .map(|k| o.kind.as_ref() == Some(k))
-                .unwrap_or(true)
-        })
-        .collect();
-
-    requested.sort_by_key(|b| Reverse(b.created_at));
-    requested
+    reduce_orders(&events, currency.as_deref(), status, kind)
 }
 
 pub fn print_order_preview(ord: Payload) -> Result<String, String> {
@@ -123,18 +67,12 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
             Cell::new(single_order.amount).set_alignment(CellAlignment::Center)
         },
         Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-        // No range order print row
-        if single_order.min_amount.is_none() && single_order.max_amount.is_none() {
-            Cell::new(single_order.fiat_amount.to_string()).set_alignment(CellAlignment::Center)
-        } else {
-            let range_str = match (single_order.min_amount, single_order.max_amount) {
-                (Some(min), Some(max)) => format!("{}-{}", min, max),
-                (Some(min), None) => format!("{}-?", min),
-                (None, Some(max)) => format!("?-{}", max),
-                (None, None) => "?".to_string(),
-            };
-            Cell::new(range_str).set_alignment(CellAlignment::Center)
-        },
+        Cell::new(fiat_amount(
+            single_order.fiat_amount.to_string(),
+            single_order.min_amount.map(|amount| amount.to_string()),
+            single_order.max_amount.map(|amount| amount.to_string()),
+        ))
+        .set_alignment(CellAlignment::Center),
         Cell::new(single_order.payment_method.to_string()).set_alignment(CellAlignment::Center),
         Cell::new(single_order.premium.to_string()).set_alignment(CellAlignment::Center),
     ]);
@@ -153,145 +91,33 @@ pub fn print_order_preview(ord: Payload) -> Result<String, String> {
 }
 
 pub fn print_orders_table(orders_table: Vec<Event>) -> Result<String> {
-    let mut table = Table::new();
-    // Convert Event to SmallOrder
-    let orders_table: Vec<SmallOrder> = orders_table
+    let rows = orders_table
         .into_iter()
-        .filter_map(|event| {
-            if let Event::SmallOrder(order) = event {
-                Some(order)
-            } else {
-                None
-            }
+        .filter_map(|event| match event {
+            Event::SmallOrder(order) => Some(legacy_row(order)),
+            _ => None,
         })
         .collect();
+    Ok(orders_table_text(rows))
+}
 
-    //Table rows
-    let mut rows: Vec<Row> = Vec::new();
-
-    if orders_table.is_empty() {
-        table
-            .load_style(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_width(160)
-            .set_header(vec![Cell::new("📭 No Offers")
-                .add_attribute(Attribute::Bold)
-                .set_alignment(CellAlignment::Center)]);
-
-        // Single row for error
-        let mut r = Row::new();
-
-        r.add_cell(create_error_cell(
-            "No offers found with requested parameters…",
-        ));
-
-        //Push single error row
-        rows.push(r);
-    } else {
-        table
-            .load_style(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_width(160)
-            .set_header(vec![
-                Cell::new("📈 Kind")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("🆔 Order Id")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("📊 Status")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("₿ Amount")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("💱 Fiat")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("💵 Fiat Amt")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("💳 Payment Method")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("📊 Premium %")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-                Cell::new("📅 Created")
-                    .add_attribute(Attribute::Bold)
-                    .set_alignment(CellAlignment::Center),
-            ]);
-
-        //Iterate to create table of orders
-        for single_order in orders_table.into_iter() {
-            let date = DateTime::from_timestamp(single_order.created_at.unwrap_or(0), 0);
-
-            let r = Row::from(vec![
-                if let Some(k) = single_order.kind {
-                    apply_kind_color(
-                        Cell::new(k.to_string()).set_alignment(CellAlignment::Center),
-                        &k,
-                    )
-                } else {
-                    Cell::new("BUY/SELL").set_alignment(CellAlignment::Center)
-                },
-                Cell::new(
-                    single_order
-                        .id
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "N/A".to_string()),
-                )
-                .set_alignment(CellAlignment::Center),
-                {
-                    let status = single_order
-                        .status
-                        .unwrap_or(mostro_core::order::Status::Active)
-                        .to_string();
-                    apply_status_color(
-                        Cell::new(&status).set_alignment(CellAlignment::Center),
-                        &status,
-                    )
-                },
-                if single_order.amount == 0 {
-                    Cell::new("market").set_alignment(CellAlignment::Center)
-                } else {
-                    Cell::new(single_order.amount.to_string()).set_alignment(CellAlignment::Center)
-                },
-                Cell::new(single_order.fiat_code.to_string()).set_alignment(CellAlignment::Center),
-                // No range order print row
-                if single_order.min_amount.is_none() && single_order.max_amount.is_none() {
-                    Cell::new(single_order.fiat_amount.to_string())
-                        .set_alignment(CellAlignment::Center)
-                } else {
-                    let range_str = match (single_order.min_amount, single_order.max_amount) {
-                        (Some(min), Some(max)) => format!("{}-{}", min, max),
-                        (Some(min), None) => format!("{}-?", min),
-                        (None, Some(max)) => format!("?-{}", max),
-                        (None, None) => "?".to_string(),
-                    };
-                    Cell::new(range_str).set_alignment(CellAlignment::Center)
-                },
-                Cell::new(single_order.payment_method.to_string())
-                    .set_alignment(CellAlignment::Center),
-                Cell::new(single_order.premium.to_string()).set_alignment(CellAlignment::Center),
-                Cell::new(
-                    date.map(|d| d.format("%Y-%m-%d %H:%M").to_string())
-                        .unwrap_or_else(|| "Invalid date".to_string()),
-                )
-                .set_alignment(CellAlignment::Center),
-            ]);
-            rows.push(r);
-        }
+/// Legacy rows show an absent status as active and an absent time as 1970.
+fn legacy_row(order: SmallOrder) -> OrderRow {
+    OrderRow {
+        side: order.kind,
+        id: order
+            .id
+            .map_or_else(|| "N/A".to_string(), |id| id.to_string()),
+        status: order.status.unwrap_or(Status::Active).to_string(),
+        sats_amount: order.amount.to_string(),
+        fiat_currency: order.fiat_code,
+        fiat_amount: order.fiat_amount.to_string(),
+        fiat_amount_min: order.min_amount.map(|amount| amount.to_string()),
+        fiat_amount_max: order.max_amount.map(|amount| amount.to_string()),
+        payment_method: order.payment_method,
+        premium_percent: order.premium.to_string(),
+        created_at_unix: Some(order.created_at.unwrap_or(0)),
     }
-
-    table.add_rows(rows);
-
-    // Set minimum width on Order ID column (index 1) to prevent UUID truncation
-    if let Some(col) = table.column_mut(1) {
-        col.set_constraint(ColumnConstraint::Absolute(Width::Fixed(38)));
-    }
-
-    Ok(table.to_string())
 }
 
 #[cfg(test)]

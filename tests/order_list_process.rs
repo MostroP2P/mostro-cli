@@ -29,6 +29,7 @@ use hyper::service::service_fn;
 use hyper::upgrade::{self, OnUpgrade};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use mostro_client::commands::order::list::{list_orders, COMMAND};
 use mostro_client::msg::{fetch_msg, FetchFailure, PublicReadConfig, ReadLimits};
 use mostro_client::outcome::order::Snapshot;
 use mostro_client::outcome::ErrorCode;
@@ -923,14 +924,17 @@ const PRODUCTION_CAP: usize = 10_000;
 
 /// The order-book filter the list command sends, at the fixed clock.
 fn order_filter(mostro: &Keys) -> Filter {
-    let at = DateTime::<Utc>::from_timestamp(i64::try_from(QUERY_AT).unwrap(), 0).unwrap();
     create_seven_days_filter_at(
         "order".to_string(),
         mostro.public_key(),
         NOSTR_ORDER_EVENT_KIND,
-        at,
+        query_clock(),
     )
     .unwrap()
+}
+
+fn query_clock() -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp(i64::try_from(QUERY_AT).unwrap(), 0).unwrap()
 }
 
 fn book_event(author: &Keys, kind: Kind, z: &str, created_at: u64) -> Event {
@@ -1378,4 +1382,136 @@ async fn cancelling_a_read_closes_its_connections() {
     }
 
     assert!(answering.wait_idle(OBSERVE).await);
+}
+
+// `order.list` operation (T028) over the collector and reducer.
+
+/// A published order state `hours` before the query time.
+fn listing(mostro: &Keys, id: u128, hours: u64, side: &str, status: &str) -> Event {
+    EventBuilder::new(Kind::Custom(NOSTR_ORDER_EVENT_KIND), "")
+        .tags([
+            Tag::custom("d", [Uuid::from_u128(id).to_string()]),
+            Tag::custom("k", [side]),
+            Tag::custom("s", [status]),
+            Tag::custom("f", ["USD"]),
+            Tag::custom("amt", ["0"]),
+            Tag::custom("fa", ["100"]),
+            Tag::custom("pm", ["cash"]),
+            Tag::custom("premium", ["1"]),
+            Tag::custom("z", ["order"]),
+        ])
+        .custom_created_at(Timestamp::from(QUERY_AT - hours * HOUR))
+        .finalize(mostro)
+        .unwrap()
+}
+
+async fn list(
+    side: Option<&str>,
+    config: impl FnOnce() -> Result<PublicReadConfig, ErrorCode>,
+) -> (Value, i32) {
+    let outcome = list_orders(side, None, None, config, &quick_limits(), query_clock()).await;
+    (serde_json::to_value(&outcome).unwrap(), outcome.exit_code())
+}
+
+fn assert_read_stages(outcome: &Value) {
+    assert_eq!(outcome["command"], COMMAND, "{outcome}");
+    for stage in ["publication", "daemon_acceptance", "persistence"] {
+        assert_eq!(outcome["meta"][stage], "not_applicable", "{outcome}");
+    }
+}
+
+#[tokio::test]
+async fn listing_selects_latest_matching_states_across_relays() {
+    let mostro = Keys::generate();
+    let first = serve(
+        LocalRelay::new(),
+        &[
+            listing(&mostro, 1, 1, "sell", "pending"),
+            listing(&mostro, 2, 3, "sell", "pending"),
+            listing(&mostro, 3, 2, "buy", "pending"),
+        ],
+    )
+    .await;
+    let second = serve(
+        LocalRelay::new(),
+        &[
+            listing(&mostro, 2, 2, "sell", "canceled"),
+            listing(&mostro, 4, 4, "sell", "pending"),
+        ],
+    )
+    .await;
+    let config = read_config(&mostro, &[&first.url, &second.url]);
+
+    let (outcome, exit) = list(Some("SELL"), || Ok(config)).await;
+
+    assert_eq!(exit, 0, "{outcome}");
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(outcome["error"], Value::Null, "{outcome}");
+    assert_eq!(outcome["warnings"], json!([]), "{outcome}");
+    assert_read_stages(&outcome);
+    let data = &outcome["data"];
+    assert_eq!(data["node_pubkey"], mostro.public_key().to_hex());
+    assert_eq!(
+        data["filters"],
+        json!({ "side": "sell", "currency": null, "status": "pending" })
+    );
+    let rows: Vec<&str> = data["orders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|order| order["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            Uuid::from_u128(1).to_string(),
+            Uuid::from_u128(4).to_string()
+        ]
+    );
+    let snapshot = &outcome["meta"]["snapshot"];
+    assert_counts(snapshot, 2, 2, 5);
+    assert_eq!(snapshot["since"], QUERY_SINCE, "{snapshot}");
+}
+
+#[tokio::test]
+async fn listing_validates_filters_before_reading_configuration() {
+    let (outcome, exit) = list(Some("both"), || panic!("configuration was read")).await;
+    assert_eq!(exit, 2, "{outcome}");
+    assert_eq!(outcome["error"]["code"], "invalid_arguments", "{outcome}");
+    assert_eq!(outcome["data"], Value::Null, "{outcome}");
+    assert_eq!(outcome["meta"]["snapshot"], Value::Null, "{outcome}");
+    assert_read_stages(&outcome);
+
+    let (outcome, exit) = list(None, || Err(ErrorCode::ConfigurationMissing)).await;
+    assert_eq!(exit, 1, "{outcome}");
+    assert_eq!(
+        outcome["error"]["code"], "configuration_missing",
+        "{outcome}"
+    );
+    assert_eq!(outcome["meta"]["snapshot"], Value::Null, "{outcome}");
+    assert_read_stages(&outcome);
+}
+
+#[tokio::test]
+async fn listing_failure_keeps_the_snapshot_and_returns_no_rows() {
+    let mostro = Keys::generate();
+    let answering = serve(
+        LocalRelay::new(),
+        &[listing(&mostro, 1, 1, "sell", "pending")],
+    )
+    .await;
+    let (closed, _) = start_fixture(Fixture::Closed).await;
+    let config = read_config(&mostro, &[&answering.url, &closed.url]);
+
+    let (outcome, exit) = list(None, || Ok(config)).await;
+
+    assert_eq!(exit, 1, "{outcome}");
+    assert_eq!(outcome["status"], "error", "{outcome}");
+    assert_eq!(outcome["error"]["code"], "relay_read_failed", "{outcome}");
+    assert_eq!(outcome["data"], Value::Null, "{outcome}");
+    assert_read_stages(&outcome);
+    assert_eq!(
+        outcome["meta"]["snapshot"]["configured_relays"], 2,
+        "{outcome}"
+    );
 }

@@ -700,7 +700,7 @@ mod list_contract {
         events: impl IntoIterator<Item = Event>,
     ) -> (Value, Value) {
         let (data, warnings) =
-            select_orders(&node(), filters, events.into_iter().collect()).unwrap();
+            select_orders(&node(), filters, &events.into_iter().collect()).unwrap();
         (
             serde_json::to_value(data).unwrap(),
             serde_json::to_value(warnings).unwrap(),
@@ -1007,7 +1007,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn selection_reduces_to_the_latest_state_before_filtering() {
         let order_id = Uuid::from_u128(1);
         let stale_pending = [
@@ -1026,7 +1025,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn same_order_time_ties_keep_the_lowest_event_id() {
         let order_id = Uuid::from_u128(1);
         let pending_event = listing_event(order_id, 1_700_000_000, "sell", "pending", "USD");
@@ -1049,7 +1047,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn cross_order_time_ties_have_no_promised_order() {
         let events = [
             listing_event(Uuid::from_u128(1), 1_700_000_000, "sell", "pending", "USD"),
@@ -1069,7 +1066,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn absent_status_never_matches_and_invalid_status_is_pending() {
         let absent = signed_order_event(
             1_700_000_000,
@@ -1089,7 +1085,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn malformed_events_are_skipped_without_failing_the_read() {
         let bad_id = signed_order_event(
             1_700_000_000,
@@ -1107,7 +1102,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn selected_ids_use_the_canonical_form() {
         let event = signed_order_event(
             1_700_000_000,
@@ -1122,7 +1116,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn far_future_events_saturate_with_one_warning() {
         let events = [
             listing_event(Uuid::from_u128(1), u64::MAX, "sell", "pending", "USD"),
@@ -1136,7 +1129,6 @@ mod list_contract {
     }
 
     #[test]
-    #[ignore = "red until T028"]
     fn currency_filter_matches_exactly_after_normalization() {
         let events = [
             listing_event(Uuid::from_u128(1), 1_700_000_000, "sell", "pending", "USD"),
