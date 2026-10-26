@@ -125,12 +125,12 @@ Run default/explicit human with redirected stdout and closed stdin.
 
 ### US2 Tests First
 
-- [ ] T034 [P] [US2] Extend `tests/parser_orders.rs` with pure-renderer parity, headers/filters, empty-book wording, zero-market, nullable range endpoint, signed amount, UTC-minute/Invalid date and terminal-control text cases; compare business meaning instead of requiring JSON formatting in a human table. (depends on T033)
-- [ ] T035 [P] [US2] Extend `tests/order_list_process.rs` for default/explicit human under redirection, verbose and closed stdin, paired with JSON over identical snapshots and synthetic existing/fresh storage; verify identical selected business fields and zero identity/order/trade-index changes in both modes. (depends on T033)
+- [x] T034 [P] [US2] Extend `tests/parser_orders.rs` with pure-renderer parity, headers/filters, empty-book wording, zero-market, nullable range endpoint, signed amount, UTC-minute/Invalid date and terminal-control text cases; compare business meaning instead of requiring JSON formatting in a human table. (depends on T033)
+- [x] T035 [P] [US2] Extend `tests/order_list_process.rs` for default/explicit human under redirection, verbose and closed stdin, paired with JSON over identical snapshots and synthetic existing/fresh storage; verify identical selected business fields and zero identity/order/trade-index changes in both modes. (depends on T033)
 
 ### US2 Implementation And Acceptance
 
-- [ ] T036 [US2] Complete human presentation in `src/parse_human/order.rs` and `src/parse_human/table.rs`: familiar columns/headings/filter summaries/empty wording, zero as market, min-max/min-?/?-max, existing UTC-minute dates or Invalid date, and escaped terminal controls; pass T034 using only typed outcome data, without re-fetching or inventing active status for absent-status events. (depends on T034, T035)
+- [x] T036 [US2] Complete human presentation in `src/parse_human/order.rs` and `src/parse_human/table.rs`: familiar columns/headings/filter summaries/empty wording, zero as market, min-max/min-?/?-max, existing UTC-minute dates or Invalid date, and escaped terminal controls; pass T034 using only typed outcome data, without re-fetching or inventing active status for absent-status events. (depends on T034, T035)
 - [ ] T037 [US2] Test and finish output ownership/failure behavior in `src/main.rs` and `src/cli.rs`: mode never depends on TTY, serialization precedes a single stdout write path, injected serialization/writer failures exit nonzero without a second document, stderr stays safe, and pure renderers have no effects; rerun T035 and boundary unit tests. (depends on T036)
 - [ ] T038 [US2] Run US2 parity/no-effects/default-mode acceptance through `tests/parser_orders.rs` and `tests/order_list_process.rs`, plus required gates; record results in `tests/TEST_SUMMARY.md` without claiming schema discovery is finished. (depends on T037)
 

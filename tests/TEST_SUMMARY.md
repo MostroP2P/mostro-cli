@@ -1876,6 +1876,68 @@ Production lines before the first `#[cfg(test)]`, against the 400-line limit:
 T001-T033 are complete. US2 starts with T034 (renderer parity tests) and T035
 (process parity tests).
 
+## T034-T036 US2 Human Presentation: 2026-10-26
+
+Native Windows, rustc 1.97.0, on `develop` after `98c6520`.
+
+### T034 Renderer Parity (`tests/parser_orders.rs`, `list_contract`)
+
+| Test | Evidence |
+| --- | --- |
+| `human_rows_carry_the_json_business_fields` | Six orders: every JSON row maps to one human row with the same id, side, status, sats (`0` as market, signed `-5`), currency, fixed or `min-max`/`min-?`/`?-max` fiat, payment, signed premium and UTC minute or Invalid date |
+| `human_heading_and_filter_summary_follow_the_typed_filters` | Default shows only status pending and node hex; explicit filters show side, uppercased currency and status; all nine column headings |
+| `human_empty_book_keeps_the_existing_wording` | "No Offers" wording with the filter summary and no order headings |
+| `human_dates_are_the_utc_minute_or_invalid_date_like_json` | 8 cases: four-digit years show the UTC minute; years outside 0000-9999 and i64 extremes show Invalid date, exactly where JSON `created_at` is null |
+| `human_text_escapes_terminal_controls` | ESC, BEL, CR, LF and C1 CSI in currency, payment and the currency filter render as Rust escapes; JSON keeps the raw text |
+
+Red before T036: 4 failures, all expected. Year 10000 rendered as
+`+10000-01-01 00:00`, year -1 as `-0001-12-31 23:59`, and the raw `\r` reached
+the currency cell. They were ignored with a T036 reason until the fix.
+
+### T035 Process Parity (`tests/order_list_process.rs`)
+
+`order_list_human_and_json_describe_the_same_book` serves one book (two priced
+EUR orders plus the live book) to fresh and existing (`mcli.db`) sandboxes. In each:
+JSON, default human, `--output human`, `--verbose` and a closed-stdin pipe all
+exit 0 with piped stdout. The four human tables are byte-identical. Verbose adds
+only the allow-listed summary. Each JSON row's business fields appear in its
+human row, and the row counts match. Neither sandbox is written, `mcli.db` stays
+byte-identical and the relay store is unchanged. `run_with_watchdog` now closes
+a piped stdin at spawn. This passed before T036 because the book has no control
+text or out-of-range dates.
+
+### T036 Implementation
+
+- `src/parse_human/table.rs`: `escape_controls` shows every `char::is_control`
+  character as `escape_default`; applied to currency and payment cells, so the
+  legacy table also benefits.
+- `src/parse_human/order.rs`: the currency filter line is escaped; the row
+  passes no event time when the typed `created_at` is null, so Invalid date
+  follows the outcome's single calendar rule.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders human_` before T036 | FAIL: 9 passed, 4 failed (expected red) |
+| `cargo test --locked --test order_list_process order_list_human` | PASS: 1 of 1 in 1.5 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass (lib 97, cli_functions 61, integration 14, disputes 9, dms 19, parser_orders 110, util 15) except `watchdog_kills_and_reaps_a_hung_child` (order_list_process 35 of 36) |
+| `cargo test --locked --test order_list_process` reruns | FAIL once (watchdog), then PASS: 36 of 36 in 15.9 s |
+| `cargo test --locked --test order_list_process watchdog` alone | PASS in 2.1 s |
+| `cargo test --locked --test order_list_process -- --skip order_list_human` | PASS: 35 of 35 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The first green run of `human_text_escapes_terminal_controls` failed only
+because its long escaped payment text wrapped onto a second table line; the
+fixture now uses short control strings. The watchdog test fails more often with
+the ten extra child processes of T035 running in parallel (Windows process
+start-up under load); it passes alone. Its assertion now reports the elapsed time.
+
+T001-T036 are complete. T037 (output ownership and failure behavior) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
