@@ -1636,6 +1636,75 @@ T034-T036.
 T001-T029 are complete. T030 (CLI wiring of `order list` and the root
 `--mostro-pubkey` spelling) is next.
 
+## T030 Order-List CLI Wiring: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T027-T029 (pushed as
+`b8ce0e4`/`314262b`). Linux was not rerun.
+
+- The command registry moved from `src/cli/commands.rs` to
+  `src/cli/registry.rs`. Entries now carry a leaf `path`, so `order list`
+  registers as `["order", "list"]` with canonical `order.list` and
+  `JsonSupport::Read`; every other entry is unchanged and human-only.
+- `listorders` and its `--kind` spelling are gone, replaced by
+  `order list [--side buy|sell] [--currency TEXT] [--status STATUS]`. Side and
+  status use Clap possible values (case-insensitive, untrimmed) from the new
+  shared `outcome::order::{SIDES, STATUSES}`, which a parser test pins to the
+  data-model status set. The legacy `src/cli/list_orders.rs` handler was
+  deleted; its status tests in `tests/integration_tests.rs` now use
+  `ListOrdersInput::parse`.
+- The root `--mostropubkey` spelling became `--mostro-pubkey` (`-m` kept).
+  No aliases; other legacy spellings are unchanged.
+- `cli::run` binds the arguments once and routes `order list` in both modes
+  to `list_orders` before RPC routing, environment mutation, logging or
+  `Context`. Configuration comes from `PublicReadConfig::resolve` over the
+  CLI values and `MOSTRO_PUBKEY`/`RELAYS` without `set_var`. JSON goes
+  through `parse_machine::emit`; human prints `render_list` with one stdout
+  write, or one fixed `error: <message>` line on stderr with the outcome's
+  exit code.
+- JSON rejection of other commands now resolves the full subcommand path.
+  Argument errors resolved to `order.list` use read stages
+  (`not_applicable`); legacy and unresolved rejections keep
+  `not_attempted`/`unknown`/`not_attempted`.
+- `Envelope` gained `data()` and `error_code()` accessors for the human path.
+
+Tests:
+- `tests/cli_functions.rs`: the decision-table grammar tests now run against
+  the real `Cli` instead of a test-built `order list` grammar. New coverage
+  for every side/status spelling, and for removed spellings (`listorders`,
+  `--kind`, `--mostropubkey`) failing as argument errors, including
+  `--output json listorders` as `invalid_arguments` with command null.
+  Registry tests compare leaf paths, and `only_order_list_supports_json`
+  replaces `no_command_supports_json_yet`.
+- `tests/order_list_process.rs`: binaries now run `order list`. Missing
+  configuration gives exactly `error: Required node configuration is
+  missing.` with exit 1 and no files written; a configured empty relay
+  prints the human table with exit 0 and leaves HOME, MCLI_DIR and cwd
+  empty. JSON rejection rows use `listdisputes`. New
+  `order_list_json_uses_read_stages` checks `--side both` and `--kind` as
+  JSON `invalid_arguments` for `order.list` with read stages and no
+  connection, plus one JSON success over the loopback relay.
+
+One mutation, reverted afterwards: marking `order.list` as
+`JsonSupport::Unsupported` failed `only_order_list_supports_json` and
+`order_list_json_uses_read_stages` (argument errors reverted to
+`not_attempted` stages).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions --test integration_tests --test parser_orders --test order_list_process` | PASS: 61, 14, 98 and 29 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass (lib 97, cli_functions 61, integration 14, disputes 9, dms 19, parser_orders 98, util 15) except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo test --locked --test order_list_process` second run | PASS: 29 of 29 in 4.1 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Documentation (`docs/commands.md`, `README.md`) still shows `listorders` and
+`--mostropubkey`; T049 owns that migration text.
+
+T001-T030 are complete. T031 (binary success/failure/identity matrix for
+`order list`) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
