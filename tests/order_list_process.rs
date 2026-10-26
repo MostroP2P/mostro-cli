@@ -1830,3 +1830,151 @@ async fn order_list_binary_ignores_existing_and_unusable_identity_locations() {
         assert!(is_empty_dir(&dir), "{dir:?} was written");
     }
 }
+
+// Diagnostics (T032): verbose and `RUST_LOG=trace` must not leak raw SDK,
+// relay, URL or argument text on the migrated path.
+
+/// Answers every REQ with CLOSED carrying `reason`.
+#[derive(Debug)]
+struct RejectSaying(&'static str);
+
+impl QueryPolicy for RejectSaying {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        Box::pin(async { QueryPolicyResult::reject(MachineReadablePrefix::Error, self.0) })
+    }
+}
+
+const CLOSED_SENTINEL: &str = "relay-says secret-sentinel-7f3a";
+
+/// The relay URL with a sentinel in its query, which the relay ignores.
+fn sentinel_url(relay: &LoopbackRelay) -> String {
+    format!("{}/?token={SENTINEL}", relay.url)
+}
+
+/// Run `order list` verbosely with full logging requested, plus `extra`
+/// arguments before the command and `env` overrides.
+async fn run_verbose(json: bool, extra: &[&str], env: &[(&str, &str)]) -> (Captured, Sandbox) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut args = vec!["--verbose"];
+    args.extend_from_slice(extra);
+    if json {
+        args.extend(["--output", "json"]);
+    }
+    args.extend(["order", "list"]);
+    let mut command = sandbox.command(&args);
+    command.env("RUST_LOG", "trace");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped && run.status.is_some(), "{args:?}");
+    (run, sandbox)
+}
+
+/// No sentinel anywhere, and every stderr line comes from the allow-list.
+fn assert_allow_listed(run: &Captured, label: &str) {
+    let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+    for (stream, text) in [("stdout", &stdout), ("stderr", &stderr)] {
+        assert!(!text.contains(SENTINEL), "{label}: {stream} leaked: {text}");
+        assert!(
+            !text.contains("127.0.0.1"),
+            "{label}: {stream} leaked a URL: {text}"
+        );
+    }
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.starts_with("verbose: order.list ") || line.starts_with("error: ")),
+        "{label}: {stderr}"
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("verbose: "))
+            .count(),
+        1,
+        "{label}: {stderr}"
+    );
+}
+
+#[tokio::test]
+async fn order_list_diagnostics_are_allow_listed_in_verbose_mode() {
+    let mostro = Keys::generate();
+    let mostro_hex = mostro.public_key().to_hex();
+    let book = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let closed = LoopbackRelay::start(Backend::Relay(Box::new(
+        LocalRelay::builder()
+            .query_policy(RejectSaying(CLOSED_SENTINEL))
+            .build(),
+    )))
+    .await
+    .unwrap();
+    let (book_url, closed_url) = (sentinel_url(&book), sentinel_url(&closed));
+    let bad_relays = format!("not-a-url-{SENTINEL}");
+    let (key, book_url, closed_url) = (mostro_hex.as_str(), book_url.as_str(), closed_url.as_str());
+    type Row<'a> = (&'a str, Vec<&'a str>, Vec<(&'a str, &'a str)>, i32, &'a str);
+    let rows: Vec<Row> = vec![
+        (
+            "success over a URL with a secret query",
+            vec![],
+            vec![("MOSTRO_PUBKEY", key), ("RELAYS", book_url)],
+            0,
+            "verbose: order.list ok; 3 events from 1/1 relays",
+        ),
+        (
+            "CLOSED with secret server text",
+            vec![],
+            vec![("MOSTRO_PUBKEY", key), ("RELAYS", closed_url)],
+            1,
+            "verbose: order.list relay_read_failed; 0 events from 0/1 relays",
+        ),
+        (
+            "secret environment pubkey",
+            vec![],
+            vec![("MOSTRO_PUBKEY", SENTINEL), ("RELAYS", book_url)],
+            1,
+            "verbose: order.list configuration_invalid; no read",
+        ),
+        (
+            "secret CLI pubkey",
+            vec!["--mostro-pubkey", SENTINEL],
+            vec![("RELAYS", book_url)],
+            1,
+            "verbose: order.list configuration_invalid; no read",
+        ),
+        (
+            "secret CLI relays",
+            vec!["--relays", bad_relays.as_str()],
+            vec![("MOSTRO_PUBKEY", key)],
+            1,
+            "verbose: order.list configuration_invalid; no read",
+        ),
+    ];
+    for (label, extra, env, exit, summary) in rows {
+        for json in [true, false] {
+            let label = format!("{label} (json: {json})");
+            let (run, sandbox) = run_verbose(json, &extra, &env).await;
+            assert_eq!(run.code(), Some(exit), "{label}: {}", run.stderr_text());
+            assert_allow_listed(&run, &label);
+            assert!(
+                run.stderr_text().lines().any(|line| line == summary),
+                "{label}: {}",
+                run.stderr_text()
+            );
+            if json {
+                let stdout = run.stdout_text();
+                assert_eq!(stdout.lines().count(), 1, "{label}: {stdout}");
+                let outcome: Value = serde_json::from_str(&stdout).unwrap();
+                assert_eq!(outcome["status"], if exit == 0 { "ok" } else { "error" });
+            } else if exit != 0 {
+                assert!(run.stdout.is_empty(), "{label}: {}", run.stdout_text());
+            }
+            assert_no_effects(&sandbox, &label);
+        }
+    }
+}

@@ -198,9 +198,9 @@ pub struct Snapshot {
     observed_at: Timestamp,
     per_relay_limit: usize,
     max_unique_events: usize,
-    configured_relays: usize,
-    completed_relays: usize,
-    received_events: usize,
+    pub(crate) configured_relays: usize,
+    pub(crate) completed_relays: usize,
+    pub(crate) received_events: usize,
     completion_policy: CompletionPolicy,
     complete_history: bool,
 }

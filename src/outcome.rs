@@ -264,6 +264,10 @@ impl<D, S> Envelope<D, S> {
         self.data.as_ref()
     }
 
+    pub fn snapshot(&self) -> Option<&S> {
+        self.meta.snapshot.as_ref()
+    }
+
     pub fn error_code(&self) -> Option<ErrorCode> {
         self.error.map(|error| error.code)
     }

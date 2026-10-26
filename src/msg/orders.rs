@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
-use log::{error, info};
+use log::{debug, info};
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use nostr_sdk::prelude::{Event, Filter, Kind, PublicKey, SingleLetterTag, Timestamp};
 
@@ -64,12 +64,10 @@ fn latest_orders(events: &BTreeSet<Event>) -> Vec<SmallOrder> {
 
 /// Decode an order event, skipping it when it has no order id or side.
 fn decode_order(event: &Event) -> Option<SmallOrder> {
-    let mut order = match order_from_tags(event.tags.clone()) {
-        Ok(order) => order,
-        Err(e) => {
-            error!("{e:?}");
-            return None;
-        }
+    let Ok(mut order) = order_from_tags(event.tags.clone()) else {
+        // Fixed text: tag values are untrusted relay data.
+        debug!("Order tags could not be decoded");
+        return None;
     };
     if order.id.is_none() {
         info!("Order ID is none");

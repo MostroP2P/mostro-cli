@@ -40,7 +40,7 @@ use chrono::Utc;
 use clap::error::ErrorKind;
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 
-use crate::commands::order::list::{list_orders, ListOutcome};
+use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::msg::{PublicReadConfig, ReadLimits};
 use crate::outcome::{
     Envelope, ErrorCode, ExecutionMeta, Warnings, ARGUMENT_ERROR_EXIT, RUNTIME_ERROR_EXIT,
@@ -89,10 +89,14 @@ pub async fn run() -> Result<i32> {
             Utc::now(),
         )
         .await;
-        return Ok(match output {
+        let exit = match output {
             OutputMode::Json => emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock()),
             OutputMode::Human => print_list(&outcome),
-        });
+        };
+        if cli.verbose {
+            eprintln!("{}", verbose_summary(&outcome));
+        }
+        return Ok(exit);
     }
     if output == OutputMode::Json {
         return Ok(reject_json(&matches));
@@ -113,6 +117,29 @@ pub async fn run() -> Result<i32> {
     }
 
     Ok(0)
+}
+
+/// The only `--verbose` line of the public listing: counts and codes, never
+/// relay, URL, argument or SDK text. No logger is installed on this path.
+fn verbose_summary(outcome: &ListOutcome) -> String {
+    let result = outcome
+        .error_code()
+        .map_or_else(|| "ok".to_string(), code_name);
+    match outcome.snapshot() {
+        Some(snapshot) => format!(
+            "verbose: {COMMAND} {result}; {} events from {}/{} relays",
+            snapshot.received_events, snapshot.completed_relays, snapshot.configured_relays
+        ),
+        None => format!("verbose: {COMMAND} {result}; no read"),
+    }
+}
+
+/// The wire name of `code`, as serialized in the JSON outcome.
+fn code_name(code: ErrorCode) -> String {
+    serde_json::to_value(code)
+        .ok()
+        .and_then(|name| name.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "internal_error".to_string())
 }
 
 /// The human listing on stdout, or a fixed error line on stderr.
