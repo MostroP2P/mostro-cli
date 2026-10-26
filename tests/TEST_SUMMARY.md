@@ -1750,6 +1750,65 @@ before and after each run. Exit 2 binary cases remain in
 T001-T031 are complete. T032 (allow-listed diagnostics and verbose behavior
 on the migrated path) is next.
 
+## T032 Order-List Diagnostics And Verbose: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T031 (`220577f`/`d8df6a3`,
+not yet pushed). Linux was not rerun.
+
+Starting point, confirmed by the first run below: the `order list` path never
+installs a `log` logger or a `tracing` subscriber, so `RUST_LOG=trace` and
+`--verbose` produced no SDK output. `--verbose` simply did nothing there.
+
+Changes:
+- `src/cli.rs`: with `--verbose`, the public listing writes exactly one
+  allow-listed stderr line after its outcome: `verbose: order.list <ok|code>;
+  <received> events from <completed>/<configured> relays`, or `...; no read`
+  when no query started. Only counts and the stable code appear; never relay,
+  URL, argument, server or SDK text. Still no logger on this path.
+- `src/outcome.rs`: `Envelope::snapshot()` accessor; `Snapshot` relay/event
+  counts became `pub(crate)` for that line.
+- `src/msg/orders.rs`: the decode-failure log is fixed text at debug level
+  instead of the raw error.
+- `src/main.rs` is unchanged: on this path its only `Err` is the fixed
+  argument-binding message.
+
+New test `order_list_diagnostics_are_allow_listed_in_verbose_mode` runs the
+binary with `--verbose` and `RUST_LOG=trace`, in JSON and human mode, for:
+success over a relay URL whose query carries a sentinel; CLOSED whose server
+reason carries the sentinel; sentinel `MOSTRO_PUBKEY`, `--mostro-pubkey` and
+`--relays`. For each it checks the exit code, no sentinel or loopback address
+on stdout or stderr, every stderr line starting with `verbose: order.list ` or
+`error: `, exactly one verbose line with the expected counts/code, one JSON
+document in JSON mode, empty stdout on human errors and no sandbox effects.
+
+Evidence:
+- Before the change the test failed only on the missing verbose line
+  (`left: 0, right: 1` for the first row); nothing leaked.
+- After it the test passes (1 of 1, 17.2 s).
+- Mutation, reverted afterwards: calling `pretty_env_logger::init()` on this
+  path when verbose made the test fail with the sentinel URL in stderr
+  (`DEBUG nostr_sdk::relay::inner > Connecting to 'ws://127.0.0.1:…/?token=secret-sentinel-7f3a'`
+  and the raw WebSocket request).
+
+Open, outside this task: legacy commands still initialize `pretty_env_logger`
+under `--verbose` (`src/cli/context.rs`), which, as the mutation shows, lets
+the SDK print relay URLs. They are not on the migrated path.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process order_list_diagnostics` (before) | FAIL as expected: missing verbose line |
+| same (after) | PASS: 1 of 1 |
+| same with the logger mutation | FAIL: sentinel URL in stderr |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass (lib 97, cli_functions 61, integration 14, disputes 9, dms 19, parser_orders 98, util 15) except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking (order_list_process 34 of 35) |
+| `cargo test --locked --test order_list_process` second run | PASS: 35 of 35 in 15.9 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T032 are complete. T033 (US1 focused matrix and internal milestone) is
+next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
