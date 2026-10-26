@@ -1491,6 +1491,151 @@ T001-T026 are complete. T027 (moving the order reducer into `msg::orders`) is
 next. The JSON pilot is still unimplemented: no command calls `fetch_msg`
 yet.
 
+## T027 Order Reducer Extraction: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T026. Linux was not
+rerun.
+
+The private `src/msg/orders.rs` (84 production lines) now owns the order
+query, decoder and reducer:
+- `seven_day_filter` holds the seven-day author/kind/`z`/limit-50 filter that
+  `util::events::create_seven_days_filter_at` built; that helper now delegates
+  to it and keeps its error text for the order and dispute callers.
+- `reduce_orders` takes the SDK's `BTreeSet<Event>` order (timestamp
+  descending, event id ascending), keeps the first decodable event per order
+  id as its latest state, and filters by status, currency and side only after
+  that reduction. Rows come out newest first without a second sort. Tag
+  decoding is unchanged (`nip33::order_from_tags`); events without an id or
+  side are skipped, and times beyond `i64` saturate.
+- `parser::orders::parse_orders_events` delegates to it, which drops about 55
+  production lines from `src/parser/orders.rs`. No CLI aliases were added.
+- `commands::order::list::select_orders` stays a `todo!("T028")` stub. T028
+  must build it on `reduce_orders` instead of adding a second reducer.
+
+The module is declared `mod orders;` and re-exported `pub(crate)`, so it is
+not part of the library API.
+
+One mutation, reverted afterwards: making the per-id dedup a no-op failed 5
+parser tests (latest-before-status/currency/side filters, same-time ties,
+saturated far-future times).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders` (T020 slice) | PASS: 89 passed, 8 ignored (T028) |
+| `cargo test --locked --test integration_tests` | PASS: 14 of 14 |
+| `cargo test --locked --test order_list_process` (T021 slice) twice | Run 1 FAIL (watchdog, 10.9 s); run 2 PASS: 25 of 25 in 2.9 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | All suites pass except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The watchdog failure repeats the first-run-after-relink pattern recorded for
+T025 and T026. It does not touch the reducer.
+
+T001-T027 are complete. T028 (`order.list` command on `fetch_msg` and
+`reduce_orders`) is next. No command calls `fetch_msg` yet.
+
+## T028 Order-List Operation: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T027. Linux was not
+rerun.
+
+`src/commands/order/list.rs` (under 90 production lines) implements the typed
+operation; `commands/mod.rs`, `commands/order/mod.rs` and `lib.rs` already
+declared it:
+- `list_orders(side, currency, status, config, limits, now)` returns one
+  `Envelope<ListData, Snapshot>` for `order.list` and never prints, exits,
+  opens the database or touches a Nostr client.
+- Filters are parsed by `ListOrdersInput::parse` before the `config` closure
+  runs, so invalid arguments never read node configuration. Argument,
+  configuration and pre-query errors carry a null snapshot.
+- Its only network access is one `fetch_msg` with the seven-day order filter
+  at the injected clock. A failed read keeps its code, warnings and snapshot
+  with null data.
+- `select_orders` builds on `msg::reduce_orders` (no second reducer) and
+  `ListData::from_selected`. It now borrows the event set, so the parser test
+  helper passes `&`.
+- Read errors and successes use `ExecutionMeta::read`: every write stage is
+  `not_applicable`.
+- `Warnings::merge` in `src/outcome.rs` combines collector and mapping
+  warnings, still one per code.
+
+CLI wiring, the human renderer and binary-level cases remain T029-T031.
+
+The 8 T020 selection tests are no longer ignored and pass. Three new tests in
+`tests/order_list_process.rs` call `list_orders` against loopback relays:
+latest-state selection across two relays with snapshot counts, filter
+validation before configuration (the config closure panics if called) plus
+`configuration_missing`, and a CLOSED relay failing the read while the
+snapshot is kept.
+
+One mutation, reverted afterwards: dropping the status filter in
+`select_orders` failed 3 selection tests and the cross-relay command test
+(it surfaced as `internal_error` from the mapping invariant).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders` | PASS: 97 of 97, 0 ignored |
+| `cargo test --locked --test order_list_process listing` | PASS: 3 of 3 |
+| `cargo fmt --all -- --check` | PASS after applying rustfmt's layout |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo test --locked --test order_list_process` second run | PASS: 28 of 28 in 3.1 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The watchdog failure repeats the first-run-after-relink pattern recorded for
+T025-T027.
+
+T001-T028 are complete. T029 (typed list rendering in `parse_machine` and
+`parse_human`) is next. No CLI command reaches `list_orders` yet.
+
+## T029 Typed List Rendering: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T028. Linux was not
+rerun.
+
+Both output branches can now render a `ListOutcome`:
+- `parse_machine::emit` was already generic over the envelope. Two new unit
+  tests drive it with a real `ListOutcome`: one success line carrying
+  `data.orders`, `data.filters` and `meta.snapshot`, and a snapshot time
+  outside four-digit years turning into one `internal_error` document with
+  null data and snapshot.
+- New `src/parse_human/table.rs` holds the order table (headings, market for
+  zero sats, `min-max`/`min-?`/`?-max`, UTC-minute or Invalid date, colors,
+  fixed-width id column, "No Offers" wording) built from an `OrderRow` of
+  display strings.
+- `parser::orders::print_orders_table` now maps `SmallOrder` to `OrderRow`
+  and delegates, keeping its legacy defaults (absent status shown as active,
+  absent time as 1970). `print_order_preview` reuses the shared range helper.
+  `src/parser/orders.rs` lost about 120 production lines.
+- New `src/parse_human/order.rs` `render_list(&ListData)` prints the filter
+  summary, node key and the same table from typed data only: no network,
+  storage, logging or writes.
+- `PublicOrder` and `ListData` fields became `pub(crate)` so the renderer
+  reads them; the public API and JSON shape are unchanged.
+
+A unit test renders one order through both paths and checks that the typed
+view ends with exactly the legacy table, plus filter summary, node key, market,
+`10-?` range and UTC minute. A second covers the empty-book wording and an
+unrepresentable time showing Invalid date. Full presentation parity remains
+T034-T036.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib parse_` | PASS: 10 of 10 |
+| `cargo test --locked --test parser_orders` | PASS: 97 of 97 (legacy table tests unchanged) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo test --locked --test order_list_process` second run | PASS: 28 of 28 in 3.0 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T029 are complete. T030 (CLI wiring of `order list` and the root
+`--mostro-pubkey` spelling) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
