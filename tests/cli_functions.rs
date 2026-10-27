@@ -1140,6 +1140,119 @@ mod output_intent {
         assert_eq!(failure.output, OutputSelection::Invalid);
     }
 
+    const SCHEMA: Option<&[&str]> = Some(&["schema"]);
+
+    /// A valid invocation of a registered legacy command parses for JSON; the
+    /// capability guard, not the parser, then answers output_not_supported.
+    #[test]
+    fn valid_unsupported_invocations_parse_and_malformed_ones_are_invalid_arguments() {
+        let valid: [&[&str]; 5] = [
+            &["getlasttradeprivkey"],
+            &["getlasttradeindex"],
+            &["restore"],
+            &["admmaintenancestatus"],
+            &["takesell", "--orderid", ORDER],
+        ];
+        for suffix in valid {
+            let argv = [&["--output", "json"][..], suffix].concat();
+            let (mode, path) = parsed(&argv);
+            assert_eq!(mode, OutputMode::Json, "{argv:?}");
+            let entry = mostro_client::cli::lookup(&path).expect("registered leaf");
+            assert_eq!(entry.json, mostro_client::cli::JsonSupport::Unsupported);
+        }
+        check(&[
+            (
+                &["--output", "json", "takesell"],
+                Expect::Json(Some(&["takesell"])),
+            ),
+            (
+                &["--output", "json", "takesell", "--orderid", "not-a-uuid"],
+                Expect::Json(Some(&["takesell"])),
+            ),
+            (
+                &["--output", "json", "getlasttradeindex", "--bogus"],
+                Expect::Json(Some(&["getlasttradeindex"])),
+            ),
+            (&["--output", "json", "order", "nosuch"], Expect::Json(None)),
+            (
+                &["--output", "json", "nosuch", "--bogus"],
+                Expect::Json(None),
+            ),
+            (&["takesell"], Expect::Human),
+        ]);
+    }
+
+    #[test]
+    #[ignore = "red until T043"]
+    fn schema_parses_with_output_at_every_depth() {
+        let schema = vec!["schema".to_string()];
+        let rows: [(&[&str], OutputMode); 6] = [
+            (&["schema"], OutputMode::Human),
+            (&["schema", "--output", "json"], OutputMode::Json),
+            (&["schema", "--output=json"], OutputMode::Json),
+            (&["--output", "json", "schema"], OutputMode::Json),
+            (&["--output=json", "schema"], OutputMode::Json),
+            (&["--output", "human", "schema"], OutputMode::Human),
+        ];
+        for (suffix, mode) in rows {
+            assert_eq!(parsed(suffix), (mode, schema.clone()), "{suffix:?}");
+        }
+        // The documented node options precede the command and are optional.
+        let suffix = [
+            "--mostro-pubkey",
+            PUBKEY,
+            "--relays",
+            "ws://127.0.0.1:1",
+            "schema",
+        ];
+        assert_eq!(parsed(&suffix).1, schema);
+    }
+
+    #[test]
+    #[ignore = "red until T043"]
+    fn schema_takes_no_arguments_and_keeps_json_intent_on_errors() {
+        check(&[
+            (
+                &["--output", "json", "schema", "extra"],
+                Expect::Json(SCHEMA),
+            ),
+            (
+                &["schema", "--output=json", "--bogus"],
+                Expect::Json(SCHEMA),
+            ),
+            (
+                &["--output", "json", "schema", "--side", "sell"],
+                Expect::Json(SCHEMA),
+            ),
+            (&["schema", "extra"], Expect::Human),
+            (&["schema", "--output"], Expect::InvalidSelection),
+            (
+                &["--output", "json", "schema", "--output", "json"],
+                Expect::InvalidSelection,
+            ),
+            (&["schema", "--", "--output", "json"], Expect::Human),
+        ]);
+    }
+
+    #[test]
+    #[ignore = "red until T043"]
+    fn schema_help_and_version_stay_text() {
+        assert_eq!(text_kind(&["schema", "--help"]), ErrorKind::DisplayHelp);
+        assert_eq!(
+            text_kind(&["--output", "json", "schema", "--help"]),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            text_kind(&["schema", "--output", "json", "--help"]),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            text_kind(&["--output", "json", "--version"]),
+            ErrorKind::DisplayVersion
+        );
+        assert_eq!(text_kind(&["help", "schema"]), ErrorKind::DisplayHelp);
+    }
+
     #[test]
     fn rejections_keep_the_clap_kind_and_a_safe_diagnostic() {
         let rows: [(&[&str], ErrorKind, &str); 4] = [
@@ -1319,5 +1432,20 @@ mod registry {
         ] {
             assert_eq!(lookup(&path(unresolved)), None, "{unresolved:?}");
         }
+    }
+
+    #[test]
+    #[ignore = "red until T043"]
+    fn schema_is_a_registered_machine_command_with_a_non_dotted_name() {
+        let entry = lookup(&path(&["schema"])).expect("schema is registered");
+        assert_eq!(entry.canonical, "schema");
+        assert_ne!(entry.json, JsonSupport::Unsupported);
+        assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
+        let machine: Vec<&str> = REGISTRY
+            .iter()
+            .filter(|entry| entry.json != JsonSupport::Unsupported)
+            .map(|entry| entry.canonical)
+            .collect();
+        assert_eq!(machine, ["order.list", "schema"]);
     }
 }
