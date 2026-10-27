@@ -2068,6 +2068,52 @@ prototype was reverted and is not in the tree.
 
 T001-T039 are complete. T040 (US3 process tests) is next.
 
+## T040 US3 Process Tests: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `445e944`. Tests only; no
+production code changed. All children use the T013 harness: allow-listed
+environment, sandboxed HOME/MCLI_DIR/cwd, closed stdin, watchdog and reaping.
+
+### Added (`tests/order_list_process.rs`)
+
+| Test | Status | Covers |
+| --- | --- | --- |
+| `every_legacy_command_rejects_json_before_any_effect` | passes now | All 32 registered legacy commands, each with minimal valid arguments and `--output json`, including the gRPC (`admsetmaintenance`, `admmaintenancestatus`, `admcancelpending`) and secret (`getlasttradeprivkey`, `conversationkey`) paths: exit 2, one document, canonical `command`, `output_not_supported`, stages `not_attempted`/`unknown`/`not_attempted`, empty stderr, sandbox untouched, zero connections to a configured relay/RPC endpoint |
+| `configuration_errors_are_stable_and_leak_nothing` | passes now | `configuration_missing` (no env, key only, relays only, blank relays) and `configuration_invalid` (bad key, bad relay, invalid CLI override despite valid env): exit 1, `order.list`, data and snapshot null, planted sentinel absent, sandbox untouched; human mode prints empty stdout and one fixed line |
+| `an_unreachable_relay_is_a_connection_failure_in_the_binary` | passes now | `relay_connection_failed` from a refused loopback port |
+| `schema_runs_offline_in_both_modes` | ignored, red until T043 | `schema` human (raw discovery) and JSON (`command` `schema`, same data) with absent and invalid configuration plus a reachable relay: exit 0, empty stderr, no sentinel, sandbox untouched, zero relay connections |
+
+Already covered elsewhere and not duplicated: `invalid_arguments` and
+`output_not_supported` rows (T018, T031), `relay_read_failed` and `read_timeout`
+in the binary (T031), and the output-selection fallbacks (T017/T018).
+`read_limit_exceeded` is covered only at the collector level
+(`exceeding_the_event_cap_fails_without_truncating`) because the production
+10,000-event cap is impractical to fill through a process; `internal_error` is
+covered by the `parse_machine` serialization tests. Both stay open for T046.
+
+### Red and green
+
+The ignored test fails on this checkout with exit 2 (`unrecognized subcommand`).
+A throwaway prototype (a `Schema` variant, a registry entry and a hard-coded
+discovery document) made it pass; the prototype was reverted and is not in the
+tree. The first prototype run exposed a test defect: `one_document` asserts the
+`order.list` command, so the schema test now checks the envelope itself.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process -- every_legacy configuration_errors unreachable_relay_is` | PASS: 3 of 3 in 0.2 s |
+| `cargo test --locked --test order_list_process -- --ignored schema_runs` | FAIL as intended; PASS against the prototype |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 63 (4 ignored), integration 14, order_list_process 40 (1 ignored), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T040 are complete. T041 (discovery DTOs) is next; T043 removes the five
+`red until T043` ignores.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
