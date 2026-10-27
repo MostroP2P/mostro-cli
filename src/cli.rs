@@ -26,11 +26,16 @@ mod commands;
 mod context;
 mod legacy;
 mod registry;
+mod schema;
 
 pub use args::Cli;
 pub use commands::{Commands, OrderCommands};
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
+pub use schema::{
+    discovery, CommandDescriptor, CommandSchemas, DiscoveryData, PresentationMode, SchemaDocument,
+    SCHEMA_DIALECT, SCHEMA_VERSION,
+};
 
 use std::env;
 use std::io::{self, Write};
