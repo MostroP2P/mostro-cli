@@ -800,6 +800,36 @@ async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
     assert_eq!(endpoint.connections(), 0);
 }
 
+/// Run `args` with the stderr reader already gone, so every diagnostic write
+/// fails with a broken pipe, and return the status and stdout.
+async fn run_with_broken_stderr(args: &[&str]) -> (Option<i32>, String) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut child = sandbox.command(args).spawn().unwrap();
+    drop(child.stdin.take());
+    drop(child.stderr.take());
+    let stdout = read_all(child.stdout.take());
+    let status = timeout(WATCHDOG, child.wait()).await.unwrap().unwrap();
+    let stdout = stdout.await.unwrap().unwrap();
+    (status.code(), String::from_utf8_lossy(&stdout).into_owned())
+}
+
+#[tokio::test]
+async fn failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty() {
+    // Human mode reports through stderr only; an unwritable stderr must not
+    // turn the controlled exit into a panic (101) or change stdout.
+    let rows: [(&[&str], i32); 3] = [
+        (&["order", "list", "--side", "invalid"], 2),
+        (&["--output", "human", "order", "list", "--bogus"], 2),
+        // No node configuration in the sandbox: configuration_missing.
+        (&["order", "list"], 1),
+    ];
+    for (args, expected) in rows {
+        let (code, stdout) = run_with_broken_stderr(args).await;
+        assert_eq!(code, Some(expected), "{args:?}");
+        assert!(stdout.is_empty(), "{args:?}: {stdout}");
+    }
+}
+
 #[tokio::test]
 async fn json_intent_gets_one_error_envelope_before_any_effect() {
     let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
