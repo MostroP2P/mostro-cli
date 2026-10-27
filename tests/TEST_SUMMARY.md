@@ -1938,6 +1938,85 @@ start-up under load); it passes alone. Its assertion now reports the elapsed tim
 
 T001-T036 are complete. T037 (output ownership and failure behavior) is next.
 
+## T037 Output Ownership And Failure Behavior: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `de9235b`. Windows was not rerun.
+
+### Finding
+
+Mode already never depends on a TTY (no terminal detection in `src/`), and the
+JSON path already serialized fully before one write (`parse_machine::emit`,
+covered by its unit tests for an unserializable outcome and a failed write). The
+defect was in the human path and the argument-error path: they used `eprintln!`
+and `eprint!`, which panic when stderr cannot be written. With the stderr reader
+closed, `order list --side invalid` exited 101 instead of 2.
+
+### Red, then green
+
+`failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty`
+(`tests/order_list_process.rs`) drops the child's stderr reader and runs three
+human-mode failures: invalid side (2), unknown flag (2) and missing configuration (1).
+Before the change it failed with exit 101 (expected 2); after it passes.
+
+### Change
+
+- `src/cli.rs`: `print_list` takes the stdout and stderr writers, renders the
+  whole listing before the first byte and, on a failed write, exits 1 with one
+  fixed line and nothing appended. Diagnostics go through `diagnose`, and
+  argument errors through a plain `write_all`; neither panics on a broken pipe.
+- `src/main.rs`: the final error line is written the same way.
+- `src/cli.rs` unit tests: single write with the outcome's exit, failed stdout
+  write, error with empty stdout, and an unwritable stderr never changing the
+  result.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process failed_diagnostic` before the change | FAIL: exit 101, expected 2 |
+| same, after the change | PASS |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 62, integration 14, order_list_process 37 (15.1 s), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+`src/cli.rs` is 226 production lines. Legacy commands still print directly
+(`println!`), so whole-CLI output ownership is not migrated.
+
+## T038 US2 Acceptance: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `de9235b` plus the T037 working-tree
+change. Windows was not rerun. This closes US2 only: schema discovery is not
+implemented and nothing here claims it.
+
+| US2 obligation | Automated evidence |
+| --- | --- |
+| Human and JSON describe the same orders | `tests/parser_orders.rs` `human_*` (13 tests): every JSON row maps to one human row with the same id, side, status, sats, currency, fiat or range, payment, premium and date; invalid dates match JSON `created_at` null |
+| Headers, filters, empty wording | `human_heading_and_filter_summary_follow_the_typed_filters`, `human_empty_book_keeps_the_existing_wording` |
+| Terminal-control text escaped | `human_text_escapes_terminal_controls`; JSON keeps raw text |
+| Default mode independent of TTY and redirection | `order_list_human_and_json_describe_the_same_book`: default human, `--output human`, `--verbose` and closed stdin all exit 0 with piped stdout and byte-identical tables; no terminal detection exists in `src/` |
+| Zero identity, order and trade-index effects | same test: fresh sandbox stays empty, existing `mcli.db` byte-identical, relay store unchanged |
+| Single write path and failure behavior (T037) | `cli::tests` (4), `parse_machine::tests::failed_write_exits_1_and_appends_nothing`, `failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty` |
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders human_` | PASS: 13 of 13 |
+| `cargo test --locked --test order_list_process order_list_human` | PASS: 1 of 1 |
+| `cargo test --locked --test order_list_process failed_diagnostic` | PASS: 1 of 1 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 62, integration 14, order_list_process 37, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+`watchdog_kills_and_reaps_a_hung_child` passed on this Linux run; its Windows
+timing flake (see T033) is still open. The human path does not show warnings.
+
+T001-T038 are complete. T039 (US3 parser and registry tests) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

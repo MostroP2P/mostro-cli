@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 presentation T034-T036 are complete; T037-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 are complete; T039-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -131,8 +131,8 @@ Run default/explicit human with redirected stdout and closed stdin.
 ### US2 Implementation And Acceptance
 
 - [x] T036 [US2] Complete human presentation in `src/parse_human/order.rs` and `src/parse_human/table.rs`: familiar columns/headings/filter summaries/empty wording, zero as market, min-max/min-?/?-max, existing UTC-minute dates or Invalid date, and escaped terminal controls; pass T034 using only typed outcome data, without re-fetching or inventing active status for absent-status events. (depends on T034, T035)
-- [ ] T037 [US2] Test and finish output ownership/failure behavior in `src/main.rs` and `src/cli.rs`: mode never depends on TTY, serialization precedes a single stdout write path, injected serialization/writer failures exit nonzero without a second document, stderr stays safe, and pure renderers have no effects; rerun T035 and boundary unit tests. (depends on T036)
-- [ ] T038 [US2] Run US2 parity/no-effects/default-mode acceptance through `tests/parser_orders.rs` and `tests/order_list_process.rs`, plus required gates; record results in `tests/TEST_SUMMARY.md` without claiming schema discovery is finished. (depends on T037)
+- [x] T037 [US2] Test and finish output ownership/failure behavior in `src/main.rs` and `src/cli.rs`: mode never depends on TTY, serialization precedes a single stdout write path, injected serialization/writer failures exit nonzero without a second document, stderr stays safe, and pure renderers have no effects; rerun T035 and boundary unit tests. (depends on T036)
+- [x] T038 [US2] Run US2 parity/no-effects/default-mode acceptance through `tests/parser_orders.rs` and `tests/order_list_process.rs`, plus required gates; record results in `tests/TEST_SUMMARY.md` without claiming schema discovery is finished. (depends on T037)
 
 ## Phase 5: US3 - Discover Inputs And Handle Failures (P2)
 
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Thirty-six tasks are
-checked; 19 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Thirty-eight tasks are
+checked; 17 remain pending.
