@@ -22,7 +22,7 @@ context initialization or other effects. MCP stays a separate, unchanged client.
 
 **Language/Version**: Rust 2021; declared minimum 1.94 (raised from 1.86 after T009 showed the locked graph needs it); pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
 
-**Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Added in T012: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas; resolved graph checked against MSRV 1.94. Dev-only, already locked: hyper 1.8.1 (`server`, `http1`), hyper-util 0.1.20 (`tokio`) and tungstenite 0.28.0 (`handshake`) since T013, so the harness owns an OS-assigned loopback listener instead of `LocalRelay`'s probe-then-bind port; nostr-memory 0.45.2 since T021, to serve a forged event for the signature-verification test.
+**Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Added in T012: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas; resolved graph checked against MSRV 1.94. Dev-only, already locked: hyper 1.8.1 (`server`, `http1`), hyper-util 0.1.20 (`tokio`) and tungstenite 0.28.0 (`handshake`) since T013, so the harness owns an OS-assigned loopback listener instead of `LocalRelay`'s probe-then-bind port; regex 1.12.3 (`std` only) since T042 to run generated schema patterns in tests, nostr-memory 0.45.2 since T021, to serve a forged event for the signature-verification test.
 
 **Storage**: None for listing/discovery; no DB opening, identity files or migrations. Existing SQLx storage remains on legacy paths.
 
@@ -91,8 +91,9 @@ T037 in [its section](../../tests/TEST_SUMMARY.md#t037-output-ownership-and-fail
 and the US2 acceptance T038 in [its section](../../tests/TEST_SUMMARY.md#t038-us2-acceptance-2026-10-27)
 T039 in [its section](../../tests/TEST_SUMMARY.md#t039-us3-parser-and-registry-tests-2026-10-27)
 T040 in [its section](../../tests/TEST_SUMMARY.md#t040-us3-process-tests-2026-10-27)
-and T041 in [its section](../../tests/TEST_SUMMARY.md#t041-discovery-dtos-2026-10-27);
-T042-T055 remain pending.
+T041 in [its section](../../tests/TEST_SUMMARY.md#t041-discovery-dtos-2026-10-27)
+and T042 in [its section](../../tests/TEST_SUMMARY.md#t042-generated-schemas-2026-10-27);
+T043-T055 remain pending.
 
 ## Execution Design
 
@@ -192,7 +193,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T041 as complete; its checkboxes track
+The task list records T001-T042 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

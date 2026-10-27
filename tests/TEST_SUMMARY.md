@@ -2162,6 +2162,80 @@ that discovery ignores configuration values.
 
 T001-T041 are complete. T042 (generated schemas) is next.
 
+## T042 Generated Schemas: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `f863231`.
+
+### Change
+
+- `src/outcome.rs`, `src/outcome/order.rs`: schemars `JsonSchema` derives on the
+  envelope pieces and the order DTOs. Fields the derive cannot describe use
+  `schema_with` helpers for foreign core types (side, status), decimal strings,
+  UUIDs, node hex, RFC3339 `Z` times and the fixed snapshot values.
+- New `src/outcome/schema.rs` (223 production lines): `output_schema` builds a
+  Draft 2020-12 document per command from the Serialize contract, so
+  nullable fields are `required` and typed with `null`. It has three branches:
+  success (command, `ok`, data, null error, read stages, snapshot rule), failure of
+  the resolved command (only its listed codes, null data) and failure before
+  resolution (null command, `invalid_arguments`, `not_attempted`/`unknown`/
+  `not_attempted`). `uncertain` is excluded in the pilot. Unknown fields stay allowed.
+- `src/cli/schema.rs`: `input_schema` reads the arguments of a command from
+  Clap (names, help, required, possible values, case-insensitivity), adds the
+  shared validator's `pending` default, excludes `--output`/help/version and
+  rejects extra properties; `command_schemas` supplies both documents for
+  `order.list`. `SCHEMA_VERSION` and the dialect are now defined once, in `outcome`.
+- Dev-only dependency `regex` 1 (default features off, `std`): already in the
+  lockfile, so `Cargo.lock` gains one dependency line and no package; used only
+  to run the generated patterns in tests.
+
+### Evidence
+
+- `outcome::schema` (8 tests): envelope keys and dialect; real serialized
+  success, failure, snapshot-bearing failure and unresolved outcomes conform
+  to the generated schema, checked by a small in-test schema checker;
+  19 contradictory or malformed outcomes do not (wrong or `uncertain` status,
+  data with an error, wrong command, missing key, `-0`, numeric amount, bad
+  UUID or offset time, snapshot rules, a code the command cannot produce);
+  nullable order fields required and nullable; decimal, UUID, node-key and
+  time patterns accept and reject the documented cases; error, warning, stage,
+  side and status enums equal the contract and `STATUSES`; a command
+  without snapshot evidence requires a null one.
+- `cli::schema` (4 more tests): listing input equals Clap's arguments with the
+  shared enums and default; `neworder` requirements follow Clap; unknown
+  paths give none; every machine-capable registry entry has generated schemas
+  and legacy entries have none; discovery carries the listing documents.
+- Teeth: loosening the decimal pattern to `^-?[0-9]+$` failed
+  `decimal_pattern_accepts_only_canonical_integers` and
+  `contradictory_or_malformed_outcomes_do_not_conform`; it was restored.
+- Red note: the first run was a compile failure (the DTOs did not implement
+  `JsonSchema`), not a behavioral failure; the mutation above is the evidence
+  that the assertions can fail.
+
+### Limits and handoff
+
+- The signed 64-bit range of decimal strings cannot be a pattern; it stays a
+  producer rule covered by `money_fields_are_canonical_signed_decimal_strings`.
+- `Snapshot` constants (50, 10,000) are `const` in the schema; process tests that
+  shrink limits emit non-conforming snapshots only in tests.
+- `DiscoveryData` has no `JsonSchema` derive yet and `schema` has no registry entry;
+  T043 adds both, and `every_machine_command_has_generated_schemas_and_legacy_has_none`
+  will then require a schema for it.
+- The conformance checker is test-local. T045 validates the proposed examples
+  and the checked-in fixtures and decides whether to share it or add a validator.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib outcome::schema cli::schema` | PASS: 8 + 11 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 121, cli_functions 63 (4 ignored), integration 14, order_list_process 40 (1 ignored), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T042 are complete. T043 (offline `schema` dispatch) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

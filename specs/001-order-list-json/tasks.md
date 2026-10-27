@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 and DTOs T041 are complete; T042-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 and DTOs T041 and generated schemas T042 are complete; T043-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -151,7 +151,7 @@ failures return the documented codes/exits, never empty success or uncertain.
 ### US3 Implementation And Acceptance
 
 - [x] T041 [US3] Define DiscoveryData/descriptor DTOs in `src/cli/schema.rs` using the existing registry: schema_version "`1`", executable_version "actual build's package version", schema_dialect "`https://json-schema.org/draft/2020-12/schema`", commands "descriptors sorted by canonical name"; required name, cli_path "array of invocation tokens", output_modes "human/json for migrated commands, human for legacy", input_schema/output_schema "generated JSON Schema objects, both null for legacy coverage entries", required_configuration "list of environment variable names for migrated commands, null when legacy requirements are not modeled". Listing requires MOSTRO_PUBKEY/RELAYS names, schema an empty list; never expose values or future paths as implemented. (depends on T039, T040)
-- [ ] T042 [US3] Generate Draft 2020-12 output schemas from owned DTOs in `src/outcome.rs` and `src/outcome/order.rs`, and input schemas from Clap/shared validators in `src/cli/schema.rs`; preserve required/null distinctions, decimal-string syntax and semantic i64 validation, enums, status/data/error and command-specific constraints, while treating nested schema documents as objects to avoid recursion. (depends on T041)
+- [x] T042 [US3] Generate Draft 2020-12 output schemas from owned DTOs in `src/outcome.rs` and `src/outcome/order.rs`, and input schemas from Clap/shared validators in `src/cli/schema.rs`; preserve required/null distinctions, decimal-string syntax and semantic i64 validation, enums, status/data/error and command-specific constraints, while treating nested schema documents as objects to avoid recursion. (depends on T041)
 - [ ] T043 [US3] Implement offline schema dispatch in `src/cli/commands.rs` and `src/cli.rs` before configuration/logger/context/RPC work; default/explicit human prints pretty raw DiscoveryData, explicit JSON wraps the same data in the standard outcome, with no node settings, identity files, connection or stdin required. (depends on T042)
 - [ ] T044 [US3] Complete safe error mapping in `src/cli/invocation.rs`, `src/outcome.rs` and `src/msg/receive_msg.rs` for invalid_arguments/output_not_supported (exit 2), configuration_missing/configuration_invalid/relay_connection_failed/relay_read_failed/read_timeout/read_limit_exceeded/internal_error (exit 1); preserve resolved identities and stage evidence, null error data, no raw details, no uncertain read and the documented text/process exceptions. (depends on T043)
 - [ ] T045 [US3] Generate reproducible fixtures at `docs/schemas/discovery-v1.json` (the pilot's machine-readable command reference, containing raw DiscoveryData without an outcome envelope) and `docs/schemas/order-list-v1.json` (the listing output schema). Add drift/contract checks in `tests/integration_tests.rs` that regenerate both through the same registry/Clap/DTO code used by offline schema, compare parsed JSON with the checked-in fixtures and fail on differences without rewriting them. Validate `specs/001-order-list-json/contracts/examples.json` against owned constructors and generated shapes, test invalid type/null/enum/amount combinations and semantic validators, and distinguish the proposed examples from generated executable output. No separate generated Markdown command reference is required for this pilot. (depends on T044)
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Forty-one tasks are
-checked; 14 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Forty-two tasks are
+checked; 13 remain pending.
