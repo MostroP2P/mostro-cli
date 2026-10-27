@@ -1848,6 +1848,7 @@ dependencies = [
  "pretty_env_logger",
  "prost",
  "rand_core 0.10.1",
+ "regex",
  "reqwest",
  "rstest",
  "rustls",

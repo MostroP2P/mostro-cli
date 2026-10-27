@@ -5,9 +5,11 @@
 //! Error and warning messages are fixed prose chosen by their code; no
 //! caller-provided text reaches the wire.
 
+use schemars::JsonSchema;
 use serde::Serialize;
 
 pub mod order;
+pub mod schema;
 
 /// Contract version, independent of the executable version.
 pub const SCHEMA_VERSION: &str = "1";
@@ -16,7 +18,7 @@ pub const ARGUMENT_ERROR_EXIT: i32 = 2;
 /// Exit status for configuration, read and internal errors.
 pub const RUNTIME_ERROR_EXIT: i32 = 1;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Ok,
@@ -25,7 +27,7 @@ pub enum Status {
     Uncertain,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     InvalidArguments,
@@ -68,7 +70,7 @@ impl ErrorCode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ErrorInfo {
     code: ErrorCode,
     message: &'static str,
@@ -87,7 +89,7 @@ impl ErrorInfo {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WarningCode {
     InvalidEventTimestamp,
@@ -105,14 +107,14 @@ impl WarningCode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct Warning {
     code: WarningCode,
     message: &'static str,
 }
 
 /// Warnings of one outcome, at most one per code.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Warnings(Vec<Warning>);
 
@@ -147,7 +149,7 @@ impl Warnings {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Publication {
     NotAttempted,
@@ -156,7 +158,7 @@ pub enum Publication {
     NotApplicable,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonAcceptance {
     Unknown,
@@ -165,7 +167,7 @@ pub enum DaemonAcceptance {
     NotApplicable,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Persistence {
     NotAttempted,
@@ -175,7 +177,7 @@ pub enum Persistence {
 }
 
 /// Execution stages and optional snapshot evidence of one outcome.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ExecutionMeta<S> {
     publication: Publication,
     daemon_acceptance: DaemonAcceptance,

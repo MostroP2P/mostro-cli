@@ -109,6 +109,9 @@ pre-release-hook = [
 tokio-test = "0.4"
 serial_test = "4.0.1"
 rstest = "0.27.0"
+# Checks the generated schemas' string patterns against sample values; already
+# in the lockfile, dev-only, with only the `std` feature.
+regex = { version = "1", default-features = false, features = ["std"] }
 # In-process loopback relays (LocalRelay/MockRelay) for process tests; never
 # enabled in the shipped binary.
 nostr-sdk = { version = "0.45.3", features = ["local-relay"] }

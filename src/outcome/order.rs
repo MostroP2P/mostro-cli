@@ -9,10 +9,11 @@ use std::str::FromStr;
 use chrono::{DateTime, Datelike, Utc};
 use mostro_core::order::{Kind, SmallOrder, Status};
 use nostr_sdk::prelude::{PublicKey, Timestamp};
+use schemars::JsonSchema;
 use serde::ser::Error as _;
 use serde::{Serialize, Serializer};
 
-use super::{ErrorCode, WarningCode, Warnings};
+use super::{schema, ErrorCode, WarningCode, Warnings};
 
 /// Accepted `--side` values, matched case-insensitively.
 pub const SIDES: [&str; 2] = ["buy", "sell"];
@@ -40,10 +41,12 @@ pub const STATUSES: [&str; 17] = [
 ];
 
 /// Normalized `order list` filters, serialized as `ListData.filters`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ListOrdersInput {
+    #[schemars(schema_with = "schema::nullable_side")]
     side: Option<Kind>,
     currency: Option<String>,
+    #[schemars(schema_with = "schema::status")]
     status: Status,
 }
 
@@ -84,19 +87,29 @@ impl ListOrdersInput {
 }
 
 /// One selected order from the public book.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct PublicOrder {
+    #[schemars(schema_with = "schema::uuid")]
     pub(crate) id: String,
+    #[schemars(schema_with = "schema::side")]
     pub(crate) side: Kind,
+    #[schemars(schema_with = "schema::status")]
     pub(crate) status: Status,
+    #[schemars(schema_with = "schema::decimal")]
     pub(crate) sats_amount: String,
     pub(crate) fiat_currency: String,
+    #[schemars(schema_with = "schema::decimal")]
     pub(crate) fiat_amount: String,
+    #[schemars(schema_with = "schema::nullable_decimal")]
     pub(crate) fiat_amount_min: Option<String>,
+    #[schemars(schema_with = "schema::nullable_decimal")]
     pub(crate) fiat_amount_max: Option<String>,
     pub(crate) payment_method: String,
+    #[schemars(schema_with = "schema::decimal")]
     pub(crate) premium_percent: String,
+    #[schemars(schema_with = "schema::nullable_rfc3339")]
     pub(crate) created_at: Option<String>,
+    #[schemars(schema_with = "schema::decimal")]
     pub(crate) created_at_unix: String,
 }
 
@@ -142,8 +155,9 @@ impl PublicOrder {
 }
 
 /// `order.list` success data.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ListData {
+    #[schemars(schema_with = "schema::pubkey_hex")]
     pub(crate) node_pubkey: String,
     pub(crate) filters: ListOrdersInput,
     pub(crate) orders: Vec<PublicOrder>,
@@ -181,27 +195,35 @@ fn rfc3339_utc(seconds: i64) -> Option<String> {
         .map(|at| at.format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionPolicy {
     AllRelaysEose,
 }
 
 /// Evidence of one bounded public read, serialized as `meta.snapshot`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct Snapshot {
     #[serde(serialize_with = "utc_rfc3339")]
+    #[schemars(schema_with = "schema::rfc3339")]
     since: Timestamp,
     /// No upper time filter is sent; always null.
     until: (),
     #[serde(serialize_with = "utc_rfc3339")]
+    #[schemars(schema_with = "schema::rfc3339")]
     observed_at: Timestamp,
+    #[schemars(schema_with = "schema::per_relay_limit")]
     per_relay_limit: usize,
+    #[schemars(schema_with = "schema::max_unique_events")]
     max_unique_events: usize,
+    #[schemars(schema_with = "schema::positive_count")]
     pub(crate) configured_relays: usize,
+    #[schemars(schema_with = "schema::count")]
     pub(crate) completed_relays: usize,
+    #[schemars(schema_with = "schema::received_events")]
     pub(crate) received_events: usize,
     completion_policy: CompletionPolicy,
+    #[schemars(schema_with = "schema::never_complete_history")]
     complete_history: bool,
 }
 
