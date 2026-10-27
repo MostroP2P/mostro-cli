@@ -2114,6 +2114,54 @@ tree. The first prototype run exposed a test defect: `one_document` asserts the
 T001-T040 are complete. T041 (discovery DTOs) is next; T043 removes the five
 `red until T043` ignores.
 
+## T041 Discovery DTOs: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `9d185c2`.
+
+### Change
+
+New `src/cli/schema.rs` (118 production lines), declared and re-exported from
+`src/cli.rs`: `DiscoveryData` (`schema_version` `1`, `executable_version` from
+`CARGO_PKG_VERSION`, Draft 2020-12 `schema_dialect`, `commands`),
+`CommandDescriptor` (`name`, `cli_path`, `output_modes`, `input_schema`,
+`output_schema`, `required_configuration`), `PresentationMode`, `CommandSchemas`
+and `discovery(schemas)`, which describes every registry entry sorted by canonical
+name. It is built from the registry and constants only: no environment value,
+identity or network is read. `order.list` names `MOSTRO_PUBKEY` and `RELAYS`;
+`schema` gets an empty list; legacy entries get `null`. Schema documents are
+plain JSON objects, so there is no schema of a schema. No dependency was added.
+
+Not in scope here: the schema documents themselves (T042) and the `schema`
+subcommand and registry entry (T043). The builder takes the documents from the
+caller, so T042 supplies them and a machine command given none serializes
+both as `null`; T042 must make that case impossible for `order.list`.
+
+### Evidence
+
+Seven unit tests in `src/cli/schema.rs`: header constants and package version;
+every registered command described once, sorted by name, with the registry's
+`cli_path`; legacy entries human-only with null schemas and configuration;
+`order.list` with both modes, schemas and configuration names; an unsupplied
+schema stays null; a synthetic `schema` entry gets an empty configuration list
+and sorts after `order.list`; and an exact serialized legacy descriptor with every
+key present including nulls.
+
+Red: with a `todo!` body all 7 failed. Green after the implementation.
+A unit test that set the environment variables was dropped because it mutates
+process state shared with other tests; the process tests of T040 and T046 prove
+that discovery ignores configuration values.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib cli::schema` | red 0 of 8 (before dropping one test), then PASS 7 of 7 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 109, cli_functions 63 (4 ignored), integration 14, order_list_process 40 (1 ignored), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T041 are complete. T042 (generated schemas) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
