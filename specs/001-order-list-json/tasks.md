@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 are complete; T039-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test task T039 are complete; T040-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -145,7 +145,7 @@ failures return the documented codes/exits, never empty success or uncertain.
 
 ### US3 Tests First
 
-- [ ] T039 [P] [US3] Extend `tests/cli_functions.rs` with schema parsing, every canonical registry mapping, all side/status values, removed spellings, malformed legacy invocation versus valid unsupported invocation, nullable unresolved command and output/help/version edge cases; reuse the foundation's grammar matrix rather than create a second parser test suite. (depends on T038)
+- [x] T039 [P] [US3] Extend `tests/cli_functions.rs` with schema parsing, every canonical registry mapping, all side/status values, removed spellings, malformed legacy invocation versus valid unsupported invocation, nullable unresolved command and output/help/version edge cases; reuse the foundation's grammar matrix rather than create a second parser test suite. (depends on T038)
 - [ ] T040 [P] [US3] Extend `tests/order_list_process.rs` with offline schema in both modes, missing/invalid config, sentinel inputs, every legacy JSON capability rejection including RPC/secret paths, and the complete stable error table from `specs/001-order-list-json/contracts/cli.md`; assert no context/RPC/network/identity initialization where forbidden. (depends on T038)
 
 ### US3 Implementation And Acceptance
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Thirty-eight tasks are
-checked; 17 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Thirty-nine tasks are
+checked; 16 remain pending.

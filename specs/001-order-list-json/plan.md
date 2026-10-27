@@ -88,8 +88,9 @@ US1 T027-T033 in [their sections](../../tests/TEST_SUMMARY.md#t027-order-reducer
 ending at [the milestone](../../tests/TEST_SUMMARY.md#t033-us1-milestone-internal-2026-10-26),
 US2 T034-T036 in [its section](../../tests/TEST_SUMMARY.md#t034-t036-us2-human-presentation-2026-10-26)
 T037 in [its section](../../tests/TEST_SUMMARY.md#t037-output-ownership-and-failure-behavior-2026-10-27)
-and the US2 acceptance T038 in [its section](../../tests/TEST_SUMMARY.md#t038-us2-acceptance-2026-10-27);
-T039-T055 remain pending.
+and the US2 acceptance T038 in [its section](../../tests/TEST_SUMMARY.md#t038-us2-acceptance-2026-10-27)
+and T039 in [its section](../../tests/TEST_SUMMARY.md#t039-us3-parser-and-registry-tests-2026-10-27);
+T040-T055 remain pending.
 
 ## Execution Design
 
@@ -189,7 +190,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T038 as complete; its checkboxes track
+The task list records T001-T039 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

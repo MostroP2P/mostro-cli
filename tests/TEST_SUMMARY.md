@@ -2017,6 +2017,57 @@ timing flake (see T033) is still open. The human path does not show warnings.
 
 T001-T038 are complete. T039 (US3 parser and registry tests) is next.
 
+## T039 US3 Parser And Registry Tests: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `a7f8b9b`. Tests only; no
+production code changed. The grammar matrix from T014 is reused
+(`tests/cli_functions.rs`, `output_intent` and `registry`), not duplicated.
+
+### Already covered (verified, not rewritten)
+
+Every canonical registry mapping (`registry_matches_the_approved_mapping`,
+`every_subcommand_is_registered_exactly_once`), every side and status spelling in
+both cases, the removed spellings (`listorders`, `--kind`, `--mostropubkey`),
+and output/help/version precedence for `order list`.
+
+### Added
+
+| Test | Status | Covers |
+| --- | --- | --- |
+| `valid_unsupported_invocations_parse_and_malformed_ones_are_invalid_arguments` | passes now | Valid legacy invocations (`getlasttradeprivkey`, `getlasttradeindex`, `restore`, `admmaintenancestatus`, `takesell --orderid`) parse for JSON and resolve to an unsupported registry entry; malformed ones (`takesell` without id or with a bad id, an unknown flag on a registered command) are JSON `invalid_arguments` with the resolved command; `order nosuch` and `nosuch --bogus` give a null command; human mode gets stderr |
+| `schema_parses_with_output_at_every_depth` | ignored, red until T043 | `schema` in all six output positions, with root node options |
+| `schema_takes_no_arguments_and_keeps_json_intent_on_errors` | ignored, red until T043 | extra argument, unknown flag, `order list` flags, duplicate/missing output, `--` terminator |
+| `schema_help_and_version_stay_text` | ignored, red until T043 | `--help`, `help schema`, `--version` precedence with JSON selected |
+| `schema_is_a_registered_machine_command_with_a_non_dotted_name` | ignored, red until T043 | `schema` entry, canonical name `schema`, read-style stages, machine commands are exactly `order.list` and `schema` |
+
+Red: all four ignored tests fail on this checkout because there is no `schema`
+subcommand (`InvalidSubcommand`). Green: with a throwaway prototype (a `Schema`
+variant, a registry entry and an empty match arm) all four passed; the
+prototype was reverted and is not in the tree.
+
+### Handoff to T043
+
+- Remove the four ignores when `schema` lands.
+- Two existing registry tests will need updating then: `canonical_names_are_dotted_lowercase`
+  (the name `schema` has no dot) and `only_order_list_supports_json` (`schema`
+  is also machine-capable). `data-model.md` already names `schema` as the
+  discovery identifier.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` | PASS: 63 passed, 4 ignored |
+| `cargo test --locked --test cli_functions -- --ignored` | FAIL as intended: 4 of 4 |
+| prototype, same command | PASS: 4 of 4, then reverted |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 63 (4 ignored), integration 14, order_list_process 37, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T039 are complete. T040 (US3 process tests) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
