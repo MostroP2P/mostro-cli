@@ -60,7 +60,7 @@ claimed by this design review.
 
 ## Prerequisites And Sequence
 
-The cross-repository roadmap is `mcp/plan-aiReadyMostroCli.prompt.md`. Complete its
+The cross-repository roadmap is `plan-aiReadyMostroCli.md` (beside the clones, outside both repositories). Complete its
 Phase 1 gate before pilot implementation: command/state baseline, closed-stdin
 confirmation, take-with-invoice post-accept-save and correlated-wait regressions,
 and legacy size/import inventory. Record CLI/core/daemon compatibility and
@@ -83,8 +83,11 @@ and US1 test tasks T020 and T021 in [their](../../tests/TEST_SUMMARY.md#t020-ord
 [sections](../../tests/TEST_SUMMARY.md#t021-collector-contract-tests-2026-10-23),
 and DTO mapping T022-T024 in [its section](../../tests/TEST_SUMMARY.md#t022-t024-order-list-dto-mapping-2026-10-23),
 and public configuration T025 in [its section](../../tests/TEST_SUMMARY.md#t025-public-configuration-and-session-2026-10-23),
-and the collector T026 in [its section](../../tests/TEST_SUMMARY.md#t026-collector-2026-10-23);
-T027-T055 remain pending.
+the collector T026 in [its section](../../tests/TEST_SUMMARY.md#t026-collector-2026-10-23),
+US1 T027-T033 in [their sections](../../tests/TEST_SUMMARY.md#t027-order-reducer-extraction-2026-10-26)
+ending at [the milestone](../../tests/TEST_SUMMARY.md#t033-us1-milestone-internal-2026-10-26),
+and US2 T034-T036 in [its section](../../tests/TEST_SUMMARY.md#t034-t036-us2-human-presentation-2026-10-26);
+T037-T055 remain pending.
 
 ## Execution Design
 
@@ -184,7 +187,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T026 as complete; its checkboxes track
+The task list records T001-T036 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

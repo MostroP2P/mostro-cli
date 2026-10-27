@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025 and the collector T026 are complete; T027-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 presentation T034-T036 are complete; T037-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -170,7 +170,7 @@ feature. No MCP migration, future write executor or release is included.
 - [ ] T052 Run all `specs/001-order-list-json/quickstart.md` acceptance rows on native Windows and Linux using `tests/order_list_process.rs` and the focused suites; record separate platform results and time/cap/cleanup/secret/no-effects evidence in `tests/TEST_SUMMARY.md`, leaving unavailable native runs explicitly blocked. (depends on T051)
 - [ ] T053 Run final fmt, locked all-target/all-feature Clippy with warnings denied, locked tests/build and separate `cargo +1.94.0 check --locked --all-targets --all-features` against `Cargo.toml` / `Cargo.lock`; record exact results and pre-existing failures in `tests/TEST_SUMMARY.md` without silently upgrading the minimum. (depends on T052)
 - [ ] T054 Reconcile every FR-001 through FR-009 and SC-001 through SC-005 with actual automated/manual evidence in `tests/README.md` and `tests/TEST_SUMMARY.md`, linking generated contracts and preserving unrelated historical evidence; no unchecked scenario can be relabeled complete by documentation alone. (depends on T053)
-- [ ] T055 Update feature status and roadmap progress in `specs/001-order-list-json/plan.md`, `specs/001-order-list-json/checklists/requirements.md` and `../mcp/plan-aiReadyMostroCli.prompt.md` only to the extent proven by T054; retain remaining refactor/MCP blockers and stop without staging, committing, publishing or implementing the next feature. (depends on T054)
+- [ ] T055 Update feature status and roadmap progress in `specs/001-order-list-json/plan.md`, `specs/001-order-list-json/checklists/requirements.md` and `../plan-aiReadyMostroCli.md` only to the extent proven by T054; retain remaining refactor/MCP blockers and stop without staging, committing, publishing or implementing the next feature. (depends on T054)
 
 ## Dependencies And Execution Order
 
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Twenty-six tasks are
-checked; 29 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Thirty-six tasks are
+checked; 19 remain pending.

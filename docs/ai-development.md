@@ -43,10 +43,12 @@ if `python` is unavailable, `uv run --no-project python` can run the same script
 | Existing docs and Rustdoc | Implemented architecture and APIs |
 | Generated command references and schemas | Actual command/input/output contracts once implemented |
 
-The MCP repository's `plan-aiReadyMostroCli.prompt.md` remains the cross-project
-roadmap. Feature specifications refine bounded parts of it rather than copying
-the entire roadmap. The first pilot is not implemented; earlier persistence
-fixes and their test results remain prior work.
+The cross-project roadmap is [plan-aiReadyMostroCli.md](../../plan-aiReadyMostroCli.md).
+It sits beside the `mostro-cli` and `mcp` clones, outside both repositories, and
+is not tracked by Git; copy it next to the clones on a new machine. Feature
+specifications refine bounded parts of it rather than copying the entire
+roadmap. The first pilot is partly implemented (T001-T036 complete, T037 next);
+earlier persistence fixes and their test results remain prior work.
 
 ## Copilot Workflow
 
@@ -94,8 +96,9 @@ the feature works. Record code-test results separately when implementation lands
 ## Resume On Another Linux/WSL Laptop
 
 This is a development handoff, not a trading-identity migration or a compatible
-CLI/MCP release pair. At the 2026-10-22 checkpoint, T001-T020 are complete, the
-baseline and foundation gates are closed with recorded exceptions, and T021 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
+CLI/MCP release pair. At the 2026-10-26 checkpoint, T001-T036 are complete, the
+baseline and foundation gates are closed with recorded exceptions, US1 (machine
+listing) and US2 (human presentation) are implemented, and T037 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
 [test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
 JSON pilot and full baseline gate remain unverified; the declared MSRV is 1.94
 (raised from 1.86 to match the locked graph), and regtest compatibility is
@@ -245,14 +248,15 @@ Enter key passphrases directly in your terminal, never in Copilot chat.
 In Copilot Agent chat with both repositories open:
 
 ```text
-Continue mostro-cli on develop, implementing T021 only from
+Continue mostro-cli on develop, implementing T037 only from
 specs/001-order-list-json/tasks.md. Read AGENTS.md and the constitution first,
-then the existing plan and tests/TEST_SUMMARY.md. T001-T020 are complete;
-the baseline and foundation gates are closed with recorded exceptions and the JSON pilot is unimplemented.
-US1 contract tests are #[ignore = "red until T0xx"]; remove a task's ignores when it lands.
+then the existing plan and tests/TEST_SUMMARY.md. T001-T036 are complete;
+the baseline and foundation gates are closed with recorded exceptions and the JSON pilot
+is only partly implemented (US3 discovery and the polish gates remain).
+A test ignored with "red until T0xx" is removed from the ignore list when its task lands.
 Use the existing Spec Kit feature; do not regenerate its artifacts.
 Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.
-Read the cross-repository roadmap in ../mcp/plan-aiReadyMostroCli.prompt.md.
+Read the cross-repository roadmap in ../plan-aiReadyMostroCli.md (outside both repositories).
 Preserve local edits. Reproduce any defect with isolated fixtures, then make
 the bounded repair and run the focused and required gates. Do not access real
 identities, publish trades, retry uncertain writes, change MCP code, or perform

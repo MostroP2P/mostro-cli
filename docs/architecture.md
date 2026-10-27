@@ -8,7 +8,7 @@ This document describes the internal structure of `mostro-cli`, how major module
 extractions, not a completed modularity migration. The
 [constitution](../.specify/memory/constitution.md) owns the size/import rules;
 [pilot tasks](../specs/001-order-list-json/tasks.md) and the
-[roadmap](../../mcp/plan-aiReadyMostroCli.prompt.md) own the migration sequence.
+[roadmap](../../plan-aiReadyMostroCli.md) own the migration sequence.
 
 The inventory covers all 42 handwritten files under `src/`, enumerated separately
 from the six integration-test files. Physical lines include comments and blanks.
