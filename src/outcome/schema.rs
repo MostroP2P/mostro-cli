@@ -221,8 +221,14 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
     document
 }
 
+// One checker, shared with the integration tests that validate the fixtures.
+#[cfg(test)]
+#[path = "../../tests/common/schema_check.rs"]
+mod schema_check;
+
 #[cfg(test)]
 mod tests {
+    use super::schema_check::conforms;
     use super::*;
     use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
     use crate::outcome::{Envelope, ExecutionMeta, Warnings};
@@ -252,80 +258,6 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect()
-    }
-
-    /// A small JSON Schema checker for the keywords this module generates.
-    fn conforms(root: &Value, schema: &Value, instance: &Value) -> bool {
-        let Some(keywords) = schema.as_object() else {
-            return schema.as_bool().unwrap_or(false);
-        };
-        keywords
-            .iter()
-            .all(|(keyword, rule)| match keyword.as_str() {
-                "$ref" => {
-                    let name = rule.as_str().unwrap().rsplit('/').next().unwrap();
-                    conforms(root, &root["$defs"][name], instance)
-                }
-                "type" => {
-                    let allowed: Vec<&str> = match rule {
-                        Value::String(one) => vec![one.as_str()],
-                        other => strings(other),
-                    };
-                    allowed.iter().any(|kind| match *kind {
-                        "string" => instance.is_string(),
-                        "null" => instance.is_null(),
-                        "boolean" => instance.is_boolean(),
-                        "integer" => instance.is_i64() || instance.is_u64(),
-                        "array" => instance.is_array(),
-                        "object" => instance.is_object(),
-                        _ => false,
-                    })
-                }
-                "enum" => rule.as_array().unwrap().contains(instance),
-                "const" => rule == instance,
-                "pattern" => instance
-                    .as_str()
-                    .is_none_or(|text| Regex::new(rule.as_str().unwrap()).unwrap().is_match(text)),
-                "maxLength" => instance
-                    .as_str()
-                    .is_none_or(|text| text.len() as u64 <= rule.as_u64().unwrap()),
-                "minimum" => instance
-                    .as_i64()
-                    .is_none_or(|number| number >= rule.as_i64().unwrap()),
-                "maximum" => instance
-                    .as_i64()
-                    .is_none_or(|number| number <= rule.as_i64().unwrap()),
-                "required" => instance
-                    .as_object()
-                    .is_none_or(|object| strings(rule).iter().all(|key| object.contains_key(*key))),
-                "properties" => instance.as_object().is_none_or(|object| {
-                    rule.as_object().unwrap().iter().all(|(key, sub)| {
-                        object.get(key).is_none_or(|item| conforms(root, sub, item))
-                    })
-                }),
-                "items" => instance
-                    .as_array()
-                    .is_none_or(|items| items.iter().all(|item| conforms(root, rule, item))),
-                "anyOf" => rule
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|sub| conforms(root, sub, instance)),
-                "allOf" => rule
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|sub| conforms(root, sub, instance)),
-                "oneOf" => {
-                    rule.as_array()
-                        .unwrap()
-                        .iter()
-                        .filter(|sub| conforms(root, sub, instance))
-                        .count()
-                        == 1
-                }
-                _ => true,
-            })
     }
 
     fn order() -> SmallOrder {

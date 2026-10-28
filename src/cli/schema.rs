@@ -2,13 +2,14 @@
 //! JSON, and the configuration names they read. Built from the registry and
 //! constants only; no environment value, identity or network is consulted.
 
-use clap::{Arg, Command};
+use clap::{Arg, Command, CommandFactory};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use super::invocation::OUTPUT_LONG;
 use super::registry::{CommandEntry, JsonSupport, REGISTRY};
+use super::Cli;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules};
@@ -113,6 +114,14 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
         SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
+}
+
+/// The discovery document of this build: every registered command with the
+/// documents generated from the real Clap grammar and the owned outcome types.
+/// The `schema` command, the checked-in fixtures and their drift checks all
+/// use this one path.
+pub fn offline_discovery() -> DiscoveryData {
+    discovery(|entry| command_schemas(&Cli::command(), entry))
 }
 
 /// Codes that can fail `order.list` once it is resolved. `output_not_supported`

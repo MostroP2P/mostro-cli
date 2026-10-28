@@ -33,8 +33,8 @@ pub use commands::{Commands, OrderCommands};
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
 pub use schema::{
-    command_schemas, discovery, input_schema, CommandDescriptor, CommandSchemas, DiscoveryData,
-    PresentationMode, SchemaDocument, SCHEMA_DIALECT, SCHEMA_VERSION,
+    command_schemas, discovery, input_schema, offline_discovery, CommandDescriptor, CommandSchemas,
+    DiscoveryData, PresentationMode, SchemaDocument, SCHEMA_DIALECT, SCHEMA_VERSION,
 };
 
 use std::env;
@@ -78,7 +78,7 @@ pub async fn run() -> Result<i32> {
 
     // Offline discovery needs no configuration, identity, logger or network.
     if let Some(Commands::Schema) = &cli.command {
-        let data = discovery(|entry| command_schemas(&Cli::command(), entry));
+        let data = offline_discovery();
         return Ok(match output {
             OutputMode::Json => {
                 let outcome = Envelope::<DiscoveryData, ()>::ok(
@@ -394,7 +394,7 @@ mod tests {
     }
 
     fn discovered() -> DiscoveryData {
-        discovery(|entry| command_schemas(&Cli::command(), entry))
+        offline_discovery()
     }
 
     #[test]

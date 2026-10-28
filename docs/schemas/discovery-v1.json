@@ -1,0 +1,1375 @@
+{
+  "schema_version": "1",
+  "executable_version": "0.16.3",
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "commands": [
+    {
+      "name": "account.conversation-key",
+      "cli_path": [
+        "conversationkey"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "account.info",
+      "cli_path": [
+        "getuserinfo"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "account.restore",
+      "cli_path": [
+        "restore"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "account.trade-index",
+      "cli_path": [
+        "getlasttradeindex"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "account.trade-key",
+      "cli_path": [
+        "getlasttradeprivkey"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.add-solver",
+      "cli_path": [
+        "admaddsolver"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.cancel",
+      "cli_path": [
+        "admcancel"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.message-attach",
+      "cli_path": [
+        "sendadmindmattach"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.message-list",
+      "cli_path": [
+        "getadmindm"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.message-send",
+      "cli_path": [
+        "admsenddm"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.settle",
+      "cli_path": [
+        "admsettle"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "admin.take-dispute",
+      "cli_path": [
+        "admtakedispute"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "bond.add-invoice",
+      "cli_path": [
+        "addbondinvoice"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "chat.history",
+      "cli_path": [
+        "getdmuser"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "chat.send",
+      "cli_path": [
+        "dmtouser"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "dispute.chat",
+      "cli_path": [
+        "disputechat"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "dispute.list",
+      "cli_path": [
+        "listdisputes"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "dispute.open",
+      "cli_path": [
+        "dispute"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "maintenance.cancel-pending",
+      "cli_path": [
+        "admcancelpending"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "maintenance.set",
+      "cli_path": [
+        "admsetmaintenance"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "maintenance.status",
+      "cli_path": [
+        "admmaintenancestatus"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "message.list",
+      "cli_path": [
+        "getdm"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "message.send",
+      "cli_path": [
+        "senddm"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.add-invoice",
+      "cli_path": [
+        "addinvoice"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.cancel",
+      "cli_path": [
+        "cancel"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.fiat-sent",
+      "cli_path": [
+        "fiatsent"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.info",
+      "cli_path": [
+        "ordersinfo"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.list",
+      "cli_path": [
+        "order",
+        "list"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "description": "Keep only this fiat currency code (case-insensitive)",
+            "type": "string"
+          },
+          "side": {
+            "description": "Keep only this side: buy or sell (case-insensitive)",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "type": "string",
+            "x-case-insensitive": true
+          },
+          "status": {
+            "default": "pending",
+            "description": "Keep only this status (case-insensitive); defaults to pending",
+            "enum": [
+              "active",
+              "canceled",
+              "canceled-by-admin",
+              "settled-by-admin",
+              "completed-by-admin",
+              "dispute",
+              "expired",
+              "fiat-sent",
+              "settled-hold-invoice",
+              "pending",
+              "success",
+              "waiting-buyer-invoice",
+              "waiting-payment",
+              "waiting-taker-bond",
+              "waiting-maker-bond",
+              "cooperatively-canceled",
+              "in-progress"
+            ],
+            "type": "string",
+            "x-case-insensitive": true
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "CompletionPolicy": {
+            "enum": [
+              "all_relays_eose"
+            ],
+            "type": "string"
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Snapshot"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "ListData": {
+            "description": "`order.list` success data.",
+            "properties": {
+              "filters": {
+                "$ref": "#/$defs/ListOrdersInput"
+              },
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "orders": {
+                "items": {
+                  "$ref": "#/$defs/PublicOrder"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "filters",
+              "orders"
+            ],
+            "type": "object"
+          },
+          "ListOrdersInput": {
+            "description": "Normalized `order list` filters, serialized as `ListData.filters`.",
+            "properties": {
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "canceled",
+                  "canceled-by-admin",
+                  "settled-by-admin",
+                  "completed-by-admin",
+                  "dispute",
+                  "expired",
+                  "fiat-sent",
+                  "settled-hold-invoice",
+                  "pending",
+                  "success",
+                  "waiting-buyer-invoice",
+                  "waiting-payment",
+                  "waiting-taker-bond",
+                  "waiting-maker-bond",
+                  "cooperatively-canceled",
+                  "in-progress"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "side",
+              "currency",
+              "status"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "PublicOrder": {
+            "description": "One selected order from the public book.",
+            "properties": {
+              "created_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "fiat_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "fiat_amount_max": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_amount_min": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_currency": {
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "payment_method": {
+                "type": "string"
+              },
+              "premium_percent": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "sats_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "canceled",
+                  "canceled-by-admin",
+                  "settled-by-admin",
+                  "completed-by-admin",
+                  "dispute",
+                  "expired",
+                  "fiat-sent",
+                  "settled-hold-invoice",
+                  "pending",
+                  "success",
+                  "waiting-buyer-invoice",
+                  "waiting-payment",
+                  "waiting-taker-bond",
+                  "waiting-maker-bond",
+                  "cooperatively-canceled",
+                  "in-progress"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "side",
+              "status",
+              "sats_amount",
+              "fiat_currency",
+              "fiat_amount",
+              "fiat_amount_min",
+              "fiat_amount_max",
+              "payment_method",
+              "premium_percent",
+              "created_at",
+              "created_at_unix"
+            ],
+            "type": "object"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Snapshot": {
+            "description": "Evidence of one bounded public read, serialized as `meta.snapshot`.",
+            "properties": {
+              "complete_history": {
+                "const": false,
+                "type": "boolean"
+              },
+              "completed_relays": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "completion_policy": {
+                "$ref": "#/$defs/CompletionPolicy"
+              },
+              "configured_relays": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_unique_events": {
+                "const": 10000,
+                "type": "integer"
+              },
+              "observed_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": "string"
+              },
+              "per_relay_limit": {
+                "const": 50,
+                "type": "integer"
+              },
+              "received_events": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "since": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": "string"
+              },
+              "until": {
+                "description": "No upper time filter is sent; always null.",
+                "type": "null"
+              }
+            },
+            "required": [
+              "since",
+              "until",
+              "observed_at",
+              "per_relay_limit",
+              "max_unique_events",
+              "configured_relays",
+              "completed_relays",
+              "received_events",
+              "completion_policy",
+              "complete_history"
+            ],
+            "type": "object"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.list"
+              },
+              "data": {
+                "$ref": "#/$defs/ListData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "$ref": "#/$defs/Snapshot"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.list"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "read_timeout",
+                      "read_limit_exceeded",
+                      "internal_error"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Snapshot"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.list outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
+    },
+    {
+      "name": "order.new",
+      "cli_path": [
+        "neworder"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.rate",
+      "cli_path": [
+        "rate"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.release",
+      "cli_path": [
+        "release"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.take-buy",
+      "cli_path": [
+        "takebuy"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "order.take-sell",
+      "cli_path": [
+        "takesell"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
+      "name": "schema",
+      "cli_path": [
+        "schema"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "CommandDescriptor": {
+            "description": "One discoverable command.",
+            "properties": {
+              "cli_path": {
+                "description": "The invocation tokens as typed today.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "input_schema": {
+                "additionalProperties": true,
+                "description": "`null` for commands without machine output.",
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "Canonical dotted name, as reported in outcomes.",
+                "type": "string"
+              },
+              "output_modes": {
+                "items": {
+                  "$ref": "#/$defs/PresentationMode"
+                },
+                "type": "array"
+              },
+              "output_schema": {
+                "additionalProperties": true,
+                "description": "`null` for commands without machine output.",
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "required_configuration": {
+                "description": "Environment variable names read; `null` when not modeled.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "cli_path",
+              "output_modes",
+              "input_schema",
+              "output_schema",
+              "required_configuration"
+            ],
+            "type": "object"
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "DiscoveryData": {
+            "description": "The discovery document: `schema` data in a JSON outcome and, in human mode,\nprinted as pretty JSON.",
+            "properties": {
+              "commands": {
+                "items": {
+                  "$ref": "#/$defs/CommandDescriptor"
+                },
+                "type": "array"
+              },
+              "executable_version": {
+                "type": "string"
+              },
+              "schema_dialect": {
+                "type": "string"
+              },
+              "schema_version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "schema_version",
+              "executable_version",
+              "schema_dialect",
+              "commands"
+            ],
+            "type": "object"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "PresentationMode": {
+            "description": "How a command can present its outcome.",
+            "enum": [
+              "human",
+              "json"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "schema"
+              },
+              "data": {
+                "$ref": "#/$defs/DiscoveryData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "schema"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "internal_error"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "schema outcome",
+        "type": "object"
+      },
+      "required_configuration": []
+    }
+  ]
+}
