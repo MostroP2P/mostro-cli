@@ -2690,6 +2690,127 @@ expected jobs (`ci.yml`: fmt, clippy, test, pilot-windows, build, msrv).
 T001-T051 are complete. T052 (native Windows and Linux acceptance run) is next and
 is blocked on a native Windows run.
 
+## T052 Quickstart Acceptance: 2026-10-28
+
+**Linux: run. Windows: not run, blocked** (no native Windows host in this
+environment; the CI job added in T051 has not run on GitHub). The task is therefore
+**not complete for SC-005**; it is checked in the task list only for what it records
+and the Windows result must be added separately. Native Linux, rustc 1.97.0, on
+`develop` after `4feddba`, loopback relays only, generated keys, no public node.
+
+### Quickstart rows (all 26, Linux)
+
+Every row of the [acceptance matrix](../specs/001-order-list-json/quickstart.md#acceptance-matrix)
+has at least one passing automated test; the named tests exist in the current
+`cargo test -- --list` output (428 tests).
+
+| # | Scenario | Tests |
+| --- | --- | --- |
+| 1 | Mixed signed events, same-ID updates, latest state nonmatching | `listing_selects_latest_matching_states_across_relays`; `order_list_binary_selects_rows_in_both_modes`; `list_contract::same_order_time_ties_keep_the_lowest_event_id` |
+| 2 | Duplicate events and equal timestamps | `duplicate_events_and_same_order_timestamp_ties_keep_lowest_event_id`; `list_contract::cross_order_time_ties_have_no_promised_order`; `rows_sort_newest_first_without_promising_cross_order_tie_order` |
+| 3 | Side/status case, whitespace, empty currency | `list_contract::side_and_status_are_case_insensitive::case_1`; `list_contract::untrimmed_or_unknown_side_and_status_are_invalid_arguments::case_1`; `list_contract::currency_is_uppercased_without_trimming_or_nulling::case_1`; `list_contract::default_filters_are_pending_with_null_side_and_currency`; `output_intent::every_side_and_status_spelling_parses_and_removed_spellings_fail` |
+| 4 | Invalid/missing tags, incomplete ranges, zero, i64 extremes | `list_contract::malformed_events_are_skipped_without_failing_the_read`; `list_contract::incomplete_or_unordered_ranges_stay_as_decoded::case_1`; `list_contract::zero_sats_stays_the_market_priced_zero`; `list_contract::money_fields_are_canonical_signed_decimal_strings::case_1`; `permissive_numeric_tags_and_range_display::case_1` |
+| 5 | Invalid calendar timestamp | `list_contract::far_future_events_saturate_with_one_warning`; `list_contract::human_dates_are_the_utc_minute_or_invalid_date_like_json::case_1` |
+| 6 | Empty relay with matching EOSE | `order_list_binary_empty_results_are_successes` |
+| 7 | Nonempty events but no matching orders | `order_list_binary_empty_results_are_successes` |
+| 8 | CLOSED after accepted REQ | `a_closed_relay_fails_the_whole_read`; `order_list_binary_read_failures_return_no_rows`; `read_failures_are_stable_in_every_mode_without_retries` |
+| 9 | Silent relay after REQ | `a_silent_relay_times_out_and_cleanup_stays_bounded`; `order_list_binary_times_out_on_a_silent_relay` |
+| 10 | One relay completes, another fails or times out | `read_failures_are_stable_in_every_mode_without_retries`; `order_list_binary_read_failures_return_no_rows`; `an_unreachable_relay_fails_before_the_query` |
+| 11 | Duplicate relay URL, unrelated subscription/event, event after EOSE | `duplicate_relays_and_events_count_once`; `events_failing_verification_or_the_filter_are_dropped`; `events_after_a_relays_eose_are_ignored` |
+| 12 | Excess unique events, lag or disconnect before EOSE | `exceeding_the_event_cap_fails_without_truncating`; `exceeding_the_event_cap_fails_the_binary_without_truncating`; `a_relay_filling_its_notification_buffer_fails_the_read`; `a_relay_disconnecting_before_eose_fails_the_read` |
+| 13 | Output flag at root/intermediate/leaf and equals form | `every_output_position_returns_the_same_listing`; `output_intent::output_is_selected_at_every_depth_and_defaults_to_human` |
+| 14 | Default or explicit human, redirected stdout | `order_list_human_and_json_describe_the_same_book`; `list_contract::human_rows_carry_the_json_business_fields` |
+| 15 | Missing/invalid args with clear JSON intent | `json_intent_gets_one_error_envelope_before_any_effect`; `order_list_json_uses_read_stages`; `output_intent::contract_decision_table_rows`; `schema_argument_errors_keep_the_resolved_command` |
+| 16 | Flags/commands inside values, hyphen values, clusters, variadics, -- | `output_intent::values_resembling_flags_or_commands_are_not_declarations`; `output_intent::arities_and_hyphen_values_follow_clap`; `output_intent::short_clusters_and_colliding_shorts_follow_scope`; `output_intent::terminator_ends_option_parsing`; `output_intent::non_unicode_values_keep_json_intent` |
+| 17 | Invalid/missing/duplicate output | `output_intent::duplicate_and_missing_declarations_are_invalid`; `argument_errors_exit_2_with_safe_stderr_before_any_effect` |
+| 18 | Valid help/version with output json | `help_and_version_stay_text_on_stdout`; `output_intent::clap_decides_help_and_version_precedence`; `output_intent::schema_help_and_version_stay_text` |
+| 19 | Missing/invalid public config | `configuration_errors_are_stable_and_leak_nothing`; `msg::tests::missing_values_are_configuration_missing`; `msg::tests::empty_or_invalid_cli_values_do_not_fall_back` |
+| 20 | Registered legacy JSON incl. RPC and secret paths | `every_legacy_command_rejects_json_before_any_effect`; `output_intent::valid_unsupported_invocations_parse_and_malformed_ones_are_invalid_arguments` |
+| 21 | Removed listorders/--mostropubkey | `output_intent::every_side_and_status_spelling_parses_and_removed_spellings_fail`; `argument_errors_exit_2_with_safe_stderr_before_any_effect` |
+| 22 | Offline schema with absent or invalid config | `schema_runs_offline_in_both_modes`; `output_intent::schema_parses_with_output_at_every_depth` |
+| 23 | Verbose and fresh/existing/unusable identity locations | `order_list_binary_ignores_existing_and_unusable_identity_locations`; `order_list_diagnostics_are_allow_listed_in_verbose_mode` |
+| 24 | Planted secret sentinels | `order_list_diagnostics_are_allow_listed_in_verbose_mode`; `read_failures_are_stable_in_every_mode_without_retries`; `configuration_errors_are_stable_and_leak_nothing`; `output_intent::failures_carry_no_argument_text` |
+| 25 | Serialization and failing output writer | `an_unwritable_stdout_exits_1_with_one_fixed_line`; `failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty`; `parse_machine::tests::failed_write_exits_1_and_appends_nothing`; `parse_machine::tests::unserializable_outcome_becomes_one_internal_error`; `cli::tests::failed_human_write_exits_1_with_one_fixed_line` |
+| 26 | Discovery, generated schemas, owned DTO examples | `schema_fixtures::discovery_fixture_matches_the_generated_document`; `schema_fixtures::listing_schema_fixture_matches_the_generated_schema`; `schema_fixtures::proposed_listing_examples_conform_to_the_checked_in_schema`; `outcome::schema::tests::real_outcomes_conform_to_their_command_schema` |
+
+### Offline manual smoke check (quickstart)
+
+Run on the built binary with an empty environment, `HOME` and `MCLI_DIR` pointing
+at a fresh temporary directory and a fresh working directory:
+
+| Command | Result |
+| --- | --- |
+| `mostro-cli schema` | exit 0, 35,596 bytes of pretty discovery JSON, empty stderr |
+| `mostro-cli schema --output json` | exit 0, one `ok` outcome for command `schema`, empty stderr |
+| `mostro-cli order list --side invalid --output json` | exit 2, one `invalid_arguments` outcome for `order.list`, empty stderr |
+
+No file was created in either directory. This is a convenience check; the
+process tests are the evidence that nothing is read or written.
+
+### Time, cap, cleanup, secret and no-effects evidence
+
+- **Time**: the production read budget is observed once, by the silent-relay row
+  (15 s plus cleanup); `order_list_process` takes 15-17 s wall, the other suites
+  under 0.4 s each.
+- **Cap**: the 10,000-unique-event cap fails the read with `read_limit_exceeded`
+  both in the collector and in the binary (eleven relays, 10,000 events kept); the
+  2,048-notification capacity fails a relay that floods before EOSE.
+- **Cleanup**: bounded cleanup after a silent relay, a connection failure and a
+  cancelled read (`wait_idle` on the relays); a cleanup timeout adds a warning and
+  never replaces the original error.
+- **Secrets**: planted sentinels in arguments, environment, relay URLs, tokens and
+  untrusted relay text never reach stdout, stderr or the verbose line, in JSON,
+  human and verbose modes.
+- **No effects**: sandboxes (`HOME`, `MCLI_DIR`, working directory) stay empty,
+  an existing `mcli.db` stays byte-identical, the loopback relays' stores are
+  unchanged (no EVENT published), and rejected invocations make zero relay
+  connections.
+
+### Windows (blocked)
+
+Not run: row-by-row Windows results, the watchdog test's Windows behavior after
+the 6 s change, and the new `pilot-windows` CI job. Until they exist, SC-005 and the
+Windows half of every row above are unverified, not passed.
+
+T001-T052 are recorded; the Windows half stays open. T053 (final gates) is next.
+
+## T053 Final Gates: 2026-10-28
+
+Native Linux (`x86_64`), development toolchain rustc 1.97.0 (pinned by
+`rust-toolchain.toml`), declared minimum 1.94.0 installed separately
+(rustc 1.94.0 `4a4ef493e`), on `develop` after `4feddba`. No lockfile, toolchain or
+minimum was changed.
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS, 428 tests: lib 124, cli_functions 67, integration_tests 33, order_list_process 46 (15.2 s), parser_disputes 9, parser_dms 19, parser_orders 110, util_misc 17, doctests 3; 0 failed, 0 ignored |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+No pre-existing failure and no skipped gate on Linux. Not covered by this task:
+Windows runs, release builds and `cargo doc`, the MCP repository's own gates.
+
+T001-T053 are recorded. T054 (requirement reconciliation) is next.
+
+## T054 Requirement Reconciliation: 2026-10-28
+
+Documentation only. The table is in
+[tests/README.md](README.md#order-list-pilot-requirement-evidence) and is the single
+place that maps FR-001 to FR-009 and SC-001 to SC-005 to tests and status; it
+links the contracts and the generated fixtures. Also refreshed there: the stale
+per-file test inventory (counts from the T053 run). Earlier evidence sections in
+this file are unchanged.
+
+Result: FR-001 to FR-009 and SC-001 to SC-004 are **verified on Linux with loopback
+relays**, each with the limits stated in the table (no process-level `internal_error`,
+no AUTH exercise, FR-008 prose without an automated check). **SC-005 is open**
+because no native Windows run exists. No row is marked complete by documentation
+alone.
+
+T001-T054 are recorded. T055 (status updates) is next.
+
 
 
 ## Overview
