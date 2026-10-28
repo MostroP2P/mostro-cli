@@ -2413,6 +2413,57 @@ CI wiring of these checks and of the Windows runs is T051.
 
 T001-T045 are complete. T046 (full configuration/argument/read matrix) is next.
 
+## T046 Full Process Matrix: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `c6cd503`. Tests only; no
+production code changed. Harness as in T013.
+
+### Matrix
+
+The configuration, argument, unsupported-command and secret cases were
+already covered by T018, T031, T032, T040 and T044 and were not repeated. The
+gaps found were failures after partial relay results, the event cap through a
+real process, every output position for a success, and a combined secret sweep.
+
+| Test | Covers |
+| --- | --- |
+| `read_failures_are_stable_in_every_mode_without_retries` | Four failing reads, each run in JSON, human and verbose-JSON at once: `closed`, `answering then closed` (`relay_read_failed`, snapshot kept), `answering then refused` (`relay_connection_failed`, no snapshot), `answering then silent` (`read_timeout` after the 15 s budget, snapshot kept). Each checks exit 1, one document, `order.list`, null data, snapshot presence, the human line `error: <message>` with empty stdout, only the allow-listed verbose line, an untouched sandbox and exactly three connections per relay for three runs |
+| `exceeding_the_event_cap_fails_the_binary_without_truncating` | Eleven loopback relays each answering a query with 1,000 distinct signed orders (limit and relay caps lifted): `read_limit_exceeded`, null data, snapshot `received_events` exactly 10,000, same stream checks |
+| `every_output_position_returns_the_same_listing` | Six spellings of `--output json` (root, intermediate, leaf, space and equals forms): exit 0, one document each, identical command, status, data, error, warnings and event count, an untouched sandbox, one read per run |
+
+Secrets planted in every failing run: a token in each relay URL query,
+`ADMIN_NSEC`, `MOSTRO_RPC_TOKEN` and `NSEC`. None appears in stdout, stderr or the
+verbose line; no URL host appears in stdout or the allow-listed lines.
+
+### Findings
+
+- The SDK reports each relay event twice (`Event` and `Message` notifications),
+  so a relay that ignores the requested limit fails with `relay_read_failed`
+  after about 1,020 events, before the 10,000-event cap can apply to it. The cap
+  is therefore reachable only across several relays, which is how the test reaches it.
+- Retry check limits: the "exactly one connection per relay" assertion does not
+  detect a library change that enables SDK reconnection (checked: switching
+  `reconnect(false)` to `reconnect(true)` still passed), because reconnection only
+  follows a dropped connection and none of these rows drops one. The disconnect-
+  before-EOSE case remains covered only at the collector level
+  (`a_relay_disconnecting_before_eose_fails_the_read`), without a connection count.
+- `internal_error` still has no binary-level case; it cannot be induced through a
+  real run and stays with the serialization and unbound-argument unit tests.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process -- exceeding_the_event_cap read_failures_are every_output_position` | PASS: 4 of 4 in 15.1 s (the timeout row waits its 15 s budget) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 22, order_list_process 46, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T046 are complete. T047 (US3 acceptance run) is next.
+
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

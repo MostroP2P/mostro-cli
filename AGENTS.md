@@ -11,7 +11,7 @@ Copilot skills, and documentation ownership. Spec Kit uses Python scripts;
 do not bypass PowerShell execution policy or add the optional Git extension.
 
 The active feature is [order-list JSON](specs/001-order-list-json/spec.md).
-It is partly implemented: T001-T045 are complete and T046 is next, per the
+It is partly implemented: T001-T046 are complete and T047 is next, per the
 [task list](specs/001-order-list-json/tasks.md). Continue from existing
 regression evidence and roadmap gates; do not restart or overwrite prior work.
 

@@ -95,8 +95,9 @@ T041 in [its section](../../tests/TEST_SUMMARY.md#t041-discovery-dtos-2026-10-27
 T042 in [its section](../../tests/TEST_SUMMARY.md#t042-generated-schemas-2026-10-27)
 T043 in [its section](../../tests/TEST_SUMMARY.md#t043-offline-schema-dispatch-2026-10-28)
 T044 in [its section](../../tests/TEST_SUMMARY.md#t044-safe-error-mapping-2026-10-28)
-and T045 in [its section](../../tests/TEST_SUMMARY.md#t045-schema-fixtures-and-drift-checks-2026-10-28);
-T046-T055 remain pending.
+T045 in [its section](../../tests/TEST_SUMMARY.md#t045-schema-fixtures-and-drift-checks-2026-10-28)
+and T046 in [its section](../../tests/TEST_SUMMARY.md#t046-full-process-matrix-2026-10-28);
+T047-T055 remain pending.
 
 ## Execution Design
 
@@ -196,7 +197,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T045 as complete; its checkboxes track
+The task list records T001-T046 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
