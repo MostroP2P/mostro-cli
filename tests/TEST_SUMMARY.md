@@ -2236,6 +2236,62 @@ Native Linux, rustc 1.97.0, on `develop` after `f863231`.
 
 T001-T042 are complete. T043 (offline `schema` dispatch) is next.
 
+## T043 Offline Schema Dispatch: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `90fa5c9`.
+
+### Change
+
+- `src/cli/commands.rs`: a `Schema` subcommand with no arguments.
+  `src/cli/registry.rs`: its entry, canonical name `schema`, read stages. In
+  `legacy.rs` it is unreachable, like `order list`; `run_rpc` already ignores it.
+- `src/cli.rs`: `schema` is dispatched right after parsing, before the
+  public listing, `install_rustls_crypto_provider`, `run_rpc`, the logger and
+  `init_context`. Human mode (default or explicit) prints the discovery
+  document as pretty JSON through `print_discovery`, which serializes fully
+  before one write and exits 1 with one fixed line on a failed write. `--output json`
+  wraps the same data in the standard envelope through `emit`.
+- `src/cli/schema.rs`: `DiscoveryData` and its parts derive `JsonSchema`;
+  `command_schemas` now also generates `schema`'s documents (input from Clap,
+  output from `DiscoveryData`, errors `invalid_arguments` and `internal_error`).
+
+### Evidence
+
+- The five tests ignored as `red until T043` pass with their ignores removed:
+  four in `tests/cli_functions.rs` (schema in all output positions, no
+  arguments plus JSON intent on errors, help/version text, registry entry) and
+  `schema_runs_offline_in_both_modes` in `tests/order_list_process.rs`. That
+  process test runs `schema` in both modes with no configuration and with an
+  invalid key, a planted sentinel, an RPC token and a reachable relay: exit 0,
+  empty stderr, identical data in both modes, no sentinel, sandbox untouched and
+  zero relay connections.
+- Registry tests were updated, as T039 forecast: the approved mapping gains
+  `schema`; the dotted-name check skips it; `only_order_list_and_schema_support_json`.
+  `every_machine_command_has_generated_schemas_and_legacy_has_none` now covers
+  `schema` and passes. The legacy-rejection process test counts two machine commands.
+- New unit tests in `src/cli.rs`: one pretty document equal to the typed data and
+  listing `schema` and `order.list`; a failed write exits 1 with one fixed line and
+  an unwritable stderr does not change the result.
+- Manual check: `mostro-cli schema` prints the pretty document and
+  `mostro-cli --output json schema` the envelope.
+
+Not claimed: the checked-in `docs/schemas/*` fixtures and their drift checks
+(T045), the full stable-error mapping (T044) and Windows runs.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 123, cli_functions 67, integration 14, order_list_process 41, disputes 9, dms 19, parser_orders 110, util 17; no ignored tests |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `cli.rs` 271, `cli/schema.rs` 219, `cli/registry.rs` 94.
+
+T001-T043 are complete. T044 (safe error mapping) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

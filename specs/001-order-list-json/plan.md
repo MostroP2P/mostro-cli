@@ -92,8 +92,9 @@ and the US2 acceptance T038 in [its section](../../tests/TEST_SUMMARY.md#t038-us
 T039 in [its section](../../tests/TEST_SUMMARY.md#t039-us3-parser-and-registry-tests-2026-10-27)
 T040 in [its section](../../tests/TEST_SUMMARY.md#t040-us3-process-tests-2026-10-27)
 T041 in [its section](../../tests/TEST_SUMMARY.md#t041-discovery-dtos-2026-10-27)
-and T042 in [its section](../../tests/TEST_SUMMARY.md#t042-generated-schemas-2026-10-27);
-T043-T055 remain pending.
+T042 in [its section](../../tests/TEST_SUMMARY.md#t042-generated-schemas-2026-10-27)
+and T043 in [its section](../../tests/TEST_SUMMARY.md#t043-offline-schema-dispatch-2026-10-28);
+T044-T055 remain pending.
 
 ## Execution Design
 
@@ -193,7 +194,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T042 as complete; its checkboxes track
+The task list records T001-T043 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
