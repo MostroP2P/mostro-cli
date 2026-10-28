@@ -40,7 +40,7 @@ pub use schema::{
 use std::env;
 use std::io::{self, Write};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use clap::error::ErrorKind;
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
@@ -67,8 +67,14 @@ pub async fn run() -> Result<i32> {
         }
         Invocation::Rejected(failure) => return Ok(report(&failure)),
     };
-    let cli = Cli::from_arg_matches(&matches)
-        .map_err(|_| anyhow!("internal error: parsed arguments could not be bound"))?;
+    let Ok(cli) = Cli::from_arg_matches(&matches) else {
+        return Ok(unbound(
+            &matches,
+            output,
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        ));
+    };
 
     // Offline discovery needs no configuration, identity, logger or network.
     if let Some(Commands::Schema) = &cli.command {
@@ -259,6 +265,20 @@ fn report(failure: &ArgumentFailure) -> i32 {
 }
 
 fn rejection(entry: Option<&CommandEntry>, code: ErrorCode) -> i32 {
+    reject_to(
+        entry,
+        code,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )
+}
+
+fn reject_to(
+    entry: Option<&CommandEntry>,
+    code: ErrorCode,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> i32 {
     let stages = entry.map_or_else(ExecutionMeta::not_executed, CommandEntry::stages);
     let outcome = Envelope::<(), ()>::error(
         entry.map(|entry| entry.canonical),
@@ -266,7 +286,32 @@ fn rejection(entry: Option<&CommandEntry>, code: ErrorCode) -> i32 {
         Warnings::new(),
         stages,
     );
-    emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock())
+    emit(&outcome, out, err)
+}
+
+/// Parsed arguments that cannot be bound to the typed grammar: an internal
+/// error, reported in the selected mode with the resolved command identity.
+fn unbound(
+    matches: &ArgMatches,
+    output: OutputMode,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> i32 {
+    match output {
+        OutputMode::Json => reject_to(
+            lookup(&command_path(matches)),
+            ErrorCode::InternalError,
+            out,
+            err,
+        ),
+        OutputMode::Human => {
+            diagnose(
+                err,
+                &format!("error: {}", ErrorCode::InternalError.message()),
+            );
+            RUNTIME_ERROR_EXIT
+        }
+    }
 }
 
 #[cfg(test)]
@@ -379,6 +424,40 @@ mod tests {
         assert_eq!(
             print_discovery(&discovered(), &mut Vec::new(), &mut Broken),
             0
+        );
+    }
+
+    /// An accepted invocation that cannot be bound to the typed arguments is
+    /// an internal error: one JSON document when JSON was selected, fixed text
+    /// on stderr and empty stdout otherwise; always exit 1.
+    #[test]
+    fn unbindable_arguments_are_an_internal_error_in_the_selected_mode() {
+        let matches = |args: &[&str]| Cli::command().get_matches_from(args);
+        let listing = matches(&["mostro-cli", "order", "list"]);
+        let legacy = matches(&["mostro-cli", "getdm"]);
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(unbound(&listing, OutputMode::Json, &mut out, &mut err), 1);
+        let document: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(document["command"], "order.list");
+        assert_eq!(document["status"], "error");
+        assert_eq!(document["data"], serde_json::Value::Null);
+        assert_eq!(document["error"]["code"], "internal_error");
+        assert_eq!(document["meta"]["publication"], "not_applicable");
+        assert!(err.is_empty());
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(unbound(&legacy, OutputMode::Json, &mut out, &mut err), 1);
+        let document: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(document["command"], "message.list");
+        assert_eq!(document["meta"]["publication"], "not_attempted");
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(unbound(&legacy, OutputMode::Human, &mut out, &mut err), 1);
+        assert!(out.is_empty());
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            format!("error: {}\n", ErrorCode::InternalError.message())
         );
     }
 }

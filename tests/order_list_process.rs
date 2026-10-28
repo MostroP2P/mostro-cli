@@ -2425,3 +2425,74 @@ async fn schema_runs_offline_in_both_modes() {
     }
     assert_eq!(endpoint.connections(), 0, "schema contacted the relay");
 }
+
+/// Run `args` with the stdout reader already gone, so the result cannot be
+/// written, and return the status and stderr.
+async fn run_with_broken_stdout(args: &[&str], env: &[(&str, &str)]) -> (Option<i32>, String) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut command = sandbox.command(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().unwrap();
+    drop(child.stdin.take());
+    drop(child.stdout.take());
+    let stderr = read_all(child.stderr.take());
+    let status = timeout(WATCHDOG, child.wait()).await.unwrap().unwrap();
+    let stderr = stderr.await.unwrap().unwrap();
+    assert!(is_empty_dir(&sandbox.cwd()) && is_empty_dir(&sandbox.mcli_dir()));
+    (status.code(), String::from_utf8_lossy(&stderr).into_owned())
+}
+
+/// A result that cannot be written is exit 1 with one fixed stderr line, even
+/// when the outcome itself was an argument error (2) or a success (0). No second
+/// document or raw error text follows.
+#[tokio::test]
+async fn an_unwritable_stdout_exits_1_with_one_fixed_line() {
+    let rows: [(&[&str], &str); 4] = [
+        (
+            &["--output", "json", "order", "list", "--side", "bogus"],
+            "the JSON outcome",
+        ),
+        (&["--output", "json", "listorders"], "the JSON outcome"),
+        (&["--output", "json", "schema"], "the JSON outcome"),
+        (&["schema"], "the discovery document"),
+    ];
+    for (args, what) in rows {
+        let (code, stderr) = run_with_broken_stdout(args, &[]).await;
+        assert_eq!(code, Some(1), "{args:?}: {stderr}");
+        let lines: Vec<&str> = stderr.lines().collect();
+        assert_eq!(lines.len(), 1, "{args:?}: {stderr}");
+        assert!(lines[0].starts_with("error: "), "{args:?}: {stderr}");
+        assert!(lines[0].contains(what), "{args:?}: {stderr}");
+    }
+}
+
+/// Argument errors on `schema` keep its identity and read stages, like
+/// `order.list`, and name nothing from the input.
+#[tokio::test]
+async fn schema_argument_errors_keep_the_resolved_command() {
+    let unknown_flag = format!("--{SENTINEL}");
+    let rows: [&[&str]; 3] = [
+        &["--output", "json", "schema", "extra"],
+        &["schema", "--output=json", &unknown_flag],
+        &["--output", "json", "schema", "--side", "sell"],
+    ];
+    for args in rows {
+        let (run, sandbox) = run_with_node_env(args, &[]).await;
+        assert_eq!(run.code(), Some(2), "{args:?}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{args:?}: {}", run.stderr_text());
+        let stdout = run.stdout_text();
+        assert_eq!(stdout.lines().count(), 1, "{args:?}: {stdout}");
+        assert!(!stdout.contains(SENTINEL), "{args:?}: {stdout}");
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(outcome["command"], "schema", "{args:?}");
+        assert_eq!(outcome["error"]["code"], "invalid_arguments", "{args:?}");
+        assert_eq!(outcome["data"], Value::Null, "{args:?}");
+        assert_eq!(outcome["status"], "error", "{args:?}");
+        for stage in ["publication", "daemon_acceptance", "persistence"] {
+            assert_eq!(outcome["meta"][stage], "not_applicable", "{args:?}");
+        }
+        assert_no_effects(&sandbox, &format!("{args:?}"));
+    }
+}
