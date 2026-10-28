@@ -15,7 +15,7 @@
 
 ## Requirement Completeness
 
-- [ ] No unresolved template or clarification markers remain. (Two remain on purpose: missing-identity handling, and the CLI maximum of ids per call. Multiple ids and the omitted-id behavior are decided. Resolve the rest with `/speckit-clarify` before planning.)
+- [x] No unresolved template or clarification markers remain. (Missing identity: fail, never create. Ids per call: no client cap, the daemon enforces its limits. Both recorded in the spec's clarifications, 2026-10-28.)
 - [x] Functional requirements have observable pass/fail outcomes.
 - [x] Success criteria are measurable through command behavior.
 - [x] Criteria avoid internal implementation choices.
