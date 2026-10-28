@@ -99,8 +99,9 @@ T045 in [its section](../../tests/TEST_SUMMARY.md#t045-schema-fixtures-and-drift
 T046 in [its section](../../tests/TEST_SUMMARY.md#t046-full-process-matrix-2026-10-28)
 the US3 acceptance T047 in [its section](../../tests/TEST_SUMMARY.md#t047-us3-acceptance-2026-10-28)
 T048-T049 in [their section](../../tests/TEST_SUMMARY.md#t048-t049-documentation-2026-10-28)
-and T050 in [its section](../../tests/TEST_SUMMARY.md#t050-source-boundary-checks-2026-10-28);
-T051-T055 remain pending.
+T050 in [its section](../../tests/TEST_SUMMARY.md#t050-source-boundary-checks-2026-10-28)
+and T051 in [its section](../../tests/TEST_SUMMARY.md#t051-ci-wiring-2026-10-28);
+T052-T055 remain pending.
 
 ## Execution Design
 
@@ -200,7 +201,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T050 as complete; its checkboxes track
+The task list records T001-T051 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

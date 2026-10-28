@@ -2624,6 +2624,72 @@ Not claimed: the legacy code is not migrated. `ephemeral_client` is still `pub(c
 
 T001-T050 are complete. T051 (CI wiring of drift checks and platform tests) is next.
 
+## T051 CI Wiring: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `3f745ac`. **No workflow has run
+on GitHub**: the changes were checked for YAML validity and, through tests, for
+their content only. The new Windows job is unproven until it runs.
+
+### Existing jobs inspected first
+
+`ci.yml` (on every push): `fmt`, `clippy`, `test` (ubuntu, `cargo test`), `build`,
+`msrv` (1.94.0). `rust.yml` (on version tags): `changelog`, `test` (`cargo test
+--locked`), `matrix`, `build` (cross, incl. a `windows-gnu` cross build; no native
+Windows test), `publish` (needs `test` and `build`), `release`. All were kept,
+with their names, ids and `needs`.
+
+### Change
+
+- `ci.yml`, job `test`: a named step "Schema drift checks" running
+  `cargo test --locked --test integration_tests schema_fixtures`. The tests compare
+  the checked-in `docs/schemas/*.json` with what the binary generates and fail
+  when they differ; nothing in a workflow regenerates, commits or pushes them.
+- `ci.yml`, new job `pilot-windows` (`windows-latest`, `permissions: contents:
+  read`, no secrets, no shell steps): `cargo test --locked`, which runs the process,
+  grammar, schema-drift and boundary tests natively. It is independent of `build`
+  and of releases.
+- `rust.yml`, job `test` (which gates `publish`): the same drift step, so a release
+  with stale fixtures, for example after a version bump, fails before publishing.
+  I did not make `publish` wait for the Windows job: it has not run yet, and
+  blocking releases on it is a maintainer decision after it passes once.
+- `tests/integration_tests.rs`: the T045 tests moved into `mod schema_fixtures`
+  (so one filter selects them) and four `ci_wiring` tests read the workflow files:
+  the drift, boundary and doctest steps and the Windows job exist, with read-only
+  permissions and no secrets or shell scripts; the release workflow runs the drift
+  step before `publish`; `fmt`, `clippy`, `test`, `build` and `msrv` remain with their
+  commands; no workflow line mentions `docs/schemas` or runs `git add`, `git
+  commit`, `git push` or `cargo run`.
+- `tests/order_list_process.rs`: `watchdog_kills_and_reaps_a_hung_child` now uses
+  a 6 s watchdog instead of 2 s. Its recorded Windows flake (T033, T036) is
+  consistent with a slow child start missing the 2 s window before the assertion that
+  it connected; unverified on Windows.
+
+### Evidence
+
+Each wiring test fails when its rule is broken (all reverted afterwards): replacing
+the drift command, moving the Windows job to Ubuntu, appending a `git commit` step,
+renaming the `msrv` job. Both workflow files parse with a YAML loader and list the
+expected jobs (`ci.yml`: fmt, clippy, test, pilot-windows, build, msrv).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test integration_tests schema_fixtures ci_wiring` | PASS: 8 + 4 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 33, order_list_process 46, disputes 9, dms 19, parser_orders 110, util 17, doctests 3 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+### Open
+
+- The first GitHub run of `pilot-windows` may expose Windows-only failures; none can
+  be assumed absent. This is the work of T052, which also needs a native host.
+- `ci.yml`'s `test` and `clippy` jobs do not pass `--locked`; left as they were.
+- Whether the Windows job should be a required check or gate releases is undecided.
+
+T001-T051 are complete. T052 (native Windows and Linux acceptance run) is next and
+is blocked on a native Windows run.
+
 
 
 ## Overview
