@@ -273,324 +273,331 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 
 // --- Generated schema fixtures and proposed examples (T045) ---------------
 
-const DISCOVERY_FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/docs/schemas/discovery-v1.json"
-);
-const LISTING_FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/docs/schemas/order-list-v1.json"
-);
-const EXAMPLES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/specs/001-order-list-json/contracts/examples.json"
-);
+mod schema_fixtures {
+    use super::{
+        json, offline_discovery, read_to_string, schema_check, to_value, Envelope, ErrorCode,
+        ExecutionMeta, Value, Warnings,
+    };
 
-/// How to refresh the fixtures after an intended change. The tests only read
-/// them and never rewrite a fixture.
-const REGENERATE: &str = "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-cargo run -q -- --output json schema | jq '.data.commands[] | select(.name==\"order.list\") | .output_schema' \
-> docs/schemas/order-list-v1.json";
-
-fn read_json(path: &str) -> Value {
-    let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
-    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"))
-}
-
-fn generated_discovery() -> Value {
-    to_value(offline_discovery()).unwrap()
-}
-
-fn generated_listing_schema() -> Value {
-    generated_discovery()["commands"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|command| command["name"] == "order.list")
-        .map(|command| command["output_schema"].clone())
-        .expect("order.list is described")
-}
-
-#[test]
-fn discovery_fixture_matches_the_generated_document() {
-    assert_eq!(
-        generated_discovery(),
-        read_json(DISCOVERY_FIXTURE),
-        "stale docs/schemas/discovery-v1.json; {REGENERATE}"
+    const DISCOVERY_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/discovery-v1.json"
     );
-}
-
-#[test]
-fn listing_schema_fixture_matches_the_generated_schema() {
-    assert_eq!(
-        generated_listing_schema(),
-        read_json(LISTING_FIXTURE),
-        "stale docs/schemas/order-list-v1.json; {REGENERATE}"
+    const LISTING_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-list-v1.json"
     );
-}
-
-#[test]
-fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
-    let fixture = read_json(DISCOVERY_FIXTURE);
-    let keys: Vec<&str> = fixture
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    // Parsed objects are key-sorted; the set is what the document promises.
-    assert_eq!(
-        keys,
-        [
-            "commands",
-            "executable_version",
-            "schema_dialect",
-            "schema_version"
-        ]
+    const EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/001-order-list-json/contracts/examples.json"
     );
-    assert_eq!(fixture["schema_version"], "1");
-    assert_eq!(
-        fixture["schema_dialect"],
-        "https://json-schema.org/draft/2020-12/schema"
-    );
-    let names: Vec<&str> = fixture["commands"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|command| command["name"].as_str().unwrap())
-        .collect();
-    let mut sorted = names.clone();
-    sorted.sort_unstable();
-    assert_eq!(names, sorted);
-    let machine: Vec<&str> = fixture["commands"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|command| command["output_modes"] == json!(["human", "json"]))
-        .map(|command| command["name"].as_str().unwrap())
-        .collect();
-    assert_eq!(machine, ["order.list", "schema"]);
-}
 
-/// A signed 64-bit integer in canonical decimal text, which a JSON Schema
-/// pattern cannot bound.
-fn is_canonical_i64(text: &str) -> bool {
-    text.parse::<i64>()
-        .is_ok_and(|number| number.to_string() == text)
-}
+    /// How to refresh the fixtures after an intended change. The tests only read
+    /// them and never rewrite a fixture.
+    const REGENERATE: &str = "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
+    cargo run -q -- --output json schema | jq '.data.commands[] | select(.name==\"order.list\") | .output_schema' \
+    > docs/schemas/order-list-v1.json";
 
-const DECIMAL_FIELDS: [&str; 6] = [
-    "sats_amount",
-    "fiat_amount",
-    "fiat_amount_min",
-    "fiat_amount_max",
-    "premium_percent",
-    "created_at_unix",
-];
-
-fn examples() -> Vec<(String, i32, Value)> {
-    let document = read_json(EXAMPLES);
-    assert_eq!(document["contract_status"], "proposed");
-    document["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|case| {
-            (
-                case["name"].as_str().unwrap().to_string(),
-                i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
-                case["stdout"].clone(),
-            )
-        })
-        .collect()
-}
-
-#[test]
-fn proposed_listing_examples_conform_to_the_checked_in_schema() {
-    let schema = read_json(LISTING_FIXTURE);
-    let mut checked = 0;
-    for (name, exit, outcome) in examples() {
-        if outcome["command"] != "order.list" {
-            continue;
-        }
-        assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
-        let expected = outcome["error"]["code"]
-            .as_str()
-            .map_or(0, |code| match code {
-                "invalid_arguments" | "output_not_supported" => 2,
-                _ => 1,
-            });
-        assert_eq!(exit, expected, "{name}");
-        for order in outcome["data"]["orders"].as_array().into_iter().flatten() {
-            for field in DECIMAL_FIELDS {
-                if let Some(text) = order[field].as_str() {
-                    assert!(is_canonical_i64(text), "{name}: {field} {text}");
-                }
-            }
-        }
-        checked += 1;
+    fn read_json(path: &str) -> Value {
+        let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"))
     }
-    assert_eq!(checked, 4);
-}
 
-#[test]
-fn the_legacy_rejection_example_matches_its_constructor_and_is_not_a_listing() {
-    let (_, exit, outcome) = examples()
-        .into_iter()
-        .find(|(name, ..)| name == "unsupported_secret_command")
-        .expect("the legacy rejection example exists");
-    let built = Envelope::<(), ()>::error(
-        Some("account.trade-key"),
-        ErrorCode::OutputNotSupported,
-        Warnings::new(),
-        ExecutionMeta::not_executed(),
-    );
-    assert_eq!(to_value(&built).unwrap(), outcome);
-    assert_eq!(built.exit_code(), exit);
-    // Legacy commands have no generated schema; this outcome belongs to no
-    // listing document.
-    let schema = read_json(LISTING_FIXTURE);
-    assert!(!schema_check::conforms(&schema, &schema, &outcome));
-}
-
-#[test]
-fn examples_stay_proposals_separate_from_generated_output() {
-    // The examples are hand-authored design fixtures; only the files under
-    // docs/schemas are generated and drift-checked.
-    assert_eq!(read_json(EXAMPLES)["contract_status"], "proposed");
-    for fixture in [DISCOVERY_FIXTURE, LISTING_FIXTURE] {
-        assert!(fixture.contains("/docs/schemas/"));
-        assert!(read_json(fixture).get("cases").is_none());
+    fn generated_discovery() -> Value {
+        to_value(offline_discovery()).unwrap()
     }
-}
 
-#[test]
-fn invalid_types_nulls_enums_and_amounts_do_not_conform() {
-    type Edit = Box<dyn Fn(&mut Value)>;
-    let schema = read_json(LISTING_FIXTURE);
-    let base = examples()
-        .into_iter()
-        .find(|(name, ..)| name == "large_amount_success")
-        .map(|(.., outcome)| outcome)
-        .unwrap();
-    assert!(schema_check::conforms(&schema, &schema, &base));
-    let edits: Vec<(&str, Edit)> = vec![
-        (
-            "number for a decimal string",
-            Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!(15)),
-        ),
-        (
-            "null id",
-            Box::new(|o| o["data"]["orders"][0]["id"] = Value::Null),
-        ),
-        (
-            "null side",
-            Box::new(|o| o["data"]["orders"][0]["side"] = Value::Null),
-        ),
-        (
-            "null created_at_unix",
-            Box::new(|o| o["data"]["orders"][0]["created_at_unix"] = Value::Null),
-        ),
-        (
-            "null snapshot on success",
-            Box::new(|o| o["meta"]["snapshot"] = Value::Null),
-        ),
-        (
-            "null data on success",
-            Box::new(|o| o["data"] = Value::Null),
-        ),
-        (
-            "unknown status",
-            Box::new(|o| o["data"]["orders"][0]["status"] = json!("uncertain")),
-        ),
-        (
-            "unknown side",
-            Box::new(|o| o["data"]["orders"][0]["side"] = json!("both")),
-        ),
-        (
-            "envelope status",
-            Box::new(|o| o["status"] = json!("uncertain")),
-        ),
-        (
-            "unknown completion policy",
-            Box::new(|o| o["meta"]["snapshot"]["completion_policy"] = json!("any")),
-        ),
-        (
-            "negative zero",
-            Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("-0")),
-        ),
-        (
-            "explicit plus",
-            Box::new(|o| o["data"]["orders"][0]["premium_percent"] = json!("+5")),
-        ),
-        (
-            "leading zero",
-            Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!("015")),
-        ),
-        (
-            "fraction",
-            Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!("1.5")),
-        ),
-        (
-            "exponent",
-            Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("1e3")),
-        ),
-        (
-            "range endpoint as number",
-            Box::new(|o| o["data"]["orders"][0]["fiat_amount_min"] = json!(10)),
-        ),
-        (
-            "missing nullable key",
-            Box::new(|o| {
-                o["data"]["orders"][0]
-                    .as_object_mut()
-                    .unwrap()
-                    .remove("fiat_amount_max");
-            }),
-        ),
-        (
-            "complete history claimed",
-            Box::new(|o| o["meta"]["snapshot"]["complete_history"] = json!(true)),
-        ),
-        (
-            "error with data",
-            Box::new(|o| o["error"] = json!({"code": "read_timeout", "message": "x"})),
-        ),
-    ];
-    for (label, edit) in edits {
-        let mut outcome = base.clone();
-        edit(&mut outcome);
-        assert!(
-            !schema_check::conforms(&schema, &schema, &outcome),
-            "accepted: {label}"
+    fn generated_listing_schema() -> Value {
+        generated_discovery()["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|command| command["name"] == "order.list")
+            .map(|command| command["output_schema"].clone())
+            .expect("order.list is described")
+    }
+
+    #[test]
+    fn discovery_fixture_matches_the_generated_document() {
+        assert_eq!(
+            generated_discovery(),
+            read_json(DISCOVERY_FIXTURE),
+            "stale docs/schemas/discovery-v1.json; {REGENERATE}"
         );
     }
-}
 
-#[test]
-fn the_signed_64_bit_range_is_a_semantic_rule_the_pattern_cannot_state() {
-    let schema = read_json(LISTING_FIXTURE);
-    let mut outcome = examples()
-        .into_iter()
-        .find(|(name, ..)| name == "large_amount_success")
-        .map(|(.., outcome)| outcome)
-        .unwrap();
-    for good in ["9223372036854775807", "-9223372036854775808", "0", "-1"] {
-        assert!(is_canonical_i64(good), "{good}");
-        outcome["data"]["orders"][0]["sats_amount"] = json!(good);
-        assert!(schema_check::conforms(&schema, &schema, &outcome), "{good}");
+    #[test]
+    fn listing_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_listing_schema(),
+            read_json(LISTING_FIXTURE),
+            "stale docs/schemas/order-list-v1.json; {REGENERATE}"
+        );
     }
-    // Over the range: the schema alone accepts the text, the semantic check
-    // does not, and the length bound rejects only values longer than 20 characters.
-    for over in ["9223372036854775808", "-9223372036854775809"] {
-        assert!(!is_canonical_i64(over), "{over}");
-        outcome["data"]["orders"][0]["sats_amount"] = json!(over);
-        assert!(schema_check::conforms(&schema, &schema, &outcome), "{over}");
+
+    #[test]
+    fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
+        let fixture = read_json(DISCOVERY_FIXTURE);
+        let keys: Vec<&str> = fixture
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        // Parsed objects are key-sorted; the set is what the document promises.
+        assert_eq!(
+            keys,
+            [
+                "commands",
+                "executable_version",
+                "schema_dialect",
+                "schema_version"
+            ]
+        );
+        assert_eq!(fixture["schema_version"], "1");
+        assert_eq!(
+            fixture["schema_dialect"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+        let names: Vec<&str> = fixture["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|command| command["name"].as_str().unwrap())
+            .collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
+        let machine: Vec<&str> = fixture["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|command| command["output_modes"] == json!(["human", "json"]))
+            .map(|command| command["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(machine, ["order.list", "schema"]);
     }
-    outcome["data"]["orders"][0]["sats_amount"] = json!("922337203685477580700");
-    assert!(!schema_check::conforms(&schema, &schema, &outcome));
-    for bad in ["", "-0", "+1", "01", "1.0", "0x1", " 1"] {
-        assert!(!is_canonical_i64(bad), "{bad:?}");
+
+    /// A signed 64-bit integer in canonical decimal text, which a JSON Schema
+    /// pattern cannot bound.
+    fn is_canonical_i64(text: &str) -> bool {
+        text.parse::<i64>()
+            .is_ok_and(|number| number.to_string() == text)
+    }
+
+    const DECIMAL_FIELDS: [&str; 6] = [
+        "sats_amount",
+        "fiat_amount",
+        "fiat_amount_min",
+        "fiat_amount_max",
+        "premium_percent",
+        "created_at_unix",
+    ];
+
+    fn examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn proposed_listing_examples_conform_to_the_checked_in_schema() {
+        let schema = read_json(LISTING_FIXTURE);
+        let mut checked = 0;
+        for (name, exit, outcome) in examples() {
+            if outcome["command"] != "order.list" {
+                continue;
+            }
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = outcome["error"]["code"]
+                .as_str()
+                .map_or(0, |code| match code {
+                    "invalid_arguments" | "output_not_supported" => 2,
+                    _ => 1,
+                });
+            assert_eq!(exit, expected, "{name}");
+            for order in outcome["data"]["orders"].as_array().into_iter().flatten() {
+                for field in DECIMAL_FIELDS {
+                    if let Some(text) = order[field].as_str() {
+                        assert!(is_canonical_i64(text), "{name}: {field} {text}");
+                    }
+                }
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 4);
+    }
+
+    #[test]
+    fn the_legacy_rejection_example_matches_its_constructor_and_is_not_a_listing() {
+        let (_, exit, outcome) = examples()
+            .into_iter()
+            .find(|(name, ..)| name == "unsupported_secret_command")
+            .expect("the legacy rejection example exists");
+        let built = Envelope::<(), ()>::error(
+            Some("account.trade-key"),
+            ErrorCode::OutputNotSupported,
+            Warnings::new(),
+            ExecutionMeta::not_executed(),
+        );
+        assert_eq!(to_value(&built).unwrap(), outcome);
+        assert_eq!(built.exit_code(), exit);
+        // Legacy commands have no generated schema; this outcome belongs to no
+        // listing document.
+        let schema = read_json(LISTING_FIXTURE);
+        assert!(!schema_check::conforms(&schema, &schema, &outcome));
+    }
+
+    #[test]
+    fn examples_stay_proposals_separate_from_generated_output() {
+        // The examples are hand-authored design fixtures; only the files under
+        // docs/schemas are generated and drift-checked.
+        assert_eq!(read_json(EXAMPLES)["contract_status"], "proposed");
+        for fixture in [DISCOVERY_FIXTURE, LISTING_FIXTURE] {
+            assert!(fixture.contains("/docs/schemas/"));
+            assert!(read_json(fixture).get("cases").is_none());
+        }
+    }
+
+    #[test]
+    fn invalid_types_nulls_enums_and_amounts_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let schema = read_json(LISTING_FIXTURE);
+        let base = examples()
+            .into_iter()
+            .find(|(name, ..)| name == "large_amount_success")
+            .map(|(.., outcome)| outcome)
+            .unwrap();
+        assert!(schema_check::conforms(&schema, &schema, &base));
+        let edits: Vec<(&str, Edit)> = vec![
+            (
+                "number for a decimal string",
+                Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!(15)),
+            ),
+            (
+                "null id",
+                Box::new(|o| o["data"]["orders"][0]["id"] = Value::Null),
+            ),
+            (
+                "null side",
+                Box::new(|o| o["data"]["orders"][0]["side"] = Value::Null),
+            ),
+            (
+                "null created_at_unix",
+                Box::new(|o| o["data"]["orders"][0]["created_at_unix"] = Value::Null),
+            ),
+            (
+                "null snapshot on success",
+                Box::new(|o| o["meta"]["snapshot"] = Value::Null),
+            ),
+            (
+                "null data on success",
+                Box::new(|o| o["data"] = Value::Null),
+            ),
+            (
+                "unknown status",
+                Box::new(|o| o["data"]["orders"][0]["status"] = json!("uncertain")),
+            ),
+            (
+                "unknown side",
+                Box::new(|o| o["data"]["orders"][0]["side"] = json!("both")),
+            ),
+            (
+                "envelope status",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "unknown completion policy",
+                Box::new(|o| o["meta"]["snapshot"]["completion_policy"] = json!("any")),
+            ),
+            (
+                "negative zero",
+                Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("-0")),
+            ),
+            (
+                "explicit plus",
+                Box::new(|o| o["data"]["orders"][0]["premium_percent"] = json!("+5")),
+            ),
+            (
+                "leading zero",
+                Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!("015")),
+            ),
+            (
+                "fraction",
+                Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!("1.5")),
+            ),
+            (
+                "exponent",
+                Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("1e3")),
+            ),
+            (
+                "range endpoint as number",
+                Box::new(|o| o["data"]["orders"][0]["fiat_amount_min"] = json!(10)),
+            ),
+            (
+                "missing nullable key",
+                Box::new(|o| {
+                    o["data"]["orders"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("fiat_amount_max");
+                }),
+            ),
+            (
+                "complete history claimed",
+                Box::new(|o| o["meta"]["snapshot"]["complete_history"] = json!(true)),
+            ),
+            (
+                "error with data",
+                Box::new(|o| o["error"] = json!({"code": "read_timeout", "message": "x"})),
+            ),
+        ];
+        for (label, edit) in edits {
+            let mut outcome = base.clone();
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_signed_64_bit_range_is_a_semantic_rule_the_pattern_cannot_state() {
+        let schema = read_json(LISTING_FIXTURE);
+        let mut outcome = examples()
+            .into_iter()
+            .find(|(name, ..)| name == "large_amount_success")
+            .map(|(.., outcome)| outcome)
+            .unwrap();
+        for good in ["9223372036854775807", "-9223372036854775808", "0", "-1"] {
+            assert!(is_canonical_i64(good), "{good}");
+            outcome["data"]["orders"][0]["sats_amount"] = json!(good);
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{good}");
+        }
+        // Over the range: the schema alone accepts the text, the semantic check
+        // does not, and the length bound rejects only values longer than 20 characters.
+        for over in ["9223372036854775808", "-9223372036854775809"] {
+            assert!(!is_canonical_i64(over), "{over}");
+            outcome["data"]["orders"][0]["sats_amount"] = json!(over);
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{over}");
+        }
+        outcome["data"]["orders"][0]["sats_amount"] = json!("922337203685477580700");
+        assert!(!schema_check::conforms(&schema, &schema, &outcome));
+        for bad in ["", "-0", "+1", "01", "1.0", "0x1", " 1"] {
+            assert!(!is_canonical_i64(bad), "{bad:?}");
+        }
     }
 }
 
@@ -1082,5 +1089,87 @@ mod source_boundaries {
             .lines
             .iter()
             .any(|l| l.contains("compile_fail,E0603")));
+    }
+}
+
+// --- CI wiring (T051) ----------------------------------------------------
+
+mod ci_wiring {
+    use super::read_to_string;
+
+    fn workflow(name: &str) -> String {
+        let path = format!("{}/.github/workflows/{name}", env!("CARGO_MANIFEST_DIR"));
+        read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"))
+    }
+
+    /// The text of one top-level job, up to the next job key or job comment.
+    fn job<'a>(text: &'a str, id: &str) -> &'a str {
+        let marker = format!("\n  {id}:\n");
+        let start = text
+            .find(&marker)
+            .unwrap_or_else(|| panic!("job {id} is missing"))
+            + 1;
+        let mut end = text.len();
+        let mut offset = start;
+        for line in text[start..].split_inclusive('\n') {
+            let sibling = line.starts_with("  ") && !line.starts_with("   ");
+            if offset > start && sibling {
+                end = offset;
+                break;
+            }
+            offset += line.len();
+        }
+        &text[start..end]
+    }
+
+    #[test]
+    fn ci_runs_the_drift_boundary_and_windows_checks() {
+        let ci = workflow("ci.yml");
+        let test = job(&ci, "test");
+        assert!(test.contains("cargo test --locked --test integration_tests schema_fixtures"));
+        assert!(test.contains("cargo test --locked --test integration_tests source_boundaries"));
+        assert!(test.contains("cargo test --locked --doc"));
+        let windows = job(&ci, "pilot-windows");
+        assert!(windows.contains("runs-on: windows-latest"));
+        assert!(windows.contains("cargo test --locked"));
+        assert!(windows.contains("contents: read"));
+        assert!(
+            !windows.contains("secrets."),
+            "the Windows job must hold no secrets"
+        );
+        assert!(!windows.contains("sh -c") && !windows.contains("chmod"));
+    }
+
+    #[test]
+    fn the_release_workflow_gates_publishing_on_the_drift_checks() {
+        let release = workflow("rust.yml");
+        let test = job(&release, "test");
+        assert!(test.contains("cargo test --locked --test integration_tests schema_fixtures"));
+        assert!(job(&release, "publish").contains("needs: [test, build]"));
+    }
+
+    #[test]
+    fn existing_required_checks_are_kept() {
+        let ci = workflow("ci.yml");
+        for id in ["fmt", "clippy", "test", "build", "msrv"] {
+            assert!(ci.contains(&format!("\n  {id}:\n")), "job {id} was removed");
+        }
+        assert!(ci.contains("cargo clippy --all-targets --all-features -- -D warnings"));
+        assert!(ci.contains("cargo +1.94.0 build --locked --all-features"));
+    }
+
+    #[test]
+    fn workflows_never_rewrite_or_commit_the_schema_files() {
+        for name in ["ci.yml", "rust.yml"] {
+            for line in workflow(name).lines() {
+                if line.trim_start().starts_with('#') {
+                    continue;
+                }
+                assert!(!line.contains("docs/schemas"), "{name}: {line}");
+                for write in ["git add", "git commit", "git push", "cargo run"] {
+                    assert!(!line.contains(write), "{name}: {line}");
+                }
+            }
+        }
     }
 }

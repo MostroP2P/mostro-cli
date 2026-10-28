@@ -44,6 +44,31 @@ jobs:
         run: |
           cargo test --locked --test integration_tests source_boundaries
           cargo test --locked --doc
+      # Compares the checked-in docs/schemas files with what the binary generates
+      # and fails when they differ. It never rewrites them: after an intended
+      # change (or a package version bump) regenerate with the commands in
+      # docs/commands.md and commit the result.
+      - name: Schema drift checks
+        run: cargo test --locked --test integration_tests schema_fixtures
+
+  # The pilot's process tests spawn the real binary against loopback relays with
+  # generated keys, an allow-listed environment and no shell scripts, secrets or
+  # live nodes, so they run unchanged on native Windows. This job is new and
+  # independent of the others; it is not a prerequisite of build or release.
+  pilot-windows:
+    name: Pilot tests (native Windows)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with: { cache-on-failure: true }
+      # Includes the process, grammar, schema-drift and boundary tests.
+      - name: cargo test (native Windows)
+        run: cargo test --locked
 
   build:
     runs-on: ubuntu-latest

@@ -655,7 +655,9 @@ async fn watchdog_kills_and_reaps_a_hung_child() {
     let endpoint = LoopbackRelay::start(Backend::Silent).await.unwrap();
     let mut command = sandbox.command(["order", "list"]);
     set_node_env(&mut command, &Keys::generate(), &[&endpoint]);
-    let limit = Duration::from_secs(2);
+    // Long enough for a loaded Windows runner to start the child and connect it
+    // before the kill; the assertion below needs that connection.
+    let limit = Duration::from_secs(6);
 
     let started = Instant::now();
     let run = run_with_watchdog(command, limit).await.unwrap();
