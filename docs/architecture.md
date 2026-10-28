@@ -51,8 +51,12 @@ Rules that hold today:
 - **Early guard.** `--output json` on any other registered command exits 2 with
   `output_not_supported` before RPC routing, environment access or `init_context`.
 - **Private client.** The public read's client lives in the private `msg::Session`
-  and is not exported. This is not yet a crate-wide rule: other modules can still build clients;
-  the transport-boundary check is task T050.
+  and is not exported; `compile_fail` doctests in `msg/mod.rs` prove it. This is not a
+  crate-wide rule: `ephemeral_client` is still `pub(crate)` for legacy `util/net.rs`. What
+  the tests do freeze is where `send_event`, `fetch_events`, `subscribe` and `add_relay`
+  may appear and how often (`tests/integration_tests.rs`, `source_boundaries`), so no new
+  direct transport can be added outside its owner, and the size, import and no-I/O rules
+  of the migrated files.
 
 #### Legacy Coexistence
 

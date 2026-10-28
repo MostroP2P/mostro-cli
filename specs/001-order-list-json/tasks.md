@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 and DTOs T041 generated schemas T042 offline schema dispatch T043 safe error mapping T044 schema fixtures T045 the full process matrix T046 US3 acceptance T047 and the documentation tasks T048-T049 are complete; T050-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 and DTOs T041 generated schemas T042 offline schema dispatch T043 safe error mapping T044 schema fixtures T045 the full process matrix T046 US3 acceptance T047 the documentation tasks T048-T049 and the boundary checks T050 are complete; T051-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -165,7 +165,7 @@ feature. No MCP migration, future write executor or release is included.
 
 - [x] T048 [P] Update `docs/architecture.md` with implemented CLI/commands/msg/outcome/render boundaries, current size/import inventory (recounting the T002 table, which T019 found inconsistent with the files) and explicit legacy coexistence, linking the constitution rather than duplicating it; state no new DB model and no globally completed transport migration. (depends on T047)
 - [x] T049 [P] Update `docs/commands.md` and `README.md` as manually maintained explanatory/migration documentation, linking to `docs/schemas/discovery-v1.json` as the generated command reference rather than claiming the prose is source-generated. Cover canonical listing/root flag migration, output/schema invocation, field/limit/error conventions, help/version/write-failure exceptions and CLI contract versioning; warn that existing MCP must keep its compatible old CLI until its own JSON migration, without inventing release pairs. (depends on T047)
-- [ ] T050 Add reproducible migrated-file size/import and transport/render-boundary checks to `tests/integration_tests.rs` and `.github/workflows/ci.yml`, plus compiler privacy checks at `src/msg/mod.rs`; count comments/blanks, validate test-only exclusions, prevent legacy production growth and raw-client exposure, and reject new fetch/publication outside its owner without claiming legacy migration is complete. (depends on T048, T049)
+- [x] T050 Add reproducible migrated-file size/import and transport/render-boundary checks to `tests/integration_tests.rs` and `.github/workflows/ci.yml`, plus compiler privacy checks at `src/msg/mod.rs`; count comments/blanks, validate test-only exclusions, prevent legacy production growth and raw-client exposure, and reject new fetch/publication outside its owner without claiming legacy migration is complete. (depends on T048, T049)
 - [ ] T051 Wire T045's drift checks for the generated command reference `docs/schemas/discovery-v1.json` and listing output schema `docs/schemas/order-list-v1.json`, plus native Windows/Linux pilot tests, into existing `.github/workflows/ci.yml` / `.github/workflows/rust.yml`; CI must fail on stale fixtures, not regenerate checked-in files in place. Inspect existing jobs first, reuse them, retain required checks, and keep isolated process fixtures free of shell permissions or live credentials. Manually maintained prose is not a generated drift-check artifact. (depends on T050)
 - [ ] T052 Run all `specs/001-order-list-json/quickstart.md` acceptance rows on native Windows and Linux using `tests/order_list_process.rs` and the focused suites; record separate platform results and time/cap/cleanup/secret/no-effects evidence in `tests/TEST_SUMMARY.md`, leaving unavailable native runs explicitly blocked. (depends on T051)
 - [ ] T053 Run final fmt, locked all-target/all-feature Clippy with warnings denied, locked tests/build and separate `cargo +1.94.0 check --locked --all-targets --all-features` against `Cargo.toml` / `Cargo.lock`; record exact results and pre-existing failures in `tests/TEST_SUMMARY.md` without silently upgrading the minimum. (depends on T052)
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Forty-nine tasks are
-checked; 6 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Fifty tasks are
+checked; 5 remain pending.

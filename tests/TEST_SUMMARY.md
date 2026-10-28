@@ -2584,6 +2584,46 @@ uses `--orderid` and `--fiatcode`.
 
 T001-T049 are complete. T050 (automated size, import and boundary checks) is next.
 
+## T050 Source Boundary Checks: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `0cefe73`.
+
+### Change
+
+- `tests/integration_tests.rs`, module `source_boundaries` (7 tests), reading `src/`:
+  - **Size** (`production_files_respect_the_size_limit_and_the_frozen_exceptions`): every file is at most 400 production lines (comments and blanks counted) except four legacy files frozen at their measured sizes: `parser/dms.rs` 1,210, `db.rs` 704, `util/messaging.rs` 556, `cli/take_dispute.rs` 403. Growth fails; a frozen file that drops under the limit fails until its exception is removed.
+  - **Exclusion rule** (`counter_applies_the_documented_exclusions`, `production_code_after_a_test_module_is_rejected`): the counter excludes only a trailing `#[cfg(test)] mod` and two-line `#[cfg(test)]` imports, and rejects any file where the test module closes before the last nonblank line.
+  - **Imports** (`production_imports_are_at_the_top_except_frozen_legacy`): no function-local `use` and no `use` after the first item, except the four known legacy local imports.
+  - **Transport ownership** (`network_calls_stay_with_their_owner_and_do_not_grow`): `.send_event(`, `.fetch_events(`, `.subscribe(` and `.add_relay(` may appear only in the listed files and at most the frozen count; `msg/` owns the public read, the rest is legacy transport that a later migration moves behind it. There is still no owner for publication.
+  - **No I/O** (`renderers_operations_and_outcomes_perform_no_io`): `parse_human/`, `parse_machine.rs`, `commands/`, `outcome*`, `cli/schema.rs` and `cli/registry.rs` contain no printing, process exit, filesystem, environment, storage, client or (where relevant) network use.
+  - **Export** (`the_public_read_client_is_not_exported_from_msg`): no public item of `msg/mod.rs` names the session or client.
+- `src/msg/mod.rs`: three rustdoc examples run by `cargo test --doc`: `Session` and the private `orders` module cannot be imported (`compile_fail,E0603`), and the exported surface compiles.
+- `.github/workflows/ci.yml`: a named "Source boundary checks" step in the `test` job. It repeats part of `cargo test`, so a failure names the rule that broke. Existing jobs are unchanged; drift and Windows wiring remain T051.
+- `src/cli/rate_user.rs`: the only violation the new import check found (a `use` block after a `const`) was fixed by moving the block above the constant; no behavior change.
+- `tests/order_list_process.rs`: the T044 broken-pipe tests are now deterministic. They raced under load (one failure in about six full runs): the parent closed the pipe after spawning and the child sometimes wrote first. The read end is now closed before the spawn (`io::pipe`); ten full runs afterwards were clean.
+
+### Evidence
+
+Mutations, each caught by exactly the intended check and then reverted:
+a `println!` in `commands/order/list.rs` (no-I/O test), a `".send_event("` string in `util/misc.rs` (transport test), 60 added lines in `util/messaging.rs` (size test), a function-local import in `cli/schema.rs` (import test), and `pub struct Session` (the first compile-fail doctest).
+
+Not claimed: the legacy code is not migrated. `ephemeral_client` is still `pub(crate)` and used by legacy `util/net.rs`, so "no client outside `msg`" is a rule for the public read, enforced by the export and doctest checks, not a crate-wide one. Qualified-path imports are not checked. The scan is textual: it can be fooled by a call spelled differently.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test integration_tests source_boundaries` | PASS: 7 |
+| `cargo test --locked --doc` | PASS: 3 |
+| `cargo test --locked --test order_list_process` ten times | PASS 10 of 10 (46 tests each) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 29, order_list_process 46, disputes 9, dms 19, parser_orders 110, util 17, doctests 3 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T050 are complete. T051 (CI wiring of drift checks and platform tests) is next.
+
 
 
 ## Overview
