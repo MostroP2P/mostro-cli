@@ -1,6 +1,6 @@
-# Feature Specification: Order Show For Humans And Agents
+# Feature Specification: Order Info For Humans And Agents
 
-**Feature**: `002-order-show-json`
+**Feature**: `002-order-info-json`
 
 **Working Branch**: `develop` (feature directory naming does not change Git branches)
 
@@ -9,7 +9,7 @@
 **Status**: Clarified draft, ready for technical planning; not planned, not implemented
 
 **Input**: Second step of the agreed AI-ready CLI roadmap (critical-path step 2): canonical
-`order show`, replacing `ordersinfo`, with human and JSON output, a correlated
+`order info`, replacing `ordersinfo`, with human and JSON output, a correlated
 request/reply, and structured errors. Builds on the delivered
 [order-list pilot](../001-order-list-json/spec.md); it does not change that pilot's
 documents.
@@ -18,10 +18,11 @@ documents.
 
 ### Session 2026-10-28
 
-- Q: If no local identity exists, should `order show` create one as the legacy `ordersinfo` does? -> A: No (decided by the maintainer, 2026-10-28). The daemon only returns orders that belong to the requesting identity, so a command without an existing identity has nothing to ask about: it fails with a stable code before publishing anything and creates no identity or storage.
+- Q: What is the CLI spelling, `order show`, `order info` or `orders info`? -> A: `order info` (decided by the maintainer, 2026-10-28). It follows the grammar of `order list`, matches the old `ordersinfo` name, and uses the canonical name `order.info` that contract v1 already approved on 2026-10-22, so no canonical name changes. Earlier drafts and the roadmap table say `order show`; the maintainer's choice supersedes them.
+- Q: If no local identity exists, should `order info` create one as the legacy `ordersinfo` does? -> A: No (decided by the maintainer, 2026-10-28). The daemon only returns orders that belong to the requesting identity, so a command without an existing identity has nothing to ask about: it fails with a stable code before publishing anything and creates no identity or storage.
 - Q: Should the CLI cap how many ids one call may carry? -> A: No client-side count cap (decided by the maintainer, 2026-10-28). The daemon enforces its own per-response and rate limits; ids it does not return are reported as not returned, and its rate-limit error is surfaced. The only bound the client keeps is physical: the request must fit in one message (see FR-001).
-- Q: Should `order show` accept more than one order per call? -> A: Yes (decided by the maintainer, 2026-10-28). The protocol's `orders` request itself carries an `ids` array, so the command takes `--order <uuid>` one or more times.
-- Q: Should the next spec cover `order show`, `order new` and `order take` together? -> A: No. This spec covers `order show` only. `order new` (confirmation, `--yes`, the `uncertain` status) and `order take` (both sides, take-with-invoice save outcome) are separate later specs, each with its own checkpoint, as the pilot did for `order list`.
+- Q: Should `order info` accept more than one order per call? -> A: Yes (decided by the maintainer, 2026-10-28). The protocol's `orders` request itself carries an `ids` array, so the command takes `--order <uuid>` one or more times.
+- Q: Should the next spec cover `order info`, `order new` and `order take` together? -> A: No. This spec covers `order info` only. `order new` (confirmation, `--yes`, the `uncertain` status) and `order take` (both sides, take-with-invoice save outcome) are separate later specs, each with its own checkpoint, as the pilot did for `order list`.
 
 ## Protocol Reference
 
@@ -52,14 +53,14 @@ needs. It carries no trade, payment or local-state risk, so it proves the shared
 send and receive path before money moves.
 
 **Independent Test**: Against a controlled node that replies to a request, run
-`order show --order <id> --output json` and verify the exact order fields, one
+`order info --order <id> --output json` and verify the exact order fields, one
 complete document, exactly one request published, and unchanged local identity and
 order storage. Then inject unrelated, duplicate and malformed messages around the
 reply and verify they do not change the result.
 
 **Acceptance Scenarios**:
 
-1. **Given** a node that returns the user's order, **when** the client runs `order show` for that id with JSON output, **then** it receives that order's fields in one document and the local order and trade-index state is unchanged.
+1. **Given** a node that returns the user's order, **when** the client runs `order info` for that id with JSON output, **then** it receives that order's fields in one document and the local order and trade-index state is unchanged.
 2. **Given** unrelated messages from the node, or a reply to a different request, arriving before the matching reply, **when** the command waits, **then** only the reply to this request decides the result.
 3. **Given** the node answers with a refusal (for example the order is not the user's), **when** the command finishes, **then** it reports a controlled refusal with a stable code, not an empty success and not a timeout.
 4. **Given** the node never answers, **when** the deadline passes, **then** the result is a timeout error that states the request was published, and nothing is retried.
@@ -81,7 +82,7 @@ identities, kinds, statuses, amounts, currency, payment methods, premium and tim
 
 **Acceptance Scenarios**:
 
-1. **Given** a terminal invocation without `--output`, **when** `order show` runs, **then** human output is selected whether or not stdout is redirected.
+1. **Given** a terminal invocation without `--output`, **when** `order info` runs, **then** human output is selected whether or not stdout is redirected.
 2. **Given** the same reply, **when** both modes run, **then** they describe the same orders and neither changes stored state.
 3. **Given** the old `ordersinfo` spelling, **when** it is used, **then** it fails as an unknown command before any effect, with no alias.
 
@@ -89,7 +90,7 @@ identities, kinds, statuses, amounts, currency, payment methods, premium and tim
 
 ### User Story 3 - Fail Safely And Be Discoverable (Priority: P2)
 
-An agent can discover `order show` offline and can tell apart a missing identity, a
+An agent can discover `order info` offline and can tell apart a missing identity, a
 bad configuration, a node refusal, a timeout and an unreachable relay.
 
 **Why this priority**: Agents need a reliable contract before they call a command that
@@ -101,7 +102,7 @@ the code, the exit status and what was or was not published.
 
 **Acceptance Scenarios**:
 
-1. **Given** no configured node or identity, **when** `schema` runs, **then** `order.show` is described with generated input and output schemas, and nothing connects or is created.
+1. **Given** no configured node or identity, **when** `schema` runs, **then** `order.info` is described with generated input and output schemas, and nothing connects or is created.
 2. **Given** invalid arguments (a malformed id, none given), **when** JSON output is requested, **then** it returns `invalid_arguments` with exit 2 and publishes nothing.
 3. **Given** no local identity exists, **when** the command runs, **then** it fails with a stable code before publishing, and creates no identity, database or directory.
 4. **Given** a relay that cannot be connected or that rejects the request event, **when** the command runs, **then** it reports which of the two it was, and the result states whether the request was published.
@@ -124,15 +125,15 @@ the code, the exit status and what was or was not published.
 
 ### Functional Requirements
 
-- **FR-001**: Provide `order show` taking `--order <uuid>` one or more times (at least one required; a repeated id is requested once). The command applies no count cap of its own: the daemon limits what it answers and how often. A request that cannot fit in one message (the transport's size limit, checked before anything is published) fails as `invalid_arguments` with no effect; it is never split into several requests. Remove the replaced `ordersinfo` spelling and its `--orderids` option without a compatibility alias or adapter.
+- **FR-001**: Provide `order info` taking `--order <uuid>` one or more times (at least one required; a repeated id is requested once). The command applies no count cap of its own: the daemon limits what it answers and how often. A request that cannot fit in one message (the transport's size limit, checked before anything is published) fails as `invalid_arguments` with no effect; it is never split into several requests. Remove the replaced `ordersinfo` spelling and its `--orderids` option without a compatibility alias or adapter.
 - **FR-001a**: An id the node does not return does not fail the call. The success data lists the orders returned, in the order of the request, and a separate collection of the requested ids that were not returned; one stable warning marks that case. An empty `orders` with every id not returned is still a success, because the node answered. Only requested ids appear in the result: an order in the reply that was not requested is ignored, and an id returned twice appears once. The command never re-asks for omitted ids, and states in its documentation that "not returned" covers unknown, someone else's and over-the-node's-cap ids alike.
 - **FR-002**: The command is read-only. It publishes exactly one signed request, signed with the identity key and never a trade key; it never reserves or advances the trade index, never writes the order or user tables, and never retries. It may read the existing local identity.
 - **FR-003**: The reply is selected by correlation, not arrival order: only a message from the configured node, addressed to the identity key, echoing this request's identifier, with an allowed action (the orders result or a refusal). The wait is armed before the request is published, is bounded by a deadline, and releases its subscription on every exit. Unrelated, duplicate, own-echo and malformed messages never decide the result.
-- **FR-004**: JSON output is one versioned outcome with canonical command `order.show`, status, data, structured error, warnings and metadata, following the pilot's envelope. Success data lists the returned orders as explicit, documented fields; no core, database or context object is serialized wholesale, and no secret or key material is included.
+- **FR-004**: JSON output is one versioned outcome with canonical command `order.info`, status, data, structured error, warnings and metadata, following the pilot's envelope. Success data lists the returned orders as explicit, documented fields; no core, database or context object is serialized wholesale, and no secret or key material is included.
 - **FR-005**: Metadata states whether the request was published, so an agent that sees a timeout or a relay failure knows whether the node may have received it. A read is safe to repeat by the caller, so no outcome of this command is `uncertain`; a timeout after publication is an error.
 - **FR-006**: Human and JSON output describe the same orders. The default is human regardless of terminal detection, in both flag positions, and the command never prompts.
 - **FR-007**: Failures have stable codes and exit statuses: invalid arguments and unsupported output (2); configuration, missing identity, connection, request rejected by the relay, node refusal, reply timeout, node rate limit (`too-many-requests`), proof of work required, protocol unsupported and internal errors (1). A node refusal that names a missing or foreign order (if a daemon sends one instead of leaving the id out) is a refusal error, not a success. Codes added for this command appear only in this command's schema; the existing `order.list` and `schema` documents and their generated schemas do not change.
-- **FR-008**: Register `order.show` as a JSON-capable command with generated input and output schemas, regenerate the checked-in `docs/schemas` files, and keep the drift, boundary and CI checks passing. Unmigrated commands keep rejecting JSON before any effect.
+- **FR-008**: Move the existing registry entry `order.info` (today the human-only `ordersinfo`) to the path `order info` and register it as a JSON-capable command with generated input and output schemas, regenerate the checked-in `docs/schemas` files, and keep the drift, boundary and CI checks passing. Unmigrated commands keep rejecting JSON before any effect.
 - **FR-009**: All publication and reception for this command go through the shared transport boundary, whose client stays private to it. This command is its first user: the frozen transport counts in the boundary tests are updated deliberately, and no direct send, fetch or subscribe appears outside that boundary.
 - **FR-010**: Text from the node or other users is treated as untrusted data: bounded, escaped for terminals in human output, and never executed, logged raw or used to choose behavior. Diagnostics follow the pilot's allow-list and never include relay URLs, arguments or key material.
 - **FR-011**: Document field units, required versus nullable values, timestamps, identifier encodings and lossless number handling for the returned orders, and the refusal and timeout semantics, in the contract and the command reference. Follow the pilot's schema versioning: additive optional fields are compatible; other changes need a new schema version.
@@ -143,7 +144,7 @@ the code, the exit status and what was or was not published.
 - **Not-returned ids**: the requested ids absent from the reply, reported without a reason because the node gives none.
 - **Order request**: One signed request carrying the requested order identities and a fresh request identifier, published once.
 - **Command outcome**: The shared envelope with this command's data, refusal or error code, and whether the request was published.
-- **Command schema**: The discoverable inputs, results and errors of `order.show`, generated like the pilot's.
+- **Command schema**: The discoverable inputs, results and errors of `order.info`, generated like the pilot's.
 
 ## Success Criteria
 
@@ -154,7 +155,7 @@ the code, the exit status and what was or was not published.
 - **SC-002**: With adversarial traffic around the reply (unrelated, duplicate, malformed, other-request and own-echo messages), the outcome always follows the matching reply or the deadline, never an earlier unrelated message.
 - **SC-003**: Each run publishes exactly one request event and zero other events; the local database, order table and trade index are byte-identical before and after, in both modes.
 - **SC-004**: Human and machine results agree on all returned order identities and business fields across the fixture matrix, including partial and empty replies where every requested id appears either as a returned order or as not returned, never in both and never lost.
-- **SC-005**: Offline discovery lists `order.show`, and every failure case returns its documented code and a nonzero exit; none is reported as an empty success.
+- **SC-005**: Offline discovery lists `order.info`, and every failure case returns its documented code and a nonzero exit; none is reported as an empty success.
 - **SC-006**: Native Windows and Linux process-level checks pass, and ordinary outputs contain none of the planted secret sentinels.
 
 ## Assumptions

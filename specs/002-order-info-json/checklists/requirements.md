@@ -1,10 +1,10 @@
-# Specification Quality Checklist: Order Show
+# Specification Quality Checklist: Order Info
 
 **Purpose**: Review specification completeness before technical planning.
 
 **Created**: 2026-10-28
 
-**Feature**: [Order-show specification](../spec.md)
+**Feature**: [Order-info specification](../spec.md)
 
 ## Content Quality
 
