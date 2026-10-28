@@ -47,7 +47,7 @@ The cross-project roadmap is [plan-aiReadyMostroCli.md](../../plan-aiReadyMostro
 It sits beside the `mostro-cli` and `mcp` clones, outside both repositories, and
 is not tracked by Git; copy it next to the clones on a new machine. Feature
 specifications refine bounded parts of it rather than copying the entire
-roadmap. The first pilot is partly implemented (T001-T047 complete, T048 and T049 next);
+roadmap. The first pilot is partly implemented (T001-T049 complete, T050 next);
 earlier persistence fixes and their test results remain prior work.
 
 ## Copilot Workflow
@@ -96,10 +96,10 @@ the feature works. Record code-test results separately when implementation lands
 ## Resume On Another Linux/WSL Laptop
 
 This is a development handoff, not a trading-identity migration or a compatible
-CLI/MCP release pair. At the 2026-10-28 checkpoint, T001-T047 are complete, the
+CLI/MCP release pair. At the 2026-10-28 checkpoint, T001-T049 are complete, the
 baseline and foundation gates are closed with recorded exceptions, US1 (machine
 listing), US2 (human presentation) and US3 (offline discovery and stable errors)
-are implemented and accepted on Linux, and T048 and T049 are next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
+are implemented and accepted on Linux, and T050 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
 [test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
 JSON pilot and full baseline gate remain unverified; the declared MSRV is 1.94
 (raised from 1.86 to match the locked graph), and regtest compatibility is
@@ -249,9 +249,9 @@ Enter key passphrases directly in your terminal, never in Copilot chat.
 In Copilot Agent chat with both repositories open:
 
 ```text
-Continue mostro-cli on develop, implementing T048 and T049 only from
+Continue mostro-cli on develop, implementing T050 only from
 specs/001-order-list-json/tasks.md. Read AGENTS.md and the constitution first,
-then the existing plan and tests/TEST_SUMMARY.md. T001-T047 are complete;
+then the existing plan and tests/TEST_SUMMARY.md. T001-T049 are complete;
 the baseline and foundation gates are closed with recorded exceptions and the JSON pilot
 is only partly implemented (US3 discovery and the polish gates remain).
 A test ignored with "red until T0xx" is removed from the ignore list when its task lands.

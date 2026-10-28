@@ -2522,6 +2522,68 @@ Also covered: the unwritable stdout (exit 1, one fixed line), unwritable stderr
 T001-T047 are complete. T048 (architecture documentation) and T049 (command
 documentation) are next and may run in parallel.
 
+## T048-T049 Documentation: 2026-10-28
+
+Documentation only; no Rust, fixture or test file changed. Per the constitution
+these tasks use link, template and statement checks instead of the code gates.
+
+### T048 `docs/architecture.md`
+
+- New "Boundaries Implemented By The Order-List Pilot" section: a call diagram
+  from `main` through `cli::run`, a responsibility table for the CLI, discovery,
+  operation, public-read, outcome and rendering modules, the rules that hold today,
+  and a "Legacy Coexistence" subsection. It states that no database model was added,
+  that the transport migration is not complete (one door, `msg::fetch_msg`, for
+  public reads only; no shared `send_msg`/`receive_msg`; no write command returns an
+  outcome) and that the client is private to `msg::Session` but not yet a crate-wide
+  rule (task T050).
+- The T002 table and T011 update are replaced by one recount (2026-10-28, at
+  `65db631`) produced by a single script over all 62 files of `src/`:
+  13,124 physical, 3,106 test-only and 10,018 production lines. Four files exceed
+  400 production lines (`parser/dms.rs` 1,210, `db.rs` 704, `util/messaging.rs`
+  556, `cli/take_dispute.rs` 403); every file created or migrated by the pilot is at
+  most 316 (`cli.rs`). This supersedes the figures T019 found inconsistent.
+- Imports rechecked: the same four function-local production imports remain and
+  the pilot added none. Qualified paths in migrated files were not audited, and
+  the section says so.
+- Stale statements fixed: `list_orders.rs`, outcome and `commands/` described as
+  stubs, the registry location, `run()` behaviour and the new-command checklist.
+
+### T049 `docs/commands.md` and `README.md`
+
+- `commands.md`: `--mostro-pubkey` (old spelling removed), `--output` scope, a
+  Discovery section for `schema`, a "Machine output (schema v1)" section
+  (single document, encodings, listing semantics, limits, the nine error codes
+  with exits, help/version/write-failure exceptions, versioning and what the
+  contract excludes) and `order list` replacing `listorders` with its migration
+  notes. It links the generated `docs/schemas/*.json` as the command reference
+  and states that the prose itself is hand-maintained.
+- `README.md`: examples, command reference, global flags and troubleshooting moved
+  to `order list` and `--mostro-pubkey`; a "Machine-readable output" section with
+  the migration note; and a warning that the existing MCP keeps using the old
+  spellings and must stay on the CLI revision its own README names, with no
+  compatible release pair claimed.
+- Corrected two README statements that would have become wrong: `order list` no
+  longer creates the user or database, so the first-command and database-recovery
+  steps now use `getdm` (read-only on the network; it opens the database), which
+  was read in the code but not run, to avoid creating state on this machine.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| Relative links and anchors in `architecture.md`, `commands.md`, `README.md` | none broken |
+| `rg listorders\|mostropubkey` in README and `commands.md` | only the intended migration notes remain |
+| `order list --help`, `schema --help` and the root help match the documented flags | confirmed by reading the built binary's help |
+| Documented examples `schema`, `--output json schema` and an invalid `order list --side` | run against the built binary |
+| Inventory script totals match the T033 per-file figures for the migrated files | yes (for example `msg/mod.rs` 160, `cli/schema.rs` 228) |
+
+Known documentation debt, not addressed here: `docs/commands.md` still lists some
+legacy flag spellings (for example `--order-id`, `--fiat-code`) where the binary
+uses `--orderid` and `--fiatcode`.
+
+T001-T049 are complete. T050 (automated size, import and boundary checks) is next.
+
 
 
 ## Overview
