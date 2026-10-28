@@ -1,7 +1,25 @@
 //! Public Nostr reads: node configuration, read limits and the collector.
 //!
-//! Only configuration, limits, `fetch_msg` and its results are exported; the
-//! Nostr client never leaves this module.
+//! Only configuration, limits, `fetch_msg` and its results are exported. The
+//! client of a public read lives in the private `Session`; the compiler, not a
+//! convention, keeps it from callers:
+//!
+//! ```compile_fail,E0603
+//! use mostro_client::msg::Session;
+//! ```
+//!
+//! The order decoder and reducer helpers are private as well; callers use the
+//! re-exported functions:
+//!
+//! ```compile_fail,E0603
+//! use mostro_client::msg::orders::reduce_orders;
+//! ```
+//!
+//! The exported surface itself is stable:
+//!
+//! ```
+//! use mostro_client::msg::{fetch_msg, FetchFailure, Fetched, PublicReadConfig, ReadLimits};
+//! ```
 
 use std::str::FromStr;
 use std::time::Duration;
@@ -127,7 +145,7 @@ pub(crate) fn ephemeral_client() -> Client {
         .build()
 }
 
-/// The connected client of one public read; it never leaves this module tree.
+/// The connected client of one public read; it is private to this module tree.
 struct Session {
     client: Client,
 }

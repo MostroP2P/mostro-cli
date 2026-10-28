@@ -37,6 +37,13 @@ jobs:
         with: { cache-on-failure: true }
       - name: cargo test
         run: cargo test
+      # Already part of the run above; named so a failure says which rule broke:
+      # migrated-file size and imports, frozen legacy exceptions, transport
+      # ownership, I/O-free renderers, and the compile-fail privacy doctests.
+      - name: Source boundary checks
+        run: |
+          cargo test --locked --test integration_tests source_boundaries
+          cargo test --locked --doc
 
   build:
     runs-on: ubuntu-latest

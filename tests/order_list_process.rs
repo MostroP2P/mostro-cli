@@ -801,13 +801,23 @@ async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
     assert_eq!(endpoint.connections(), 0);
 }
 
+/// The write end of a pipe whose read end is already closed, so any write by
+/// the child fails with a broken pipe. Closing it before the spawn leaves no
+/// window in which the child can write successfully.
+fn closed_pipe() -> Stdio {
+    let (reader, writer) = io::pipe().unwrap();
+    drop(reader);
+    Stdio::from(writer)
+}
+
 /// Run `args` with the stderr reader already gone, so every diagnostic write
 /// fails with a broken pipe, and return the status and stdout.
 async fn run_with_broken_stderr(args: &[&str]) -> (Option<i32>, String) {
     let sandbox = Sandbox::new().unwrap();
-    let mut child = sandbox.command(args).spawn().unwrap();
+    let mut command = sandbox.command(args);
+    command.stderr(closed_pipe());
+    let mut child = command.spawn().unwrap();
     drop(child.stdin.take());
-    drop(child.stderr.take());
     let stdout = read_all(child.stdout.take());
     let status = timeout(WATCHDOG, child.wait()).await.unwrap().unwrap();
     let stdout = stdout.await.unwrap().unwrap();
@@ -2434,9 +2444,9 @@ async fn run_with_broken_stdout(args: &[&str], env: &[(&str, &str)]) -> (Option<
     for (key, value) in env {
         command.env(key, value);
     }
+    command.stdout(closed_pipe());
     let mut child = command.spawn().unwrap();
     drop(child.stdin.take());
-    drop(child.stdout.take());
     let stderr = read_all(child.stderr.take());
     let status = timeout(WATCHDOG, child.wait()).await.unwrap().unwrap();
     let stderr = stderr.await.unwrap().unwrap();

@@ -1,4 +1,6 @@
-use std::fs::read_to_string;
+use std::collections::BTreeMap;
+use std::fs::{read_dir, read_to_string};
+use std::path::Path;
 
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
@@ -589,5 +591,496 @@ fn the_signed_64_bit_range_is_a_semantic_rule_the_pattern_cannot_state() {
     assert!(!schema_check::conforms(&schema, &schema, &outcome));
     for bad in ["", "-0", "+1", "01", "1.0", "0x1", " 1"] {
         assert!(!is_canonical_i64(bad), "{bad:?}");
+    }
+}
+
+// --- Source boundaries (T050) --------------------------------------------
+//
+// Static checks over `src/`. They apply the constitution's size and import
+// rules to production code, freeze the legacy exceptions instead of excusing
+// them, and keep network access with its owner. They do not claim that the
+// legacy code is migrated.
+
+mod source_boundaries {
+    use super::{read_dir, read_to_string, BTreeMap, Path};
+
+    const SRC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    const LIMIT: usize = 400;
+
+    /// Legacy files over the limit, frozen at their measured production size.
+    /// A file leaves this list when its migration brings it under the limit.
+    const LEGACY_OVERSIZED: [(&str, usize); 4] = [
+        ("cli/take_dispute.rs", 403),
+        ("db.rs", 704),
+        ("parser/dms.rs", 1210),
+        ("util/messaging.rs", 556),
+    ];
+
+    /// Function-local production imports that remain as legacy debt.
+    const LEGACY_LOCAL_IMPORTS: [(&str, &str); 4] = [
+        ("cli/send_admin_dm_attach.rs", "use reqwest::StatusCode;"),
+        ("db.rs", "use std::os::unix::fs::OpenOptionsExt;"),
+        ("util/misc.rs", "use std::os::unix::fs::DirBuilderExt;"),
+        ("util/misc.rs", "use std::os::unix::fs::PermissionsExt;"),
+    ];
+
+    /// Calls that publish, fetch, subscribe or connect, with the files that may
+    /// contain them and their frozen counts. `msg` owns public reads; the other
+    /// entries are legacy transport that a later migration moves behind it.
+    const TRANSPORT_CALLS: [(&str, &[(&str, usize)]); 4] = [
+        (
+            ".send_event(",
+            &[
+                ("cli/dm_to_user.rs", 1),
+                ("cli/send_admin_dm_attach.rs", 1),
+                ("util/messaging.rs", 2),
+            ],
+        ),
+        (
+            ".fetch_events(",
+            &[
+                ("cli/get_dm_user.rs", 1),
+                ("cli/send_msg.rs", 1),
+                ("util/events.rs", 8),
+            ],
+        ),
+        (
+            ".subscribe(",
+            &[("msg/receive_msg.rs", 1), ("util/messaging.rs", 1)],
+        ),
+        (".add_relay(", &[("msg/mod.rs", 1), ("util/net.rs", 1)]),
+    ];
+
+    pub struct Source {
+        pub path: String,
+        lines: Vec<String>,
+        production: usize,
+    }
+
+    impl Source {
+        /// Production lines, comments and blanks included.
+        fn production(&self) -> &[String] {
+            &self.lines[..self.production]
+        }
+
+        /// Code lines of the production region, without line comments.
+        fn code(&self) -> impl Iterator<Item = (usize, &str)> {
+            self.production()
+                .iter()
+                .enumerate()
+                .map(|(index, line)| (index + 1, line.as_str()))
+                .filter(|(_, line)| !line.trim_start().starts_with("//"))
+        }
+    }
+
+    pub fn sources() -> Vec<Source> {
+        fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let mut paths = Vec::new();
+        walk(Path::new(SRC), &mut paths);
+        paths.sort();
+        paths
+            .into_iter()
+            .map(|path| {
+                let text = read_to_string(&path).unwrap();
+                let lines: Vec<String> = text.lines().map(str::to_string).collect();
+                let relative = path
+                    .strip_prefix(SRC)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let production = production_len(&relative, &lines);
+                Source {
+                    path: relative,
+                    lines,
+                    production,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether `line` starts a `mod name {` item.
+    fn is_inline_mod(line: &str) -> bool {
+        let line = line.trim_start();
+        let line = line.strip_prefix("pub ").unwrap_or(line);
+        line.strip_prefix("mod ")
+            .is_some_and(|rest| rest.trim_end().ends_with('{'))
+    }
+
+    /// Net brace depth change of `line`, ignoring comments, strings and chars.
+    fn brace_delta(line: &str) -> i64 {
+        let chars: Vec<char> = line.chars().collect();
+        let (mut delta, mut i) = (0i64, 0);
+        while i < chars.len() {
+            match chars[i] {
+                '/' if chars.get(i + 1) == Some(&'/') => break,
+                '"' => {
+                    i += 1;
+                    while i < chars.len() && chars[i] != '"' {
+                        i += if chars[i] == '\\' { 2 } else { 1 };
+                    }
+                }
+                '\'' => {
+                    // A char literal ('{', '\n'); a lifetime has no closing quote.
+                    let close = if chars.get(i + 1) == Some(&'\\') {
+                        i + 3
+                    } else {
+                        i + 2
+                    };
+                    if chars.get(close) == Some(&'\'') {
+                        i = close;
+                    }
+                }
+                '{' => delta += 1,
+                '}' => delta -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        delta
+    }
+
+    /// Production line count: lines before a trailing `#[cfg(test)] mod`,
+    /// minus two-line `#[cfg(test)]` imports. The test module must close on
+    /// the last nonblank line, so no production code can hide behind it.
+    fn production_len(path: &str, lines: &[String]) -> usize {
+        let mut cfg_imports = 0;
+        let mut tests = None;
+        for (index, line) in lines.iter().enumerate() {
+            if line.trim() != "#[cfg(test)]" {
+                continue;
+            }
+            let next = lines[index + 1..]
+                .iter()
+                .find(|line| !line.trim_start().starts_with("#["));
+            match next {
+                Some(next) if is_inline_mod(next) => {
+                    tests = Some(index);
+                    break;
+                }
+                Some(next) if next.trim_start().starts_with("use ") => cfg_imports += 2,
+                _ => {}
+            }
+        }
+        let Some(start) = tests else {
+            return lines.len() - cfg_imports;
+        };
+        let last = lines
+            .iter()
+            .rposition(|line| !line.trim().is_empty())
+            .unwrap();
+        let (mut depth, mut opened) = (0, false);
+        for (offset, line) in lines[start..].iter().enumerate() {
+            depth += brace_delta(line);
+            opened |= depth > 0;
+            let position = start + offset;
+            assert!(
+                !opened || depth > 0 || position == last,
+                "{path}: the test module closes at line {} but the file ends at line {}",
+                position + 1,
+                last + 1
+            );
+        }
+        assert_eq!(depth, 0, "{path}: unbalanced braces in the test module");
+        start - cfg_imports
+    }
+
+    #[test]
+    fn counter_applies_the_documented_exclusions() {
+        let text = |body: &str| body.lines().map(str::to_string).collect::<Vec<_>>();
+        let plain = text("fn a() {}\n// c\n\nfn b() {}");
+        assert_eq!(
+            production_len("plain", &plain),
+            4,
+            "comments and blanks count"
+        );
+        let with_tests = text(
+            "fn a() {}\n#[cfg(test)]\nmod tests {\n    fn t() { let _ = '{'; let _ = \"}\"; }\n}\n",
+        );
+        assert_eq!(production_len("tests", &with_tests), 1);
+        let with_import = text("use a;\n#[cfg(test)]\nuse b;\nfn a() {}\n");
+        assert_eq!(production_len("import", &with_import), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "closes at line")]
+    fn production_code_after_a_test_module_is_rejected() {
+        let lines: Vec<String> = "#[cfg(test)]\nmod tests {\n}\nfn hidden() {}\n"
+            .lines()
+            .map(str::to_string)
+            .collect();
+        production_len("hidden", &lines);
+    }
+
+    #[test]
+    fn production_files_respect_the_size_limit_and_the_frozen_exceptions() {
+        let frozen: BTreeMap<_, _> = LEGACY_OVERSIZED.into_iter().collect();
+        let mut seen = 0;
+        for source in sources() {
+            let size = source.production().len();
+            match frozen.get(source.path.as_str()) {
+                Some(&cap) => {
+                    seen += 1;
+                    assert!(
+                        size > LIMIT,
+                        "{}: now {size}; remove its exception",
+                        source.path
+                    );
+                    assert!(
+                        size <= cap,
+                        "{}: legacy production grew to {size} (frozen at {cap})",
+                        source.path
+                    );
+                }
+                None => assert!(
+                    size <= LIMIT,
+                    "{}: {size} production lines exceed {LIMIT}; split it",
+                    source.path
+                ),
+            }
+        }
+        assert_eq!(
+            seen,
+            LEGACY_OVERSIZED.len(),
+            "an excepted file no longer exists"
+        );
+    }
+
+    #[test]
+    fn production_imports_are_at_the_top_except_frozen_legacy() {
+        let allowed: Vec<_> = LEGACY_LOCAL_IMPORTS.into_iter().collect();
+        let item = |line: &str| {
+            let line = line.strip_prefix("pub ").unwrap_or(line);
+            let line = line.strip_prefix("async ").unwrap_or(line);
+            [
+                "fn ", "struct ", "enum ", "impl", "trait ", "const ", "static ", "type ",
+            ]
+            .iter()
+            .any(|keyword| line.starts_with(keyword))
+        };
+        for source in sources() {
+            let mut after_item = false;
+            for (number, line) in source.code() {
+                let trimmed = line.trim();
+                let top_level = !line.starts_with(char::is_whitespace);
+                if top_level && item(line) {
+                    after_item = true;
+                }
+                if !trimmed.starts_with("use ") && !trimmed.starts_with("pub use ") {
+                    continue;
+                }
+                let local = !top_level;
+                assert!(
+                    !(local || after_item) || allowed.contains(&(source.path.as_str(), trimmed)),
+                    "{}:{number}: import is not at the top of the file: {trimmed}",
+                    source.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn network_calls_stay_with_their_owner_and_do_not_grow() {
+        let mut found: BTreeMap<(&str, String), usize> = BTreeMap::new();
+        for source in sources() {
+            for (_, line) in source.code() {
+                for (call, _) in TRANSPORT_CALLS {
+                    if line.contains(call) {
+                        *found.entry((call, source.path.clone())).or_default() += 1;
+                    }
+                }
+            }
+        }
+        for ((call, path), count) in &found {
+            let allowed = TRANSPORT_CALLS
+                .iter()
+                .find(|(name, _)| name == call)
+                .and_then(|(_, files)| files.iter().find(|(file, _)| file == path))
+                .map(|(_, cap)| *cap);
+            assert!(
+                allowed.is_some_and(|cap| *count <= cap),
+                "{path}: `{call}` x{count} is outside its owner or beyond the frozen count; \
+                 publish and fetch through msg, not directly"
+            );
+        }
+        for (call, files) in TRANSPORT_CALLS {
+            for (file, cap) in files {
+                assert_eq!(
+                    found.get(&(call, file.to_string())).copied().unwrap_or(0),
+                    *cap,
+                    "{file}: `{call}` count changed; update the frozen list when it migrates"
+                );
+            }
+        }
+    }
+
+    /// Modules that must stay free of I/O, clients and storage, and what is
+    /// forbidden in each.
+    const NO_IO: [(&str, &[&str]); 6] = [
+        (
+            "parse_human/",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
+                "crate::msg",
+                "crate::util::messaging",
+            ],
+        ),
+        (
+            "parse_machine.rs",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
+                "crate::msg",
+            ],
+        ),
+        (
+            "commands/",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "sqlx",
+                "reqwest",
+                "Client",
+                "crate::db",
+                "send_event",
+                ".subscribe(",
+                "fetch_events",
+                "std::io",
+            ],
+        ),
+        (
+            "outcome",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
+                "crate::msg",
+                "crate::util",
+            ],
+        ),
+        (
+            "cli/schema.rs",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
+                "crate::msg",
+                "crate::util",
+            ],
+        ),
+        (
+            "cli/registry.rs",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
+                "crate::msg",
+                "crate::util",
+            ],
+        ),
+    ];
+
+    #[test]
+    fn renderers_operations_and_outcomes_perform_no_io() {
+        let mut checked = 0;
+        for source in sources() {
+            for (prefix, forbidden) in NO_IO {
+                if !source.path.starts_with(prefix) {
+                    continue;
+                }
+                checked += 1;
+                for (number, line) in source.code() {
+                    for word in forbidden {
+                        assert!(
+                            !line.contains(word),
+                            "{}:{number}: `{word}` is not allowed here: {}",
+                            source.path,
+                            line.trim()
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            checked >= 12,
+            "only {checked} files matched the boundary list"
+        );
+    }
+
+    #[test]
+    fn the_public_read_client_is_not_exported_from_msg() {
+        let sources = sources();
+        let module = sources.iter().find(|s| s.path == "msg/mod.rs").unwrap();
+        for (number, line) in module.code() {
+            let exported = line.trim_start().starts_with("pub ") && !line.contains("pub(");
+            assert!(
+                !(exported
+                    && (line.contains("Session")
+                        || line.contains("Client")
+                        || line.contains("client"))),
+                "msg/mod.rs:{number}: a public item exposes the client: {}",
+                line.trim()
+            );
+        }
+        // The privacy itself is proved by the compile_fail doctests in that file.
+        assert!(module
+            .lines
+            .iter()
+            .any(|l| l.contains("compile_fail,E0603")));
     }
 }
