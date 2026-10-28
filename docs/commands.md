@@ -9,7 +9,7 @@ All commands are part of the `Commands` enum and are dispatched via `Commands::r
 These flags apply to every subcommand (parsed on the top-level `Cli`; each also
 settable via the matching env var):
 
-- `-m, --mostropubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required.
+- `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
 - `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
 - `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
@@ -20,8 +20,9 @@ settable via the matching env var):
   nothing is treated as `nip44`). A v1 node is an error.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
 - `--output <human|json>`: output format, accepted before, between or after
-  command words (case-sensitive, default `human`, no environment variable).
-  No command supports `json` yet: selecting it prints one JSON error outcome
+  command words (`--output json` and `--output=json`; case-sensitive, default
+  `human` whatever the terminal, no environment variable). Only `order list` and
+  `schema` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -32,15 +33,52 @@ In human mode, argument errors exit 2 and print a fixed description on stderr,
 such as `error: unexpected argument found`, without echoing the arguments given.
 `--help` and `--version` print text and exit 0 even with `--output json`.
 
+### Discovery
+
+- **`schema`**
+  - **Description**: Describes the machine interface of this build offline: the commands, which of them support `--output json`, their input and output schemas and the configuration names they read. It needs no node, relay, identity, database or stdin, and works with missing or invalid configuration.
+  - **Args**: none (plus the global `--output`).
+  - **Output**: human mode (the default) prints the raw discovery document as pretty JSON; `--output json` wraps the same data in the standard outcome with command `schema`.
+  - **Handler**: `cli::schema::offline_discovery()` dispatched from `cli::run`, before any context, logger or RPC work.
+  - **Generated reference**: [docs/schemas/discovery-v1.json](schemas/discovery-v1.json) is this command's output, and [docs/schemas/order-list-v1.json](schemas/order-list-v1.json) the `order.list` output schema. Both are generated and drift-tested; this prose is maintained by hand. Regenerate them after an intended change with `cargo run -q -- schema > docs/schemas/discovery-v1.json` and `cargo run -q -- --output json schema | jq '.data.commands[] | select(.name=="order.list") | .output_schema' > docs/schemas/order-list-v1.json`.
+
+### Machine output (schema v1)
+
+This applies to `order list` and `schema`. Other commands print human text only.
+
+- **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
+- **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
+- **Listing semantics.** Public events of kind 38383 from the configured node, last seven days, limit 50 per relay, no upper time bound. The latest state of each order is chosen before the `--side`, `--currency` and `--status` filters (status defaults to `pending`; side and status are case-insensitive, currency is uppercased). Orders are sorted by event time, newest first. The snapshot in `meta` is a bounded read, never a complete history (`complete_history` is always `false`).
+- **Limits.** Every configured relay must reach EOSE: 10 s to connect, 15 s to read, 1 s of cleanup, at most 10,000 unique events. A closed, silent or disconnected relay, a lagging buffer or a larger result fails the whole read; nothing is retried and no partial rows are returned. An empty book is a success with `orders: []`.
+- **Errors.** Codes are stable, messages are fixed prose, `data` is `null` on every error, and `status` is never `uncertain` for these commands.
+
+  | Code | Exit | When |
+  | --- | --- | --- |
+  | `invalid_arguments` | 2 | unknown, missing or invalid argument or side/status, removed spelling |
+  | `output_not_supported` | 2 | `--output json` on a command without JSON support |
+  | `configuration_missing` | 1 | `MOSTRO_PUBKEY` or `RELAYS` missing or blank |
+  | `configuration_invalid` | 1 | invalid public key or relay URL |
+  | `relay_connection_failed` | 1 | a relay could not be connected in time |
+  | `relay_read_failed` | 1 | REQ rejected or CLOSED, disconnect before EOSE, lagging buffer |
+  | `read_timeout` | 1 | the read deadline passed before every EOSE |
+  | `read_limit_exceeded` | 1 | more than 10,000 unique events |
+  | `internal_error` | 1 | unexpected local failure |
+
+- **Exceptions to the single document.** `--help` and `--version` print text and exit 0 even with `--output json`. A missing, invalid or repeated `--output` exits 2 with empty stdout and a fixed stderr line. If the result cannot be written (closed or broken stdout) the process exits 1 with one fixed stderr line and nothing more. A crash or external kill cannot guarantee a final document.
+- **Versioning.** `schema_version` (currently `1`) is independent of the package version, which `schema` reports separately as `executable_version`. Consumers may ignore additional optional fields; changed types, semantics, required fields or enum values need a new `schema_version`. The canonical command names are part of version 1. Because `executable_version` is in the generated reference, a package version change requires regenerating it.
+- **Not supported by this contract**: pagination, an all-statuses filter, streaming output, and any write command. Secret-export commands (`getlasttradeprivkey`, `conversationkey`) are not offered in JSON.
+
 ### Orders
 
-- **`listorders`**
-  - **Description**: Requests open orders from the configured Mostro pubkey.
+- **`order list`** (replaces `listorders`)
+  - **Description**: Reads the node's public order book (read-only; publishes nothing and never touches the local database or identity). Needs `MOSTRO_PUBKEY` and `RELAYS`, from the root flags or the environment.
   - **Args**:
-    - `--status <STRING>`: Optional order status filter.
-    - `--currency <STRING>`: Optional fiat currency code.
-    - `--kind <STRING>`: Optional order kind (buy/sell).
-  - **Handler**: `execute_list_orders(kind, currency, status, ctx)` in `src/cli/list_orders.rs`.
+    - `--side <buy|sell>`: Optional order side (case-insensitive). Replaces `--kind`.
+    - `--currency <STRING>`: Optional fiat currency code (case-insensitive).
+    - `--status <STRING>`: Optional status (case-insensitive); defaults to `pending`. One of the canonical statuses listed in `mostro-cli order list --help`.
+  - **Output**: the familiar table by default; one JSON document with `--output json` (see Machine output above).
+  - **Migration**: `listorders`, `listorders --kind` and the short flags `-k`, `-c` and `-s` no longer exist (there are no aliases); use `order list --side --currency --status`. The root flag is `--mostro-pubkey`, still `-m` in short form, placed before the command word.
+  - **Handler**: `commands::order::list::list_orders` through `msg::fetch_msg`; rendering in `parse_human` and `parse_machine`.
 
 - **`neworder`**
   - **Description**: Create a new buy/sell order on Mostro.

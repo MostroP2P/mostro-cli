@@ -28,6 +28,7 @@ A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P
 - [Admin / Solver usage](#admin--solver-usage)
 - [Backup, recovery and multi-device](#backup-recovery-and-multi-device)
 - [Command reference](#command-reference)
+- [Machine-readable output](#machine-readable-output)
 - [Files, environment and where things live](#files-environment-and-where-things-live)
 - [Troubleshooting / FAQ](#troubleshooting--faq)
 
@@ -115,7 +116,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ### What this means in practice
 
-- **Your first command (e.g. `listorders`) creates your user** — no separate "init" step needed.
+- **Your first identity-using command (e.g. `getdm` or `neworder`) creates your user** — no separate "init" step needed. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
 - **You can derive the same keys on another machine** by restoring the mnemonic (see [Backup, recovery and multi-device](#backup-recovery-and-multi-device)).
 - **An `nsec` alone is not enough** to regenerate the trade keys: you need the full mnemonic, because BIP32 needs the chain code that a leaf `nsec` doesn't carry.
 
@@ -129,7 +130,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 | Variable | CLI flag | Description |
 |---|---|---|
-| `MOSTRO_PUBKEY` | `-m, --mostropubkey` | The `npub` (or hex) of the Mostro instance you want to use. |
+| `MOSTRO_PUBKEY` | `-m, --mostro-pubkey` | The `npub` (or hex) of the Mostro instance you want to use. |
 | `RELAYS` | `-r, --relays` | Comma-separated `wss://` Nostr relay URLs. |
 
 ### Optional
@@ -170,10 +171,10 @@ export RELAYS="wss://<relay-your-node-publishes-to>,wss://<another-relay>"
 
 ```bash
 source ~/.config/mostro/env.sh
-mostro-cli listorders
+mostro-cli order list
 ```
 
-> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version` and `--help` are the only exceptions).
+> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help` and the offline `schema` are the only exceptions).
 
 ### About `.env` files
 
@@ -190,7 +191,7 @@ POW=0
 
 ```bash
 set -a; source ~/.config/mostro/.env; set +a
-mostro-cli listorders
+mostro-cli order list
 ```
 
 `set -a` marks every variable assigned by the file for export, so the CLI sees them; `set +a` turns that back off.
@@ -207,12 +208,12 @@ export RELAYS="wss://<relay-your-node-publishes-to>"
 ```
 
 ```bash
-# 1. List open orders
-mostro-cli listorders
+# 1. List open orders (read-only: no identity or local database is touched)
+mostro-cli order list
 
-# 2. Filter by kind, currency or status
-mostro-cli listorders -k sell -c usd
-mostro-cli listorders -k buy -c ves -s pending
+# 2. Filter by side, currency or status
+mostro-cli order list --side sell --currency usd
+mostro-cli order list --side buy --currency ves --status pending
 
 # 3. Inspect details for specific orders
 mostro-cli ordersinfo -o <uuid-1> -o <uuid-2>
@@ -305,7 +306,7 @@ Buyer-as-taker flow against an existing sell order:
 1. **Find a sell order:**
 
    ```bash
-   mostro-cli listorders -k sell -c usd
+   mostro-cli order list --side sell --currency usd
    ```
 
 2. **Take it.** You can either provide a Lightning invoice for the trade amount, or omit it and add one later:
@@ -519,7 +520,7 @@ Store the 12 words offline (paper, metal, encrypted vault). Do **not** commit th
 
 Use this when the database is gone. It recovers your **identity**, not your local order history — read the limitation at the end of this section before relying on it mid-trade.
 
-> **Let the CLI create the database — do not hand-craft it.** `mostro-cli` only creates its tables when `~/.mcli/mcli.db` does not yet exist. If you pre-create that file yourself with just a `users` table, the `orders` table is never created, `listorders` still appears to work, and the first command that touches an order fails with `no such table: orders`. Always run the CLI once first, then overwrite the mnemonic.
+> **Let the CLI create the database — do not hand-craft it.** `mostro-cli` only creates its tables when `~/.mcli/mcli.db` does not yet exist. If you pre-create that file yourself with just a `users` table, the `orders` table is never created, a read-only command such as `getdm` still appears to work, and the first command that touches an order fails with `no such table: orders`. Always run the CLI once first, then overwrite the mnemonic.
 
 1. Install `mostro-cli` on the new machine.
 
@@ -533,7 +534,7 @@ Use this when the database is gone. It recovers your **identity**, not your loca
 3. **Run any command once** so the CLI builds a complete, correctly-permissioned database. It will generate a throwaway mnemonic that you are about to replace:
 
    ```bash
-   mostro-cli listorders
+   mostro-cli getdm   # read-only on the network; any command that needs your identity creates the database
    ```
 
 4. **Overwrite the mnemonic** with your backed-up 12 words and clear the trade index that belonged to the throwaway user.
@@ -583,7 +584,8 @@ Use this when the database is gone. It recovers your **identity**, not your loca
 Every command supports `-h, --help`. The list below is a one-line summary; run `mostro-cli <cmd> --help` for full flags.
 
 ### Order browsing & creation
-- `listorders [-s status] [-c currency] [-k kind]` — list open orders.
+- `order list [--side buy|sell] [--currency <code>] [--status <status>]` — list open orders (read-only; supports `--output json`). Replaces `listorders`.
+- `schema` — describe the machine interface offline (supports `--output json`).
 - `ordersinfo -o <uuid> [-o <uuid> ...]` — request details for specific orders.
 - `neworder -k <buy|sell> -c <fiat> -f <amount|min-max> -m <methods> [-a <sats>] [-p <premium>] [-i <invoice>] [--expiration-days N]` — create an order.
 
@@ -635,18 +637,44 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 ### Global flags
 
-> **These must come *before* the subcommand.** They are parsed on the top-level command, so `mostro-cli listorders -m <npub>` fails with `error: unexpected argument '-m' found`. Write `mostro-cli -m <npub> listorders` instead. This also avoids clashing with subcommand flags that reuse the same letters (`-m` is `--payment-method` on `neworder` and `--message` on `senddm`, `-p` is `--premium` on `neworder` and `--pubkey` on the DM commands).
+> **These must come *before* the subcommand.** They are parsed on the top-level command, so `mostro-cli order list -m <npub>` fails with `error: unexpected argument '-m' found`. Write `mostro-cli -m <npub> order list` instead. This also avoids clashing with subcommand flags that reuse the same letters (`-m` is `--payment-method` on `neworder` and `--message` on `senddm`, `-p` is `--premium` on `neworder` and `--pubkey` on the DM commands).
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
-- `-m, --mostropubkey <npub>` — overrides `MOSTRO_PUBKEY`.
+- `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
+- `--output <human|json>` — `json` is supported by `order list` and `schema` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
 - `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; only nip44 is supported).
 
 ```bash
-mostro-cli -m <npub> -r wss://<relay> listorders -k sell -c usd
+mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 ```
+
+---
+
+## Machine-readable output
+
+Two commands can answer in JSON so that scripts and agents do not have to parse tables: `order list` and `schema`. Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+
+```bash
+# one JSON document on stdout; diagnostics, if any, go to stderr
+mostro-cli -m <npub> -r wss://<relay> --output json order list --side sell --currency usd
+
+# what this build supports, without a node, identity or network
+mostro-cli schema                  # pretty JSON
+mostro-cli --output json schema    # the same data in the standard outcome
+```
+
+- `--output human|json` (default `human`, whether or not stdout is a terminal) may be written before, between or after the command words.
+- An empty order book is a success with an empty list. A relay that fails, disconnects or stays silent is an error with a stable code, never an empty success; the read is bounded and never retried.
+- Amounts and the event time are decimal strings, so 64-bit values survive any JSON consumer. `created_at` is the selected event's UTC time, or `null` if it is not representable.
+- Exit codes: `0` success, `2` invalid arguments or unsupported JSON, `1` configuration, relay or internal errors. `--help` and `--version` always print text and exit 0.
+- The generated command reference is [docs/schemas/discovery-v1.json](docs/schemas/discovery-v1.json) and the listing result schema is [docs/schemas/order-list-v1.json](docs/schemas/order-list-v1.json). Field, limit, error and versioning details are in [docs/commands.md](docs/commands.md#machine-output-schema-v1). The output schema version is independent of the CLI version.
+
+**Migrating from `listorders`.** `listorders`, its `-k`, `-c` and `-s` flags and the root `--mostropubkey` spelling were removed without aliases. Use `order list --side <buy|sell> --currency <code> --status <status>` and `--mostro-pubkey` (or `-m`) before the command word.
+
+> **Using `mostro-mcp`?** The existing MCP server still runs `listorders --kind ...` and the other old spellings, and it does not read this JSON yet. Keep running it against the CLI revision its own README names until it is migrated; do not point it at a build of this CLI that has removed those spellings. No compatible CLI/MCP release pair is published yet.
 
 ---
 
@@ -683,17 +711,17 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 **"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
 
-**`MOSTRO_PUBKEY not set`** — Export it, or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> listorders`, not `mostro-cli listorders -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance).
+**`MOSTRO_PUBKEY not set`** — Export it, or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> order list`, not `mostro-cli order list -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance).
 
 **`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs) or pass `-r <relay[,relay...]>` before the subcommand.
 
-**`error: unexpected argument '-m' found`** (or `-r`, `-p`, `-t`, `-v`) — Global flags belong before the subcommand: `mostro-cli -m <npub> listorders`. Placed after it, clap parses them against the subcommand, which either rejects them or silently means something else. See [Global flags](#global-flags).
+**`error: unexpected argument '-m' found`** (or `-r`, `-p`, `-t`, `-v`) — Global flags belong before the subcommand: `mostro-cli -m <npub> order list`. Placed after it, clap parses them against the subcommand, which either rejects them or silently means something else. See [Global flags](#global-flags).
 
 **My `.env` file is ignored** — It is not loaded automatically; the CLI has no dotenv support. Use `set -a; source .env; set +a` first — see [About `.env` files](#about-env-files).
 
 **`ADMIN_NSEC not set (required for admin commands)`** — Only admin subcommands need it. Export it in the same shell, or prefix the command: `ADMIN_NSEC=nsec1... mostro-cli admsettle ...`.
 
-**`listorders` returns nothing** — Almost always a configuration problem rather than an empty orderbook. In order:
+**`order list` returns nothing** — Almost always a configuration problem rather than an empty orderbook. In order:
 
 1. **Is `MOSTRO_PUBKEY` a live instance?** A node that has been shut down, or a pubkey copied from an outdated guide, produces exactly this: a clean connection and zero orders. Confirm the pubkey with its operator, or look for its kind-`38385` info event on the relay — see [Choosing a Mostro instance](#choosing-a-mostro-instance).
 2. **Do your relays carry that instance?** The node only publishes to the relays it is configured with. A perfectly healthy relay that the node never writes to will show nothing.
