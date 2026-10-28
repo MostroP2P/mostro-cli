@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 and DTOs T041 generated schemas T042 offline schema dispatch T043 safe error mapping T044 schema fixtures T045 and the full process matrix T046 are complete; T047-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 and DTOs T041 generated schemas T042 offline schema dispatch T043 safe error mapping T044 schema fixtures T045 the full process matrix T046 and US3 acceptance T047 are complete; T048-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -156,7 +156,7 @@ failures return the documented codes/exits, never empty success or uncertain.
 - [x] T044 [US3] Complete safe error mapping in `src/cli/invocation.rs`, `src/outcome.rs` and `src/msg/receive_msg.rs` for invalid_arguments/output_not_supported (exit 2), configuration_missing/configuration_invalid/relay_connection_failed/relay_read_failed/read_timeout/read_limit_exceeded/internal_error (exit 1); preserve resolved identities and stage evidence, null error data, no raw details, no uncertain read and the documented text/process exceptions. (depends on T043)
 - [x] T045 [US3] Generate reproducible fixtures at `docs/schemas/discovery-v1.json` (the pilot's machine-readable command reference, containing raw DiscoveryData without an outcome envelope) and `docs/schemas/order-list-v1.json` (the listing output schema). Add drift/contract checks in `tests/integration_tests.rs` that regenerate both through the same registry/Clap/DTO code used by offline schema, compare parsed JSON with the checked-in fixtures and fail on differences without rewriting them. Validate `specs/001-order-list-json/contracts/examples.json` against owned constructors and generated shapes, test invalid type/null/enum/amount combinations and semantic validators, and distinguish the proposed examples from generated executable output. No separate generated Markdown command reference is required for this pilot. (depends on T044)
 - [x] T046 [US3] Run the full configuration/argument/read/unsupported-command/secret-sentinel matrix in `tests/order_list_process.rs`, including failure after partial relay results and all output positions; prove one document where promised, safe empty-stdout fallbacks and no automatic retries or legacy execution. (depends on T045)
-- [ ] T047 [US3] Run offline discovery, schema drift and stable-error acceptance in `tests/cli_functions.rs`, `tests/integration_tests.rs` and `tests/order_list_process.rs`, then required gates; record coverage/version/field/error evidence in `tests/TEST_SUMMARY.md` and keep any failing scenario open. (depends on T046)
+- [x] T047 [US3] Run offline discovery, schema drift and stable-error acceptance in `tests/cli_functions.rs`, `tests/integration_tests.rs` and `tests/order_list_process.rs`, then required gates; record coverage/version/field/error evidence in `tests/TEST_SUMMARY.md` and keep any failing scenario open. (depends on T046)
 
 ## Phase 6: Polish And Cross-Cutting Verification
 
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Forty-six tasks are
-checked; 9 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Forty-seven tasks are
+checked; 8 remain pending.

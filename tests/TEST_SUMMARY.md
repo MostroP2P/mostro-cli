@@ -2463,6 +2463,66 @@ verbose line; no URL host appears in stdout or the allow-listed lines.
 
 T001-T046 are complete. T047 (US3 acceptance run) is next.
 
+## T047 US3 Acceptance: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `d0d0099`. No code changed in
+this task. It covers US3 (offline discovery and stable errors) on this platform
+only; Windows, CI wiring and the final reconciliation remain open.
+
+### Coverage
+
+| US3 obligation | Automated evidence |
+| --- | --- |
+| Offline discovery in both modes, no configuration, identity, connection or stdin | `order_list_process::schema_runs_offline_in_both_modes`: absent and invalid configuration, planted sentinel, reachable relay, zero connections, untouched sandbox; identical data in both modes |
+| `schema` grammar, help/version, registry entry | `cli_functions`: schema at every output depth, no arguments plus JSON intent on errors, help/version text, registry mapping (34 entries, 2 machine-capable) |
+| Versions | `schema_version` `1`; `executable_version` `0.16.3` in the fixture equals `Cargo.toml`; the drift test fails on any change |
+| Schema drift | `integration_tests`: both checked-in fixtures equal the regenerated documents; the failure message prints the regeneration commands; corrupting either fixture failed five tests (T045) |
+| Field and encoding rules | `integration_tests`: the four proposed `order.list` examples conform; 19 malformed variants do not; decimal strings are canonical signed 64-bit integers, with the range rule checked semantically |
+| Early guard for unmigrated commands | `every_legacy_command_rejects_json_before_any_effect`: all 32 legacy commands incl. gRPC and secret paths, exit 2, `output_not_supported`, zero connections |
+| Stable errors | table below |
+| Secrets | planted sentinels in arguments, environment, relay URLs and tokens absent from every stream in the T040, T032 and T046 runs |
+
+| Code | Exit | Binary-level evidence |
+| --- | --- | --- |
+| `invalid_arguments` | 2 | contract decision table (T018), `order_list_json_uses_read_stages`, `schema_argument_errors_keep_the_resolved_command` |
+| `output_not_supported` | 2 | `every_legacy_command_rejects_json_before_any_effect` |
+| `configuration_missing`, `configuration_invalid` | 1 | `configuration_errors_are_stable_and_leak_nothing` |
+| `relay_connection_failed` | 1 | `an_unreachable_relay_is_a_connection_failure_in_the_binary`, `read_failures_are_stable_in_every_mode_without_retries` |
+| `relay_read_failed` | 1 | `order_list_binary_read_failures_return_no_rows`, the T046 matrix |
+| `read_timeout` | 1 | `order_list_binary_times_out_on_a_silent_relay`, the T046 matrix |
+| `read_limit_exceeded` | 1 | `exceeding_the_event_cap_fails_the_binary_without_truncating` |
+| `internal_error` | 1 | unit level only: `parse_machine` serialization failure and `unbound_arguments_are_an_internal_error_in_the_selected_mode` |
+
+Also covered: the unwritable stdout (exit 1, one fixed line), unwritable stderr
+(result unchanged) and help/version text exceptions.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` | PASS: 67 |
+| `cargo test --locked --test integration_tests` | PASS: 22 |
+| `cargo test --locked --test order_list_process` | PASS: 46 in 15-16 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 22, order_list_process 46, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+### Still open (kept, not waived)
+
+- `internal_error` has no process-level case; it cannot be induced through a real run.
+- A relay disconnecting before EOSE has no connection-count check in the binary
+  (the T046 retry assertion does not detect SDK reconnection).
+- NIP-42 AUTH is never exercised by the loopback relays.
+- Windows: no native run; the watchdog test was timing-sensitive there (T033).
+- Only loopback relays were used; no public relay or live node.
+- Docs, CI drift wiring and requirement reconciliation: T048-T055.
+
+T001-T047 are complete. T048 (architecture documentation) and T049 (command
+documentation) are next and may run in parallel.
+
+
 
 ## Overview
 
