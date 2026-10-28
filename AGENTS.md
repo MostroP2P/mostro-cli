@@ -15,8 +15,8 @@ It is implemented and verified on Linux with loopback relays: all of T001-T055 a
 checked in the [task list](specs/001-order-list-json/tasks.md), but the native
 Windows run (part of T052, SC-005) is still blocked, so the pilot is not accepted
 for release. The next work is that Windows run. A follow-on draft exists,
-[order info](specs/002-order-info-json/spec.md) (clarified spec only:
-no plan or tasks yet); `order new` and `order take` are later specs. Continue from existing
+[order info](specs/002-order-info-json/spec.md) (clarified and planned,
+no tasks or code yet: see its plan, research, data model and contract); `order new` and `order take` are later specs. Continue from existing
 regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
