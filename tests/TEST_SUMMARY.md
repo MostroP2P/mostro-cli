@@ -2352,6 +2352,67 @@ collector and serialization tests and with T046.
 
 T001-T044 are complete. T045 (checked-in schema fixtures and drift checks) is next.
 
+
+## T045 Schema Fixtures And Drift Checks: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `8ca6e3e`.
+
+### Fixtures
+
+- `docs/schemas/discovery-v1.json`: the raw `DiscoveryData` (no envelope) that
+  `mostro-cli schema` prints: 34 commands, 35.6 KB.
+- `docs/schemas/order-list-v1.json`: the `order.list` output schema, equal to that
+  descriptor's `output_schema`: 12.1 KB.
+- Both were produced by the shipped binary, not by hand:
+  `cargo run -q -- schema > docs/schemas/discovery-v1.json` and
+  `cargo run -q -- --output json schema | jq '.data.commands[] | select(.name=="order.list") | .output_schema' > docs/schemas/order-list-v1.json`.
+  `executable_version` is part of the fixture, so a package version bump fails
+  the drift check until the fixtures are regenerated. That is intended.
+
+### Change
+
+- New `offline_discovery()` in `src/cli/schema.rs`; the `schema` command, the
+  fixtures and the drift tests all use this one path (registry, Clap grammar and
+  owned DTOs). `cli.rs` calls it instead of building the document itself.
+- New `tests/common/schema_check.rs`: the schema checker from T042, now one file
+  shared by the `outcome::schema` unit tests (through `#[path]`) and the
+  integration tests, so there is no second copy and no new dependency.
+
+### Evidence (`tests/integration_tests.rs`, 8 new tests)
+
+| Test | Covers |
+| --- | --- |
+| `discovery_fixture_matches_the_generated_document` | parsed fixture equals the regenerated document; the failure message prints the regeneration commands |
+| `listing_schema_fixture_matches_the_generated_schema` | same for the listing schema |
+| `discovery_fixture_is_raw_discovery_data_not_an_envelope` | exactly the four DiscoveryData keys, sorted commands, machine commands are `order.list` and `schema` |
+| `proposed_listing_examples_conform_to_the_checked_in_schema` | the four `order.list` examples in `examples.json` conform; exits agree; every decimal field is a canonical signed 64-bit integer |
+| `the_legacy_rejection_example_matches_its_constructor_and_is_not_a_listing` | `unsupported_secret_command` equals the owned constructor's output and is not a listing outcome |
+| `examples_stay_proposals_separate_from_generated_output` | `contract_status` stays `proposed`; generated files live only under `docs/schemas` |
+| `invalid_types_nulls_enums_and_amounts_do_not_conform` | 19 edits of the large-amount example are rejected: wrong types, nulls, unknown enum values, `-0`/`+5`/`015`/`1.5`/`1e3`, a missing nullable key, a claimed complete history, an error with data |
+| `the_signed_64_bit_range_is_a_semantic_rule_the_pattern_cannot_state` | range boundaries pass; one past either end passes the pattern but fails the semantic check; a 21-character value fails the schema |
+
+The tests only read the fixtures; none rewrites them.
+
+Teeth: with `executable_version` changed in the discovery fixture and the schema
+version constant changed in the listing fixture, five tests failed (both drift
+checks, the example conformance, the mutation test and the range test); the
+fixtures were restored and all passed again.
+
+CI wiring of these checks and of the Windows runs is T051.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test integration_tests` | PASS: 22 (8 new) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS after boxing a complex test type |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 22, order_list_process 43, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T045 are complete. T046 (full configuration/argument/read matrix) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
