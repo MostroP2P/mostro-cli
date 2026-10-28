@@ -2292,6 +2292,66 @@ Production lines: `cli.rs` 271, `cli/schema.rs` 219, `cli/registry.rs` 94.
 
 T001-T043 are complete. T044 (safe error mapping) is next.
 
+## T044 Safe Error Mapping: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `9245045`.
+
+### Audit
+
+Each stable code was traced from its source to the wire. The mapping in
+`src/outcome.rs` (codes, exits, fixed prose, stage sets), `src/msg/mod.rs`
+(`configuration_*`, `relay_connection_failed`) and `src/msg/receive_msg.rs`
+(`relay_read_failed`, `read_timeout`, `read_limit_exceeded`, failures carrying
+the snapshot and cleanup warnings) was already complete and tested
+(`outcome::tests`, T021/T026 collector tests, T031/T040 binary tests), as was
+the argument-error identity in `src/cli/invocation.rs` and `report`. One gap
+was found.
+
+### Defect and fix
+
+`run()` turned a failure to bind parsed arguments to the typed grammar into
+an `anyhow` error: stderr text, empty stdout and exit 1 even with `--output json`,
+which breaks the one-document promise for a controlled outcome. It is now
+`unbound` in `src/cli.rs`: JSON mode emits an `internal_error` envelope with the
+resolved command identity and stage evidence (or a null command), human mode
+prints one fixed line, both exit 1. `rejection` now delegates to `reject_to`, which
+takes the writers. The case cannot occur through the real grammar, so
+`unbindable_arguments_are_an_internal_error_in_the_selected_mode` covers it with
+parsed matches directly; its first run did not compile (no `unbound`), so it is
+a compile-level red, not a behavioral one.
+
+### Added tests
+
+- `an_unwritable_stdout_exits_1_with_one_fixed_line` (process): with the stdout
+  reader closed, an argument error (2), a removed spelling (2), a `schema`
+  success (0) and the human discovery document all exit 1 with exactly one fixed
+  stderr line; the sandbox stays empty. This is the documented
+  "broken stdout write" row, previously covered only at unit level.
+- `schema_argument_errors_keep_the_resolved_command` (process): three malformed
+  `schema` invocations return exit 2, command `schema`, `invalid_arguments`, null
+  data, read stages, one document, no planted sentinel and no effects.
+
+### Not covered here
+
+`read_limit_exceeded` and `internal_error` still have no binary-level case: the
+production 10,000-event cap needs a relay that ignores the requested limit, and
+`internal_error` cannot be induced through a real run. Both stay with the
+collector and serialization tests and with T046.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 14, order_list_process 43, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+`src/cli.rs` is 316 production lines.
+
+T001-T044 are complete. T045 (checked-in schema fixtures and drift checks) is next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
