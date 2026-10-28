@@ -59,7 +59,7 @@ generic framework. Legacy repository compliance is not claimed.
 ## Prerequisites And Sequence
 
 The pilot's native Windows run is not a prerequisite; its results will be recorded separately. Steps are
-dependency-ordered and test-first; the task list will carry them.
+dependency-ordered and test-first; the slices in the task list carry them.
 
 1. Characterize `ordersinfo` (arguments, message built, reply handling) and capture the daemon's reply shapes as fixtures from the source-derived table in [research.md](research.md). Extract `cli/migrated.rs` from `cli.rs`, behavior-preserving, tests rerun.
 2. Add `identity.rs` with the read-only loader and typed errors; make `db.rs` delegate the derivation. Tests first: absent, unreadable, valid store; byte-identical file; nothing created.
@@ -110,7 +110,7 @@ specs/002-order-info-json/
   checklists/requirements.md
 ```
 
-[tasks.md](tasks.md) holds the 44 dependency-ordered tasks. Proposed outcome examples are added as `contracts/examples.json` by task T034, as in the pilot.
+[tasks.md](tasks.md) holds the six implementation slices. Proposed outcome examples are added as `contracts/examples.json` by task T034, as in the pilot.
 
 ### Planned Source Changes (Repository Root)
 

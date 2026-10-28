@@ -1342,3 +1342,139 @@ mod list_contract {
         }
     }
 }
+
+/// Wire facts the order-info fixtures rely on, checked against the pinned
+/// `mostro-core`: the `orders` request and its replies survive the transport,
+/// the identity proof matches the signing key, and the refusal reasons keep
+/// their snake-case names. A divergence stops the order-info work.
+mod info_contract {
+    use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
+    use mostro_core::prelude::{
+        unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Transport,
+        UnwrappedMessage, WrapOptions,
+    };
+    use nostr_sdk::prelude::Keys;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    async fn over_the_wire(message: &Message, signer: &Keys, receiver: &Keys) -> UnwrappedMessage {
+        let event = wrap_message_with(
+            Transport::Nip44Direct,
+            message,
+            signer,
+            signer,
+            receiver.public_key(),
+            WrapOptions::default(),
+        )
+        .await
+        .unwrap();
+        unwrap_incoming(&event, receiver).await.unwrap().unwrap()
+    }
+
+    fn small_order(id: Uuid) -> SmallOrder {
+        SmallOrder::new(
+            Some(id),
+            Some(OrderKind::Sell),
+            Some(OrderStatus::Active),
+            15_000,
+            "USD".to_string(),
+            None,
+            None,
+            15,
+            "bank transfer".to_string(),
+            1,
+            Some(Keys::generate().public_key().to_hex()),
+            None,
+            None,
+            Some(1_792_108_800),
+            Some(1_792_195_200),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_orders_request_carries_its_ids_and_the_identity_that_signed_it() {
+        let identity = Keys::generate();
+        let node = Keys::generate();
+        let ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let request = Message::new_order(
+            None,
+            Some(8721),
+            None,
+            Action::Orders,
+            Some(Payload::Ids(ids.clone())),
+        );
+
+        let seen = over_the_wire(&request, &identity, &node).await;
+
+        assert_eq!(seen.sender, identity.public_key());
+        assert_eq!(seen.identity, identity.public_key());
+        let kind = seen.message.get_inner_message_kind();
+        assert_eq!(kind.request_id, Some(8721));
+        assert_eq!(kind.action, Action::Orders);
+        let Some(Payload::Ids(received)) = &kind.payload else {
+            panic!("unexpected payload {:?}", kind.payload);
+        };
+        assert_eq!(received, &ids);
+    }
+
+    #[tokio::test]
+    async fn the_orders_reply_keeps_request_id_orders_and_trade_keys() {
+        let identity = Keys::generate();
+        let node = Keys::generate();
+        let id = Uuid::new_v4();
+        let order = small_order(id);
+        let reply = Message::new_order(
+            None,
+            Some(8721),
+            None,
+            Action::Orders,
+            Some(Payload::Orders(vec![order.clone()])),
+        );
+
+        let seen = over_the_wire(&reply, &node, &identity).await;
+
+        assert_eq!(seen.sender, node.public_key());
+        let kind = seen.message.get_inner_message_kind();
+        assert_eq!(
+            (kind.request_id, kind.action.clone()),
+            (Some(8721), Action::Orders)
+        );
+        let Some(Payload::Orders(orders)) = &kind.payload else {
+            panic!("unexpected payload {:?}", kind.payload);
+        };
+        assert_eq!(orders.len(), 1);
+        assert_eq!(orders[0].id, Some(id));
+        assert_eq!(orders[0].buyer_trade_pubkey, order.buyer_trade_pubkey);
+        assert_eq!(orders[0].buyer_invoice, None);
+        assert_eq!(orders[0].created_at, Some(1_792_108_800));
+    }
+
+    #[tokio::test]
+    async fn refusals_are_cant_do_messages_with_snake_case_reasons() {
+        let identity = Keys::generate();
+        let node = Keys::generate();
+        let cases = [
+            (CantDoReason::NotFound, "not_found"),
+            (CantDoReason::TooManyRequests, "too_many_requests"),
+            (CantDoReason::InvalidParameters, "invalid_parameters"),
+        ];
+        for (reason, name) in cases {
+            assert_eq!(serde_json::to_value(&reason).unwrap(), json!(name));
+            let refusal = Message::cant_do(
+                None,
+                Some(8721),
+                Some(Payload::CantDo(Some(reason.clone()))),
+            );
+            let seen = over_the_wire(&refusal, &node, &identity).await;
+            let kind = seen.message.get_inner_message_kind();
+            assert_eq!(
+                (kind.request_id, kind.action.clone()),
+                (Some(8721), Action::CantDo)
+            );
+            let Some(Payload::CantDo(Some(received))) = &kind.payload else {
+                panic!("{name}: unexpected payload {:?}", kind.payload);
+            };
+            assert_eq!(received, &reason, "{name}");
+        }
+    }
+}

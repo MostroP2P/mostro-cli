@@ -2832,6 +2832,37 @@ result exists.
 
 
 
+
+## Order Info, Slice 1: Characterization And Fixtures: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `264a8eb`. Tests and fixtures only; no production
+change. Lean mode: this is the only evidence entry for the slice (see
+[tasks.md](../specs/002-order-info-json/tasks.md)).
+
+- **Legacy `ordersinfo` pinned** (`cli_functions::ordersinfo_characterization`, removed with the command in slice 4):
+  repeated ids through `-o` or `--orderids`, any letter case; duplicates are kept and no id is accepted at parse
+  time (the handler rejects an empty list later, after the context exists); a bad UUID fails; the registry already
+  names it `order.info` and human-only. Already known from the code: it signs and receives with the identity key,
+  creates the identity on first use and waits for the first message from the node.
+- **Wire facts** (`parser_orders::info_contract`, 3 tests, pinned `mostro-core` 0.17.3): the `orders` request with
+  `Ids` keeps its request id and proves the signing identity; the `Orders` reply keeps request id, orders and trade
+  keys and has no buyer invoice; `not_found`, `too_many_requests` and `invalid_parameters` travel as `CantDo` with
+  snake-case reasons. No divergence found.
+- **Shared harness**: the process harness moved from `tests/order_list_process.rs` to `tests/common/harness.rs`
+  (`Sandbox`, `LoopbackRelay`, `Backend`, `Captured`, `run_with_watchdog`, `set_node_env`, `assert_no_effects`,
+  `closed_pipe`, `run_with_node_env`, `SENTINEL`). The 46 existing process tests pass unchanged.
+- **Scripted fake daemon and identity seeding** (`tests/common/fake_mostro.rs`, self-tested in
+  `tests/order_info_process.rs`, 3 tests): the daemon decrypts and records requests (author, identity, request id,
+  action, ids) and replies by script (orders, refusals, malformed reply, noise, wrong signer or recipient, delay,
+  silence); `info_event` builds the kind-38385 event with any subset of its tags; `seed_identity` creates a real
+  `mcli.db` through the production `User` code. Mutation: changing the reply's request id failed two of the three
+  tests; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (437 tests: lib 124, cli_functions 70,
+  integration 33, order_info_process 3, order_list_process 46, parser_orders 113, others unchanged, doctests 3),
+  `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. Windows not run.
+
+Nothing here claims any `order info` behavior: the command does not exist yet.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

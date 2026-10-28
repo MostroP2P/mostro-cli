@@ -1446,3 +1446,60 @@ mod registry {
         assert_eq!(machine, ["order.list", "schema"]);
     }
 }
+
+/// What the legacy `ordersinfo` accepts today. These characterize the command
+/// that `order info` replaces and are removed with it (spec 002, slice 4).
+mod ordersinfo_characterization {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands};
+    use uuid::Uuid;
+
+    const FIRST: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+    const SECOND: &str = "00000000-0000-4000-8000-000000000002";
+
+    fn parse(args: &[&str]) -> Result<Vec<Uuid>, clap::Error> {
+        let argv = std::iter::once("mostro-cli").chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::OrdersInfo { order_ids }) => Ok(order_ids),
+            other => panic!("not ordersinfo: {}", other.is_some()),
+        }
+    }
+
+    #[test]
+    fn takes_repeated_ids_through_a_short_or_long_flag() {
+        let expected: Vec<Uuid> = [FIRST, SECOND]
+            .iter()
+            .map(|id| id.parse().unwrap())
+            .collect();
+        assert_eq!(
+            parse(&["ordersinfo", "-o", FIRST, "--orderids", SECOND]).unwrap(),
+            expected
+        );
+        // Letter case is accepted and the uuid type normalizes it.
+        let upper = FIRST.to_uppercase();
+        assert_eq!(
+            parse(&["ordersinfo", "-o", &upper]).unwrap(),
+            vec![expected[0]]
+        );
+    }
+
+    #[test]
+    fn keeps_duplicates_and_accepts_no_id_until_it_runs() {
+        // Clap does not require an id and does not deduplicate: the handler
+        // rejects an empty list at run time, after the context is built.
+        assert_eq!(
+            parse(&["ordersinfo", "-o", FIRST, "-o", FIRST])
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(parse(&["ordersinfo"]).unwrap().is_empty());
+        assert!(parse(&["ordersinfo", "-o", "not-a-uuid"]).is_err());
+    }
+
+    #[test]
+    fn is_a_registered_human_only_command_with_the_canonical_name_order_info() {
+        let entry = lookup(&["ordersinfo".to_string()]).expect("registered");
+        assert_eq!(entry.canonical, "order.info");
+    }
+}
