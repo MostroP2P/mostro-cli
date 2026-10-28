@@ -55,6 +55,7 @@ use crate::parse_machine::emit;
 use crate::util::net::install_rustls_crypto_provider;
 use context::init_context;
 use invocation::{parse_invocation, ArgumentFailure, Invocation, OutputMode, OutputSelection};
+use schema::SCHEMA_COMMAND;
 
 /// Parse argv, run the command and return the process exit status.
 pub async fn run() -> Result<i32> {
@@ -68,6 +69,25 @@ pub async fn run() -> Result<i32> {
     };
     let cli = Cli::from_arg_matches(&matches)
         .map_err(|_| anyhow!("internal error: parsed arguments could not be bound"))?;
+
+    // Offline discovery needs no configuration, identity, logger or network.
+    if let Some(Commands::Schema) = &cli.command {
+        let data = discovery(|entry| command_schemas(&Cli::command(), entry));
+        return Ok(match output {
+            OutputMode::Json => {
+                let outcome = Envelope::<DiscoveryData, ()>::ok(
+                    SCHEMA_COMMAND,
+                    data,
+                    Warnings::new(),
+                    ExecutionMeta::read(None),
+                );
+                emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock())
+            }
+            OutputMode::Human => {
+                print_discovery(&data, &mut io::stdout().lock(), &mut io::stderr().lock())
+            }
+        });
+    }
 
     // Public listing needs no identity, database, environment mutation or RPC.
     if let Some(Commands::Order {
@@ -172,6 +192,26 @@ fn print_list(outcome: &ListOutcome, out: &mut impl Write, err: &mut impl Write)
         Ok(()) => outcome.exit_code(),
         Err(_) => {
             diagnose(err, "error: the order list could not be written");
+            RUNTIME_ERROR_EXIT
+        }
+    }
+}
+
+/// The discovery document as pretty JSON on `out`. It is serialized completely
+/// before the first byte is written; a failure exits 1 with one fixed line.
+fn print_discovery(data: &DiscoveryData, out: &mut impl Write, err: &mut impl Write) -> i32 {
+    let Ok(mut text) = serde_json::to_string_pretty(data) else {
+        diagnose(
+            err,
+            &format!("error: {}", ErrorCode::InternalError.message()),
+        );
+        return RUNTIME_ERROR_EXIT;
+    };
+    text.push('\n');
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(_) => {
+            diagnose(err, "error: the discovery document could not be written");
             RUNTIME_ERROR_EXIT
         }
     }
@@ -306,5 +346,39 @@ mod tests {
         assert_eq!(print_list(&listed(), &mut Broken, &mut Broken), 1);
         assert_eq!(print_list(&listed(), &mut Vec::new(), &mut Broken), 0);
         diagnose(&mut Broken, "verbose: ignored");
+    }
+
+    fn discovered() -> DiscoveryData {
+        discovery(|entry| command_schemas(&Cli::command(), entry))
+    }
+
+    #[test]
+    fn discovery_prints_one_pretty_document_with_the_schema_command() {
+        let data = discovered();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(print_discovery(&data, &mut out, &mut err), 0);
+        assert!(err.is_empty());
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.ends_with("}\n") && text.contains("\n  \"commands\""));
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed, serde_json::to_value(&data).unwrap());
+        let names: Vec<&str> = parsed["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|command| command["name"].as_str())
+            .collect();
+        assert!(names.contains(&"schema") && names.contains(&"order.list"));
+    }
+
+    #[test]
+    fn failed_discovery_write_exits_1_with_one_fixed_line() {
+        let mut err = Vec::new();
+        assert_eq!(print_discovery(&discovered(), &mut Broken, &mut err), 1);
+        assert_eq!(err, b"error: the discovery document could not be written\n");
+        assert_eq!(
+            print_discovery(&discovered(), &mut Vec::new(), &mut Broken),
+            0
+        );
     }
 }

@@ -3,6 +3,7 @@
 //! constants only; no environment value, identity or network is consulted.
 
 use clap::{Arg, Command};
+use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
@@ -28,7 +29,7 @@ pub struct CommandSchemas {
 }
 
 /// How a command can present its outcome.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum PresentationMode {
     Human,
@@ -36,7 +37,7 @@ pub enum PresentationMode {
 }
 
 /// One discoverable command.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
 pub struct CommandDescriptor {
     /// Canonical dotted name, as reported in outcomes.
     pub name: &'static str,
@@ -53,7 +54,7 @@ pub struct CommandDescriptor {
 
 /// The discovery document: `schema` data in a JSON outcome and, in human mode,
 /// printed as pretty JSON.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
 pub struct DiscoveryData {
     pub schema_version: &'static str,
     pub executable_version: &'static str,
@@ -109,7 +110,7 @@ fn descriptor(entry: &CommandEntry, schemas: Option<CommandSchemas>) -> CommandD
 fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" => Some(LISTING_CONFIGURATION.to_vec()),
-        "schema" => Some(Vec::new()),
+        SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
 }
@@ -127,19 +128,32 @@ const LISTING_ERRORS: [ErrorCode; 8] = [
     ErrorCode::InternalError,
 ];
 
+/// Canonical name of offline discovery.
+pub const SCHEMA_COMMAND: &str = "schema";
+
+/// Codes that can fail `schema` once it is resolved: it reads no configuration
+/// and touches nothing, so only an internal failure remains.
+const DISCOVERY_ERRORS: [ErrorCode; 2] = [ErrorCode::InvalidArguments, ErrorCode::InternalError];
+
 /// Generated documents of a machine-capable command, or `None` for one this
 /// build cannot describe yet. `root` is the real Clap grammar.
 pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSchemas> {
-    if entry.canonical != ORDER_LIST {
-        return None;
-    }
-    Some(CommandSchemas {
-        input: input_schema(root, entry.path)?,
-        output: output_schema::<ListData, Snapshot>(&OutcomeRules {
+    let output = match entry.canonical {
+        ORDER_LIST => output_schema::<ListData, Snapshot>(&OutcomeRules {
             command: ORDER_LIST,
             errors: &LISTING_ERRORS,
             snapshot_on_success: true,
         }),
+        SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules {
+            command: SCHEMA_COMMAND,
+            errors: &DISCOVERY_ERRORS,
+            snapshot_on_success: false,
+        }),
+        _ => return None,
+    };
+    Some(CommandSchemas {
+        input: input_schema(root, entry.path)?,
+        output,
     })
 }
 

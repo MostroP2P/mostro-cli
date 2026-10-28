@@ -2223,8 +2223,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 1,
-        "only order.list is machine-capable"
+        REGISTRY.len() - 2,
+        "only order.list and schema are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];
@@ -2381,7 +2381,6 @@ async fn an_unreachable_relay_is_a_connection_failure_in_the_binary() {
 /// stdin: it succeeds with absent or invalid configuration and a reachable
 /// relay it must not contact, and writes nothing to the sandbox.
 #[tokio::test]
-#[ignore = "red until T043"]
 async fn schema_runs_offline_in_both_modes() {
     let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
         .await

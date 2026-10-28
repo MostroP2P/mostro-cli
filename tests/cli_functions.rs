@@ -1183,7 +1183,6 @@ mod output_intent {
     }
 
     #[test]
-    #[ignore = "red until T043"]
     fn schema_parses_with_output_at_every_depth() {
         let schema = vec!["schema".to_string()];
         let rows: [(&[&str], OutputMode); 6] = [
@@ -1209,7 +1208,6 @@ mod output_intent {
     }
 
     #[test]
-    #[ignore = "red until T043"]
     fn schema_takes_no_arguments_and_keeps_json_intent_on_errors() {
         check(&[
             (
@@ -1235,7 +1233,6 @@ mod output_intent {
     }
 
     #[test]
-    #[ignore = "red until T043"]
     fn schema_help_and_version_stay_text() {
         assert_eq!(text_kind(&["schema", "--help"]), ErrorKind::DisplayHelp);
         assert_eq!(
@@ -1305,8 +1302,9 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 33] = [
+    const APPROVED: [(&[&str], &str); 34] = [
         (&["order", "list"], "order.list"),
+        (&["schema"], "schema"),
         (&["neworder"], "order.new"),
         (&["takesell"], "order.take-sell"),
         (&["takebuy"], "order.take-buy"),
@@ -1387,7 +1385,7 @@ mod registry {
     fn canonical_names_are_dotted_lowercase() {
         let lowercase =
             |word: &str| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase());
-        for entry in REGISTRY {
+        for entry in REGISTRY.iter().filter(|entry| entry.canonical != "schema") {
             let (noun, verb) = entry.canonical.split_once('.').expect("one dot");
             assert!(lowercase(noun), "{}", entry.canonical);
             assert!(verb.split('-').all(lowercase), "{}", entry.canonical);
@@ -1395,9 +1393,9 @@ mod registry {
     }
 
     #[test]
-    fn only_order_list_supports_json() {
+    fn only_order_list_and_schema_support_json() {
         for entry in REGISTRY {
-            if entry.canonical == "order.list" {
+            if matches!(entry.canonical, "order.list" | "schema") {
                 assert_eq!(entry.json, JsonSupport::Read);
                 assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
             } else {
@@ -1435,7 +1433,6 @@ mod registry {
     }
 
     #[test]
-    #[ignore = "red until T043"]
     fn schema_is_a_registered_machine_command_with_a_non_dotted_name() {
         let entry = lookup(&path(&["schema"])).expect("schema is registered");
         assert_eq!(entry.canonical, "schema");

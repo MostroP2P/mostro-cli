@@ -105,6 +105,7 @@ impl Commands {
 
             // Order management commands
             Commands::Order { .. } => unreachable!("public listing runs without a Context"),
+            Commands::Schema => unreachable!("discovery runs without a Context"),
             Commands::NewOrder {
                 kind,
                 fiat_code,
