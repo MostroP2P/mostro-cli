@@ -2496,3 +2496,278 @@ async fn schema_argument_errors_keep_the_resolved_command() {
         assert_no_effects(&sandbox, &format!("{args:?}"));
     }
 }
+
+/// Raises every query's limit, so the relay answers with all it stores. A
+/// relay may ignore the requested limit; the read must not trust it.
+#[derive(Debug)]
+struct RaiseLimit;
+
+impl QueryPolicy for RaiseLimit {
+    fn admit_query<'a>(
+        &'a self,
+        query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        query.limit = Some(5_000);
+        Box::pin(async { QueryPolicyResult::Accept })
+    }
+}
+
+/// `count` relays that each hold `per_relay` distinct matching orders and
+/// answer a query with all of them, each below the notification capacity.
+async fn flooding_relays(mostro: &Keys, count: usize, per_relay: usize) -> Vec<LoopbackRelay> {
+    let at = Timestamp::now().as_secs() - HOUR;
+    let mut relays = Vec::new();
+    for relay_index in 0..count {
+        // The policy raises the requested limit and the relay's own caps (500 by
+        // default) are lifted, so it answers with all it stores.
+        let relay = LocalRelay::builder()
+            .query_policy(RaiseLimit)
+            .max_filter_limit(5_000)
+            .max_query_results(5_000)
+            .build();
+        for event_index in 0..per_relay {
+            let id = (relay_index * per_relay + event_index) as u128 + 1;
+            relay
+                .add_event(listing_at(mostro, id, at, "sell", "pending"))
+                .await
+                .unwrap();
+        }
+        relays.push(
+            LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+                .await
+                .unwrap(),
+        );
+    }
+    relays
+}
+
+/// What one failing read must report.
+struct Failing<'a> {
+    label: &'a str,
+    /// Relay URLs as configured, including any that have no endpoint.
+    urls: Vec<String>,
+    /// Endpoints behind the URLs, to count connections.
+    endpoints: Vec<&'a LoopbackRelay>,
+    code: &'a str,
+    /// Whether the public query started, so a snapshot is kept.
+    snapshot: bool,
+}
+
+/// The node environment plus secrets that must never reach any output.
+fn failing_env(mostro: &Keys, urls: &[String]) -> Vec<(&'static str, String)> {
+    vec![
+        ("MOSTRO_PUBKEY", mostro.public_key().to_hex()),
+        ("RELAYS", urls.join(",")),
+        ("ADMIN_NSEC", SENTINEL.to_string()),
+        ("MOSTRO_RPC_TOKEN", SENTINEL.to_string()),
+        ("NSEC", SENTINEL.to_string()),
+    ]
+}
+
+/// Run one failing read in JSON, human and verbose-JSON modes at once and
+/// check the stable outcome, the fixed human line, safe streams, no effects
+/// and exactly one connection per relay per run (no retry).
+async fn check_failing_read(mostro: &Keys, failing: Failing<'_>) {
+    let label = failing.label;
+    let env = failing_env(mostro, &failing.urls);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let before: Vec<usize> = failing.endpoints.iter().map(|r| r.connections()).collect();
+    let json = ["--output", "json", "order", "list"];
+    let human = ["order", "list"];
+    let verbose = ["--verbose", "--output", "json", "order", "list"];
+    let ((json_run, json_sandbox), (human_run, human_sandbox), (verbose_run, verbose_sandbox)) = tokio::join!(
+        run_with_node_env(&json, &env),
+        run_with_node_env(&human, &env),
+        run_with_node_env(&verbose, &env),
+    );
+
+    assert_eq!(
+        json_run.code(),
+        Some(1),
+        "{label}: {}",
+        json_run.stderr_text()
+    );
+    let outcome = one_document(&json_run);
+    assert_eq!(outcome["command"], "order.list", "{label}");
+    assert_eq!(outcome["error"]["code"], failing.code, "{label}: {outcome}");
+    assert_eq!(outcome["data"], Value::Null, "{label}: {outcome}");
+    assert_eq!(
+        outcome["meta"]["snapshot"].is_null(),
+        !failing.snapshot,
+        "{label}: {outcome}"
+    );
+    assert!(!json_run.stdout_text().contains(SENTINEL), "{label}");
+    assert!(!json_run.stdout_text().contains("127.0.0.1"), "{label}");
+
+    assert_eq!(human_run.code(), Some(1), "{label}");
+    assert!(
+        human_run.stdout.is_empty(),
+        "{label}: {}",
+        human_run.stdout_text()
+    );
+    assert_eq!(
+        human_run.stderr_text(),
+        format!("error: {}\n", outcome["error"]["message"].as_str().unwrap()),
+        "{label}"
+    );
+
+    assert_eq!(verbose_run.code(), Some(1), "{label}");
+    let verbose_outcome: Value = serde_json::from_str(&verbose_run.stdout_text()).unwrap();
+    assert_eq!(verbose_outcome["error"]["code"], failing.code, "{label}");
+    assert_allow_listed(&verbose_run, label);
+    for (run, sandbox) in [
+        (&json_run, &json_sandbox),
+        (&human_run, &human_sandbox),
+        (&verbose_run, &verbose_sandbox),
+    ] {
+        assert!(!run.stderr_text().contains(SENTINEL), "{label}");
+        assert_no_effects(sandbox, label);
+    }
+    for (endpoint, before) in failing.endpoints.iter().zip(before) {
+        assert_eq!(
+            endpoint.connections() - before,
+            3,
+            "{label}: a read was retried"
+        );
+    }
+}
+
+/// Every controlled read failure, after partial results or none, with the
+/// stable code, one document, fixed human text, no secrets and no retries.
+#[tokio::test]
+async fn read_failures_are_stable_in_every_mode_without_retries() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let (closed, _) = start_fixture(Fixture::Closed).await;
+    let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let refused = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let refused_url = format!("ws://{}", refused.local_addr().unwrap());
+    drop(refused);
+    let secret_url = |relay: &LoopbackRelay| sentinel_url(relay);
+
+    let rows = [
+        Failing {
+            label: "closed",
+            urls: vec![secret_url(&closed)],
+            endpoints: vec![&closed],
+            code: "relay_read_failed",
+            snapshot: true,
+        },
+        Failing {
+            label: "answering then closed",
+            urls: vec![secret_url(&answering), secret_url(&closed)],
+            endpoints: vec![&answering, &closed],
+            code: "relay_read_failed",
+            snapshot: true,
+        },
+        Failing {
+            label: "answering then refused",
+            urls: vec![
+                secret_url(&answering),
+                format!("{refused_url}/?token={SENTINEL}"),
+            ],
+            endpoints: vec![&answering],
+            code: "relay_connection_failed",
+            snapshot: false,
+        },
+        Failing {
+            label: "answering then silent",
+            urls: vec![secret_url(&answering), secret_url(&silent)],
+            endpoints: vec![&answering, &silent],
+            code: "read_timeout",
+            snapshot: true,
+        },
+    ];
+    let started = Instant::now();
+    for row in rows {
+        check_failing_read(&mostro, row).await;
+    }
+    // The rows run one after another; only the timeout waits for its budget.
+    assert!(
+        started.elapsed() < Duration::from_secs(40),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+/// More unique matching orders than the cap, spread over relays that each stay
+/// under the notification capacity (about a thousand events each), fail with `read_limit_exceeded` and no rows.
+#[tokio::test]
+async fn exceeding_the_event_cap_fails_the_binary_without_truncating() {
+    let mostro = Keys::generate();
+    // The SDK reports each event twice, so a relay stays under the 2,048
+    // notification capacity with about a thousand events; eleven pass the cap.
+    let relays = flooding_relays(&mostro, 11, 1_000).await;
+    let urls: Vec<String> = relays.iter().map(sentinel_url).collect();
+    let endpoints: Vec<&LoopbackRelay> = relays.iter().collect();
+    check_failing_read(
+        &mostro,
+        Failing {
+            label: "event cap",
+            urls,
+            endpoints,
+            code: "read_limit_exceeded",
+            snapshot: true,
+        },
+    )
+    .await;
+
+    // The kept evidence says the cap was reached, not that rows were returned.
+    let env = failing_env(
+        &mostro,
+        &relays.iter().map(|r| r.url.clone()).collect::<Vec<_>>(),
+    );
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (run, _sandbox) = run_with_node_env(&["--output", "json", "order", "list"], &env).await;
+    let outcome = one_document(&run);
+    assert_eq!(
+        outcome["meta"]["snapshot"]["received_events"], 10_000,
+        "{outcome}"
+    );
+    assert_eq!(
+        outcome["meta"]["snapshot"]["configured_relays"], 11,
+        "{outcome}"
+    );
+    assert_eq!(outcome["data"], Value::Null);
+}
+
+/// A successful listing is the same document wherever `--output` is written.
+#[tokio::test]
+async fn every_output_position_returns_the_same_listing() {
+    let mostro = Keys::generate();
+    let relay = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let spellings: [&[&str]; 6] = [
+        &["--output", "json", "order", "list"],
+        &["--output=json", "order", "list"],
+        &["order", "--output", "json", "list"],
+        &["order", "--output=json", "list"],
+        &["order", "list", "--output", "json"],
+        &["order", "list", "--output=json"],
+    ];
+    let mut documents = Vec::new();
+    for args in spellings {
+        let sandbox = Sandbox::new().unwrap();
+        let run = run_listing(&sandbox, args, &mostro, &[&relay]).await;
+        assert_eq!(run.code(), Some(0), "{args:?}: {}", run.stderr_text());
+        let outcome = one_document(&run);
+        assert_no_effects(&sandbox, &format!("{args:?}"));
+        documents.push((args, outcome));
+    }
+    let (first_args, first) = &documents[0];
+    assert!(!row_ids(first).is_empty());
+    for (args, outcome) in &documents[1..] {
+        for key in ["command", "status", "data", "error", "warnings"] {
+            assert_eq!(
+                outcome[key], first[key],
+                "{args:?} differs from {first_args:?}: {key}"
+            );
+        }
+        assert_eq!(
+            outcome["meta"]["snapshot"]["received_events"],
+            first["meta"]["snapshot"]["received_events"],
+            "{args:?}"
+        );
+    }
+    assert_eq!(relay.connections(), spellings.len(), "one read per run");
+}
