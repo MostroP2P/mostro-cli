@@ -105,12 +105,12 @@ same drift checks; `discovery-v1.json` gains the `order.info` descriptor (the le
 
 ```text
 specs/002-order-info-json/
-  spec.md  plan.md  research.md  data-model.md  quickstart.md
+  spec.md  plan.md  tasks.md  research.md  data-model.md  quickstart.md
   contracts/cli.md
   checklists/requirements.md
 ```
 
-`tasks.md` is produced by the next step. Proposed outcome examples will be added as `contracts/examples.json` with the implementation, as in the pilot.
+[tasks.md](tasks.md) holds the 44 dependency-ordered tasks. Proposed outcome examples are added as `contracts/examples.json` by task T034, as in the pilot.
 
 ### Planned Source Changes (Repository Root)
 
