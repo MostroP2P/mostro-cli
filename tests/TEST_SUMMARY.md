@@ -2811,6 +2811,25 @@ alone.
 
 T001-T054 are recorded. T055 (status updates) is next.
 
+## T055 Status Update: 2026-10-28
+
+Documentation only, **left uncommitted** as the task requires. Status lines now say
+what T054 proves and no more: `plan.md` (status, evidence links, task-list note),
+`checklists/requirements.md` (a pointer to the reconciliation; no item changed),
+the cross-repository roadmap (a "Progress" section: Phase 1 baseline and Phase 2
+done on Linux; Phases 3-6 and 8 not started; Phase 7 partly done; critical-path
+step 1 done), and, because they would otherwise state the opposite of the
+evidence, the status lines of `spec.md`, `data-model.md`, `contracts/cli.md`
+and `quickstart.md`, `AGENTS.md` and the handoff section of `docs/ai-development.md`.
+
+Retained blockers: the native Windows run and the first CI Windows job run (SC-005),
+no process-level `internal_error`, NIP-42 AUTH never exercised, live relays and
+nodes untested, the write commands and the MCP unmigrated. No next feature was
+started and nothing was staged, committed or published for this task.
+
+All 55 tasks are checked; the pilot is not accepted for release until the Windows
+result exists.
+
 
 
 ## Overview

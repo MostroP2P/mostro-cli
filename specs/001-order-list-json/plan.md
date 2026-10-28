@@ -4,7 +4,7 @@
 
 **Feature directory**: `001-order-list-json`, not a Git branch.
 
-**Status**: Proposed design; no pilot implementation or runtime acceptance evidence.
+**Status** (2026-10-28): implemented through T054 and **verified on native Linux with loopback relays only**. Requirements FR-001 to FR-009 and SC-001 to SC-004 have automated evidence, with the limits listed in [tests/README.md](../../tests/README.md#order-list-pilot-requirement-evidence). **SC-005 is open**: no native Windows run exists, and the CI Windows job has not run on GitHub. Not covered: live relays or nodes, NIP-42 AUTH, a process-level `internal_error`, the unmigrated write commands and the MCP. A release or acceptance claim needs the Windows result first.
 
 ## Summary
 
@@ -100,8 +100,11 @@ T046 in [its section](../../tests/TEST_SUMMARY.md#t046-full-process-matrix-2026-
 the US3 acceptance T047 in [its section](../../tests/TEST_SUMMARY.md#t047-us3-acceptance-2026-10-28)
 T048-T049 in [their section](../../tests/TEST_SUMMARY.md#t048-t049-documentation-2026-10-28)
 T050 in [its section](../../tests/TEST_SUMMARY.md#t050-source-boundary-checks-2026-10-28)
-and T051 in [its section](../../tests/TEST_SUMMARY.md#t051-ci-wiring-2026-10-28);
-T052-T055 remain pending.
+T051 in [its section](../../tests/TEST_SUMMARY.md#t051-ci-wiring-2026-10-28)
+T052 (Linux only, Windows blocked) in [its section](../../tests/TEST_SUMMARY.md#t052-quickstart-acceptance-2026-10-28)
+T053 in [its section](../../tests/TEST_SUMMARY.md#t053-final-gates-2026-10-28)
+and T054 in [its section](../../tests/TEST_SUMMARY.md#t054-requirement-reconciliation-2026-10-28);
+T055 is the status update that follows this list.
 
 ## Execution Design
 
@@ -201,7 +204,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T051 as complete; its checkboxes track
+The task list records T001-T055 as complete, with the Windows part of T052 blocked; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

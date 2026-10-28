@@ -47,7 +47,7 @@ The cross-project roadmap is [plan-aiReadyMostroCli.md](../../plan-aiReadyMostro
 It sits beside the `mostro-cli` and `mcp` clones, outside both repositories, and
 is not tracked by Git; copy it next to the clones on a new machine. Feature
 specifications refine bounded parts of it rather than copying the entire
-roadmap. The first pilot is partly implemented (T001-T054 complete, T055 next, Windows run blocked);
+roadmap. The first pilot is implemented and verified on Linux (T001-T055 checked); only its native Windows run (SC-005) is open;
 earlier persistence fixes and their test results remain prior work.
 
 ## Copilot Workflow
@@ -96,12 +96,12 @@ the feature works. Record code-test results separately when implementation lands
 ## Resume On Another Linux/WSL Laptop
 
 This is a development handoff, not a trading-identity migration or a compatible
-CLI/MCP release pair. At the 2026-10-28 checkpoint, T001-T054 are complete, the
+CLI/MCP release pair. At the 2026-10-28 checkpoint, T001-T055 are checked, the
 baseline and foundation gates are closed with recorded exceptions, US1 (machine
 listing), US2 (human presentation) and US3 (offline discovery and stable errors)
-are implemented and accepted on Linux, and T055 is next; the native Windows run (T052, SC-005) is still blocked. Follow the [task list](../specs/001-order-list-json/tasks.md) and
+are implemented and accepted on Linux; the native Windows run (T052, SC-005) is still blocked and is the next open item. Follow the [task list](../specs/001-order-list-json/tasks.md) and
 [test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
-JSON pilot and full baseline gate remain unverified; the declared MSRV is 1.94
+pilot's Linux evidence is reconciled in `tests/README.md`; Windows and live-node behavior remain unverified; the declared MSRV is 1.94
 (raised from 1.86 to match the locked graph), and regtest compatibility is
 verified only for listing, order creation and cancellation.
 
@@ -249,12 +249,12 @@ Enter key passphrases directly in your terminal, never in Copilot chat.
 In Copilot Agent chat with both repositories open:
 
 ```text
-Continue mostro-cli on develop, implementing T055 only (the Windows run remains blocked) from
-specs/001-order-list-json/tasks.md. Read AGENTS.md and the constitution first,
-then the existing plan and tests/TEST_SUMMARY.md. T001-T054 are complete;
-the baseline and foundation gates are closed with recorded exceptions and the JSON pilot
-is only partly implemented (US3 discovery and the polish gates remain).
-A test ignored with "red until T0xx" is removed from the ignore list when its task lands.
+Continue mostro-cli on develop. All of T001-T055 in
+specs/001-order-list-json/tasks.md are checked, but the native Windows run (T052,
+SC-005) has not happened. Read AGENTS.md and the constitution first, then the
+plan, tests/README.md and tests/TEST_SUMMARY.md. If you are on a native Windows
+host, run the quickstart acceptance matrix and the required gates there and record
+the result separately (T052); do not start any other feature.
 Use the existing Spec Kit feature; do not regenerate its artifacts.
 Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.
 Read the cross-repository roadmap in ../plan-aiReadyMostroCli.md (outside both repositories).

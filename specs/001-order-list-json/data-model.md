@@ -1,6 +1,6 @@
 # Data Model: Order Listing
 
-**Status**: Proposed v1 DTO contract, not implemented. No persistent model or migration.
+**Status**: v1 DTO contract, implemented in `src/outcome/` and verified on Linux with loopback relays (2026-10-28). No persistent model or migration.
 
 See [CLI contract](contracts/cli.md) for invocation, exits and schema discovery.
 All listed wire fields are required unless explicitly marked optional. Nullable

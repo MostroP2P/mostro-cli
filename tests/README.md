@@ -136,7 +136,7 @@ These tests are automatically run in CI/CD pipelines. All tests must pass before
 
 ## Documentation
 
-For detailed test documentation, see [`TEST_SUMMARY.md`](../TEST_SUMMARY.md) in the repository root.
+For detailed test documentation, see [`TEST_SUMMARY.md`](TEST_SUMMARY.md) in this directory.
 
 ## Order-List Pilot: Requirement Evidence
 
