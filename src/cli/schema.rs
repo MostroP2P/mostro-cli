@@ -10,10 +10,12 @@ use serde_json::{json, Map, Value};
 use super::invocation::OUTPUT_LONG;
 use super::registry::{CommandEntry, JsonSupport, REGISTRY};
 use super::Cli;
+use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
+use crate::outcome::info::OrderInfoData;
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules};
-use crate::outcome::ErrorCode;
+use crate::outcome::{ErrorCode, WarningCode};
 
 pub use crate::outcome::schema::{SchemaDocument, DIALECT as SCHEMA_DIALECT};
 pub use crate::outcome::SCHEMA_VERSION;
@@ -110,7 +112,7 @@ fn descriptor(entry: &CommandEntry, schemas: Option<CommandSchemas>) -> CommandD
 /// modeled, so they are `None` rather than an empty list.
 fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
-        "order.list" => Some(LISTING_CONFIGURATION.to_vec()),
+        "order.list" | ORDER_INFO => Some(LISTING_CONFIGURATION.to_vec()),
         SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
@@ -137,6 +139,32 @@ const LISTING_ERRORS: [ErrorCode; 8] = [
     ErrorCode::InternalError,
 ];
 
+/// Codes that can fail `order.info` once it is resolved: its own set plus the
+/// pilot codes that still apply. `output_not_supported` and the read-only
+/// limits belong to other commands.
+const INFO_ERRORS: [ErrorCode; 14] = [
+    ErrorCode::InvalidArguments,
+    ErrorCode::ConfigurationMissing,
+    ErrorCode::ConfigurationInvalid,
+    ErrorCode::RelayConnectionFailed,
+    ErrorCode::RelayReadFailed,
+    ErrorCode::InternalError,
+    ErrorCode::IdentityMissing,
+    ErrorCode::IdentityUnreadable,
+    ErrorCode::ProtocolUnsupported,
+    ErrorCode::PowRequired,
+    ErrorCode::RequestRejected,
+    ErrorCode::ReplyTimeout,
+    ErrorCode::NodeRefused,
+    ErrorCode::ReplyMalformed,
+];
+
+/// Warnings of `order.info` beyond the pilot pair.
+const INFO_WARNINGS: [WarningCode; 2] = [
+    WarningCode::OrdersNotReturned,
+    WarningCode::InvalidOrderTimestamp,
+];
+
 /// Canonical name of offline discovery.
 pub const SCHEMA_COMMAND: &str = "schema";
 
@@ -152,6 +180,11 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             ORDER_LIST,
             &LISTING_ERRORS,
             true,
+        )),
+        ORDER_INFO => output_schema::<OrderInfoData, ()>(&OutcomeRules::request(
+            ORDER_INFO,
+            &INFO_ERRORS,
+            &INFO_WARNINGS,
         )),
         SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
             SCHEMA_COMMAND,

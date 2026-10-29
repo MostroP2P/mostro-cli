@@ -287,6 +287,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-list-v1.json"
     );
+    const INFO_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-info-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -294,9 +298,10 @@ mod schema_fixtures {
 
     /// How to refresh the fixtures after an intended change. The tests only read
     /// them and never rewrite a fixture.
-    const REGENERATE: &str = "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    cargo run -q -- --output json schema | jq '.data.commands[] | select(.name==\"order.list\") | .output_schema' \
-    > docs/schemas/order-list-v1.json";
+    const REGENERATE: &str =
+        "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
+    for NAME in list info; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -307,14 +312,18 @@ mod schema_fixtures {
         to_value(offline_discovery()).unwrap()
     }
 
-    fn generated_listing_schema() -> Value {
+    fn generated_output_schema(name: &str) -> Value {
         generated_discovery()["commands"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|command| command["name"] == "order.list")
+            .find(|command| command["name"] == name)
             .map(|command| command["output_schema"].clone())
-            .expect("order.list is described")
+            .unwrap_or_else(|| panic!("{name} is described"))
+    }
+
+    fn generated_listing_schema() -> Value {
+        generated_output_schema("order.list")
     }
 
     #[test]
@@ -332,6 +341,15 @@ mod schema_fixtures {
             generated_listing_schema(),
             read_json(LISTING_FIXTURE),
             "stale docs/schemas/order-list-v1.json; {REGENERATE}"
+        );
+    }
+
+    #[test]
+    fn info_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.info"),
+            read_json(INFO_FIXTURE),
+            "stale docs/schemas/order-info-v1.json; {REGENERATE}"
         );
     }
 
@@ -375,7 +393,7 @@ mod schema_fixtures {
             .filter(|command| command["output_modes"] == json!(["human", "json"]))
             .map(|command| command["name"].as_str().unwrap())
             .collect();
-        assert_eq!(machine, ["order.list", "schema"]);
+        assert_eq!(machine, ["order.info", "order.list", "schema"]);
     }
 
     /// A signed 64-bit integer in canonical decimal text, which a JSON Schema
@@ -464,7 +482,7 @@ mod schema_fixtures {
         // The examples are hand-authored design fixtures; only the files under
         // docs/schemas are generated and drift-checked.
         assert_eq!(read_json(EXAMPLES)["contract_status"], "proposed");
-        for fixture in [DISCOVERY_FIXTURE, LISTING_FIXTURE] {
+        for fixture in [DISCOVERY_FIXTURE, LISTING_FIXTURE, INFO_FIXTURE] {
             assert!(fixture.contains("/docs/schemas/"));
             assert!(read_json(fixture).get("cases").is_none());
         }

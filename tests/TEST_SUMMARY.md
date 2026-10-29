@@ -2953,6 +2953,50 @@ The GitHub run `40934312083` was green in every job, including `Pilot tests (nat
 tests with planted secret sentinels, streams and exit codes); it is a hosted runner, not a developer workstation. The
 slice-3 changes have not run on Windows yet.
 
+
+## Order Info, Slice 4: The Command: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `3919d99`. `mostro-cli order info --order UUID...` exists; the
+legacy `ordersinfo` (command, handler `cli/orders_info.rs`, characterization tests) is removed with no alias. Lean mode:
+this is the only evidence entry for the slice.
+
+- **Extraction first** (behavior-preserving, tests rerun): the dispatch of migrated commands and its tests moved from
+  `cli.rs` to `cli/migrated.rs` (`cli.rs` 316 to 189 lines; `migrated.rs` 290 with the third command).
+- **Pieces**: `OrderCommands::Info` (`--order`, required, repeatable, no cap), the registry entry `order.info` moved to
+  the path `order info` with `JsonSupport::Request`, `commands/order/info.rs` (the operation: one `exchange`, mapping
+  `Orders`, `CantDo(not_found)` to the empty success, other `CantDo` to `node_refused` with its reason, anything else to
+  `reply_malformed`), `parse_human/order_info.rs` (pure, the familiar labelled lines, nothing invented for values the
+  node omitted, control characters escaped), `--pow`/`--transport` handling (`POW`/`TRANSPORT` as fallbacks; only `nip44`;
+  an explicit transport skips the protocol check), identity read-only after configuration, one `--verbose` line of codes and
+  counts. Local failures (arguments, configuration, work, transport, identity) happen before anything is published.
+- **Forced by the registry move, done here instead of slice 5**: `command_schemas` and `required_configuration` for
+  `order.info`, the regenerated `docs/schemas/discovery-v1.json` (only the `order.info` descriptor changed; every other
+  descriptor is identical, and `order-list-v1.json` is unchanged), the new `docs/schemas/order-info-v1.json`, and a drift
+  test for it. `README.md` and `docs/commands.md` no longer describe `ordersinfo`.
+- **Binary scenarios** (13 new, `tests/order_info_process.rs`, the real binary against the scripted daemon, a seeded identity
+  store and a relay that counts request EVENTs): one id returns the order as one document with exactly one request, the
+  identity as signer and the identity store byte-identical with nothing else created; a subset in request order with
+  unrequested and repeated orders dropped and one warning; a repeated id in any case requested once; `not_found` as the
+  same success; noise (other request, wrong signer, other recipient) never deciding; a refusal as exit 1 with its reason in
+  JSON and one fixed human line; `reply_malformed`; a silent node as `reply_timeout` after the production 15 s budget with
+  one request; human and JSON parity with a range, a negative premium and an escape sequence in the payment method (shown
+  escaped, no raw control character), three runs and three requests; the output flag at six positions returning the same
+  document; 300 ids in one request; `--verbose` printing one allow-listed line with no mnemonic word, id or relay address;
+  an unwritable stdout (JSON and human) exiting 1 with one fixed line.
+- **Grammar tests** (4 new, `cli_functions::order_info_grammar`): repeatable any-case ids with no cap; a missing, malformed or
+  positional id, `-o`, `--orderids` and `ordersinfo` all rejected; the registry entry; argument errors with JSON intent keep the
+  resolved command `order.info`.
+- **Real binary check**: `order info --help`; `ordersinfo` is an unrecognized subcommand; with no configuration the JSON
+  outcome is `configuration_missing`, with configuration but no identity `identity_missing`, nothing created.
+- **Checks on the checks**: removing deduplication, mapping `not_found` to an error and dropping terminal escaping each
+  failed exactly the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (505 tests: lib 146, `cli_functions` 71,
+  `integration_tests` 34, `order_info_process` 28, `order_list_process` 46, `parser_orders` 123, others unchanged, doctests 6),
+  `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. Not yet run on Windows.
+
+Still open for slice 5: the failure matrix at binary level (identity and configuration errors, protocol and work, rejected
+request, relay failures, secret sentinels in every input), `contracts/examples.json`, and its validation.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

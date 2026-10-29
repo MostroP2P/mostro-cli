@@ -1910,8 +1910,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 2,
-        "only order.list and schema are machine-capable"
+        REGISTRY.len() - 3,
+        "only order.list, schema and order.info are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];

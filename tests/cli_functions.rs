@@ -1297,7 +1297,7 @@ mod output_intent {
 mod registry {
     use clap::{Command, CommandFactory};
     use mostro_client::cli::{lookup, Cli, JsonSupport, REGISTRY};
-    use mostro_client::outcome::ExecutionMeta;
+    use mostro_client::outcome::{DaemonAcceptance, ExecutionMeta, Publication};
     use std::collections::BTreeSet;
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
@@ -1336,7 +1336,7 @@ mod registry {
         (&["getlasttradeindex"], "account.trade-index"),
         (&["getlasttradeprivkey"], "account.trade-key"),
         (&["getuserinfo"], "account.info"),
-        (&["ordersinfo"], "order.info"),
+        (&["order", "info"], "order.info"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1393,14 +1393,27 @@ mod registry {
     }
 
     #[test]
-    fn only_order_list_and_schema_support_json() {
+    fn only_the_migrated_commands_support_json() {
         for entry in REGISTRY {
-            if matches!(entry.canonical, "order.list" | "schema") {
-                assert_eq!(entry.json, JsonSupport::Read);
-                assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
-            } else {
-                assert_eq!(entry.json, JsonSupport::Unsupported, "{}", entry.canonical);
-                assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
+            match entry.canonical {
+                "order.list" | "schema" => {
+                    assert_eq!(entry.json, JsonSupport::Read);
+                    assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
+                }
+                "order.info" => {
+                    assert_eq!(entry.json, JsonSupport::Request);
+                    assert_eq!(
+                        entry.stages::<()>(),
+                        ExecutionMeta::request(
+                            Publication::NotAttempted,
+                            DaemonAcceptance::Unknown
+                        )
+                    );
+                }
+                other => {
+                    assert_eq!(entry.json, JsonSupport::Unsupported, "{other}");
+                    assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
+                }
             }
         }
     }
@@ -1443,15 +1456,17 @@ mod registry {
             .filter(|entry| entry.json != JsonSupport::Unsupported)
             .map(|entry| entry.canonical)
             .collect();
-        assert_eq!(machine, ["order.list", "schema"]);
+        assert_eq!(machine, ["order.list", "schema", "order.info"]);
     }
 }
 
-/// What the legacy `ordersinfo` accepts today. These characterize the command
-/// that `order info` replaces and are removed with it (spec 002, slice 4).
-mod ordersinfo_characterization {
+/// The grammar of `order info`, the command that replaces `ordersinfo`.
+mod order_info_grammar {
     use clap::Parser;
-    use mostro_client::cli::{lookup, Cli, Commands};
+    use mostro_client::cli::invocation::{
+        parse_invocation, Invocation, OutputMode, OutputSelection,
+    };
+    use mostro_client::cli::{lookup, Cli, Commands, OrderCommands};
     use uuid::Uuid;
 
     const FIRST: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
@@ -1460,46 +1475,94 @@ mod ordersinfo_characterization {
     fn parse(args: &[&str]) -> Result<Vec<Uuid>, clap::Error> {
         let argv = std::iter::once("mostro-cli").chain(args.iter().copied());
         match Cli::try_parse_from(argv)?.command {
-            Some(Commands::OrdersInfo { order_ids }) => Ok(order_ids),
-            other => panic!("not ordersinfo: {}", other.is_some()),
+            Some(Commands::Order {
+                command: OrderCommands::Info { orders },
+            }) => Ok(orders),
+            _ => panic!("not order info"),
+        }
+    }
+
+    fn ids(texts: &[&str]) -> Vec<Uuid> {
+        texts.iter().map(|text| text.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn takes_one_or_more_order_ids_in_any_case_and_keeps_them_as_given() {
+        assert_eq!(
+            parse(&["order", "info", "--order", FIRST, "--order", SECOND]).unwrap(),
+            ids(&[FIRST, SECOND])
+        );
+        assert_eq!(
+            parse(&["order", "info", "--order", &FIRST.to_uppercase()]).unwrap(),
+            ids(&[FIRST])
+        );
+        // Deduplication is the operation's job; the grammar has no cap.
+        let many: Vec<String> = (0..300).map(|n| Uuid::from_u128(n).to_string()).collect();
+        let mut args = vec!["order", "info"];
+        for id in &many {
+            args.extend(["--order", id]);
+        }
+        assert_eq!(parse(&args).unwrap().len(), 300);
+    }
+
+    #[test]
+    fn an_order_is_required_and_the_old_spelling_is_gone() {
+        for args in [
+            &["order", "info"][..],
+            &["order", "info", "--order"],
+            &["order", "info", "--order", "not-a-uuid"],
+            &["order", "info", FIRST],
+            &["order", "info", "-o", FIRST],
+            &["order", "info", "--orderids", FIRST],
+            &["ordersinfo", "-o", FIRST],
+        ] {
+            assert!(parse(args).is_err(), "{args:?}");
         }
     }
 
     #[test]
-    fn takes_repeated_ids_through_a_short_or_long_flag() {
-        let expected: Vec<Uuid> = [FIRST, SECOND]
-            .iter()
-            .map(|id| id.parse().unwrap())
-            .collect();
-        assert_eq!(
-            parse(&["ordersinfo", "-o", FIRST, "--orderids", SECOND]).unwrap(),
-            expected
-        );
-        // Letter case is accepted and the uuid type normalizes it.
-        let upper = FIRST.to_uppercase();
-        assert_eq!(
-            parse(&["ordersinfo", "-o", &upper]).unwrap(),
-            vec![expected[0]]
-        );
-    }
-
-    #[test]
-    fn keeps_duplicates_and_accepts_no_id_until_it_runs() {
-        // Clap does not require an id and does not deduplicate: the handler
-        // rejects an empty list at run time, after the context is built.
-        assert_eq!(
-            parse(&["ordersinfo", "-o", FIRST, "-o", FIRST])
-                .unwrap()
-                .len(),
-            2
-        );
-        assert!(parse(&["ordersinfo"]).unwrap().is_empty());
-        assert!(parse(&["ordersinfo", "-o", "not-a-uuid"]).is_err());
-    }
-
-    #[test]
-    fn is_a_registered_human_only_command_with_the_canonical_name_order_info() {
-        let entry = lookup(&["ordersinfo".to_string()]).expect("registered");
+    fn is_registered_as_the_request_command_order_info() {
+        let entry = lookup(&["order".to_string(), "info".to_string()]).expect("registered");
         assert_eq!(entry.canonical, "order.info");
+        assert!(lookup(&["ordersinfo".to_string()]).is_none());
+    }
+
+    #[test]
+    fn argument_errors_with_json_intent_keep_the_resolved_command() {
+        use std::ffi::OsString;
+        let run = |suffix: &[&str]| {
+            let argv = std::iter::once("mostro-cli").chain(suffix.iter().copied());
+            parse_invocation(
+                <Cli as clap::CommandFactory>::command(),
+                argv.map(OsString::from),
+            )
+        };
+        for suffix in [
+            &["--output", "json", "order", "info"][..],
+            &["order", "info", "--output=json", "--order", "bad"],
+            &["order", "--output", "json", "info", "--bogus"],
+        ] {
+            let Invocation::Rejected(failure) = run(suffix) else {
+                panic!("{suffix:?} should be rejected");
+            };
+            assert_eq!(
+                failure.output,
+                OutputSelection::Mode(OutputMode::Json),
+                "{suffix:?}"
+            );
+            assert_eq!(
+                failure.command,
+                Some(vec!["order".to_string(), "info".to_string()]),
+                "{suffix:?}"
+            );
+        }
+        // A valid invocation parses and is not rejected for JSON.
+        assert!(matches!(
+            run(&["--output", "json", "order", "info", "--order", FIRST]),
+            Invocation::Parsed {
+                output: OutputMode::Json,
+                ..
+            }
+        ));
     }
 }

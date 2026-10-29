@@ -89,7 +89,11 @@ pub const REGISTRY: &[CommandEntry] = &[
     legacy(&["getlasttradeindex"], "account.trade-index"),
     legacy(&["getlasttradeprivkey"], "account.trade-key"),
     legacy(&["getuserinfo"], "account.info"),
-    legacy(&["ordersinfo"], "order.info"),
+    CommandEntry {
+        path: &["order", "info"],
+        canonical: "order.info",
+        json: JsonSupport::Request,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

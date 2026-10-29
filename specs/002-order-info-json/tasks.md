@@ -33,12 +33,12 @@ native machine.
   `src/msg/node_info.rs`, `send_msg.rs`, `reply.rs`, `exchange.rs` and `ExchangeLimits` behind the
   private session: one request, correlated reply, bounded cleanup, no retry. Contract tests against
   the fake daemon; privacy doctests stay green.
-- [ ] **4. The command, machine and human.**
+- [x] **4. The command, machine and human.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`; the generated schemas and fixtures of slice 5 were done here because the registry move required them)
   Extract `src/cli/migrated.rs` from `src/cli.rs`; `OrderCommands::Info` and the registry move; remove
   `ordersinfo`, `src/cli/orders_info.rs` and the legacy arm; `src/commands/order/info.rs`; the dispatch;
   `src/parse_human/order_info.rs`. Binary scenarios: success, subset, repeated id, `not_found`, noise
   around the reply, refusal, timeout, one request, byte-identical identity store, parity of both modes.
-- [ ] **5. Failures, schemas, fixtures.**
+- [ ] **5. Failure matrix and examples.** (the `order.info` schemas and fixtures were done in slice 4)
   The full failure matrix (identity, configuration, protocol, work, rejected request, relay, malformed
   reply, many ids, secret sentinels, unwritable streams); `order.info` schemas; regenerate
   `docs/schemas/discovery-v1.json`, add `docs/schemas/order-info-v1.json` and

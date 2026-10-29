@@ -290,12 +290,6 @@ pub enum Commands {
     GetLastTradePrivkey {},
     /// Get your reputation (rating, reviews, first trade) as Mostro holds it
     GetUserInfo {},
-    /// Request detailed information for specific orders
-    OrdersInfo {
-        /// Order IDs to request information for
-        #[arg(short, long)]
-        order_ids: Vec<Uuid>,
-    },
 }
 
 #[derive(Subcommand, Clone)]
@@ -312,5 +306,12 @@ pub enum OrderCommands {
         /// Keep only this status (case-insensitive); defaults to pending
         #[arg(long, ignore_case = true, value_parser = PossibleValuesParser::new(STATUSES))]
         status: Option<String>,
+    },
+    /// Ask the node for its record of your own orders. Needs an existing local
+    /// identity (it never creates one) and publishes one signed request
+    Info {
+        /// Order id to ask about; repeat the option for several orders
+        #[arg(long = "order", required = true, value_name = "UUID")]
+        orders: Vec<Uuid>,
     },
 }

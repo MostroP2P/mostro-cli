@@ -19,7 +19,6 @@ use super::maintenance::{
     execute_cancel_pending, execute_maintenance_status, execute_set_maintenance,
 };
 use super::new_order::execute_new_order;
-use super::orders_info::execute_orders_info;
 use super::rate_user::execute_rate_user;
 use super::restore::execute_restore;
 use super::send_admin_dm_attach::execute_send_admin_dm_attach;
@@ -187,7 +186,6 @@ impl Commands {
             Commands::Restore {} => {
                 execute_restore(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
             }
-            Commands::OrdersInfo { order_ids } => execute_orders_info(order_ids, ctx).await,
         }
     }
 }

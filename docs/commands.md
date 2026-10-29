@@ -21,8 +21,8 @@ settable via the matching env var):
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
-  `human` whatever the terminal, no environment variable). Only `order list` and
-  `schema` support `json`; on any other command it prints one JSON error outcome
+  `human` whatever the terminal, no environment variable). Only `order list`,
+  `schema` and `order info` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -44,7 +44,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list` and `schema`. Other commands print human text only.
+This applies to `order list`, `schema` and `order info`. Other commands print human text only. The errors below are those of the listing; `order info` adds its own codes, listed in its [contract](../specs/002-order-info-json/contracts/cli.md#stable-errors).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -135,11 +135,12 @@ This applies to `order list` and `schema`. Other commands print human text only.
     - `--order-id <UUID>`: Order identifier.
   - **Handler**: `util::run_simple_order_msg(Commands::Cancel { .. }, Some(order_id), ctx)`.
 
-- **`ordersinfo`**
-  - **Description**: Request detailed information for specific orders.
-  - **Args**:
-    - `--order-ids <UUID>...`: One or more order IDs.
-  - **Handler**: `execute_orders_info(order_ids, ctx)` in `src/cli/orders_info.rs`.
+- **`order info`** (replaces `ordersinfo`)
+  - **Description**: Asks the node for its record of your own orders. It publishes one signed request using your identity key, waits for the reply to that request, and writes nothing locally. It needs an existing local identity (`mcli.db`) and never creates one. Orders that are not yours or unknown to the node are not returned; they are listed as not returned.
+  - **Args**: `--order <UUID>`, required, repeat it for several orders (no limit in the CLI; the node refuses what it will not answer). A repeated id is requested once.
+  - **Output**: readable details by default, one JSON outcome with `--output json`. A node refusal is exit 1 with the node's reason, for example `too_many_requests`; the answer "none of these is yours" is a success with every id listed as not returned.
+  - **Migration**: `ordersinfo -o ID` becomes `order info --order ID`; the short flag and `--orderids` are gone, and no alias remains. The existing MCP server's `get_order` tool runs the old command and stops working until it is migrated.
+  - **Handler**: `commands::order::info::order_info` through `msg::exchange`; rendering in `parse_human::order_info` and `parse_machine`. The full contract is in `specs/002-order-info-json/contracts/cli.md`.
 
 ### Disputes
 

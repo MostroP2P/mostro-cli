@@ -117,6 +117,10 @@ impl ErrorInfo {
         self.code
     }
 
+    pub fn reason(&self) -> Option<&str> {
+        self.reason.as_deref()
+    }
+
     /// This error with the node's refusal `reason`, kept only when it is a
     /// snake-case word; anything else is dropped, never echoed.
     pub(super) fn with_reason(mut self, reason: &str) -> Self {

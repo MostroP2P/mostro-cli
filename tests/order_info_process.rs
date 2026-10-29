@@ -22,6 +22,8 @@ use nostr_sdk::prelude::{
     Client, ClientNotification, Event, Filter, Keys, Kind, LocalRelay, MachineReadablePrefix,
     WritePolicy, WritePolicyResult,
 };
+use serde_json::{json, Value};
+use tokio::process::Command;
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -34,7 +36,10 @@ use fake_mostro::{
     always_orders, info_event, malformed_reply, orders_reply, refusal, seed_identity, silent,
     FakeMostro, Outgoing, Received, Respond,
 };
-use harness::{is_empty_dir, Backend, LoopbackRelay, Sandbox};
+use harness::{
+    closed_pipe, is_empty_dir, run_with_watchdog, Backend, Captured, LoopbackRelay, Sandbox,
+    WATCHDOG,
+};
 
 const REQUEST_ID: u64 = 8721;
 
@@ -756,4 +761,485 @@ async fn a_request_without_an_identifier_fails_before_any_connection() {
     let failed = failure(exchange(&world.config, request, &expect_orders(), &limits()).await);
     assert_eq!(failed.code(), ErrorCode::InternalError);
     assert!(world.fake.received().is_empty());
+}
+
+// --- The command, run as a child process (spec 002, slice 4) ----------------
+
+/// A world plus a sandbox holding a real identity store for the child to read.
+struct Bin {
+    world: World,
+    sandbox: Sandbox,
+    identity: Keys,
+    db_before: Vec<u8>,
+}
+
+async fn bin(respond: Respond) -> Bin {
+    let world = world(plain_info, respond).await;
+    let sandbox = Sandbox::new().unwrap();
+    let identity = seed_identity(&sandbox.mcli_dir()).await;
+    let db_before = fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap();
+    Bin {
+        world,
+        sandbox,
+        identity,
+        db_before,
+    }
+}
+
+impl Bin {
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = self.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", self.world.config.mostro_pubkey().to_hex())
+            .env("RELAYS", &self.world.relay.url);
+        command
+    }
+
+    async fn run(&self, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(self.command(args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// The identity store is byte-identical and nothing else was created.
+    fn assert_untouched(&self, label: &str) {
+        let files: Vec<String> = fs::read_dir(self.sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(files, ["mcli.db"], "{label}: files appeared");
+        let after = fs::read(self.sandbox.mcli_dir().join("mcli.db")).unwrap();
+        assert!(
+            after == self.db_before,
+            "{label}: the identity store changed"
+        );
+        assert!(
+            is_empty_dir(&self.sandbox.home()) && is_empty_dir(&self.sandbox.cwd()),
+            "{label}"
+        );
+    }
+}
+
+fn document(run: &Captured) -> Value {
+    let stdout = run.stdout_text();
+    assert!(
+        stdout.ends_with('\n') && stdout.lines().count() == 1,
+        "{stdout}"
+    );
+    serde_json::from_str(&stdout).unwrap()
+}
+
+fn text(n: u128) -> String {
+    Uuid::from_u128(n).to_string()
+}
+
+const ID: [&str; 2] = ["order", "info"];
+
+fn info_args<'a>(output: &[&'a str], ids: &'a [String]) -> Vec<&'a str> {
+    let mut args: Vec<&str> = output.to_vec();
+    args.extend(ID);
+    for id in ids {
+        args.extend(["--order", id.as_str()]);
+    }
+    args
+}
+
+fn reply_with(orders: Vec<SmallOrder>) -> Respond {
+    Arc::new(move |request: &Received| {
+        vec![Outgoing::to_requester(orders_reply(
+            request,
+            orders.clone(),
+        ))]
+    })
+}
+
+#[tokio::test]
+async fn one_id_returns_the_order_as_one_document_with_one_request_and_no_effects() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["command"], "order.info");
+    assert_eq!(outcome["status"], "ok");
+    assert_eq!(outcome["error"], Value::Null);
+    assert_eq!(outcome["warnings"], json!([]));
+    assert_eq!(outcome["data"]["not_returned"], json!([]));
+    assert_eq!(
+        outcome["data"]["node_pubkey"],
+        bin.world.config.mostro_pubkey().to_hex()
+    );
+    let record = &outcome["data"]["orders"][0];
+    assert_eq!(record["id"], ids[0].as_str());
+    assert_eq!(
+        (record["side"].as_str(), record["status"].as_str()),
+        (Some("sell"), Some("active"))
+    );
+    assert_eq!(record["sats_amount"], "15000");
+    assert_eq!(record["created_at"], "2026-10-16T00:00:00Z");
+    assert_eq!(
+        outcome["meta"],
+        json!({"publication": "published", "daemon_acceptance": "accepted",
+               "persistence": "not_applicable", "snapshot": null})
+    );
+    let seen = bin.world.fake.received();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].author, bin.identity.public_key());
+    assert_eq!(seen[0].identity, bin.identity.public_key());
+    assert_eq!(seen[0].ids, vec![Uuid::from_u128(1)]);
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 1);
+    bin.assert_untouched("success");
+}
+
+#[tokio::test]
+async fn a_subset_keeps_request_order_drops_unrequested_orders_and_warns_once() {
+    let reply = vec![
+        order(Uuid::from_u128(3)),
+        order(Uuid::from_u128(99)),
+        order(Uuid::from_u128(1)),
+        order(Uuid::from_u128(3)),
+    ];
+    let bin = bin(reply_with(reply)).await;
+    let ids = [text(1), text(2), text(3)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0));
+    let outcome = document(&run);
+    let returned: Vec<&str> = outcome["data"]["orders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(returned, [ids[0].as_str(), ids[2].as_str()]);
+    assert_eq!(outcome["data"]["not_returned"], json!([ids[1]]));
+    let codes: Vec<&str> = outcome["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(codes, ["orders_not_returned"]);
+    bin.assert_untouched("subset");
+}
+
+#[tokio::test]
+async fn a_repeated_id_in_any_case_is_requested_once() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let upper = text(1).to_uppercase();
+    let ids = [text(1), upper, text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(bin.world.fake.received()[0].ids, vec![Uuid::from_u128(1)]);
+    assert_eq!(
+        document(&run)["data"]["orders"].as_array().unwrap().len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn not_found_is_the_same_success_as_a_reply_that_leaves_the_ids_out() {
+    let refuse: Respond = Arc::new(|request: &Received| {
+        vec![Outgoing::to_requester(refusal(
+            request,
+            mostro_core::prelude::CantDoReason::NotFound,
+        ))]
+    });
+    let bin = bin(refuse).await;
+    let ids = [text(5), text(4)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["status"], "ok");
+    assert_eq!(outcome["data"]["orders"], json!([]));
+    assert_eq!(outcome["data"]["not_returned"], json!([ids[0], ids[1]]));
+    assert_eq!(outcome["warnings"][0]["code"], "orders_not_returned");
+    assert_eq!(outcome["meta"]["daemon_acceptance"], "accepted");
+}
+
+#[tokio::test]
+async fn noise_around_the_reply_never_decides_the_result() {
+    let outsider = Keys::generate();
+    let someone_else = Keys::generate().public_key();
+    let id = Uuid::from_u128(1);
+    let noisy: Respond = Arc::new(move |request: &Received| {
+        let empty = |request_id: Option<u64>| {
+            Message::new_order(
+                None,
+                request_id,
+                None,
+                Action::Orders,
+                Some(Payload::Orders(Vec::new())),
+            )
+        };
+        vec![
+            Outgoing::to_requester(empty(request.request_id.map(|n| n + 1))),
+            Outgoing::to_requester(empty(request.request_id)).signed_by(outsider.clone()),
+            Outgoing::to_requester(empty(request.request_id)).addressed_to(someone_else),
+            Outgoing::to_requester(orders_reply(request, vec![order(id)]))
+                .after(Duration::from_millis(60)),
+        ]
+    });
+    let bin = bin(noisy).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(document(&run)["data"]["orders"][0]["id"], ids[0].as_str());
+    assert_eq!(
+        bin.world.fake.received().len(),
+        1,
+        "one request reached the node"
+    );
+    // The relay counts every kind-14 event not signed by the node: the request
+    // and the stranger's noise.
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_refusal_is_an_error_with_its_reason_in_both_modes() {
+    let refuse: Respond = Arc::new(|request: &Received| {
+        vec![Outgoing::to_requester(refusal(
+            request,
+            mostro_core::prelude::CantDoReason::TooManyRequests,
+        ))]
+    });
+    let bin = bin(refuse).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+    assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["status"], "error");
+    assert_eq!(outcome["data"], Value::Null);
+    assert_eq!(outcome["error"]["code"], "node_refused");
+    assert_eq!(outcome["error"]["reason"], "too_many_requests");
+    assert_eq!(
+        outcome["meta"],
+        json!({"publication": "published", "daemon_acceptance": "rejected",
+               "persistence": "not_applicable", "snapshot": null})
+    );
+
+    let human = bin.run(&info_args(&[], &ids)).await;
+    assert_eq!(human.code(), Some(1));
+    assert!(human.stdout.is_empty());
+    assert_eq!(
+        human.stderr_text(),
+        "error: The node refused the request. (reason: too_many_requests)\n"
+    );
+    bin.assert_untouched("refusal");
+}
+
+#[tokio::test]
+async fn a_reply_with_an_unusable_payload_is_reply_malformed() {
+    let odd: Respond =
+        Arc::new(|request: &Received| vec![Outgoing::to_requester(malformed_reply(request))]);
+    let bin = bin(odd).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(1));
+    let outcome = document(&run);
+    assert_eq!(outcome["error"]["code"], "reply_malformed");
+    assert_eq!(outcome["meta"]["daemon_acceptance"], "unknown");
+}
+
+#[tokio::test]
+async fn a_silent_node_is_a_timeout_after_the_production_budget_and_one_request() {
+    let bin = bin(silent()).await;
+    let ids = [text(1)];
+    let started = std::time::Instant::now();
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert!(
+        started.elapsed() >= ExchangeLimits::default().reply,
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["error"]["code"], "reply_timeout");
+    assert_eq!(outcome["meta"]["publication"], "published");
+    assert_eq!(outcome["meta"]["daemon_acceptance"], "unknown");
+    assert_eq!(bin.world.fake.received().len(), 1);
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 1);
+    bin.assert_untouched("timeout");
+}
+
+#[tokio::test]
+async fn human_and_json_describe_the_same_orders() {
+    let id = Uuid::from_u128(1);
+    let mut priced = order(id);
+    priced.min_amount = Some(10);
+    priced.max_amount = Some(20);
+    priced.premium = -3;
+    priced.payment_method = "bank\u{1b}[31m transfer".to_string();
+    let bin = bin(reply_with(vec![priced])).await;
+    let ids = [text(1), text(2)];
+
+    let json_run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+    let human_run = bin.run(&info_args(&[], &ids)).await;
+    let explicit = bin.run(&info_args(&["--output", "human"], &ids)).await;
+
+    assert_eq!(
+        (json_run.code(), human_run.code(), explicit.code()),
+        (Some(0), Some(0), Some(0))
+    );
+    assert!(human_run.stderr.is_empty() && explicit.stderr.is_empty());
+    assert_eq!(human_run.stdout_text(), explicit.stdout_text());
+    let human = human_run.stdout_text();
+    let record = &document(&json_run)["data"]["orders"][0];
+    for needle in [
+        record["id"].as_str().unwrap(),
+        "sell",
+        "active",
+        "15000 sats",
+        "USD",
+        "Fiat Range: 10-20",
+        "Premium: -3%",
+        "bank\\u{1b}[31m transfer",
+        "2026-10-16 00:00:00 UTC",
+        "2026-10-17 00:00:00 UTC",
+        ids[1].as_str(),
+        "Not returned",
+    ] {
+        assert!(human.contains(needle), "missing {needle:?} in:\n{human}");
+    }
+    assert!(
+        !human.contains('\u{1b}'),
+        "a raw control character reached the terminal"
+    );
+    assert_eq!(
+        bin.world.requests.load(Ordering::SeqCst),
+        3,
+        "one request per run"
+    );
+    bin.assert_untouched("parity");
+}
+
+#[tokio::test]
+async fn the_output_flag_works_at_every_position() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let id = text(1);
+    let spellings: [Vec<&str>; 6] = [
+        vec!["--output", "json", "order", "info", "--order", &id],
+        vec!["--output=json", "order", "info", "--order", &id],
+        vec!["order", "--output", "json", "info", "--order", &id],
+        vec!["order", "--output=json", "info", "--order", &id],
+        vec!["order", "info", "--order", &id, "--output", "json"],
+        vec!["order", "info", "--output=json", "--order", &id],
+    ];
+    let mut documents = Vec::new();
+    for args in &spellings {
+        let run = bin.run(args).await;
+        assert_eq!(run.code(), Some(0), "{args:?}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{args:?}");
+        documents.push(document(&run));
+    }
+    for other in &documents[1..] {
+        assert_eq!(other["data"], documents[0]["data"]);
+        assert_eq!(other["meta"], documents[0]["meta"]);
+    }
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 6);
+}
+
+#[tokio::test]
+async fn many_ids_go_out_in_one_request_without_a_cap_in_the_cli() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(7))])).await;
+    let ids: Vec<String> = (1..=300).map(text).collect();
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    let seen = bin.world.fake.received();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].ids.len(), 300);
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 1);
+    let outcome = document(&run);
+    assert_eq!(outcome["data"]["orders"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        outcome["data"]["not_returned"].as_array().unwrap().len(),
+        299
+    );
+}
+
+#[tokio::test]
+async fn verbose_adds_one_allow_listed_line_and_never_the_mnemonic_or_the_ids() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let ids = [text(1)];
+    let mut args = vec!["--verbose"];
+    args.extend(info_args(&["--output", "json"], &ids));
+
+    let run = bin.run(&args).await;
+
+    assert_eq!(run.code(), Some(0));
+    assert_eq!(
+        run.stderr_text(),
+        "verbose: order.info ok; 1 returned, 0 not returned\n"
+    );
+    let pool = sqlx::SqlitePool::connect(&format!(
+        "sqlite://{}?mode=ro",
+        bin.sandbox.mcli_dir().join("mcli.db").display()
+    ))
+    .await
+    .unwrap();
+    let mnemonic: String = sqlx::query_scalar("SELECT mnemonic FROM users LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    for stream in [run.stdout_text(), run.stderr_text()] {
+        assert!(!stream.contains(&mnemonic));
+        for word in mnemonic.split(' ') {
+            assert!(
+                !stream.contains(&format!(" {word} ")),
+                "a mnemonic word reached a stream"
+            );
+        }
+        assert!(
+            !stream.contains("127.0.0.1"),
+            "a relay address reached a stream"
+        );
+    }
+    bin.assert_untouched("verbose");
+}
+
+#[tokio::test]
+async fn an_unwritable_stdout_exits_1_with_one_fixed_line_after_one_request() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let ids = [text(1)];
+    for (output, line) in [
+        (
+            &["--output", "json"][..],
+            "error: the JSON outcome could not be written\n",
+        ),
+        (
+            &[][..],
+            "error: the order information could not be written\n",
+        ),
+    ] {
+        let mut command = bin.command(&info_args(output, &ids));
+        command.stdout(closed_pipe());
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(1), "{output:?}: {}", run.stderr_text());
+        assert_eq!(run.stderr_text(), line, "{output:?}");
+    }
+    assert_eq!(
+        bin.world.requests.load(Ordering::SeqCst),
+        2,
+        "one request per run"
+    );
 }
