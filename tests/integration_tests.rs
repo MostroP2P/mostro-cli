@@ -1099,7 +1099,10 @@ mod ci_wiring {
 
     fn workflow(name: &str) -> String {
         let path = format!("{}/.github/workflows/{name}", env!("CARGO_MANIFEST_DIR"));
-        read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"))
+        // A Windows checkout may convert line endings; the parsing below uses `\n`.
+        read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{path}: {error}"))
+            .replace("\r\n", "\n")
     }
 
     /// The text of one top-level job, up to the next job key or job comment.
