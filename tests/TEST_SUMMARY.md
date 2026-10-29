@@ -3091,6 +3091,35 @@ Native Linux, rustc 1.97.0, on `develop` after `2082c1a` (pushed). Lean mode: th
   `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
 
+## Order New, Slice 3: Outcomes: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `94a2a94` (pushed). Lean mode: the only evidence entry for the slice. The
+registry move, discovery and the generated `order-new-v1.json` need the grammar and land in slice 4 (as for order info).
+
+- **Extraction first** (behavior-preserving): the stage and rules types of `outcome/schema.rs` moved to `outcome/rules.rs`
+  (the file was 355 of 400 production lines); the pilot and info schemas and fixtures are unchanged.
+- **Envelope**: `Envelope::uncertain` (the only constructor of the status, never exit 0, data only when the node answered),
+  `ExecutionMeta::write` (publication, acceptance, persistence), `OutcomeRules::write` with `Stages::Write` and per-status stage
+  combinations (success `published/accepted/applied`; failures, uncertain outcomes and their stages as in the data model); a
+  command with no uncertain codes still generates two statuses and three branches.
+- **Codes**: `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable` (exit 1, fixed prose, scoped to this
+  command; the pilot sets are still frozen).
+- **Input and data** (`outcome/new.rs`): `OrderNewInput::validate` (currency 3-6 alphanumerics uppercased, positive fiat amount, a
+  range needs a larger maximum and a zero sats amount, payment method and invoice bounded without control characters, premium
+  -100..=100, expiration 0..=365 days) naming only the option, never its value; `small_order(now)` builds the legacy shape (pending,
+  no id, fixed amount or `min`/`max` with fiat amount 0, absolute expiry); `OrderNewData::from_created` maps the node's order to
+  explicit fields with the trade index and public key, and needs an id.
+- **Schema tests** (7 unit tests): every kind of outcome conforms (ok, each local failure, proven rejection, refusal with reason,
+  bond with the index recorded or not, `order_not_saved` with data, timeout, malformed, lost wait and ambiguous publication as
+  uncertain, unresolved command); contradictions do not (wrong stages for a status, codes under the wrong status, request-only
+  stages, malformed index and key, `uncertain` without the schema allowing it).
+- **Checks on the checks**: letting uncertain outcomes use the failure codes, dropping one allowed uncertain stage combination,
+  dropping the sats rule for ranges and allowing an unknown acceptance on success each failed the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (536 tests: lib 154, `cli_functions` 76,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `order_new_process` 15, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

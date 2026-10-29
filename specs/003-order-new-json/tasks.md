@@ -15,8 +15,8 @@ No push, public-node use or regtest without authorization.
   daemon-side trade-index check; a seeded writable identity store with a user row. No production change.
 - [x] **2. Exchange and storage.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`) `Outbound` with identity and trade keys, wait for the trade key, `PayBondInvoice` returned to the caller;
   `src/store.rs` (reserve, commit order and index in one transaction, advance, typed errors); keep the order-info tests green.
-- [ ] **3. Outcomes.** `uncertain` constructors and per-command schema rules, new codes, `outcome/new.rs` (`OrderNewInput`, `OrderNewData`),
-  `JsonSupport::Request` for `order.new` with the generated schema and fixtures (`order-new-v1.json`, regenerated discovery).
+- [x] **3. Outcomes.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`) `uncertain` constructors and per-command schema rules, new codes, `outcome/new.rs` (`OrderNewInput`, `OrderNewData`).
+  The registry move, `JsonSupport::Request`, regenerated discovery and `order-new-v1.json` need the grammar and land in slice 4, as for order info.
 - [ ] **4. The command.** `OrderCommands::New`, the registry move, `commands/order/new.rs`, the confirmation in `cli/migrated.rs`, the human
   preview and result, removal of `neworder`, `cli/new_order.rs` and the Yadio call. Binary scenarios: accepted and saved, refusal, silence,
   bond, forced save failure, `--yes` rules, one request, index and database effects.

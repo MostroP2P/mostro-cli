@@ -14,7 +14,7 @@ Reuses the order-info pieces: `OrderRecord` (explicit fields, no buyer invoice),
 | `payment_method` | non-empty text, bounded (200 bytes), no control characters |
 | `sats` | integer >= 0, default 0 (market price) |
 | `premium` | integer in -100..=100, default 0 |
-| `invoice` | optional text, bounded (4096 bytes), only on a buy order |
+| `invoice` | optional text, bounded (4096 bytes), no whitespace or control characters; which side may carry one is the node's rule |
 | `expiration_days` | integer 0..=365, default 0 (the node's default) |
 | `yes` | boolean; required in JSON mode |
 
@@ -29,18 +29,23 @@ amounts). A rejection by the daemon is `node_refused` with its reason.
 
 ## Statuses and stages
 
-| Case | status | publication | daemon_acceptance | persistence |
-| --- | --- | --- | --- | --- |
-| accepted and saved | ok | published | accepted | saved |
-| refused by the node (`CantDo`) | error | published | rejected | not_applicable |
-| accepted, save failed | uncertain | published | accepted | failed |
-| no reply before the deadline, unusable reply | uncertain | published | unknown | unknown |
-| bonded node asks for a bond | error | published | accepted | not_applicable |
-| no relay accepted the event (rejected) | error | not_attempted | unknown | not_applicable |
-| relay answers ambiguous | uncertain | unknown | unknown | unknown |
-| local failure (arguments, identity, configuration, work, protocol, declined) | error | not_attempted | unknown | not_applicable |
+`persistence` says whether the local write the outcome calls for happened: `applied` (the order row and index, or only the index
+when there is no order to save), `failed`, or `not_attempted` when no write is called for (a refusal, a local failure). The trade
+index is advanced whenever the request was published and not provably rejected.
 
-(The stage names `saved`, `failed` and `unknown` for `persistence` are checked against the pilot enum in slice 2.)
+| Case | status | code | publication | daemon_acceptance | persistence |
+| --- | --- | --- | --- | --- | --- |
+| accepted and saved | ok | none | published | accepted | applied |
+| local failure (arguments, identity, configuration, work, protocol, declined, store) | error | its code | not_attempted | unknown | not_attempted |
+| no relay accepted the event (proven) | error | `request_rejected` | not_attempted | unknown | not_attempted |
+| refused by the node (`CantDo`) | error | `node_refused` + reason | published | rejected | not_attempted |
+| bonded node asks for a bond | error | `bond_required` | published | accepted | applied or failed |
+| accepted, order row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
+| no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |
+| unusable reply | uncertain | `reply_malformed` | published | unknown | applied or failed |
+| relays dropped the wait after publishing | uncertain | `relay_read_failed` | published | unknown | applied or failed |
+| relays answered ambiguously | uncertain | `request_rejected` | unknown | unknown | applied or failed |
 
-New codes: `confirmation_required` (JSON without `--yes`, exit 2 as `invalid_arguments`? see the contract), `order_declined`
-(human `n`), `bond_required`, `order_not_saved`, `store_unwritable` (the store cannot be opened for writing before publishing).
+New codes (all exit 1, scoped to this command's schema): `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable`.
+A JSON run without `--yes` is `invalid_arguments` (exit 2). Implemented in slice 3: `Envelope::uncertain`, `ExecutionMeta::write`,
+`OutcomeRules::write`; the registry entry and the generated fixtures follow in slice 4 with the command, as for order info.

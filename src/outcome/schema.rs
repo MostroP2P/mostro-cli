@@ -12,6 +12,9 @@ use serde_json::{json, Map, Value};
 use super::order::{SIDES, STATUSES};
 use super::{ErrorCode, ErrorInfo, ExecutionMeta, WarningCode, Warnings, SCHEMA_VERSION};
 
+use super::rules::{code_names, scoped_codes, value};
+pub use super::rules::{OutcomeRules, Stages};
+
 pub type SchemaDocument = Map<String, Value>;
 
 /// The dialect every generated document declares.
@@ -116,94 +119,6 @@ pub fn never_complete_history(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "boolean", "const": false})
 }
 
-/// The stage vocabulary of a command's outcomes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stages {
-    /// A read that publishes nothing: every stage is `not_applicable`.
-    Read,
-    /// One published request and no local write: publication and node
-    /// acceptance vary, persistence is `not_applicable`.
-    Request,
-}
-
-/// What a command's outcomes may contain.
-pub struct OutcomeRules<'a> {
-    /// Canonical name reported on success.
-    pub command: &'static str,
-    /// Codes that can fail this command after it resolves.
-    pub errors: &'a [ErrorCode],
-    /// Warning codes beyond the frozen pilot pair that this command can emit.
-    pub warnings: &'a [WarningCode],
-    /// Whether a success always carries snapshot evidence.
-    pub snapshot_on_success: bool,
-    /// Whether `node_refused` may carry a `reason`.
-    pub reason: bool,
-    pub stages: Stages,
-}
-
-impl<'a> OutcomeRules<'a> {
-    /// Rules of a read command with the pilot's vocabulary.
-    pub fn read(command: &'static str, errors: &'a [ErrorCode], snapshot_on_success: bool) -> Self {
-        Self {
-            command,
-            errors,
-            warnings: &[],
-            snapshot_on_success,
-            reason: false,
-            stages: Stages::Read,
-        }
-    }
-
-    /// Rules of a command that publishes one request.
-    pub fn request(
-        command: &'static str,
-        errors: &'a [ErrorCode],
-        warnings: &'a [WarningCode],
-    ) -> Self {
-        Self {
-            command,
-            errors,
-            warnings,
-            snapshot_on_success: false,
-            reason: true,
-            stages: Stages::Request,
-        }
-    }
-
-    /// Stage combinations (publication, node acceptance, persistence) allowed
-    /// on success and on failure of the resolved command.
-    fn combos(&self) -> (Vec<[&'static str; 3]>, Vec<[&'static str; 3]>) {
-        match self.stages {
-            Stages::Read => (vec![["not_applicable"; 3]], vec![["not_applicable"; 3]]),
-            Stages::Request => (
-                vec![["published", "accepted", "not_applicable"]],
-                vec![
-                    ["not_attempted", "unknown", "not_applicable"],
-                    ["published", "unknown", "not_applicable"],
-                    ["published", "rejected", "not_applicable"],
-                    ["unknown", "unknown", "not_applicable"],
-                ],
-            ),
-        }
-    }
-}
-
-/// The `$defs` enum of a shared code type: the frozen pilot codes, then the
-/// command's own in the order given.
-fn scoped_codes<T: serde::Serialize + PartialEq + Copy>(pilot: &[T], own: &[T]) -> Value {
-    let mut codes: Vec<T> = pilot.to_vec();
-    codes.extend(own.iter().filter(|code| !pilot.contains(code)));
-    Value::Array(codes.iter().map(value).collect())
-}
-
-fn value<T: serde::Serialize>(item: &T) -> Value {
-    serde_json::to_value(item).unwrap_or(Value::Null)
-}
-
-fn code_names(codes: &[ErrorCode]) -> Vec<Value> {
-    codes.iter().map(value).collect()
-}
-
 /// `meta` limited to the allowed stage combinations and the snapshot rule given.
 fn meta_rule(meta: &Value, combos: &[[&str; 3]], snapshot: Value) -> Value {
     let stages = |combo: &[&str; 3]| {
@@ -240,7 +155,7 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
     let meta = value(&generator.subschema_for::<ExecutionMeta<S>>());
     let error = value(&generator.subschema_for::<ErrorInfo>());
     let warnings = value(&generator.subschema_for::<Warnings>());
-    let (success_combos, failure_combos) = rules.combos();
+    let combos = rules.combos();
     let ok_snapshot = if rules.snapshot_on_success {
         snapshot.clone()
     } else {
@@ -254,9 +169,9 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
         "properties": {
             "command": {"const": command},
             "status": {"const": "ok"},
-            "data": data,
+            "data": data.clone(),
             "error": {"type": "null"},
-            "meta": meta_rule(&meta, &success_combos, ok_snapshot),
+            "meta": meta_rule(&meta, &combos.success, ok_snapshot),
         },
     });
     let failure = json!({
@@ -269,7 +184,21 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
                 "allOf": [error.clone()],
                 "properties": failure_error_properties(rules),
             },
-            "meta": meta_rule(&meta, &failure_combos, failure_snapshot),
+            "meta": meta_rule(&meta, &combos.failure, failure_snapshot.clone()),
+        },
+    });
+    // The request may have reached the node: data only when the node answered.
+    let uncertain = json!({
+        "title": "uncertain outcome of the resolved command",
+        "properties": {
+            "command": {"const": command},
+            "status": {"const": "uncertain"},
+            "data": {"anyOf": [data, {"type": "null"}]},
+            "error": {
+                "allOf": [error.clone()],
+                "properties": {"code": {"enum": code_names(rules.uncertain)}},
+            },
+            "meta": meta_rule(&meta, &combos.uncertain, failure_snapshot),
         },
     });
     let unresolved = json!({
@@ -289,6 +218,14 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
             ),
         },
     });
+
+    let mut outcomes = vec![success, failure];
+    let mut statuses = vec!["ok", "error"];
+    if !rules.uncertain.is_empty() {
+        outcomes.push(uncertain);
+        statuses.push("uncertain");
+    }
+    outcomes.push(unresolved);
 
     let mut document = Map::new();
     document.insert("$schema".into(), json!(DIALECT));
@@ -311,17 +248,17 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
         json!({
             "schema_version": {"const": SCHEMA_VERSION},
             "command": {"type": ["string", "null"]},
-            "status": {"enum": ["ok", "error"]},
+            "status": {"enum": statuses},
             "warnings": warnings,
             "meta": meta,
         }),
     );
-    document.insert("oneOf".into(), json!([success, failure, unresolved]));
+    document.insert("oneOf".into(), Value::Array(outcomes));
     let mut definitions = generator.take_definitions(true);
     scope_enum(
         &mut definitions,
         "ErrorCode",
-        scoped_codes(&ErrorCode::PILOT, rules.errors),
+        scoped_codes(&ErrorCode::PILOT, &[rules.errors, rules.uncertain].concat()),
     );
     scope_enum(
         &mut definitions,
@@ -355,7 +292,7 @@ fn scope_enum(definitions: &mut Map<String, Value>, name: &str, allowed: Value) 
 // One checker, shared with the integration tests that validate the fixtures.
 #[cfg(test)]
 #[path = "../../tests/common/schema_check.rs"]
-mod schema_check;
+pub(super) mod schema_check;
 
 #[cfg(test)]
 mod tests {

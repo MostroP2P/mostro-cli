@@ -135,7 +135,7 @@ impl OrderInfoData {
 }
 
 impl OrderRecord {
-    fn from_order(id: Uuid, order: &SmallOrder, warnings: &mut Warnings) -> Self {
+    pub(super) fn from_order(id: Uuid, order: &SmallOrder, warnings: &mut Warnings) -> Self {
         let (created_at, created_at_unix) = time_fields(order.created_at, warnings);
         let (expires_at, expires_at_unix) = time_fields(order.expires_at, warnings);
         Self {
