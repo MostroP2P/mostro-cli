@@ -451,7 +451,8 @@ mod tests {
         ErrorCode::BondRequired,
         ErrorCode::StoreUnwritable,
     ];
-    const UNCERTAIN: [ErrorCode; 5] = [
+    const UNCERTAIN: [ErrorCode; 6] = [
+        ErrorCode::PowRequired,
         ErrorCode::ReplyTimeout,
         ErrorCode::ReplyMalformed,
         ErrorCode::RequestRejected,

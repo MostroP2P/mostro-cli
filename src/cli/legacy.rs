@@ -18,7 +18,6 @@ use super::list_disputes::execute_list_disputes;
 use super::maintenance::{
     execute_cancel_pending, execute_maintenance_status, execute_set_maintenance,
 };
-use super::new_order::execute_new_order;
 use super::rate_user::execute_rate_user;
 use super::restore::execute_restore;
 use super::send_admin_dm_attach::execute_send_admin_dm_attach;
@@ -105,29 +104,6 @@ impl Commands {
             // Order management commands
             Commands::Order { .. } => unreachable!("public listing runs without a Context"),
             Commands::Schema => unreachable!("discovery runs without a Context"),
-            Commands::NewOrder {
-                kind,
-                fiat_code,
-                amount,
-                fiat_amount,
-                payment_method,
-                premium,
-                invoice,
-                expiration_days,
-            } => {
-                execute_new_order(
-                    kind,
-                    fiat_code,
-                    fiat_amount,
-                    amount,
-                    payment_method,
-                    premium,
-                    invoice,
-                    ctx,
-                    expiration_days,
-                )
-                .await
-            }
             Commands::TakeSell {
                 order_id,
                 invoice,

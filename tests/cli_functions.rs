@@ -1,128 +1,9 @@
-use mostro_client::cli::new_order::{confirm_new_order, validate_market_fiat, FiatNames};
 use mostro_client::cli::take_order::{accepted_take_local_save_failed, save_taken_sell_order};
 use mostro_client::cli::Context;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
-use rstest::rstest;
 use sqlx::SqlitePool;
-use std::env::{current_exe, temp_dir, var, var_os};
-use std::fs::{create_dir, read_dir, remove_dir_all};
-use std::io::stdin;
-use std::path::PathBuf;
-use std::process::{exit, Stdio};
-use std::time::Duration;
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
-use tokio::time::timeout;
 use uuid::Uuid;
-
-struct PreflightSandbox(PathBuf);
-
-impl Drop for PreflightSandbox {
-    fn drop(&mut self) {
-        let _ = remove_dir_all(&self.0);
-    }
-}
-
-#[test]
-fn new_order_preflight_child() {
-    let Ok(scenario) = var("MOSTRO_TEST_PREFLIGHT") else {
-        return;
-    };
-    let fiat_names = FiatNames::from([("USD".to_string(), "US Dollar".to_string())]);
-    let result = match scenario.as_str() {
-        "confirm" => confirm_new_order(stdin().lock()),
-        "known-fiat" => validate_market_fiat("USD", &fiat_names),
-        "unknown-fiat" => validate_market_fiat("UNKNOWN", &fiat_names),
-        _ => panic!("unexpected preflight scenario"),
-    };
-    match result {
-        Ok(()) => println!("PREFLIGHT_APPROVED"),
-        Err(error) => {
-            eprintln!("{error}");
-            exit(1);
-        }
-    }
-}
-
-#[rstest]
-#[case::closed_stdin("confirm", None, Some("confirmation"))]
-#[case::empty_pipe("confirm", Some(""), Some("confirmation"))]
-#[case::blank_enter("confirm", Some("\n"), None)]
-#[case::windows_enter("confirm", Some("\r\n"), None)]
-#[case::yes("confirm", Some("y\n"), None)]
-#[case::uppercase_yes("confirm", Some("Y\n"), None)]
-#[case::rejection("confirm", Some("n\n"), Some("cancelled"))]
-#[case::uppercase_rejection("confirm", Some("N\n"), Some("cancelled"))]
-#[case::invalid_answer("confirm", Some("maybe\n"), Some("confirmation"))]
-#[case::known_fiat("known-fiat", None, None)]
-#[case::unknown_fiat("unknown-fiat", None, Some("-a"))]
-#[tokio::test]
-async fn new_order_preflight_process(
-    #[case] scenario: &str,
-    #[case] input: Option<&str>,
-    #[case] expected_error: Option<&str>,
-) {
-    let sandbox_path = temp_dir().join(format!("mostro-preflight-{}", Uuid::new_v4()));
-    create_dir(&sandbox_path).unwrap();
-    let sandbox = PreflightSandbox(sandbox_path);
-    let mut command = Command::new(current_exe().unwrap());
-    command
-        .args(["--exact", "new_order_preflight_child", "--nocapture"])
-        .env_clear()
-        .env("MOSTRO_TEST_PREFLIGHT", scenario)
-        .env("HOME", &sandbox.0)
-        .env("USERPROFILE", &sandbox.0)
-        .env("MCLI_DIR", &sandbox.0)
-        .current_dir(&sandbox.0)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    for name in ["SYSTEMROOT", "WINDIR"] {
-        if let Some(value) = var_os(name) {
-            command.env(name, value);
-        }
-    }
-    let mut child = command.spawn().unwrap();
-    if let Some(input) = input {
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .await
-            .unwrap();
-    }
-    if timeout(Duration::from_secs(40), child.wait())
-        .await
-        .is_err()
-    {
-        child.kill().await.unwrap();
-        child.wait().await.unwrap();
-        panic!("preflight child exceeded its deadline");
-    }
-    let output = child.wait_with_output().await.unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(read_dir(&sandbox.0).unwrap().next().is_none());
-    assert_eq!(
-        output.status.code(),
-        Some(if expected_error.is_some() { 1 } else { 0 }),
-        "stdout: {stdout}\nstderr: {stderr}"
-    );
-    assert_eq!(
-        stdout.contains("PREFLIGHT_APPROVED"),
-        expected_error.is_none()
-    );
-    if let Some(message) = expected_error {
-        assert!(stderr.contains(message), "stderr: {stderr}");
-    }
-}
 
 const TAKEN_SELL_ORDER: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
 
@@ -880,23 +761,35 @@ mod output_intent {
 
     #[test]
     fn arities_and_hyphen_values_follow_clap() {
-        let neworder = [
-            "neworder", "-k", "sell", "-c", "USD", "-f", "100", "-m", "SEPA",
+        let order_new = [
+            "order",
+            "new",
+            "--side",
+            "sell",
+            "--currency",
+            "USD",
+            "--fiat-amount",
+            "100",
+            "--payment-method",
+            "SEPA",
         ];
         let with = |tail: &[&'static str]| -> Vec<&'static str> {
-            neworder
+            order_new
                 .iter()
                 .copied()
                 .chain(tail.iter().copied())
                 .collect()
         };
         assert_eq!(
-            parsed(&with(&["-p", "-5", "--output", "json"])),
-            (OutputMode::Json, vec!["neworder".to_string()])
+            parsed(&with(&["--premium", "-5", "--output", "json"])),
+            (
+                OutputMode::Json,
+                vec!["order".to_string(), "new".to_string()]
+            )
         );
         check(&[
             // `--premium` accepts hyphen values, so it swallows `--output`.
-            (&with(&["-p", "--output", "json"]), Expect::Human),
+            (&with(&["--premium", "--output", "json"]), Expect::Human),
             // `--currency` does not, so its value is missing and the
             // declaration stands.
             (
@@ -1297,7 +1190,7 @@ mod output_intent {
 mod registry {
     use clap::{Command, CommandFactory};
     use mostro_client::cli::{lookup, Cli, JsonSupport, REGISTRY};
-    use mostro_client::outcome::{DaemonAcceptance, ExecutionMeta, Publication};
+    use mostro_client::outcome::{DaemonAcceptance, ExecutionMeta, Persistence, Publication};
     use std::collections::BTreeSet;
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
@@ -1305,7 +1198,6 @@ mod registry {
     const APPROVED: [(&[&str], &str); 34] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
-        (&["neworder"], "order.new"),
         (&["takesell"], "order.take-sell"),
         (&["takebuy"], "order.take-buy"),
         (&["addinvoice"], "order.add-invoice"),
@@ -1337,6 +1229,7 @@ mod registry {
         (&["getlasttradeprivkey"], "account.trade-key"),
         (&["getuserinfo"], "account.info"),
         (&["order", "info"], "order.info"),
+        (&["order", "new"], "order.new"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1410,6 +1303,17 @@ mod registry {
                         )
                     );
                 }
+                "order.new" => {
+                    assert_eq!(entry.json, JsonSupport::Write);
+                    assert_eq!(
+                        entry.stages::<()>(),
+                        ExecutionMeta::write(
+                            Publication::NotAttempted,
+                            DaemonAcceptance::Unknown,
+                            Persistence::NotAttempted
+                        )
+                    );
+                }
                 other => {
                     assert_eq!(entry.json, JsonSupport::Unsupported, "{other}");
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
@@ -1421,7 +1325,7 @@ mod registry {
     #[test]
     fn lookup_resolves_only_registered_leaves() {
         assert_eq!(
-            lookup(&path(&["neworder"])).map(|e| e.canonical),
+            lookup(&path(&["order", "new"])).map(|e| e.canonical),
             Some("order.new")
         );
         assert_eq!(
@@ -1456,7 +1360,7 @@ mod registry {
             .filter(|entry| entry.json != JsonSupport::Unsupported)
             .map(|entry| entry.canonical)
             .collect();
-        assert_eq!(machine, ["order.list", "schema", "order.info"]);
+        assert_eq!(machine, ["order.list", "schema", "order.info", "order.new"]);
     }
 }
 
@@ -1567,53 +1471,33 @@ mod order_info_grammar {
     }
 }
 
-/// What the legacy `neworder` accepts today (spec 003, slice 1). Removed with
-/// the command in slice 4; the new grammar gets its own tests then. Long flags
-/// are squashed (`--fiatcode`, `--paymentmethod`, `--expirationdays`).
-mod neworder_characterization {
+/// The grammar of `order new` (spec 003). The legacy `neworder` and its short
+/// flags, squashed long flags and `100-200` range syntax are gone.
+mod order_new_grammar {
     use clap::Parser;
-    use mostro_client::cli::new_order::{confirm_new_order, validate_market_fiat, FiatNames};
-    use mostro_client::cli::{Cli, Commands};
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport, NewArgs, OrderCommands};
 
-    type Fields = (
-        String,
-        i64,
-        String,
-        (i64, Option<i64>),
-        String,
-        i64,
-        Option<String>,
-        i64,
-    );
-
-    fn parse(args: &[&str]) -> Result<Fields, clap::Error> {
-        let argv = std::iter::once("mostro-cli").chain(args.iter().copied());
+    fn parse(args: &[&str]) -> Result<NewArgs, clap::Error> {
+        let argv = ["mostro-cli", "order", "new"]
+            .into_iter()
+            .chain(args.iter().copied());
         match Cli::try_parse_from(argv)?.command {
-            Some(Commands::NewOrder {
-                kind,
-                amount,
-                fiat_code,
-                fiat_amount,
-                payment_method,
-                premium,
-                invoice,
-                expiration_days,
-            }) => Ok((
-                kind,
-                amount,
-                fiat_code,
-                fiat_amount,
-                payment_method,
-                premium,
-                invoice,
-                expiration_days,
-            )),
-            _ => panic!("not neworder"),
+            Some(Commands::Order {
+                command: OrderCommands::New(args),
+            }) => Ok(args),
+            _ => panic!("not order new"),
         }
     }
 
-    const BASE: [&str; 9] = [
-        "neworder", "-k", "sell", "-c", "USD", "-f", "100", "-m", "SEPA",
+    const BASE: [&str; 8] = [
+        "--side",
+        "sell",
+        "--currency",
+        "USD",
+        "--fiat-amount",
+        "100",
+        "--payment-method",
+        "SEPA",
     ];
 
     fn with(tail: &[&'static str]) -> Vec<&'static str> {
@@ -1621,99 +1505,115 @@ mod neworder_characterization {
     }
 
     #[test]
-    fn required_flags_and_defaults() {
-        let (kind, amount, code, fiat, method, premium, invoice, days) = parse(&BASE).unwrap();
-        assert_eq!((kind.as_str(), amount, code.as_str()), ("sell", 0, "USD"));
-        assert_eq!((fiat, method.as_str()), ((100, None), "SEPA"));
-        assert_eq!((premium, invoice, days), (0, None, 0));
-        for missing in [3, 5, 7, 8] {
-            let mut args = BASE.to_vec();
-            args.drain(missing - 1..=missing);
-            assert!(
-                parse(&args).is_err(),
-                "without {:?}",
-                &BASE[missing - 1..=missing]
-            );
+    fn required_options_and_defaults() {
+        let args = parse(&BASE).unwrap();
+        assert_eq!(
+            (args.side.as_str(), args.currency.as_str(), args.fiat_amount),
+            ("sell", "USD", 100)
+        );
+        assert_eq!(args.payment_method, "SEPA");
+        assert_eq!(args.fiat_amount_max, None);
+        assert_eq!((args.sats, args.premium, args.expiration_days), (0, 0, 0));
+        assert_eq!((args.invoice, args.yes), (None, false));
+        for index in [0, 2, 4, 6] {
+            let mut missing = BASE.to_vec();
+            missing.drain(index..index + 2);
+            assert!(parse(&missing).is_err(), "without {}", BASE[index]);
         }
     }
 
     #[test]
-    fn every_short_and_long_spelling_and_the_kind_text_is_not_checked_by_the_grammar() {
-        let long = [
-            "neworder",
-            "--kind",
-            "BUY",
-            "--amount",
+    fn every_option_and_a_negative_premium() {
+        let all = with(&[
+            "--fiat-amount-max",
+            "300",
+            "--sats",
             "5000",
-            "--fiatcode",
-            "eur",
-            "--fiatamount",
-            "10-20",
-            "--paymentmethod",
-            "SEPA",
             "--premium",
             "-3",
             "--invoice",
             "lnbc1",
-            "--expirationdays",
+            "--expiration-days",
             "7",
-        ];
-        let (kind, amount, code, fiat, _, premium, invoice, days) = parse(&long).unwrap();
-        assert_eq!((kind.as_str(), amount, code.as_str()), ("BUY", 5000, "eur"));
+            "--yes",
+        ]);
+        let args = parse(&all).unwrap();
+        assert_eq!(args.fiat_amount_max, Some(300));
         assert_eq!(
-            (fiat, premium, invoice.as_deref(), days),
-            ((10, Some(20)), -3, Some("lnbc1"), 7)
+            (args.sats, args.premium, args.expiration_days),
+            (5000, -3, 7)
         );
-        let short = with(&["-a", "1", "-p", "-5", "-i", "x", "-e", "2"]);
-        let parsed = parse(&short).unwrap();
-        assert_eq!((parsed.1, parsed.5, parsed.7), (1, -5, 2));
-        // A nonsense kind parses; `execute_new_order` rejects it later.
-        assert_eq!(parse(&with(&[])).unwrap().0, "sell");
-        let odd = [
-            "neworder", "-k", "sideways", "-c", "USD", "-f", "1", "-m", "x",
-        ];
-        assert_eq!(parse(&odd).unwrap().0, "sideways");
+        assert_eq!(args.invoice.as_deref(), Some("lnbc1"));
+        assert!(args.yes);
+        assert_eq!(
+            parse(&[
+                "--side",
+                "BUY",
+                "--currency",
+                "eur",
+                "--fiat-amount",
+                "1",
+                "--payment-method",
+                "x"
+            ])
+            .unwrap()
+            .side,
+            "BUY"
+        );
     }
 
     #[test]
-    fn the_fiat_range_syntax_and_its_failures() {
-        let fiat = |text: &'static str| {
-            let args = ["neworder", "-k", "sell", "-c", "USD", "-f", text, "-m", "x"];
-            parse(&args).map(|f| f.3)
+    fn the_side_is_checked_and_text_amounts_are_rejected() {
+        let swap = |option: &'static str, value: &'static str| {
+            let mut args = BASE.to_vec();
+            let at = args.iter().position(|a| *a == option).unwrap();
+            args[at + 1] = value;
+            parse(&args)
         };
-        assert_eq!(fiat("100").unwrap(), (100, None));
-        assert_eq!(fiat("100-200").unwrap(), (100, Some(200)));
-        for bad in [
-            "200-100", "100-100", "1-2-3", "100-", "-100", "abc", "1.5", "",
+        assert!(swap("--side", "sideways").is_err());
+        for bad in ["1.5", "abc", "100-200", "", "-5x"] {
+            assert!(swap("--fiat-amount", bad).is_err(), "{bad:?}");
+        }
+        assert!(parse(&with(&["--sats", "x"])).is_err());
+        assert!(parse(&with(&["--premium", "1.5"])).is_err());
+        assert!(parse(&with(&["--fiat-amount-max", "100-200"])).is_err());
+    }
+
+    #[test]
+    fn the_legacy_spellings_are_gone() {
+        let try_args = |args: &[&str]| Cli::try_parse_from(args.iter().copied());
+        assert!(try_args(&[
+            "mostro-cli",
+            "neworder",
+            "-k",
+            "sell",
+            "-c",
+            "USD",
+            "-f",
+            "100",
+            "-m",
+            "SEPA"
+        ])
+        .is_err());
+        for legacy in [
+            ["-k", "sell"],
+            ["--kind", "sell"],
+            ["--fiatcode", "USD"],
+            ["--fiatamount", "100"],
+            ["--paymentmethod", "SEPA"],
+            ["--expirationdays", "3"],
+            ["-a", "5"],
+            ["-p", "5"],
         ] {
-            assert!(fiat(bad).is_err(), "{bad:?} must not parse");
+            assert!(parse(&with(&legacy)).is_err(), "{legacy:?}");
         }
-        // Zero and negative single amounts parse; the node refuses them.
-        assert_eq!(fiat("0").unwrap(), (0, None));
     }
 
     #[test]
-    fn the_confirmation_prompt_accepts_blank_and_y_and_never_eof() {
-        let ask = |text: &str| confirm_new_order(text.as_bytes()).map_err(|e| e.to_string());
-        // Only the end of the line is trimmed, so whitespace alone is blank.
-        for yes in ["\n", "y\n", "Y\n", "  \n", "y  \n"] {
-            assert!(ask(yes).is_ok(), "{yes:?}");
-        }
-        assert!(ask(" y\n").is_err(), "leading space is not trimmed");
-        assert_eq!(ask("n\n").unwrap_err(), "Order cancelled");
-        assert!(ask("maybe\n")
-            .unwrap_err()
-            .contains("Invalid order confirmation"));
-        assert!(ask("").unwrap_err().contains("stdin reached EOF"));
-    }
-
-    #[test]
-    fn a_market_priced_currency_must_be_in_the_yadio_list() {
-        let names: FiatNames = [("USD".to_string(), "Dollar".to_string())].into();
-        assert!(validate_market_fiat("USD", &names).is_ok());
-        assert!(validate_market_fiat("XXX", &names)
-            .unwrap_err()
-            .to_string()
-            .contains("not present in the fiat market"));
+    fn the_registry_describes_a_json_capable_write() {
+        let entry = lookup(&["order".to_string(), "new".to_string()]).unwrap();
+        assert_eq!(entry.canonical, "order.new");
+        assert_eq!(entry.json, JsonSupport::Write);
+        assert!(lookup(&["neworder".to_string()]).is_none());
     }
 }

@@ -747,3 +747,303 @@ mod store {
         }
     }
 }
+
+// --- The operation (spec 003, slice 4a) -------------------------------------
+
+mod operation {
+    use super::*;
+    use mostro_client::commands::order::new::{order_new, NewOptions, NewOutcome};
+    use mostro_client::outcome::new::{OrderNewInput, OrderRequest};
+    use mostro_client::outcome::{ErrorCode, Status};
+    use mostro_client::store::Store;
+    use serde_json::json;
+
+    struct Maker {
+        _relay: LoopbackRelay,
+        fake: FakeMostro,
+        config: PublicReadConfig,
+        identity: Keys,
+        sandbox: Sandbox,
+        store: Store,
+    }
+
+    async fn maker(respond: Respond, pow: u8) -> Maker {
+        let node = Keys::generate();
+        let relay = LocalRelay::new();
+        relay
+            .add_event(info_event(&node, Some(2), Some(pow), None, Some(10)))
+            .await
+            .unwrap();
+        let relay = LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+            .await
+            .unwrap();
+        let fake = FakeMostro::start(&relay.url, node, respond).await;
+        let config = PublicReadConfig::new(fake.pubkey(), &relay.url).unwrap();
+        let sandbox = Sandbox::new().unwrap();
+        let identity = seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        Maker {
+            _relay: relay,
+            fake,
+            config,
+            identity,
+            sandbox,
+            store,
+        }
+    }
+
+    fn input() -> OrderNewInput {
+        OrderNewInput::validate(OrderRequest {
+            side: OrderKind::Sell,
+            currency: "usd".into(),
+            fiat_amount: 100,
+            fiat_amount_max: None,
+            payment_method: "bank transfer".into(),
+            sats: 0,
+            premium: 2,
+            invoice: None,
+            expiration_days: 0,
+        })
+        .unwrap()
+    }
+
+    async fn create(maker: &Maker) -> NewOutcome {
+        let trade = maker.store.next_trade().await.unwrap();
+        order_new(
+            &input(),
+            &maker.config,
+            &maker.identity,
+            &trade,
+            &maker.store,
+            NewOptions {
+                pow: 0,
+                check_protocol: true,
+            },
+            &super::limits(),
+        )
+        .await
+    }
+
+    async fn scalar<T>(maker: &Maker, sql: &'static str) -> T
+    where
+        T: for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite> + Send + Unpin,
+    {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(maker.sandbox.mcli_dir().join("mcli.db"))
+            .read_only(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let value = sqlx::query_scalar::<_, T>(sql)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    async fn state(maker: &Maker) -> (i64, i64) {
+        (
+            scalar(maker, "SELECT COUNT(*) FROM orders").await,
+            scalar(maker, "SELECT COALESCE(last_trade_index, 0) FROM users").await,
+        )
+    }
+
+    fn wire(outcome: &NewOutcome) -> serde_json::Value {
+        serde_json::to_value(outcome).unwrap()
+    }
+
+    fn stages(outcome: &NewOutcome) -> serde_json::Value {
+        wire(outcome)["meta"].clone()
+    }
+
+    #[tokio::test]
+    async fn an_accepted_order_is_returned_and_saved_with_its_index() {
+        let (respond, last) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+
+        let outcome = create(&maker).await;
+
+        assert_eq!(outcome.status(), Status::Ok, "{:?}", wire(&outcome));
+        let data = outcome.data().unwrap();
+        assert_eq!(data.trade_index(), "1");
+        let seen = maker.fake.received();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].trade_index, Some(1));
+        assert!(seen[0].signature_valid);
+        assert_eq!(seen[0].identity, maker.identity.public_key());
+        assert_eq!(seen[0].author.to_hex(), data.trade_pubkey());
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "published", "daemon_acceptance": "accepted",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(state(&maker).await, (1, 1));
+        assert_eq!(*last.lock().unwrap(), 1);
+        assert_eq!(
+            scalar::<String>(&maker, "SELECT id FROM orders").await,
+            data.order().id()
+        );
+        assert_eq!(maker.store.next_trade().await.unwrap().index, 2);
+    }
+
+    #[tokio::test]
+    async fn a_refusal_is_an_error_with_its_reason_and_writes_nothing() {
+        let (respond, _) = new_order_daemon(5, false);
+        let maker = maker(respond, 0).await;
+
+        let outcome = create(&maker).await;
+
+        assert_eq!(outcome.status(), Status::Error);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::NodeRefused));
+        assert_eq!(outcome.reason(), Some("invalid_trade_index"));
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "published", "daemon_acceptance": "rejected",
+                   "persistence": "not_attempted", "snapshot": null})
+        );
+        assert_eq!(state(&maker).await, (0, 0), "a refusal spends no index");
+    }
+
+    #[tokio::test]
+    async fn silence_and_an_odd_reply_are_uncertain_and_spend_the_index_without_an_order() {
+        let silent = maker(super::fake_mostro::silent(), 0).await;
+        let outcome = create(&silent).await;
+        assert_eq!(outcome.status(), Status::Uncertain);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReplyTimeout));
+        assert!(outcome.data().is_none());
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "published", "daemon_acceptance": "unknown",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(silent.fake.received().len(), 1, "never retried");
+        assert_eq!(state(&silent).await, (0, 1));
+
+        let odd: Respond = std::sync::Arc::new(|request| {
+            // An allowed action with a payload that is not an order.
+            let odd = Message::new_order(
+                None,
+                request.request_id,
+                request.trade_index,
+                Action::NewOrder,
+                Some(Payload::TextMessage("not an order".to_string())),
+            );
+            vec![fake_mostro::Outgoing::to_requester(odd)]
+        });
+        let odd = maker(odd, 0).await;
+        let outcome = create(&odd).await;
+        assert_eq!(outcome.status(), Status::Uncertain);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReplyMalformed));
+        assert_eq!(state(&odd).await, (0, 1));
+        assert_eq!(odd.store.next_trade().await.unwrap().index, 2);
+    }
+
+    #[tokio::test]
+    async fn a_bonded_node_is_an_error_that_spends_the_index() {
+        let (respond, last) = new_order_daemon(0, true);
+        let maker = maker(respond, 0).await;
+
+        let outcome = create(&maker).await;
+
+        assert_eq!(outcome.status(), Status::Error);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::BondRequired));
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "published", "daemon_acceptance": "accepted",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(state(&maker).await, (0, 1));
+        assert_eq!(*last.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_order_that_cannot_be_saved_is_uncertain_and_carries_what_the_node_made() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let trade = maker.store.next_trade().await.unwrap();
+        // The node will accept; the store loses its user row meanwhile.
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(maker.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DELETE FROM users")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let outcome = order_new(
+            &input(),
+            &maker.config,
+            &maker.identity,
+            &trade,
+            &maker.store,
+            NewOptions {
+                pow: 0,
+                check_protocol: true,
+            },
+            &super::limits(),
+        )
+        .await;
+
+        assert_eq!(outcome.status(), Status::Uncertain);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::OrderNotSaved));
+        let data = outcome.data().expect("what the node created is returned");
+        assert_eq!(data.trade_index(), "1");
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "published", "daemon_acceptance": "accepted",
+                   "persistence": "failed", "snapshot": null})
+        );
+        assert_eq!(
+            scalar::<i64>(&maker, "SELECT COUNT(*) FROM orders").await,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_order_save_still_spends_the_index_so_the_key_is_not_reused() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(maker.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DROP TABLE orders")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let outcome = create(&maker).await;
+
+        assert_eq!(outcome.error_code(), Some(ErrorCode::OrderNotSaved));
+        assert_eq!(
+            scalar::<i64>(&maker, "SELECT last_trade_index FROM users").await,
+            1,
+            "the node consumed index 1, so the next order must use 2"
+        );
+        assert_eq!(maker.store.next_trade().await.unwrap().index, 2);
+    }
+
+    #[tokio::test]
+    async fn work_the_node_expects_stops_the_command_before_anything_is_sent_or_written() {
+        let (respond, last) = new_order_daemon(0, false);
+        let maker = maker(respond, 9).await;
+        let before = std::fs::read(maker.sandbox.mcli_dir().join("mcli.db")).unwrap();
+
+        let outcome = create(&maker).await;
+
+        assert_eq!(outcome.status(), Status::Error);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::PowRequired));
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "not_attempted", "daemon_acceptance": "unknown",
+                   "persistence": "not_attempted", "snapshot": null})
+        );
+        assert!(maker.fake.received().is_empty());
+        assert_eq!(*last.lock().unwrap(), 0);
+        assert_eq!(state(&maker).await, (0, 0));
+        assert_eq!(
+            std::fs::read(maker.sandbox.mcli_dir().join("mcli.db")).unwrap(),
+            before
+        );
+    }
+}

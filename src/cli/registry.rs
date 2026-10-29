@@ -1,6 +1,6 @@
 //! Command registry: canonical names and JSON capability per command path.
 
-use crate::outcome::{DaemonAcceptance, ExecutionMeta, Publication};
+use crate::outcome::{DaemonAcceptance, ExecutionMeta, Persistence, Publication};
 
 /// What a registered command supports with `--output json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,6 +12,9 @@ pub enum JsonSupport {
     /// A read that publishes one request to the node and writes nothing
     /// locally; its stages tell whether the request was published.
     Request,
+    /// A command that publishes one request and writes locally; its stages
+    /// also say whether the local write happened.
+    Write,
 }
 
 /// One entry of the command registry, the single source of canonical names.
@@ -33,6 +36,11 @@ impl CommandEntry {
             JsonSupport::Request => {
                 ExecutionMeta::request(Publication::NotAttempted, DaemonAcceptance::Unknown)
             }
+            JsonSupport::Write => ExecutionMeta::write(
+                Publication::NotAttempted,
+                DaemonAcceptance::Unknown,
+                Persistence::NotAttempted,
+            ),
         }
     }
 }
@@ -58,7 +66,6 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "schema",
         json: JsonSupport::Read,
     },
-    legacy(&["neworder"], "order.new"),
     legacy(&["takesell"], "order.take-sell"),
     legacy(&["takebuy"], "order.take-buy"),
     legacy(&["addinvoice"], "order.add-invoice"),
@@ -93,6 +100,11 @@ pub const REGISTRY: &[CommandEntry] = &[
         path: &["order", "info"],
         canonical: "order.info",
         json: JsonSupport::Request,
+    },
+    CommandEntry {
+        path: &["order", "new"],
+        canonical: "order.new",
+        json: JsonSupport::Write,
     },
 ];
 

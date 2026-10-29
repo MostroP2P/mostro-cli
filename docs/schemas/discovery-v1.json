@@ -1467,14 +1467,735 @@
     {
       "name": "order.new",
       "cli_path": [
-        "neworder"
+        "order",
+        "new"
       ],
       "output_modes": [
-        "human"
+        "human",
+        "json"
       ],
-      "input_schema": null,
-      "output_schema": null,
-      "required_configuration": null
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "description": "Fiat currency code, such as USD",
+            "type": "string"
+          },
+          "expiration-days": {
+            "description": "Days until the pending order expires; 0 uses the node's default",
+            "type": "string"
+          },
+          "fiat-amount": {
+            "description": "Fiat amount; with --fiat-amount-max, the range minimum",
+            "type": "string"
+          },
+          "fiat-amount-max": {
+            "description": "Range maximum: makes a range order at market price",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Lightning invoice, when the order needs one",
+            "type": "string"
+          },
+          "payment-method": {
+            "description": "Payment method text",
+            "type": "string"
+          },
+          "premium": {
+            "description": "Premium on the price, in percent",
+            "type": "string"
+          },
+          "sats": {
+            "description": "Sats amount; 0 means the market price",
+            "type": "string"
+          },
+          "side": {
+            "description": "The order's side: buy or sell (case-insensitive)",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "type": "string",
+            "x-case-insensitive": true
+          },
+          "yes": {
+            "description": "Create the order without asking (required with --output json)",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "side",
+          "currency",
+          "fiat-amount",
+          "payment-method"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "identity_unreadable",
+              "protocol_unsupported",
+              "pow_required",
+              "request_rejected",
+              "node_refused",
+              "order_declined",
+              "bond_required",
+              "store_unwritable",
+              "reply_timeout",
+              "reply_malformed",
+              "request_rejected",
+              "pow_required",
+              "order_not_saved"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "OrderNewData": {
+            "description": "`order.new` success data (and the data of an `order_not_saved` outcome):\nthe order the node created and the key slot it was created under.",
+            "properties": {
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "order": {
+                "$ref": "#/$defs/OrderRecord"
+              },
+              "trade_index": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "trade_pubkey": {
+                "description": "The public key of the order's trade key; the private key stays\nderivable from the mnemonic and the index and is never shown.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "order",
+              "trade_index",
+              "trade_pubkey"
+            ],
+            "type": "object"
+          },
+          "OrderRecord": {
+            "description": "One of the user's orders as the node returned it.",
+            "properties": {
+              "buyer_trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "fiat_amount_max": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_amount_min": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_currency": {
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "payment_method": {
+                "type": "string"
+              },
+              "premium_percent": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "sats_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "seller_trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "canceled",
+                  "canceled-by-admin",
+                  "settled-by-admin",
+                  "completed-by-admin",
+                  "dispute",
+                  "expired",
+                  "fiat-sent",
+                  "settled-hold-invoice",
+                  "pending",
+                  "success",
+                  "waiting-buyer-invoice",
+                  "waiting-payment",
+                  "waiting-taker-bond",
+                  "waiting-maker-bond",
+                  "cooperatively-canceled",
+                  "in-progress",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "side",
+              "status",
+              "sats_amount",
+              "fiat_currency",
+              "fiat_amount",
+              "fiat_amount_min",
+              "fiat_amount_max",
+              "payment_method",
+              "premium_percent",
+              "buyer_trade_pubkey",
+              "seller_trade_pubkey",
+              "created_at",
+              "created_at_unix",
+              "expires_at",
+              "expires_at_unix"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "invalid_order_timestamp"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.new"
+              },
+              "data": {
+                "$ref": "#/$defs/OrderNewData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "accepted"
+                  },
+                  "persistence": {
+                    "const": "applied"
+                  },
+                  "publication": {
+                    "const": "published"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.new"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "internal_error",
+                      "identity_missing",
+                      "identity_unreadable",
+                      "protocol_unsupported",
+                      "pow_required",
+                      "request_rejected",
+                      "node_refused",
+                      "order_declined",
+                      "bond_required",
+                      "store_unwritable"
+                    ]
+                  },
+                  "reason": {
+                    "description": "The node's refusal reason; present only on node_refused.",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "type": "string"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_attempted"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.new"
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OrderNewData"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "reply_timeout",
+                      "reply_malformed",
+                      "request_rejected",
+                      "relay_read_failed",
+                      "pow_required",
+                      "order_not_saved"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "uncertain"
+              }
+            },
+            "title": "uncertain outcome of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "uncertain"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.new outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
     },
     {
       "name": "order.rate",

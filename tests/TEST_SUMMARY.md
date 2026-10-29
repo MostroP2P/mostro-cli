@@ -3120,6 +3120,39 @@ registry move, discovery and the generated `order-new-v1.json` need the grammar 
   `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
 
+## Order New, Slice 4a: The Command: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `559d2f0` (pushed). `mostro-cli order new` exists; the legacy `neworder` (command,
+handler `cli/new_order.rs`, the Yadio call, the preflight and characterization tests) is removed with no alias. Lean mode: this
+and the 4b entry are the evidence for the slice; 4b adds the binary scenarios.
+
+- **Pieces**: `OrderCommands::New(NewArgs)` (`--side --currency --fiat-amount [--fiat-amount-max] --payment-method [--sats]
+  [--premium] [--invoice] [--expiration-days] [--yes]`), registry `order.new` at `order new` with the new `JsonSupport::Write`
+  (rejected-before-run stages `not_attempted/unknown/not_attempted`), `commands/order/new.rs` (the operation), `cli/order_new.rs`
+  (validation, then configuration, identity and store checks in order of cost, preview and prompt in human mode only, JSON without
+  `--yes` refused with `invalid_arguments` and nothing done, `--verbose` printing one code-only line), `parse_human/order_new.rs`
+  (preview and result), `Store::ensure_writable`, the generated schema and `docs/schemas/order-new-v1.json`, regenerated
+  `discovery-v1.json` (only the `order.new` descriptor changed).
+- **Operation tests** (7 in `tests/order_new_process.rs`, the real `order_new` against the scripted daemon and a seeded store):
+  an accepted order is returned and saved with its index; a refusal is `node_refused` with its reason and writes nothing; silence
+  and an unusable reply are `uncertain`, never retried, with the index spent and no order; a bonded node is `bond_required` with
+  the index spent; an order that cannot be saved is `uncertain` (`order_not_saved`) with what the node made, both when the whole
+  store is gone and when only the orders table is (the index is still spent); needed work stops the command before anything is
+  sent or written and leaves `mcli.db` byte-identical.
+- **Grammar tests** (5, `cli_functions::order_new_grammar`): required options and defaults, every option with a negative premium,
+  the side checked and text amounts rejected, every legacy spelling gone, the registry entry. The registry, discovery and
+  boundary tests were updated to the new fact (four machine commands).
+- **Real binary check**: `order new --help`; `neworder` is an unrecognized subcommand; JSON without `--yes` is `invalid_arguments`
+  exit 2; with `--yes` and no configuration `configuration_missing` exit 1; nothing created.
+- **Checks on the checks**: not spending the index after silence, spending it on a refusal, treating an unsent request as uncertain
+  and skipping the index spend after a failed save each failed exactly the test that guards it (the last one first survived because
+  the failure test also broke the index write; a second test now drops only the orders table); restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (533 tests: lib 155, `cli_functions` 64,
+  `integration_tests` 38, `order_info_process` 34, `order_list_process` 46, `order_new_process` 22, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6; fewer than before because the legacy preflight and
+  characterization tests went with the command), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
+  --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

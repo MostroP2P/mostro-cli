@@ -116,7 +116,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ### What this means in practice
 
-- **Your first identity-using command (e.g. `getdm` or `neworder`) creates your user** — no separate "init" step needed. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
+- **Your first identity-using command (e.g. `getdm`; `order info` and `order new` need an existing one) creates your user** — no separate "init" step needed. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
 - **You can derive the same keys on another machine** by restoring the mnemonic (see [Backup, recovery and multi-device](#backup-recovery-and-multi-device)).
 - **An `nsec` alone is not enough** to regenerate the trade keys: you need the full mnemonic, because BIP32 needs the chain code that a leaf `nsec` doesn't carry.
 
@@ -219,7 +219,7 @@ mostro-cli order list --side buy --currency ves --status pending
 mostro-cli order info --order <uuid-1> --order <uuid-2>   # needs your local identity; creates nothing
 
 # 4. Create your own order (sell 1000-10000 ARS at market price)
-mostro-cli neworder -k sell -c ars -f 1000-10000 -m "face to face"
+mostro-cli order new --side sell --currency ARS --fiat-amount 1000 --fiat-amount-max 10000 --payment-method "face to face"
 
 # 5. Take someone else's sell order
 mostro-cli takesell -o <order-id> -a 500     # optional fiat amount for range orders
@@ -249,7 +249,7 @@ mostro-cli getdm --since 60     # everything Mostro sent you in the last 60 minu
 
 Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
 
-Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` to `neworder` to request a different window.
+Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` to `order new` to request a different window.
 
 ---
 
@@ -260,7 +260,7 @@ This is the seller flow when you create the order (maker, sell).
 1. **Create the order**
 
    ```bash
-   mostro-cli neworder -k sell -c usd -f 100 -m "wise,strike" -a 0
+   mostro-cli order new --side sell --currency usd --fiat-amount 100 --payment-method "wise,strike"
    ```
 
    - `-k sell` — you are selling sats.
@@ -342,7 +342,7 @@ Buyer-as-taker flow against an existing sell order:
 
 ### Buying as a maker
 
-If you want to *post* a buy order instead of taking one, use `neworder -k buy`. You'll typically include a Lightning Address as the invoice (`-i your@walletofsatoshi.com`) so the seller knows where to pay you.
+If you want to *post* a buy order instead of taking one, use `order new --side buy`. You'll typically include a Lightning Address as the invoice (`--invoice your@walletofsatoshi.com`) so the seller knows where to pay you.
 
 ---
 
@@ -587,7 +587,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order list [--side buy|sell] [--currency <code>] [--status <status>]` — list open orders (read-only; supports `--output json`). Replaces `listorders`.
 - `schema` — describe the machine interface offline (supports `--output json`).
 - `order info --order <uuid> [--order <uuid> ...]` — ask the node for its record of your own orders (supports `--output json`). Replaces `ordersinfo`.
-- `neworder -k <buy|sell> -c <fiat> -f <amount|min-max> -m <methods> [-a <sats>] [-p <premium>] [-i <invoice>] [--expiration-days N]` — create an order.
+- `order new --side <buy|sell> --currency <fiat> --fiat-amount <N> [--fiat-amount-max <M>] --payment-method <text> [--sats <N>] [--premium <P>] [--invoice <BOLT11>] [--expiration-days N] [--yes]` — create an order (supports `--output json`, which requires `--yes`). Replaces `neworder`.
 
 ### Taking orders
 - `takesell -o <id> [-i <invoice>] [-a <fiat-amount>]` — buyer takes a sell order.
@@ -637,11 +637,11 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 ### Global flags
 
-> **These must come *before* the subcommand.** They are parsed on the top-level command, so `mostro-cli order list -m <npub>` fails with `error: unexpected argument '-m' found`. Write `mostro-cli -m <npub> order list` instead. This also avoids clashing with subcommand flags that reuse the same letters (`-m` is `--payment-method` on `neworder` and `--message` on `senddm`, `-p` is `--premium` on `neworder` and `--pubkey` on the DM commands).
+> **These must come *before* the subcommand.** They are parsed on the top-level command, so `mostro-cli order list -m <npub>` fails with `error: unexpected argument '-m' found`. Write `mostro-cli -m <npub> order list` instead. This also avoids clashing with subcommand flags that reuse the same letters (`-m` is `--message` on `senddm`, `-p` is `--pubkey` on the DM commands).
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema` and `order info` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info` and `order new` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -655,7 +655,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Three commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema` and `order info`. Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Four commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info` and `order new` (the last needs `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

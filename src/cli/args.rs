@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Error, Result};
 use clap::Parser;
 
 use super::commands::Commands;
@@ -45,36 +44,4 @@ pub struct Cli {
     /// only migrated commands support `json`.
     #[arg(long = OUTPUT_LONG, global = true, value_enum)]
     pub output: Option<OutputMode>,
-}
-
-// Check range with two values value
-pub(super) fn check_fiat_range(s: &str) -> Result<(i64, Option<i64>)> {
-    if s.contains('-') {
-        // Get values from CLI
-        let values: Vec<&str> = s.split('-').collect();
-
-        // Check if more than two values
-        if values.len() > 2 {
-            return Err(Error::msg("Wrong amount syntax"));
-        };
-
-        // Get ranged command
-        let min = values[0]
-            .parse::<i64>()
-            .map_err(|e| anyhow!("Invalid min value: {}", e))?;
-        let max = values[1]
-            .parse::<i64>()
-            .map_err(|e| anyhow!("Invalid max value: {}", e))?;
-
-        // Check min below max
-        if min >= max {
-            return Err(Error::msg("Range of values must be 100-200 for example..."));
-        };
-        Ok((min, Some(max)))
-    } else {
-        match s.parse::<i64>() {
-            Ok(s) => Ok((s, None)),
-            Err(e) => Err(e.into()),
-        }
-    }
 }

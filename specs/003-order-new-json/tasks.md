@@ -17,7 +17,8 @@ No push, public-node use or regtest without authorization.
   `src/store.rs` (reserve, commit order and index in one transaction, advance, typed errors); keep the order-info tests green.
 - [x] **3. Outcomes.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`) `uncertain` constructors and per-command schema rules, new codes, `outcome/new.rs` (`OrderNewInput`, `OrderNewData`).
   The registry move, `JsonSupport::Request`, regenerated discovery and `order-new-v1.json` need the grammar and land in slice 4, as for order info.
-- [ ] **4. The command.** `OrderCommands::New`, the registry move, `commands/order/new.rs`, the confirmation in `cli/migrated.rs`, the human
+- [ ] **4. The command.** Split in two commits. **4a (done 2026-10-29)**: grammar, registry move (`JsonSupport::Write`), `commands/order/new.rs`, `cli/order_new.rs` (validation, `--yes`, preview and prompt, human output), removal of `neworder`, `cli/new_order.rs` and the Yadio call, generated schema and fixtures (`order-new-v1.json`, regenerated discovery), operation tests against the scripted daemon, README and command-reference migration. **4b**: binary scenarios (below).
+  `OrderCommands::New`, the registry move, `commands/order/new.rs`, the confirmation in `cli/migrated.rs`, the human
   preview and result, removal of `neworder`, `cli/new_order.rs` and the Yadio call. Binary scenarios: accepted and saved, refusal, silence,
   bond, forced save failure, `--yes` rules, one request, index and database effects.
 - [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, rejected relay, ambiguous publication, many bad inputs,

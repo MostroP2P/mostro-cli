@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema` and `order info` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info` and `order new` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -44,7 +44,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema` and `order info`. Other commands print human text only. The errors below are those of the listing; `order info` adds its own codes, listed in its [contract](../specs/002-order-info-json/contracts/cli.md#stable-errors).
+This applies to `order list`, `schema`, `order info` and `order new`. Other commands print human text only. The errors below are those of the listing; `order info` and `order new` add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -80,20 +80,16 @@ This applies to `order list`, `schema` and `order info`. Other commands print hu
   - **Migration**: `listorders`, `listorders --kind` and the short flags `-k`, `-c` and `-s` no longer exist (there are no aliases); use `order list --side --currency --status`. The root flag is `--mostro-pubkey`, still `-m` in short form, placed before the command word.
   - **Handler**: `commands::order::list::list_orders` through `msg::fetch_msg`; rendering in `parse_human` and `parse_machine`.
 
-- **`neworder`**
-  - **Description**: Create a new buy/sell order on Mostro.
+- **`order new`** (replaces `neworder`)
+  - **Description**: Create a buy or sell order. Needs an existing local identity (it never creates one), publishes exactly one signed request with a fresh trade key and saves the order the node creates.
   - **Args**:
-    - `--kind <STRING>`: Order kind (e.g. `buy` or `sell`).
-    - `--amount <i64>`: Sats amount; `0` means market price.
-    - `-c, --fiat-code <STRING>`: Fiat currency code.
-    - `--fiat-amount <RANGE>`: Fiat amount or range, validated by `check_fiat_range`.
-    - `-m, --payment-method <STRING>`: Payment method identifier.
-    - `--premium <i64>`: Premium on the price (can be negative).
-    - `--invoice <STRING>`: Optional Lightning invoice.
-    - `--expiration-days <i64>`: Expiration time in days for pending orders.
-  - **Handler**: `execute_new_order(...)` in `src/cli/new_order.rs`.
-  - **Confirmation**: `y` (case-insensitive) or a real blank Enter approves the preview. Closed stdin/EOF is not approval. Rejection (`n`) and unrecognized answers return an error before publication; the CLI reports the error on stderr and exits 1.
-  - **Market fiat**: With a zero sats amount, a currency absent from Yadio's list returns an error with an explicit-amount (`-a`) hint, rather than exiting successfully. A nonzero amount retains the existing fixed-rate bypass.
+    - `--side <buy|sell>`, `--currency <CODE>`, `--fiat-amount <N>`, `--payment-method <TEXT>` (required).
+    - `--fiat-amount-max <M>`: makes a range order `N..M` at market price (`--sats` must then be 0).
+    - `--sats <N>` (default 0, market price), `--premium <PERCENT>` (-100..100, default 0), `--invoice <BOLT11>`, `--expiration-days <N>` (0..365; 0 uses the node's default).
+    - `--yes`: create without asking. Required with `--output json`, which never prompts or reads stdin.
+  - **Output**: the order preview and a prompt (blank or `y` accepts; `n`, anything else or closed stdin declines) in human mode; one JSON document with `--output json`. Statuses are `ok`, `error` and `uncertain`: `uncertain` means the node may hold the order (no reply, an unusable reply, or the order could not be saved locally); check `order list` before trying again. The trade index is advanced whenever the request was published and not refused, so a key is never reused.
+  - **Migration**: `neworder`, its short flags, the squashed long flags (`--fiatcode`, `--paymentmethod`, `--expirationdays`), `--kind`, `--amount` and the `100-200` range syntax are gone with no alias; use `--side`, `--sats`, `--fiat-amount` with `--fiat-amount-max`. The Yadio currency check is gone: the node validates. The existing MCP server's `create_order` tool runs the old command and stops working until it is migrated.
+  - **Handler**: `commands::order::new::order_new` through `msg::exchange` and `store`; dispatch and the prompt in `cli/order_new.rs`.
 
 - **`takesell`**
   - **Description**: Take a sell order from a Mostro pubkey.

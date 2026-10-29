@@ -89,6 +89,19 @@ impl Store {
             .map_err(|_| StoreError::Unwritable)
     }
 
+    /// Fail now, before anything is published, if the store cannot be written:
+    /// take and release the write lock without changing a byte.
+    pub async fn ensure_writable(&self) -> Result<(), StoreError> {
+        let pool = self.open().await?;
+        let result = sqlx::query("BEGIN IMMEDIATE; ROLLBACK;")
+            .execute(&pool)
+            .await
+            .map(|_| ())
+            .map_err(|_| StoreError::Unwritable);
+        pool.close().await;
+        result
+    }
+
     /// The trade key and index the next order would use: the recorded index plus
     /// one. Writes nothing.
     pub async fn next_trade(&self) -> Result<Trade, StoreError> {
