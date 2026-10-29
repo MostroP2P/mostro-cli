@@ -2863,6 +2863,48 @@ change. Lean mode: this is the only evidence entry for the slice (see
 
 Nothing here claims any `order info` behavior: the command does not exist yet.
 
+
+## Order Info, Slice 2: Identity And Outcome Pieces: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `1d0bf47`. No command exists yet; this slice adds the
+pieces it needs. Lean mode: this is the only evidence entry for the slice.
+
+- **Windows CI finding (before the slice).** The first native Windows run (CI job `Pilot tests (native
+  Windows)`) failed three `ci_wiring` tests: a Windows checkout converts line endings and the test parsed
+  `\n`. Fixed in `1d0bf47` (tests normalize `\r\n`; checked locally by converting both workflow files to CRLF);
+  the Windows job now uses `--no-fail-fast`. Every other test binary that ran there passed: lib 123,
+  `cli_functions` 69, and 30 of 33 `integration_tests`. Because `cargo test` stopped at the failing binary, the
+  Windows process suite has not run yet.
+- **`src/identity.rs`** (8 tests): read-only loader; `db.rs` now delegates its key derivation to it. A missing
+  directory or file, or an empty `users` table, is `Missing`; garbage, no `users` table, a NULL or invalid mnemonic
+  is `Unreadable`; the valid store yields the production key. Nothing is created and every file in the directory is
+  unchanged (name, size, hash). Finding while testing: a read-only open of a **WAL-mode** store makes SQLite create
+  `mcli.db-wal` and `mcli.db-shm`; the loader opens such a store as `immutable` when no sidecars exist (the mnemonic
+  never changes), and a store in use by a writer is read without adding or removing a file. The CLI's own databases
+  are rollback-journal mode, so this guards stores from other builds.
+- **`src/outcome/codes.rs`, `outcome.rs`**: eight new error codes, two warnings, `ErrorCode::PILOT` and
+  `WarningCode::PILOT` (frozen), optional `error.reason` (a snake-case word, otherwise dropped; omitted from the derived
+  schema), `ErrorInfo` no longer `Copy`, `Envelope::refused`, `ExecutionMeta::request`. The code types moved out of
+  `outcome.rs` (394 of 400 lines) into `codes.rs`; now 205 and 205.
+- **`src/outcome/info.rs`** (10 tests in `parser_orders::info_contract`): `OrderInfoInput` (distinct ids in order, at
+  least one, no cap) and `OrderInfoData::from_reply`: request order, each id once, unrequested and repeated orders
+  dropped, every id returned or not returned exactly once (all 64 subsets of six ids), the empty reply as the
+  not-found success, one warning per kind, canonical decimal strings, trade keys as lowercase hex or null, times as
+  UTC text plus the exact integer, the buyer invoice never present.
+- **`src/outcome/schema.rs`**: `OutcomeRules::{read, request}`; shared `$defs` for the code and warning enums list the
+  frozen pilot set plus the command's own; the `reason` property exists only for commands that declare it; request
+  stage combinations are checked per branch. The checked-in `docs/schemas/*.json` still equal the generated output
+  (`schema_fixtures` pass), so the pilot documents did not change. New tests conform nine real request outcomes and
+  reject seventeen contradictory ones.
+- **`src/cli/registry.rs`**: `JsonSupport::Request` and its pre-execution stages (not attempted, node unknown, no local write).
+- **Checks on the checks**: widening `is_reason` failed the reason test; dropping the ambiguous-publication stage
+  combination failed the conformance test; removing the `immutable` choice failed the WAL test; the shared `$defs`
+  failure was seen before the generator fix. All restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (459 tests: lib 141, `cli_functions` 70,
+  `integration_tests` 33, `order_info_process` 3, `order_list_process` 46, `parser_orders` 123, others unchanged,
+  doctests 3), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+  Native Windows not rerun.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

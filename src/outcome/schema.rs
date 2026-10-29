@@ -10,7 +10,7 @@ use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde_json::{json, Map, Value};
 
 use super::order::{SIDES, STATUSES};
-use super::{ErrorCode, ErrorInfo, ExecutionMeta, Warnings, SCHEMA_VERSION};
+use super::{ErrorCode, ErrorInfo, ExecutionMeta, WarningCode, Warnings, SCHEMA_VERSION};
 
 pub type SchemaDocument = Map<String, Value>;
 
@@ -25,6 +25,9 @@ pub const UUID_PATTERN: &str = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}
 pub const PUBKEY_PATTERN: &str = "^[0-9a-f]{64}$";
 pub const RFC3339_PATTERN: &str =
     "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$";
+
+/// A refusal reason: a snake-case word, at most 64 characters.
+pub const REASON_PATTERN: &str = "^[a-z][a-z0-9_]{0,63}$";
 
 /// Longest signed 64-bit decimal, `-9223372036854775808`.
 const DECIMAL_MAX_LENGTH: u32 = 20;
@@ -55,6 +58,26 @@ pub fn rfc3339(_: &mut SchemaGenerator) -> Schema {
 
 pub fn nullable_rfc3339(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": ["string", "null"], "pattern": RFC3339_PATTERN})
+}
+
+pub fn nullable_pubkey(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": ["string", "null"], "pattern": PUBKEY_PATTERN})
+}
+
+pub fn uuid_list(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": "array", "items": {"type": "string", "pattern": UUID_PATTERN}})
+}
+
+pub fn nullable_status(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": ["string", "null"], "enum": status_with_null()})
+}
+
+fn status_with_null() -> Vec<Value> {
+    STATUSES
+        .iter()
+        .map(|status| json!(status))
+        .chain([Value::Null])
+        .collect()
 }
 
 pub fn side(_: &mut SchemaGenerator) -> Schema {
@@ -93,14 +116,84 @@ pub fn never_complete_history(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "boolean", "const": false})
 }
 
+/// The stage vocabulary of a command's outcomes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stages {
+    /// A read that publishes nothing: every stage is `not_applicable`.
+    Read,
+    /// One published request and no local write: publication and node
+    /// acceptance vary, persistence is `not_applicable`.
+    Request,
+}
+
 /// What a command's outcomes may contain.
 pub struct OutcomeRules<'a> {
     /// Canonical name reported on success.
     pub command: &'static str,
     /// Codes that can fail this command after it resolves.
     pub errors: &'a [ErrorCode],
+    /// Warning codes beyond the frozen pilot pair that this command can emit.
+    pub warnings: &'a [WarningCode],
     /// Whether a success always carries snapshot evidence.
     pub snapshot_on_success: bool,
+    /// Whether `node_refused` may carry a `reason`.
+    pub reason: bool,
+    pub stages: Stages,
+}
+
+impl<'a> OutcomeRules<'a> {
+    /// Rules of a read command with the pilot's vocabulary.
+    pub fn read(command: &'static str, errors: &'a [ErrorCode], snapshot_on_success: bool) -> Self {
+        Self {
+            command,
+            errors,
+            warnings: &[],
+            snapshot_on_success,
+            reason: false,
+            stages: Stages::Read,
+        }
+    }
+
+    /// Rules of a command that publishes one request.
+    pub fn request(
+        command: &'static str,
+        errors: &'a [ErrorCode],
+        warnings: &'a [WarningCode],
+    ) -> Self {
+        Self {
+            command,
+            errors,
+            warnings,
+            snapshot_on_success: false,
+            reason: true,
+            stages: Stages::Request,
+        }
+    }
+
+    /// Stage combinations (publication, node acceptance, persistence) allowed
+    /// on success and on failure of the resolved command.
+    fn combos(&self) -> (Vec<[&'static str; 3]>, Vec<[&'static str; 3]>) {
+        match self.stages {
+            Stages::Read => (vec![["not_applicable"; 3]], vec![["not_applicable"; 3]]),
+            Stages::Request => (
+                vec![["published", "accepted", "not_applicable"]],
+                vec![
+                    ["not_attempted", "unknown", "not_applicable"],
+                    ["published", "unknown", "not_applicable"],
+                    ["published", "rejected", "not_applicable"],
+                    ["unknown", "unknown", "not_applicable"],
+                ],
+            ),
+        }
+    }
+}
+
+/// The `$defs` enum of a shared code type: the frozen pilot codes, then the
+/// command's own in the order given.
+fn scoped_codes<T: serde::Serialize + PartialEq + Copy>(pilot: &[T], own: &[T]) -> Value {
+    let mut codes: Vec<T> = pilot.to_vec();
+    codes.extend(own.iter().filter(|code| !pilot.contains(code)));
+    Value::Array(codes.iter().map(value).collect())
 }
 
 fn value<T: serde::Serialize>(item: &T) -> Value {
@@ -111,18 +204,28 @@ fn code_names(codes: &[ErrorCode]) -> Vec<Value> {
     codes.iter().map(value).collect()
 }
 
-/// `meta` with fixed stages, and the snapshot rule given.
-fn meta_rule(meta: &Value, stages: [&str; 3], snapshot: Value) -> Value {
-    let mut rule = meta.as_object().cloned().unwrap_or_default();
-    rule.insert(
-        "properties".into(),
+/// `meta` limited to the allowed stage combinations and the snapshot rule given.
+fn meta_rule(meta: &Value, combos: &[[&str; 3]], snapshot: Value) -> Value {
+    let stages = |combo: &[&str; 3]| {
         json!({
-            "publication": {"const": stages[0]},
-            "daemon_acceptance": {"const": stages[1]},
-            "persistence": {"const": stages[2]},
-            "snapshot": snapshot,
-        }),
-    );
+            "publication": {"const": combo[0]},
+            "daemon_acceptance": {"const": combo[1]},
+            "persistence": {"const": combo[2]},
+        })
+    };
+    let mut rule = meta.as_object().cloned().unwrap_or_default();
+    if let [only] = combos {
+        let mut properties = stages(only);
+        properties["snapshot"] = snapshot;
+        rule.insert("properties".into(), properties);
+    } else {
+        rule.insert("properties".into(), json!({ "snapshot": snapshot }));
+        let alternatives: Vec<Value> = combos
+            .iter()
+            .map(|combo| json!({ "properties": stages(combo) }))
+            .collect();
+        rule.insert("anyOf".into(), Value::Array(alternatives));
+    }
     Value::Object(rule)
 }
 
@@ -137,7 +240,7 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
     let meta = value(&generator.subschema_for::<ExecutionMeta<S>>());
     let error = value(&generator.subschema_for::<ErrorInfo>());
     let warnings = value(&generator.subschema_for::<Warnings>());
-    let read = ["not_applicable"; 3];
+    let (success_combos, failure_combos) = rules.combos();
     let ok_snapshot = if rules.snapshot_on_success {
         snapshot.clone()
     } else {
@@ -153,7 +256,7 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
             "status": {"const": "ok"},
             "data": data,
             "error": {"type": "null"},
-            "meta": meta_rule(&meta, read, ok_snapshot),
+            "meta": meta_rule(&meta, &success_combos, ok_snapshot),
         },
     });
     let failure = json!({
@@ -164,9 +267,9 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
             "data": {"type": "null"},
             "error": {
                 "allOf": [error.clone()],
-                "properties": {"code": {"enum": code_names(rules.errors)}},
+                "properties": failure_error_properties(rules),
             },
-            "meta": meta_rule(&meta, read, failure_snapshot),
+            "meta": meta_rule(&meta, &failure_combos, failure_snapshot),
         },
     });
     let unresolved = json!({
@@ -181,7 +284,7 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
             },
             "meta": meta_rule(
                 &meta,
-                ["not_attempted", "unknown", "not_attempted"],
+                &[["not_attempted", "unknown", "not_attempted"]],
                 json!({"type": "null"}),
             ),
         },
@@ -214,11 +317,39 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
         }),
     );
     document.insert("oneOf".into(), json!([success, failure, unresolved]));
-    document.insert(
-        "$defs".into(),
-        Value::Object(generator.take_definitions(true)),
+    let mut definitions = generator.take_definitions(true);
+    scope_enum(
+        &mut definitions,
+        "ErrorCode",
+        scoped_codes(&ErrorCode::PILOT, rules.errors),
     );
+    scope_enum(
+        &mut definitions,
+        "WarningCode",
+        scoped_codes(&WarningCode::PILOT, rules.warnings),
+    );
+    document.insert("$defs".into(), Value::Object(definitions));
     document
+}
+
+/// The properties a failure of the resolved command may have on `error`.
+fn failure_error_properties(rules: &OutcomeRules) -> Value {
+    let mut properties = json!({"code": {"enum": code_names(rules.errors)}});
+    if rules.reason {
+        properties["reason"] = json!({
+            "type": "string",
+            "pattern": REASON_PATTERN,
+            "description": "The node's refusal reason; present only on node_refused.",
+        });
+    }
+    properties
+}
+
+/// Replace the `enum` of the shared definition `name`, when it exists.
+fn scope_enum(definitions: &mut Map<String, Value>, name: &str, allowed: Value) {
+    if let Some(Value::Object(definition)) = definitions.get_mut(name) {
+        definition.insert("enum".into(), allowed);
+    }
 }
 
 // One checker, shared with the integration tests that validate the fixtures.
@@ -230,8 +361,11 @@ mod schema_check;
 mod tests {
     use super::schema_check::conforms;
     use super::*;
+    use crate::outcome::info::{OrderInfoData, OrderInfoInput};
     use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
-    use crate::outcome::{Envelope, ExecutionMeta, Warnings};
+    use crate::outcome::{
+        DaemonAcceptance, Envelope, ExecutionMeta, Publication, WarningCode, Warnings,
+    };
     use mostro_core::order::{Kind, SmallOrder, Status};
     use nostr_sdk::prelude::{Keys, Timestamp};
     use regex::Regex;
@@ -240,11 +374,11 @@ mod tests {
     const ERRORS: [ErrorCode; 2] = [ErrorCode::ReadTimeout, ErrorCode::InternalError];
 
     fn listing() -> Value {
-        Value::Object(output_schema::<ListData, Snapshot>(&OutcomeRules {
-            command: "order.list",
-            errors: &ERRORS,
-            snapshot_on_success: true,
-        }))
+        Value::Object(output_schema::<ListData, Snapshot>(&OutcomeRules::read(
+            "order.list",
+            &ERRORS,
+            true,
+        )))
     }
 
     fn defs(schema: &Value) -> &Value {
@@ -548,14 +682,270 @@ mod tests {
 
     #[test]
     fn a_command_without_snapshot_evidence_requires_a_null_one() {
-        let schema = Value::Object(output_schema::<ListData, Snapshot>(&OutcomeRules {
-            command: "order.list",
-            errors: &ERRORS,
-            snapshot_on_success: false,
-        }));
+        let schema = Value::Object(output_schema::<ListData, Snapshot>(&OutcomeRules::read(
+            "order.list",
+            &ERRORS,
+            false,
+        )));
         assert!(!conforms(&schema, &schema, &success()));
         let mut no_snapshot = success();
         no_snapshot["meta"]["snapshot"] = Value::Null;
         assert!(conforms(&schema, &schema, &no_snapshot));
+    }
+
+    // --- The request vocabulary of `order.info` ----------------------------
+
+    const INFO_ERRORS: [ErrorCode; 13] = [
+        ErrorCode::InvalidArguments,
+        ErrorCode::ConfigurationMissing,
+        ErrorCode::ConfigurationInvalid,
+        ErrorCode::RelayConnectionFailed,
+        ErrorCode::RelayReadFailed,
+        ErrorCode::InternalError,
+        ErrorCode::IdentityMissing,
+        ErrorCode::IdentityUnreadable,
+        ErrorCode::ProtocolUnsupported,
+        ErrorCode::PowRequired,
+        ErrorCode::RequestRejected,
+        ErrorCode::ReplyTimeout,
+        ErrorCode::NodeRefused,
+    ];
+    // `reply_malformed` is added in the list below so the set stays readable.
+    const INFO_WARNINGS: [WarningCode; 2] = [
+        WarningCode::OrdersNotReturned,
+        WarningCode::InvalidOrderTimestamp,
+    ];
+
+    fn info_codes() -> Vec<ErrorCode> {
+        let mut codes = INFO_ERRORS.to_vec();
+        codes.push(ErrorCode::ReplyMalformed);
+        codes
+    }
+
+    fn info_schema() -> Value {
+        let codes = info_codes();
+        Value::Object(output_schema::<OrderInfoData, ()>(&OutcomeRules::request(
+            "order.info",
+            &codes,
+            &INFO_WARNINGS,
+        )))
+    }
+
+    fn info_data() -> (OrderInfoData, Warnings) {
+        let node = Keys::generate().public_key();
+        let ids = [Uuid::from_u128(1), Uuid::from_u128(2)];
+        let requested = OrderInfoInput::new(ids).unwrap();
+        OrderInfoData::from_reply(
+            &node,
+            &requested,
+            &[SmallOrder::new(
+                Some(ids[0]),
+                Some(Kind::Sell),
+                Some(Status::Active),
+                15_000,
+                "USD".to_string(),
+                None,
+                None,
+                15,
+                "bank transfer".to_string(),
+                1,
+                Some(Keys::generate().public_key().to_hex()),
+                None,
+                None,
+                Some(1_792_108_800),
+                Some(1_792_195_200),
+            )],
+        )
+    }
+
+    fn info_ok(meta: ExecutionMeta<()>) -> Value {
+        let (data, warnings) = info_data();
+        serde_json::to_value(Envelope::ok("order.info", data, warnings, meta)).unwrap()
+    }
+
+    fn info_failure(code: ErrorCode, meta: ExecutionMeta<()>) -> Value {
+        let envelope =
+            Envelope::<OrderInfoData, ()>::error(Some("order.info"), code, Warnings::new(), meta);
+        serde_json::to_value(envelope).unwrap()
+    }
+
+    fn request(publication: Publication, daemon: DaemonAcceptance) -> ExecutionMeta<()> {
+        ExecutionMeta::request(publication, daemon)
+    }
+
+    #[test]
+    fn a_request_command_lists_the_pilot_codes_plus_its_own_and_a_reason() {
+        let schema = info_schema();
+        let defs = defs(&schema);
+        let names = |value: &Value| {
+            strings(value)
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        };
+        let mut expected: Vec<String> = ErrorCode::PILOT
+            .iter()
+            .map(|c| {
+                serde_json::to_value(c)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        expected.extend(
+            [
+                "identity_missing",
+                "identity_unreadable",
+                "protocol_unsupported",
+                "pow_required",
+                "request_rejected",
+                "reply_timeout",
+                "node_refused",
+                "reply_malformed",
+            ]
+            .map(String::from),
+        );
+        assert_eq!(names(&defs["ErrorCode"]["enum"]), expected);
+        assert_eq!(
+            names(&defs["WarningCode"]["enum"]),
+            [
+                "invalid_event_timestamp",
+                "cleanup_incomplete",
+                "orders_not_returned",
+                "invalid_order_timestamp"
+            ]
+        );
+        let failure = &schema["oneOf"][1]["properties"]["error"]["properties"];
+        assert_eq!(failure["reason"]["pattern"], REASON_PATTERN);
+        // A read command has no reason and keeps the pilot sets.
+        let read = listing();
+        assert!(read["oneOf"][1]["properties"]["error"]["properties"]
+            .get("reason")
+            .is_none());
+        assert_eq!(strings(&self::defs(&read)["ErrorCode"]["enum"]).len(), 9);
+        // The data definitions are in the document.
+        assert!(defs.get("OrderInfoData").is_some() && defs.get("OrderRecord").is_some());
+    }
+
+    #[test]
+    fn real_request_outcomes_of_every_kind_conform() {
+        let schema = info_schema();
+        let cases = [
+            info_ok(request(Publication::Published, DaemonAcceptance::Accepted)),
+            info_failure(
+                ErrorCode::IdentityMissing,
+                request(Publication::NotAttempted, DaemonAcceptance::Unknown),
+            ),
+            info_failure(
+                ErrorCode::PowRequired,
+                request(Publication::NotAttempted, DaemonAcceptance::Unknown),
+            ),
+            info_failure(
+                ErrorCode::PowRequired,
+                request(Publication::Published, DaemonAcceptance::Unknown),
+            ),
+            info_failure(
+                ErrorCode::ReplyTimeout,
+                request(Publication::Published, DaemonAcceptance::Unknown),
+            ),
+            info_failure(
+                ErrorCode::RequestRejected,
+                request(Publication::Unknown, DaemonAcceptance::Unknown),
+            ),
+            info_failure(
+                ErrorCode::ReplyMalformed,
+                request(Publication::Published, DaemonAcceptance::Unknown),
+            ),
+            serde_json::to_value(Envelope::<OrderInfoData, ()>::refused(
+                Some("order.info"),
+                "too_many_requests",
+                Warnings::new(),
+                request(Publication::Published, DaemonAcceptance::Rejected),
+            ))
+            .unwrap(),
+            serde_json::to_value(Envelope::<OrderInfoData, ()>::error(
+                None,
+                ErrorCode::InvalidArguments,
+                Warnings::new(),
+                ExecutionMeta::not_executed(),
+            ))
+            .unwrap(),
+        ];
+        for case in cases {
+            assert!(conforms(&schema, &schema, &case), "{case}");
+        }
+    }
+
+    #[test]
+    fn contradictory_request_outcomes_do_not_conform() {
+        let schema = info_schema();
+        let ok = || info_ok(request(Publication::Published, DaemonAcceptance::Accepted));
+        let refused = || {
+            serde_json::to_value(Envelope::<OrderInfoData, ()>::refused(
+                Some("order.info"),
+                "not_found",
+                Warnings::new(),
+                request(Publication::Published, DaemonAcceptance::Rejected),
+            ))
+            .unwrap()
+        };
+        let mut rejected = vec![
+            // Read stages do not describe a request.
+            info_ok(ExecutionMeta::read(None)),
+            // A success needs an accepted request; a failure cannot be accepted.
+            info_ok(request(Publication::Published, DaemonAcceptance::Unknown)),
+            info_failure(
+                ErrorCode::ReplyTimeout,
+                request(Publication::Published, DaemonAcceptance::Accepted),
+            ),
+            info_failure(
+                ErrorCode::ReplyTimeout,
+                request(Publication::Published, DaemonAcceptance::NotApplicable),
+            ),
+            // Codes the command cannot emit.
+            info_failure(
+                ErrorCode::OutputNotSupported,
+                request(Publication::NotAttempted, DaemonAcceptance::Unknown),
+            ),
+            info_failure(
+                ErrorCode::ReadTimeout,
+                request(Publication::Published, DaemonAcceptance::Unknown),
+            ),
+        ];
+        let edit = |base: Value, change: &dyn Fn(&mut Value)| {
+            let mut value = base;
+            change(&mut value);
+            value
+        };
+        rejected.extend([
+            edit(ok(), &|o| o["status"] = json!("uncertain")),
+            edit(ok(), &|o| o["meta"]["persistence"] = json!("applied")),
+            edit(ok(), &|o| o["meta"]["snapshot"] = json!({})),
+            edit(ok(), &|o| {
+                o["data"]["not_returned"][0] = json!("not-a-uuid")
+            }),
+            edit(ok(), &|o| {
+                o["data"]["orders"][0]["buyer_trade_pubkey"] = json!("ABC")
+            }),
+            edit(ok(), &|o| {
+                o["data"]["orders"][0]["sats_amount"] = json!(15000)
+            }),
+            edit(ok(), &|o| {
+                o["data"]["orders"][0]["status"] = json!("uncertain")
+            }),
+            edit(ok(), &|o| {
+                o["data"]["orders"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("expires_at");
+            }),
+            edit(ok(), &|o| o["data"] = Value::Null),
+            edit(refused(), &|o| o["error"]["reason"] = json!("Not Found")),
+            edit(refused(), &|o| o["error"]["reason"] = json!(7)),
+        ]);
+        for case in rejected {
+            assert!(!conforms(&schema, &schema, &case), "accepted: {case}");
+        }
     }
 }

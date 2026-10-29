@@ -1477,4 +1477,263 @@ mod info_contract {
             assert_eq!(received, &reason, "{name}");
         }
     }
+
+    // --- The typed data of `order.info` (spec 002, slice 2) -----------------
+
+    use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
+    use mostro_client::outcome::{WarningCode, Warnings};
+    use nostr_sdk::prelude::{PublicKey, ToBech32};
+    use serde_json::Value;
+
+    fn node() -> PublicKey {
+        Keys::generate().public_key()
+    }
+
+    fn id(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn order_with(n: u128, edit: impl FnOnce(&mut SmallOrder)) -> SmallOrder {
+        let mut order = small_order(id(n));
+        edit(&mut order);
+        order
+    }
+
+    fn input(ids: &[u128]) -> OrderInfoInput {
+        OrderInfoInput::new(ids.iter().map(|n| id(*n))).expect("at least one id")
+    }
+
+    fn wire(data: &OrderInfoData) -> Value {
+        serde_json::to_value(data).unwrap()
+    }
+
+    fn ids_of(value: &Value, key: &str) -> Vec<String> {
+        value[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item.get("id").unwrap_or(item).as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn text(n: u128) -> String {
+        id(n).to_string()
+    }
+
+    #[test]
+    fn the_input_needs_an_id_and_keeps_each_once_in_order() {
+        assert!(OrderInfoInput::new(Vec::<Uuid>::new()).is_none());
+        let repeated = OrderInfoInput::new([id(3), id(1), id(3), id(2), id(1)]).unwrap();
+        assert_eq!(repeated.ids(), [id(3), id(1), id(2)]);
+    }
+
+    #[test]
+    fn returned_orders_follow_the_request_each_once_and_only_when_requested() {
+        // The node answers in its own order, adds an order nobody asked for and
+        // repeats one.
+        let reply = vec![
+            order_with(2, |_| {}),
+            order_with(9, |_| {}),
+            order_with(1, |_| {}),
+            order_with(2, |order| order.fiat_amount = 99),
+        ];
+
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &input(&[1, 2, 3]), &reply);
+
+        let value = wire(&data);
+        assert_eq!(ids_of(&value, "orders"), [text(1), text(2)]);
+        assert_eq!(ids_of(&value, "not_returned"), [text(3)]);
+        // The first copy of a repeated order wins.
+        assert_eq!(value["orders"][1]["fiat_amount"], json!("15"));
+        assert!(warnings.contains(WarningCode::OrdersNotReturned));
+    }
+
+    #[test]
+    fn an_empty_reply_reports_every_id_as_not_returned() {
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &input(&[5, 4]), &[]);
+
+        let value = wire(&data);
+        assert_eq!(value["orders"], json!([]));
+        assert_eq!(ids_of(&value, "not_returned"), [text(5), text(4)]);
+        assert!(warnings.contains(WarningCode::OrdersNotReturned));
+    }
+
+    #[test]
+    fn a_complete_reply_has_no_warning_and_no_unreturned_ids() {
+        let reply = vec![order_with(1, |_| {}), order_with(2, |_| {})];
+
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &input(&[1, 2]), &reply);
+
+        assert_eq!(wire(&data)["not_returned"], json!([]));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn every_requested_id_is_returned_or_not_returned_exactly_once() {
+        let requested = [1u128, 2, 3, 4, 5, 6];
+        for mask in 0u32..(1 << requested.len()) {
+            let reply: Vec<SmallOrder> = requested
+                .iter()
+                .enumerate()
+                .filter(|(bit, _)| mask & (1 << bit) != 0)
+                .map(|(_, n)| order_with(*n, |_| {}))
+                .chain([order_with(99, |_| {})])
+                .collect();
+            let (data, _) = OrderInfoData::from_reply(&node(), &input(&requested), &reply);
+            let value = wire(&data);
+            let mut seen: Vec<String> = ids_of(&value, "orders");
+            seen.extend(ids_of(&value, "not_returned"));
+            seen.sort();
+            let mut expected: Vec<String> = requested.iter().map(|n| text(*n)).collect();
+            expected.sort();
+            assert_eq!(seen, expected, "mask {mask:b}");
+        }
+    }
+
+    #[test]
+    fn records_use_explicit_canonical_fields_and_never_the_buyer_invoice() {
+        let reply = vec![order_with(1, |order| {
+            order.amount = i64::MIN;
+            order.premium = -5;
+            order.min_amount = Some(10);
+            order.max_amount = Some(20);
+            order.buyer_invoice = Some("lnbc1secretinvoice".to_string());
+        })];
+
+        let (data, _) = OrderInfoData::from_reply(&node(), &input(&[1]), &reply);
+
+        let value = wire(&data);
+        let record = &value["orders"][0];
+        let mut keys: Vec<&str> = record
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "buyer_trade_pubkey",
+                "created_at",
+                "created_at_unix",
+                "expires_at",
+                "expires_at_unix",
+                "fiat_amount",
+                "fiat_amount_max",
+                "fiat_amount_min",
+                "fiat_currency",
+                "id",
+                "payment_method",
+                "premium_percent",
+                "sats_amount",
+                "seller_trade_pubkey",
+                "side",
+                "status",
+            ]
+        );
+        assert_eq!(record["sats_amount"], json!("-9223372036854775808"));
+        assert_eq!(record["premium_percent"], json!("-5"));
+        assert_eq!(record["fiat_amount_min"], json!("10"));
+        assert_eq!(record["fiat_amount_max"], json!("20"));
+        assert_eq!(
+            (record["side"].as_str(), record["status"].as_str()),
+            (Some("sell"), Some("active"))
+        );
+        assert!(!value.to_string().contains("secretinvoice"));
+        let node_text = value["node_pubkey"].as_str().unwrap();
+        assert_eq!(node_text.len(), 64);
+        assert_eq!(node_text, node_text.to_lowercase());
+    }
+
+    #[test]
+    fn missing_optional_values_are_null_and_never_invented() {
+        let reply = vec![order_with(1, |order| {
+            order.kind = None;
+            order.status = None;
+            order.min_amount = None;
+            order.max_amount = None;
+            order.created_at = None;
+            order.expires_at = None;
+        })];
+
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &input(&[1]), &reply);
+
+        let record = &wire(&data)["orders"][0];
+        for key in [
+            "side",
+            "status",
+            "fiat_amount_min",
+            "fiat_amount_max",
+            "created_at",
+            "created_at_unix",
+            "expires_at",
+            "expires_at_unix",
+        ] {
+            assert_eq!(record[key], Value::Null, "{key}");
+        }
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn trade_keys_are_lowercase_hex_or_null() {
+        let key = Keys::generate().public_key();
+        let cases = [
+            (Some(key.to_hex().to_uppercase()), json!(key.to_hex())),
+            (Some(key.to_bech32().unwrap()), json!(key.to_hex())),
+            (Some("not a key".to_string()), Value::Null),
+            (Some(String::new()), Value::Null),
+            (None, Value::Null),
+        ];
+        for (given, expected) in cases {
+            let reply = vec![order_with(1, |order| {
+                order.buyer_trade_pubkey = given.clone();
+                order.seller_trade_pubkey = given.clone();
+            })];
+            let (data, _) = OrderInfoData::from_reply(&node(), &input(&[1]), &reply);
+            let record = &wire(&data)["orders"][0];
+            assert_eq!(record["buyer_trade_pubkey"], expected, "{given:?}");
+            assert_eq!(record["seller_trade_pubkey"], expected, "{given:?}");
+        }
+    }
+
+    #[test]
+    fn times_are_utc_text_plus_the_exact_integer_and_null_when_unrepresentable() {
+        let reply = vec![order_with(1, |order| {
+            order.created_at = Some(1_792_108_800);
+            order.expires_at = Some(i64::MAX);
+        })];
+
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &input(&[1]), &reply);
+
+        let record = &wire(&data)["orders"][0];
+        assert_eq!(record["created_at"], json!("2026-10-16T00:00:00Z"));
+        assert_eq!(record["created_at_unix"], json!("1792108800"));
+        assert_eq!(record["expires_at"], Value::Null);
+        assert_eq!(record["expires_at_unix"], json!("9223372036854775807"));
+        assert!(warnings.contains(WarningCode::InvalidOrderTimestamp));
+        assert!(!warnings.contains(WarningCode::OrdersNotReturned));
+    }
+
+    #[test]
+    fn warnings_are_aggregated_once_per_code() {
+        let reply = vec![
+            order_with(1, |order| order.created_at = Some(i64::MIN)),
+            order_with(2, |order| order.expires_at = Some(i64::MAX)),
+        ];
+        let (_, warnings) = OrderInfoData::from_reply(&node(), &input(&[1, 2, 3, 4]), &reply);
+        let mut expected = Warnings::new();
+        expected.add(WarningCode::OrdersNotReturned);
+        expected.add(WarningCode::InvalidOrderTimestamp);
+        let wire = |warnings: &Warnings| {
+            serde_json::to_value(warnings)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len()
+        };
+        assert_eq!(wire(&warnings), wire(&expected));
+        assert!(warnings.contains(WarningCode::OrdersNotReturned));
+        assert!(warnings.contains(WarningCode::InvalidOrderTimestamp));
+    }
 }

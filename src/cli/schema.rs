@@ -148,16 +148,16 @@ const DISCOVERY_ERRORS: [ErrorCode; 2] = [ErrorCode::InvalidArguments, ErrorCode
 /// build cannot describe yet. `root` is the real Clap grammar.
 pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSchemas> {
     let output = match entry.canonical {
-        ORDER_LIST => output_schema::<ListData, Snapshot>(&OutcomeRules {
-            command: ORDER_LIST,
-            errors: &LISTING_ERRORS,
-            snapshot_on_success: true,
-        }),
-        SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules {
-            command: SCHEMA_COMMAND,
-            errors: &DISCOVERY_ERRORS,
-            snapshot_on_success: false,
-        }),
+        ORDER_LIST => output_schema::<ListData, Snapshot>(&OutcomeRules::read(
+            ORDER_LIST,
+            &LISTING_ERRORS,
+            true,
+        )),
+        SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
+            SCHEMA_COMMAND,
+            &DISCOVERY_ERRORS,
+            false,
+        )),
         _ => return None,
     };
     Some(CommandSchemas {

@@ -189,7 +189,7 @@ impl ListData {
 }
 
 /// UTC RFC3339 with `Z`, or `None` outside the four-digit years 0000-9999.
-fn rfc3339_utc(seconds: i64) -> Option<String> {
+pub(super) fn rfc3339_utc(seconds: i64) -> Option<String> {
     DateTime::<Utc>::from_timestamp(seconds, 0)
         .filter(|at| (0..=9999).contains(&at.year()))
         .map(|at| at.format("%Y-%m-%dT%H:%M:%SZ").to_string())

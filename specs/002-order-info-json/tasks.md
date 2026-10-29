@@ -24,7 +24,7 @@ native machine.
   out of `tests/order_list_process.rs` into `tests/common/harness.rs` (the 46 existing process tests
   unchanged). Build the scripted fake daemon and identity-store seeding in `tests/common/fake_mostro.rs`
   with self-tests. No production change.
-- [ ] **2. Identity and outcome pieces.**
+- [x] **2. Identity and outcome pieces.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`)
   `src/identity.rs` (read-only loader; `db.rs` delegates its derivation), the new codes, warnings, stage
   constructors, optional `error.reason` and command-scoped schema sets in `src/outcome.rs` and
   `src/outcome/schema.rs`, `JsonSupport::Request`, and the typed data in `src/outcome/info.rs`. The
