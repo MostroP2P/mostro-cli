@@ -3153,6 +3153,36 @@ and the 4b entry are the evidence for the slice; 4b adds the binary scenarios.
   characterization tests went with the command), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
   --all-features`: all pass.
 
+## Order New, Slice 4b: Binary Scenarios: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `ba8ae91` (pushed). The real binary against the scripted daemon, a seeded identity
+store and a sandboxed home; stdin is a closed descriptor or a file the test wrote, never a pipe it has to feed. Lean mode: with 4a,
+the evidence for the slice.
+
+- **Success in JSON** (`--yes`): exit 0, one document that conforms to the checked-in `order-new-v1.json`, nothing on stderr,
+  stages `published/accepted/applied`, one request at the daemon, the order row and index 1 in the store, the id in the row equal
+  to the id shown; neither the trade private key (read from the store), the mnemonic nor a relay address appears in any stream.
+- **Confirmation**: JSON without `--yes` is `invalid_arguments` exit 2 with the document conforming, no request and the data
+  directory byte-identical. Human with `--yes` prints the created order and no preview or prompt. Through the prompt `y`, blank
+  and `Y` + CRLF accept (preview on stdout, the question on stderr); `n`, `no`, `maybe`, an empty input and a closed stdin decline
+  with exit 1, the fixed `order_declined` line, no request and an untouched store.
+- **Refusal** (node's index ahead): JSON `node_refused` with reason `invalid_trade_index`, data null; human one fixed line with the
+  reason; the store byte-identical; one request per run.
+- **Silence**: after the production 15 s budget `uncertain` / `reply_timeout`, `published/unknown/applied`, nothing on stderr,
+  exactly one request, index 1 spent and no order row.
+- **Bonded node**: `bond_required` as an error with the index spent. **Unsaved order** (orders table dropped): JSON `uncertain` /
+  `order_not_saved` with the order the node made and persistence `failed`; human prints the order and the error plus the line
+  telling the caller to check `order list`; each attempt spent its own index. **Range order**: `min`/`max` reach the node with fiat
+  amount 0, and the row and document carry both bounds. **`--verbose`**: exactly `verbose: order.new ok`.
+- **Checks on the checks**: dropping the `--yes` rule for JSON, accepting end of input at the prompt and skipping the prompt each
+  failed the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (543 tests: lib 155, `cli_functions` 64,
+  `integration_tests` 38, `order_info_process` 34, `order_list_process` 46, `order_new_process` 32, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+- Still open for slice 5: the failure matrix at binary level (identity, configuration, protocol and work, rejected relay, ambiguous
+  publication, unwritable store, many bad inputs, secret sentinels, unwritable streams), `contracts/examples.json` and its validation.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

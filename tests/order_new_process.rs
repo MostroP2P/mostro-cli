@@ -26,6 +26,8 @@ use tokio::time::timeout;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{
     info_event, new_order_daemon, seed_identity, set_last_trade_index, FakeMostro, Respond,
@@ -759,7 +761,7 @@ mod operation {
     use serde_json::json;
 
     struct Maker {
-        _relay: LoopbackRelay,
+        relay: LoopbackRelay,
         fake: FakeMostro,
         config: PublicReadConfig,
         identity: Keys,
@@ -783,7 +785,7 @@ mod operation {
         let identity = seed_identity(&sandbox.mcli_dir()).await;
         let store = Store::in_dir(&sandbox.mcli_dir());
         Maker {
-            _relay: relay,
+            relay,
             fake,
             config,
             identity,
@@ -1045,5 +1047,356 @@ mod operation {
             std::fs::read(maker.sandbox.mcli_dir().join("mcli.db")).unwrap(),
             before
         );
+    }
+
+    // --- The binary (slice 4b) ------------------------------------------------
+
+    use harness::{run_with_watchdog, Captured, WATCHDOG};
+    use std::process::Stdio;
+
+    const BASE: [&str; 10] = [
+        "order",
+        "new",
+        "--side",
+        "sell",
+        "--currency",
+        "USD",
+        "--fiat-amount",
+        "100",
+        "--payment-method",
+        "bank transfer",
+    ];
+
+    fn args<'a>(front: &[&'a str], tail: &[&'a str]) -> Vec<&'a str> {
+        front
+            .iter()
+            .chain(BASE.iter())
+            .chain(tail)
+            .copied()
+            .collect()
+    }
+
+    fn command(maker: &Maker, args: &[&str]) -> tokio::process::Command {
+        let mut command = maker.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", maker.config.mostro_pubkey().to_hex())
+            .env("RELAYS", &maker.relay.url);
+        command
+    }
+
+    async fn run(maker: &Maker, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(command(maker, args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// Run with `answer` as the whole of stdin: a file, so the child never
+    /// waits on a pipe the test has to feed.
+    async fn run_answering(maker: &Maker, args: &[&str], answer: &str) -> Captured {
+        let path = std::env::temp_dir().join(format!(
+            "mcli-answer-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, answer).unwrap();
+        let mut command = command(maker, args);
+        command.stdin(Stdio::from(std::fs::File::open(&path).unwrap()));
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    fn document(run: &Captured) -> serde_json::Value {
+        let stdout = run.stdout_text();
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{stdout}"
+        );
+        serde_json::from_str(&stdout).unwrap()
+    }
+
+    fn snapshot(maker: &Maker) -> Vec<(String, Vec<u8>)> {
+        let mut files: Vec<_> = std::fs::read_dir(maker.sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    fn conforms_to_the_checked_in_schema(outcome: &serde_json::Value) {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/docs/schemas/order-new-v1.json"
+        );
+        let schema: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            schema_check::conforms(&schema, &schema, outcome),
+            "{outcome}"
+        );
+    }
+
+    #[tokio::test]
+    async fn json_with_yes_creates_one_order_and_nothing_secret_is_shown() {
+        let (respond, last) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+
+        let run = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["command"], "order.new");
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(outcome["data"]["trade_index"], "1");
+        assert_eq!(outcome["data"]["order"]["fiat_currency"], "USD");
+        assert_eq!(
+            outcome["meta"],
+            json!({"publication": "published", "daemon_acceptance": "accepted",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(maker.fake.received().len(), 1);
+        assert_eq!(state(&maker).await, (1, 1));
+        assert_eq!(*last.lock().unwrap(), 1);
+        assert_eq!(
+            scalar::<String>(&maker, "SELECT id FROM orders").await,
+            outcome["data"]["order"]["id"].as_str().unwrap()
+        );
+        // The trade private key and the mnemonic stay in the store.
+        let secret = scalar::<String>(&maker, "SELECT trade_keys FROM orders").await;
+        let mnemonic = scalar::<String>(&maker, "SELECT mnemonic FROM users").await;
+        for stream in [run.stdout_text(), run.stderr_text()] {
+            assert!(!stream.contains(&secret), "the trade key leaked");
+            assert!(!stream.contains(&mnemonic), "the mnemonic leaked");
+            assert!(!stream.contains("127.0.0.1"), "a relay address leaked");
+        }
+    }
+
+    #[tokio::test]
+    async fn json_without_yes_does_nothing_at_all() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let before = snapshot(&maker);
+
+        let run = run(&maker, &args(&["--output", "json"], &[])).await;
+
+        assert_eq!(run.code(), Some(2), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["command"], "order.new");
+        assert_eq!(outcome["error"]["code"], "invalid_arguments");
+        assert!(maker.fake.received().is_empty());
+        assert_eq!(snapshot(&maker), before);
+    }
+
+    #[tokio::test]
+    async fn human_with_yes_prints_the_created_order_without_asking() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+
+        let run = run(&maker, &args(&[], &["--yes"])).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let out = run.stdout_text();
+        assert!(out.contains("Order Created"), "{out}");
+        assert!(!out.contains("Preview"), "no prompt, no preview: {out}");
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let id = scalar::<String>(&maker, "SELECT id FROM orders").await;
+        assert!(out.contains(&id));
+        assert_eq!(state(&maker).await, (1, 1));
+    }
+
+    #[tokio::test]
+    async fn the_prompt_accepts_y_and_blank_and_declines_everything_else() {
+        for answer in ["y\n", "\n", "Y\r\n"] {
+            let (respond, _) = new_order_daemon(0, false);
+            let maker = maker(respond, 0).await;
+            let run = run_answering(&maker, &args(&[], &[]), answer).await;
+            assert_eq!(run.code(), Some(0), "{answer:?}: {}", run.stderr_text());
+            let out = run.stdout_text();
+            assert!(out.contains("New Order Preview") && out.contains("Order Created"));
+            assert!(run.stderr_text().contains("Create this order? [Y/n]"));
+            assert_eq!(state(&maker).await, (1, 1), "{answer:?}");
+        }
+        for answer in ["n\n", "no\n", "maybe\n", ""] {
+            let (respond, _) = new_order_daemon(0, false);
+            let maker = maker(respond, 0).await;
+            let before = snapshot(&maker);
+            let run = run_answering(&maker, &args(&[], &[]), answer).await;
+            assert_eq!(run.code(), Some(1), "{answer:?}: {}", run.stderr_text());
+            let out = run.stdout_text();
+            assert!(out.contains("New Order Preview"), "{out}");
+            assert!(!out.contains("Order Created"), "{out}");
+            assert!(run
+                .stderr_text()
+                .contains("error: The order was not confirmed, so nothing was sent."));
+            assert!(maker.fake.received().is_empty(), "{answer:?}");
+            assert_eq!(snapshot(&maker), before, "{answer:?}");
+        }
+        // A closed stdin is not approval either.
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let run = run(&maker, &args(&[], &[])).await;
+        assert_eq!(run.code(), Some(1));
+        assert!(maker.fake.received().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_refusal_shows_its_reason_in_both_modes_and_spends_nothing() {
+        let (respond, _) = new_order_daemon(5, false);
+        let maker = maker(respond, 0).await;
+        let before = snapshot(&maker);
+
+        let json = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["status"], "error");
+        assert_eq!(outcome["error"]["code"], "node_refused");
+        assert_eq!(outcome["error"]["reason"], "invalid_trade_index");
+        assert_eq!(outcome["data"], serde_json::Value::Null);
+
+        let human = run(&maker, &args(&[], &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty());
+        assert_eq!(
+            human.stderr_text(),
+            "error: The node refused the request. (reason: invalid_trade_index)\n"
+        );
+        assert_eq!(snapshot(&maker), before, "a refusal changes nothing");
+        assert_eq!(maker.fake.received().len(), 2, "one request per run");
+    }
+
+    #[tokio::test]
+    async fn a_silent_node_is_uncertain_after_the_production_budget_and_is_never_retried() {
+        let maker = maker(super::fake_mostro::silent(), 0).await;
+        let started = std::time::Instant::now();
+
+        let run = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+
+        assert!(started.elapsed() >= ExchangeLimits::default().reply);
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "reply_timeout");
+        assert_eq!(
+            outcome["meta"],
+            json!({"publication": "published", "daemon_acceptance": "unknown",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(maker.fake.received().len(), 1, "one publication, no retry");
+        assert_eq!(state(&maker).await, (0, 1));
+    }
+
+    #[tokio::test]
+    async fn a_bonded_node_is_an_error_and_the_index_is_spent() {
+        let (respond, _) = new_order_daemon(0, true);
+        let maker = maker(respond, 0).await;
+
+        let run = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+
+        assert_eq!(run.code(), Some(1));
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["status"], "error");
+        assert_eq!(outcome["error"]["code"], "bond_required");
+        assert_eq!(state(&maker).await, (0, 1));
+    }
+
+    #[tokio::test]
+    async fn an_order_that_cannot_be_saved_is_uncertain_and_still_shows_what_was_made() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(maker.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DROP TABLE orders")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let json = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "order_not_saved");
+        let id = outcome["data"]["order"]["id"].as_str().unwrap().to_string();
+        assert_eq!(outcome["meta"]["persistence"], "failed");
+
+        let human = run(&maker, &args(&[], &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout_text().contains("Order Created"));
+        let err = human.stderr_text();
+        assert!(
+            err.contains("error: The node created the order but it could not be saved locally.")
+        );
+        assert!(
+            err.contains("Check `order list` before trying again."),
+            "{err}"
+        );
+        assert!(!human.stdout_text().contains(&id), "a new order, a new id");
+        assert_eq!(
+            scalar::<i64>(&maker, "SELECT last_trade_index FROM users").await,
+            2,
+            "each attempt spent its own index"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_range_order_reaches_the_node_as_min_and_max_and_is_saved_as_one() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+
+        let run = run(
+            &maker,
+            &args(
+                &["--output", "json"],
+                &["--fiat-amount-max", "300", "--yes"],
+            ),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let order = maker.fake.received()[0].order.clone().unwrap();
+        assert_eq!(
+            (order.fiat_amount, order.min_amount, order.max_amount),
+            (0, Some(100), Some(300))
+        );
+        let outcome = document(&run);
+        assert_eq!(outcome["data"]["order"]["fiat_amount_min"], "100");
+        assert_eq!(outcome["data"]["order"]["fiat_amount_max"], "300");
+        assert_eq!(
+            scalar::<i64>(&maker, "SELECT max_amount FROM orders").await,
+            300
+        );
+    }
+
+    #[tokio::test]
+    async fn verbose_adds_one_code_only_line() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let mut flags = vec!["--verbose"];
+        flags.extend(["--output", "json"]);
+
+        let run = run(&maker, &args(&flags, &["--yes"])).await;
+
+        assert_eq!(run.code(), Some(0));
+        assert_eq!(run.stderr_text(), "verbose: order.new ok\n");
     }
 }
