@@ -29,7 +29,7 @@ native machine.
   constructors, optional `error.reason` and command-scoped schema sets in `src/outcome.rs` and
   `src/outcome/schema.rs`, `JsonSupport::Request`, and the typed data in `src/outcome/info.rs`. The
   existing `docs/schemas` fixtures must not change.
-- [ ] **3. The exchange.**
+- [x] **3. The exchange.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`)
   `src/msg/node_info.rs`, `send_msg.rs`, `reply.rs`, `exchange.rs` and `ExchangeLimits` behind the
   private session: one request, correlated reply, bounded cleanup, no retry. Contract tests against
   the fake daemon; privacy doctests stay green.

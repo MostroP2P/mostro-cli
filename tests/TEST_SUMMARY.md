@@ -2905,6 +2905,50 @@ pieces it needs. Lean mode: this is the only evidence entry for the slice.
   doctests 3), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
   Native Windows not rerun.
 
+
+## Order Info, Slice 3: The Exchange: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `3a4145e`. The exchange exists and is tested against the
+scripted daemon; no command uses it yet. Lean mode: this is the only evidence entry for the slice.
+
+- **`msg::exchange`** (public) with the private doors `send_msg.rs` (wrap and publish; a failure counts as an explicit
+  rejection only if every relay's text carries a machine-readable prefix such as `blocked:`, otherwise it is ambiguous),
+  `reply.rs` (merged relay streams armed before subscribing; the existing correlation rule decides; a relay that closes
+  the subscription or goes away only fails the wait when every relay has), `node_info.rs` (best-effort kind-38385 read:
+  protocol version and expected work). Types: `ExchangeLimits`, `Outbound`, `Expect`, `Exchanged`, `ExchangeFailure`
+  (code, publication and node-acceptance stages, warnings). The client stays private; five `compile_fail` doctests prove
+  `Session`, `orders`, `send_msg`, `reply` and `node_info` cannot be imported.
+- **Contract tests** (12 new, `tests/order_info_process.rs`, against the fake daemon on a loopback relay that also counts
+  request EVENTs): one signed request reaches the node and the relay once; 20 instant replies in a row are never missed;
+  an other-request reply, a wrong action, a wrong signer, a reply addressed to someone else and a duplicate never decide
+  the result; traffic that is not the answer ends in a timeout with one request and no retry; refusals and odd payloads
+  are returned to the caller; silence is `reply_timeout` (published, node unknown) within budget with bounded cleanup
+  and our connection gone; protocol 1 and too little configured work fail before anything is published (and an explicit
+  transport choice or enough work proceeds); a missing info event is not an error; advertised first-contact work explains
+  a silent node as `pow_required` (published); a relay rejecting writes gives `request_rejected` (not attempted); an
+  unreachable relay gives `relay_connection_failed` and a relay answering every REQ with CLOSED gives `relay_read_failed`
+  (published); a request without an identifier fails before connecting.
+- **Checks on the checks**: disabling correlation, the early work check or the arm-before-publish order failed tests;
+  publishing the request twice was **not** caught at first because the relay deduplicates the same event, so the relay now
+  counts EVENT messages before deduplication and the mutation fails two tests. All restored.
+- **Boundary tests** updated deliberately: `.send_event(` gains `msg/send_msg.rs`, `.fetch_events(` gains
+  `msg/node_info.rs`, `.subscribe(` gains `msg/exchange.rs`; no legacy count changed. `util::events::read_info_tag_from_event`
+  became `pub(crate)` for reuse.
+- Gates: fmt, Clippy `-D warnings` (two findings fixed: a large enum variant, an unneeded copy), `cargo test --locked
+  --no-fail-fast` (484 tests: lib 146, `cli_functions` 70, `integration_tests` 33, `order_info_process` 15,
+  `order_list_process` 46, `parser_orders` 123, others unchanged, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+### CI result for the previous push (`3a4145e`): native Windows passed
+
+The GitHub run `40934312083` was green in every job, including `Pilot tests (native Windows)` on `windows-latest`
+(MSVC), which ran every test binary with `--no-fail-fast`: lib 140, `cli_functions` 69, `integration_tests` 33,
+`order_info_process` 3, `order_list_process` 46 (32 s), `parser_disputes` 9, `parser_dms` 19, `parser_orders` 123,
+`util_misc` 15 and 3 doctests, none failed. The counts are one below Linux in lib and `cli_functions`, and two below in
+`util_misc`, which are Unix-only tests. This is the first Windows evidence for the order-list pilot (its commands, process
+tests with planted secret sentinels, streams and exit codes); it is a hosted runner, not a developer workstation. The
+slice-3 changes have not run on Windows yet.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

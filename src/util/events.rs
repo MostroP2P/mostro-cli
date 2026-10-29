@@ -89,7 +89,10 @@ pub fn create_filter(
 /// Pure: read the second slot of the first tag whose first slot equals
 /// `tag_name`. Split out so the kind-38385 tag-parsing logic stays unit
 /// testable without spinning up a relay.
-fn read_info_tag_from_event(event: &nostr_sdk::prelude::Event, tag_name: &str) -> Option<String> {
+pub(crate) fn read_info_tag_from_event(
+    event: &nostr_sdk::prelude::Event,
+    tag_name: &str,
+) -> Option<String> {
     event.tags.iter().find_map(|tag| {
         let slice = tag.as_slice();
         if slice.first().map(String::as_str) == Some(tag_name) {
