@@ -3068,6 +3068,29 @@ for the slice.
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. CI result for slice 6 of order info (`edeb118`)
   not yet read.
 
+## Order New, Slice 2: Exchange And Store: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `2082c1a` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Exchange**: `Outbound` gains `identity` (the seal signer) next to `signer` (author, inner signer and the key replies are
+  addressed to); `order info` passes its identity for both and its 34 process tests are unchanged. Three new tests (red first:
+  the field did not exist): a request authored by a trade key under an identity seal is acknowledged and the reply addressed to
+  the trade key is heard; a bond request and a refusal are returned for the caller to judge when the caller allows those actions;
+  an acknowledgement addressed to the identity instead of the trade key is never heard (`reply_timeout`, published).
+- **Store** (`src/store.rs`, 5 tests in `tests/order_new_process.rs`): opens the existing `mcli.db` for writing, never creates it,
+  one operation per open so no connection or sidecar file is left behind. `next_trade` (recorded index plus one, same derivation
+  as the rest of the program, writes nothing; the directory is byte-identical afterwards; `Debug` shows no key), `advance` (moves
+  forward only), `save_order` (order row and index in one transaction; with no user row nothing is written and the error is
+  `Missing`). A missing store, a file that is not a database and a read-only file are reported as `Missing`/`Unwritable` with
+  nothing created and the garbled file unchanged.
+- **Checks on the checks**: removing the user-row check in `save_order`, letting `advance` move backwards (this one first
+  survived because the test only looked at the final value; the test now checks after the older index) and sealing with the
+  signer instead of the identity each failed exactly the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (528 tests: lib 146, `cli_functions` 76,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `order_new_process` 15, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

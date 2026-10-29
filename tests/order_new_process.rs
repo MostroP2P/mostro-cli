@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 use futures::StreamExt;
+use mostro_client::msg::{exchange, ExchangeLimits, Expect, Outbound, PublicReadConfig};
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use mostro_core::prelude::{
     unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Transport,
@@ -18,6 +19,7 @@ use nostr_sdk::prelude::{
     Client, ClientNotification, Event, Filter, Keys, Kind, LocalRelay, PublicKey,
 };
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::time::timeout;
 
 #[path = "common/fake_mostro.rs"]
@@ -439,4 +441,309 @@ async fn the_legacy_save_writes_the_order_row_and_the_trade_index_only_after_an_
         2
     );
     pool.close().await;
+}
+
+// --- The exchange with a trade key (spec 003, slice 2) ----------------------
+
+fn limits() -> ExchangeLimits {
+    ExchangeLimits {
+        connect: Duration::from_secs(2),
+        probe: Duration::from_millis(400),
+        reply: Duration::from_millis(1_500),
+        cleanup: Duration::from_millis(500),
+        ..ExchangeLimits::default()
+    }
+}
+
+fn expect_new() -> Expect {
+    Expect {
+        allowed_actions: vec![Action::NewOrder, Action::PayBondInvoice, Action::CantDo],
+    }
+}
+
+async fn ask_node(
+    respond: Respond,
+    index: i64,
+) -> (
+    Result<mostro_client::msg::Exchanged, mostro_client::msg::ExchangeFailure>,
+    FakeMostro,
+    Keys,
+    Keys,
+    LoopbackRelay,
+) {
+    let (relay, fake) = node_with(respond).await;
+    let (identity, trade) = (Keys::generate(), Keys::generate());
+    let config = PublicReadConfig::new(fake.pubkey(), &relay.url).unwrap();
+    let outbound = Outbound {
+        identity: &identity,
+        signer: &trade,
+        recipient: fake.pubkey(),
+        message: request(legacy_order((100, None), 0, None), index),
+        pow: 0,
+        check_protocol: true,
+    };
+    let result = exchange(&config, outbound, &expect_new(), &limits()).await;
+    (result, fake, identity, trade, relay)
+}
+
+#[tokio::test]
+async fn the_exchange_signs_with_the_trade_key_and_hears_the_reply_addressed_to_it() {
+    let (respond, last) = new_order_daemon(0, false);
+
+    let (result, fake, identity, trade, _relay) = ask_node(respond, 1).await;
+
+    let exchanged = result.unwrap();
+    let reply = exchanged.reply().get_inner_message_kind();
+    assert_eq!(reply.action, Action::NewOrder);
+    assert_eq!(reply.request_id, Some(REQUEST_ID));
+    let seen = fake.received();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].author, trade.public_key());
+    assert_eq!(seen[0].identity, identity.public_key());
+    assert!(seen[0].signature_valid);
+    assert_eq!(*last.lock().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_bond_request_and_a_refusal_come_back_for_the_caller_to_judge() {
+    let (respond, _) = new_order_daemon(0, true);
+    let (result, ..) = ask_node(respond, 1).await;
+    let exchanged = result.unwrap();
+    assert_eq!(
+        exchanged.reply().get_inner_message_kind().action,
+        Action::PayBondInvoice
+    );
+
+    let (respond, last) = new_order_daemon(5, false);
+    let (result, ..) = ask_node(respond, 3).await;
+    let exchanged = result.unwrap();
+    assert_eq!(
+        exchanged.reply().get_inner_message_kind().action,
+        Action::CantDo
+    );
+    assert_eq!(*last.lock().unwrap(), 5);
+}
+
+#[tokio::test]
+async fn a_reply_addressed_to_the_identity_instead_of_the_trade_key_is_never_heard() {
+    let respond: Respond = Arc::new(|request| {
+        let ack = fake_mostro::order_created(request, uuid::Uuid::new_v4());
+        vec![fake_mostro::Outgoing::to_requester(ack).addressed_to(request.identity)]
+    });
+
+    let (result, ..) = ask_node(respond, 1).await;
+
+    let failed = result.unwrap_err();
+    assert_eq!(
+        failed.code(),
+        mostro_client::outcome::ErrorCode::ReplyTimeout
+    );
+    assert_eq!(
+        failed.publication(),
+        mostro_client::outcome::Publication::Published
+    );
+}
+
+// --- The store (spec 003, slice 2) ------------------------------------------
+
+mod store {
+    use super::*;
+    use mostro_client::store::{Store, StoreError, Trade};
+
+    async fn seeded() -> (Sandbox, Store, Keys) {
+        let sandbox = Sandbox::new().unwrap();
+        let identity = seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        (sandbox, store, identity)
+    }
+
+    fn directory(sandbox: &Sandbox) -> Vec<(String, Vec<u8>)> {
+        let mut files: Vec<_> = std::fs::read_dir(sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    async fn scalar<T>(sandbox: &Sandbox, sql: &'static str) -> T
+    where
+        T: for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite> + Send + Unpin,
+    {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(sandbox.mcli_dir().join("mcli.db"))
+            .read_only(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let value = sqlx::query_scalar::<_, T>(sql)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    fn created(id: uuid::Uuid) -> SmallOrder {
+        let mut order = legacy_order((100, None), 0, None);
+        order.id = Some(id);
+        order.expires_at = Some(1_792_195_200);
+        order
+    }
+
+    #[tokio::test]
+    async fn the_next_trade_is_the_recorded_index_plus_one_and_reading_it_changes_nothing() {
+        let (sandbox, store, _) = seeded().await;
+        set_last_trade_index(&sandbox.mcli_dir(), 6).await;
+        let before = directory(&sandbox);
+
+        let trade = store.next_trade().await.unwrap();
+
+        assert_eq!(trade.index, 7);
+        assert_eq!(directory(&sandbox), before, "no file changed or appeared");
+        assert!(!format!("{trade:?}").contains(&trade.keys.secret_key().to_secret_hex()));
+        let again = store.next_trade().await.unwrap();
+        assert_eq!(again.keys.public_key(), trade.keys.public_key());
+    }
+
+    #[tokio::test]
+    async fn saving_writes_the_row_and_the_index_together_and_closes_cleanly() {
+        let (sandbox, store, _) = seeded().await;
+        let trade = store.next_trade().await.unwrap();
+        let id = uuid::Uuid::new_v4();
+
+        store
+            .save_order(&created(id), &trade, REQUEST_ID)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT COUNT(*) FROM orders").await,
+            1
+        );
+        assert_eq!(
+            scalar::<String>(&sandbox, "SELECT id FROM orders").await,
+            id.to_string()
+        );
+        assert_eq!(
+            scalar::<String>(&sandbox, "SELECT trade_keys FROM orders").await,
+            trade.keys.secret_key().to_secret_hex()
+        );
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT request_id FROM orders").await,
+            REQUEST_ID as i64
+        );
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT expires_at FROM orders").await,
+            1_792_195_200
+        );
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
+            1
+        );
+        let names: Vec<_> = directory(&sandbox).into_iter().map(|f| f.0).collect();
+        assert_eq!(names, vec!["mcli.db".to_string()], "no sidecar left behind");
+        assert_eq!(store.next_trade().await.unwrap().index, 2);
+    }
+
+    #[tokio::test]
+    async fn a_failed_save_writes_neither_the_row_nor_the_index() {
+        let (sandbox, store, _) = seeded().await;
+        let trade = store.next_trade().await.unwrap();
+        // Make the index update fail after the row was inserted: no users table row.
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DELETE FROM users")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let failed = store
+            .save_order(&created(uuid::Uuid::new_v4()), &trade, REQUEST_ID)
+            .await;
+
+        assert_eq!(failed, Err(StoreError::Missing));
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT COUNT(*) FROM orders").await,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn advance_moves_the_index_forward_only() {
+        let (sandbox, store, _) = seeded().await;
+        store.advance(4).await.unwrap();
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
+            4
+        );
+        store.advance(2).await.unwrap();
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
+            4,
+            "an older index never moves it back"
+        );
+        store.advance(4).await.unwrap();
+        assert_eq!(
+            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
+            4
+        );
+        assert_eq!(store.next_trade().await.unwrap().index, 5);
+    }
+
+    #[tokio::test]
+    async fn a_missing_garbled_or_read_only_store_is_reported_and_nothing_is_created() {
+        let sandbox = Sandbox::new().unwrap();
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = Trade {
+            index: 1,
+            keys: Keys::generate(),
+        };
+        assert_eq!(store.next_trade().await.unwrap_err(), StoreError::Missing);
+        assert_eq!(store.advance(1).await, Err(StoreError::Missing));
+        assert_eq!(
+            store
+                .save_order(&created(uuid::Uuid::new_v4()), &trade, 1)
+                .await,
+            Err(StoreError::Missing)
+        );
+        assert!(
+            harness::is_empty_dir(&sandbox.mcli_dir()),
+            "nothing was created"
+        );
+
+        std::fs::write(sandbox.mcli_dir().join("mcli.db"), b"not a database").unwrap();
+        assert_eq!(
+            store.next_trade().await.unwrap_err(),
+            StoreError::Unwritable
+        );
+        assert_eq!(store.advance(1).await, Err(StoreError::Unwritable));
+        assert_eq!(
+            std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap(),
+            b"not a database"
+        );
+
+        let (sandbox, store, _) = seeded().await;
+        let mut permissions = std::fs::metadata(sandbox.mcli_dir().join("mcli.db"))
+            .unwrap()
+            .permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(sandbox.mcli_dir().join("mcli.db"), permissions).unwrap();
+        let blocked = store.advance(3).await;
+        // A read-only file is reported unless the process may ignore the mode (root).
+        if blocked.is_ok() {
+            assert_eq!(
+                scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
+                3
+            );
+        } else {
+            assert_eq!(blocked, Err(StoreError::Unwritable));
+        }
+    }
 }

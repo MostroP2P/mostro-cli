@@ -40,6 +40,7 @@ pub async fn order_info(
         Some(Payload::Ids(requested.ids().to_vec())),
     );
     let outbound = Outbound {
+        identity,
         signer: identity,
         recipient: config.mostro_pubkey(),
         message: request,

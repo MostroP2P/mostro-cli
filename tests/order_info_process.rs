@@ -350,6 +350,7 @@ fn orders_request(world: &World, ids: Vec<Uuid>) -> Message {
 
 fn outbound(world: &World, ids: Vec<Uuid>) -> Outbound<'_> {
     Outbound {
+        identity: &world.identity,
         signer: &world.identity,
         recipient: world.config.mostro_pubkey(),
         message: orders_request(world, ids),
@@ -659,6 +660,7 @@ async fn a_relay_that_rejects_the_request_leaves_nothing_published() {
         Some(Payload::Ids(vec![Uuid::new_v4()])),
     );
     let outbound = Outbound {
+        identity: &identity,
         signer: &identity,
         recipient: node.public_key(),
         message: request,
@@ -696,6 +698,7 @@ async fn an_unreachable_relay_and_a_closed_subscription_are_told_apart() {
         Some(Payload::Ids(vec![Uuid::new_v4()])),
     );
     let unreachable = Outbound {
+        identity: &identity,
         signer: &identity,
         recipient: node.public_key(),
         message: request,
@@ -721,6 +724,7 @@ async fn an_unreachable_relay_and_a_closed_subscription_are_told_apart() {
         Some(Payload::Ids(vec![Uuid::new_v4()])),
     );
     let outbound = Outbound {
+        identity: &identity,
         signer: &identity,
         recipient: node.public_key(),
         message: request,

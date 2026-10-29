@@ -6,8 +6,8 @@ use nostr_sdk::prelude::{Client, Event, MachineReadablePrefix};
 
 use super::exchange::Outbound;
 
-/// The request as a protocol-v2 event, signed by the outbound identity for
-/// both roles (the account-scoped form: the identity key is also the trade key).
+/// The request as a protocol-v2 event: sealed by the identity, authored and
+/// signed by the signer (the same key for the account-scoped form).
 pub(super) async fn wrap(outbound: &Outbound<'_>) -> Option<Event> {
     let options = WrapOptions {
         pow: outbound.pow,
@@ -17,7 +17,7 @@ pub(super) async fn wrap(outbound: &Outbound<'_>) -> Option<Event> {
     wrap_message_with(
         Transport::Nip44Direct,
         &outbound.message,
-        outbound.signer,
+        outbound.identity,
         outbound.signer,
         outbound.recipient,
         options,

@@ -48,7 +48,11 @@ impl Default for ExchangeLimits {
 
 /// The request to publish.
 pub struct Outbound<'a> {
-    /// Signs the request and receives the reply (the account-scoped identity key).
+    /// Binds the request to the account: the seal signer. The same key as
+    /// `signer` for the account-scoped form (`order info`).
+    pub identity: &'a Keys,
+    /// Authors and signs the request and receives the reply: the trade key of
+    /// an order, or the identity key for the account-scoped form.
     pub signer: &'a Keys,
     pub recipient: PublicKey,
     /// Must carry a request identifier: the reply is matched on it.
