@@ -21,7 +21,7 @@ No push, public-node use or regtest without authorization.
   `OrderCommands::New`, the registry move, `commands/order/new.rs`, the confirmation in `cli/migrated.rs`, the human
   preview and result, removal of `neworder`, `cli/new_order.rs` and the Yadio call. Binary scenarios: accepted and saved, refusal, silence,
   bond, forced save failure, `--yes` rules, one request, index and database effects.
-- [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, rejected relay, ambiguous publication, many bad inputs,
+- [x] **5. Failure matrix and examples.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, rejected relay, ambiguous publication, many bad inputs,
   secret sentinels, unwritable streams, stdin never read; `contracts/examples.json` and its validation.
 - [ ] **6. Docs, boundaries, verification.** Boundary counts, architecture, command reference, README migration (MCP `create_order`),
   Linux quickstart run, requirement evidence, status lines; the regtest probe stays open until separately authorized.

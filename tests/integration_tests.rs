@@ -5,9 +5,10 @@ use std::path::Path;
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
 use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
+use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::outcome::{
-    DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Publication, Warnings,
+    DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Warnings,
 };
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
@@ -279,8 +280,8 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 mod schema_fixtures {
     use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
-        Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, PublicKey, Publication,
-        Value, Warnings,
+        Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, OrderNewData,
+        OrderNewInput, OrderRequest, Persistence, PublicKey, Publication, Value, Warnings,
     };
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
@@ -940,6 +941,320 @@ mod schema_fixtures {
             assert!(
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label}"
+            );
+        }
+    }
+    // --- The proposed outcomes of `order new` (spec 003) ---------------------
+
+    const NEW_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/003-order-new-json/contracts/examples.json"
+    );
+    /// A second well-known public key, for the trade key.
+    const TRADE: &str = "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
+
+    fn new_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(NEW_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn new_example(name: &str) -> (i32, Value) {
+        new_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn created(range: bool) -> OrderNewData {
+        let input = OrderNewInput::validate(OrderRequest {
+            side: OrderKind::Sell,
+            currency: "usd".to_string(),
+            fiat_amount: 100,
+            fiat_amount_max: range.then_some(300),
+            payment_method: "bank transfer".to_string(),
+            sats: 0,
+            premium: 2,
+            invoice: None,
+            expiration_days: 1,
+        })
+        .unwrap();
+        let mut order = input.small_order(1_792_108_800);
+        order.id = Some(id(7));
+        order.created_at = Some(1_792_108_800);
+        OrderNewData::from_created(&node(), &order, 3, &PublicKey::from_hex(TRADE).unwrap())
+            .unwrap()
+            .0
+    }
+
+    type NewEnvelope = Envelope<OrderNewData, ()>;
+
+    fn write(
+        publication: Publication,
+        acceptance: DaemonAcceptance,
+        persistence: Persistence,
+    ) -> ExecutionMeta<()> {
+        ExecutionMeta::write(publication, acceptance, persistence)
+    }
+
+    fn unsent_write() -> ExecutionMeta<()> {
+        write(
+            Publication::NotAttempted,
+            DaemonAcceptance::Unknown,
+            Persistence::NotAttempted,
+        )
+    }
+
+    fn new_cases() -> Vec<(&'static str, Value, i32)> {
+        let accepted = || {
+            write(
+                Publication::Published,
+                DaemonAcceptance::Accepted,
+                Persistence::Applied,
+            )
+        };
+        let error = |code, meta| NewEnvelope::error(Some("order.new"), code, Warnings::new(), meta);
+        let uncertain = |code, data, meta| {
+            NewEnvelope::uncertain("order.new", code, data, Warnings::new(), meta)
+        };
+        let ok = |data| NewEnvelope::ok("order.new", data, Warnings::new(), accepted());
+        vec![
+            ("created", to_value(ok(created(false))).unwrap(), 0),
+            ("range_created", to_value(ok(created(true))).unwrap(), 0),
+            (
+                "node_refused",
+                to_value(NewEnvelope::refused(
+                    Some("order.new"),
+                    "invalid_amount",
+                    Warnings::new(),
+                    write(
+                        Publication::Published,
+                        DaemonAcceptance::Rejected,
+                        Persistence::NotAttempted,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "bond_required",
+                to_value(error(ErrorCode::BondRequired, accepted())).unwrap(),
+                1,
+            ),
+            (
+                "reply_timeout_uncertain",
+                to_value(uncertain(
+                    ErrorCode::ReplyTimeout,
+                    None,
+                    write(
+                        Publication::Published,
+                        DaemonAcceptance::Unknown,
+                        Persistence::Applied,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "order_not_saved_uncertain",
+                to_value(uncertain(
+                    ErrorCode::OrderNotSaved,
+                    Some(created(false)),
+                    write(
+                        Publication::Published,
+                        DaemonAcceptance::Accepted,
+                        Persistence::Failed,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "order_declined",
+                to_value(error(ErrorCode::OrderDeclined, unsent_write())).unwrap(),
+                1,
+            ),
+            (
+                "identity_missing",
+                to_value(error(ErrorCode::IdentityMissing, unsent_write())).unwrap(),
+                1,
+            ),
+            (
+                "yes_required",
+                to_value(error(ErrorCode::InvalidArguments, unsent_write())).unwrap(),
+                2,
+            ),
+            (
+                "removed_spelling",
+                to_value(NewEnvelope::error(
+                    None,
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    ExecutionMeta::not_executed(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_new_examples_conform_to_the_checked_in_schema() {
+        let schema = read_json(NEW_FIXTURE);
+        let examples = new_examples();
+        assert_eq!(examples.len(), 10);
+        for (name, exit, outcome) in examples {
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            // Only an ok outcome and an uncertain outcome after an accepted
+            // reply carry data.
+            assert_eq!(
+                !outcome["data"].is_null(),
+                matches!(
+                    name.as_str(),
+                    "created" | "range_created" | "order_not_saved_uncertain"
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = new_cases();
+        assert_eq!(cases.len(), new_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = new_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_new_variants_do_not_conform() {
+        let schema = read_json(NEW_FIXTURE);
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "created",
+                "a success with a failed save",
+                Box::new(|o| o["meta"]["persistence"] = json!("failed")),
+            ),
+            (
+                "created",
+                "a success that is uncertain",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "created",
+                "a numeric trade index",
+                Box::new(|o| o["data"]["trade_index"] = json!(3)),
+            ),
+            (
+                "created",
+                "an uppercase trade key",
+                Box::new(|o| o["data"]["trade_pubkey"] = json!(TRADE.to_uppercase())),
+            ),
+            (
+                "created",
+                "a missing trade key",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("trade_pubkey");
+                }),
+            ),
+            (
+                "created",
+                "a read stage set",
+                Box::new(|o| o["meta"]["publication"] = json!("not_applicable")),
+            ),
+            (
+                "created",
+                "another command",
+                Box::new(|o| o["command"] = json!("order.info")),
+            ),
+            (
+                "node_refused",
+                "an uppercase reason",
+                Box::new(|o| o["error"]["reason"] = json!("Invalid Amount")),
+            ),
+            (
+                "node_refused",
+                "an accepted refusal",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "node_refused",
+                "a refusal that spent a write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "node_refused",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"order": null})),
+            ),
+            (
+                "reply_timeout_uncertain",
+                "a plain error status",
+                Box::new(|o| o["status"] = json!("error")),
+            ),
+            (
+                "reply_timeout_uncertain",
+                "an accepted unknown reply",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "reply_timeout_uncertain",
+                "a code that is an error only",
+                Box::new(|o| o["error"]["code"] = json!("order_declined")),
+            ),
+            (
+                "reply_timeout_uncertain",
+                "nothing published",
+                Box::new(|o| o["meta"]["publication"] = json!("not_attempted")),
+            ),
+            (
+                "order_not_saved_uncertain",
+                "a saved persistence",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "order_declined",
+                "a published declined order",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "order_declined",
+                "a code of a read command",
+                Box::new(|o| o["error"]["code"] = json!("read_timeout")),
+            ),
+        ];
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = new_example(case);
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
             );
         }
     }

@@ -90,9 +90,19 @@ impl Store {
     }
 
     /// Fail now, before anything is published, if the store cannot be written:
-    /// take and release the write lock without changing a byte.
+    /// the file must accept a write (SQLite silently falls back to read-only on
+    /// a file it may not write, so its own checks cannot say) and the write
+    /// lock must be free. No byte changes.
     pub async fn ensure_writable(&self) -> Result<(), StoreError> {
         let pool = self.open().await?;
+        if std::fs::OpenOptions::new()
+            .write(true)
+            .open(&self.path)
+            .is_err()
+        {
+            pool.close().await;
+            return Err(StoreError::Unwritable);
+        }
         let result = sqlx::query("BEGIN IMMEDIATE; ROLLBACK;")
             .execute(&pool)
             .await

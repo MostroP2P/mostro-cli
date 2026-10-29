@@ -1,0 +1,276 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "created",
+      "stdout": {
+        "command": "order.new",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": {
+            "buyer_trade_pubkey": null,
+            "created_at": "2026-10-16T00:00:00Z",
+            "created_at_unix": "1792108800",
+            "expires_at": "2026-10-17T00:00:00Z",
+            "expires_at_unix": "1792195200",
+            "fiat_amount": "100",
+            "fiat_amount_max": null,
+            "fiat_amount_min": null,
+            "fiat_currency": "USD",
+            "id": "00000000-0000-0000-0000-000000000007",
+            "payment_method": "bank transfer",
+            "premium_percent": "2",
+            "sats_amount": "0",
+            "seller_trade_pubkey": null,
+            "side": "sell",
+            "status": "pending"
+          },
+          "trade_index": "3",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "range_created",
+      "stdout": {
+        "command": "order.new",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": {
+            "buyer_trade_pubkey": null,
+            "created_at": "2026-10-16T00:00:00Z",
+            "created_at_unix": "1792108800",
+            "expires_at": "2026-10-17T00:00:00Z",
+            "expires_at_unix": "1792195200",
+            "fiat_amount": "0",
+            "fiat_amount_max": "300",
+            "fiat_amount_min": "100",
+            "fiat_currency": "USD",
+            "id": "00000000-0000-0000-0000-000000000007",
+            "payment_method": "bank transfer",
+            "premium_percent": "2",
+            "sats_amount": "0",
+            "seller_trade_pubkey": null,
+            "side": "sell",
+            "status": "pending"
+          },
+          "trade_index": "3",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "node_refused",
+      "stdout": {
+        "command": "order.new",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "invalid_amount"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "bond_required",
+      "stdout": {
+        "command": "order.new",
+        "data": null,
+        "error": {
+          "code": "bond_required",
+          "message": "The node asks for a bond before the order goes live."
+        },
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "reply_timeout_uncertain",
+      "stdout": {
+        "command": "order.new",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_not_saved_uncertain",
+      "stdout": {
+        "command": "order.new",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": {
+            "buyer_trade_pubkey": null,
+            "created_at": "2026-10-16T00:00:00Z",
+            "created_at_unix": "1792108800",
+            "expires_at": "2026-10-17T00:00:00Z",
+            "expires_at_unix": "1792195200",
+            "fiat_amount": "100",
+            "fiat_amount_max": null,
+            "fiat_amount_min": null,
+            "fiat_currency": "USD",
+            "id": "00000000-0000-0000-0000-000000000007",
+            "payment_method": "bank transfer",
+            "premium_percent": "2",
+            "sats_amount": "0",
+            "seller_trade_pubkey": null,
+            "side": "sell",
+            "status": "pending"
+          },
+          "trade_index": "3",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": {
+          "code": "order_not_saved",
+          "message": "The node created the order but it could not be saved locally."
+        },
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "failed",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_declined",
+      "stdout": {
+        "command": "order.new",
+        "data": null,
+        "error": {
+          "code": "order_declined",
+          "message": "The order was not confirmed, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "identity_missing",
+      "stdout": {
+        "command": "order.new",
+        "data": null,
+        "error": {
+          "code": "identity_missing",
+          "message": "No local identity exists."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "yes_required",
+      "stdout": {
+        "command": "order.new",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "removed_spelling",
+      "stdout": {
+        "command": null,
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

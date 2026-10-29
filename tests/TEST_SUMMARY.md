@@ -3183,6 +3183,41 @@ the evidence for the slice.
 - Still open for slice 5: the failure matrix at binary level (identity, configuration, protocol and work, rejected relay, ambiguous
   publication, unwritable store, many bad inputs, secret sentinels, unwritable streams), `contracts/examples.json` and its validation.
 
+## Order New, Slice 5: Failure Matrix And Examples: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `b90c145` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (binary, `tests/order_new_process.rs`; each case runs as JSON, human and `--verbose`, all with `--yes`, a planted
+  sentinel where an input carries text): no store and an empty `users` table (`identity_missing`); a file that is not a database, no
+  `users` table and a null mnemonic (`identity_unreadable`); missing node key or relays (`configuration_missing`); a bad node key,
+  relay, `--pow` or `--transport` (`configuration_invalid`); protocol 1 (`protocol_unsupported`); more work expected than configured
+  (`pow_required`); a relay rejecting every write (`request_rejected`, index unspent); an unreachable relay
+  (`relay_connection_failed`); a read-only store file (`store_unwritable`). For each: exit 1, `order.new`, status `error`,
+  stages `not_attempted/unknown/not_attempted`, a document that conforms to `order-new-v1.json`, nothing on stderr in JSON mode and
+  one `error:` line on stderr only in the others, no sentinel and no relay address in any stream, no request at the daemon, the data
+  directory byte-identical and nothing created elsewhere. An explicit `--transport nip44` with enough `--pow` succeeds on a node
+  advertising protocol 1.
+- **A defect found and repaired**: the first run of the read-only case showed the command *published* the order and then failed to save
+  it (`uncertain`): SQLite silently opens a file it may not write read-only, so `BEGIN IMMEDIATE` passed. `Store::ensure_writable` now
+  also requires the file to accept a write; the store test compares the check with an actual open for writing. (The check is skipped
+  when the process may write a read-only file, as root.)
+- **Argument errors**: twelve cases exit 2 with `invalid_arguments`, nothing sent or written, nothing echoed, nothing on stderr: bad
+  currency, zero fiat amount, a payment method with a control character, a range maximum not above the minimum, a range with sats,
+  premium and expiration out of range, an invoice with whitespace, a bad side, a text amount, missing required options (all keeping the
+  resolved command `order.new`) and the removed `neworder` (command `null`).
+- **Unwritable streams**: a closed stdout after the order was created exits 1 with one fixed line per mode (the order was made and saved
+  all the same, one per run); a closed stderr changes neither the exit nor the JSON document.
+- **Examples** (`contracts/examples.json`, ten outcomes: created, range created, refusal, bond, timeout and unsaved order as
+  `uncertain`, declined, identity missing, `--yes` required, removed spelling): each conforms to the checked-in schema, is reproduced by the
+  owned constructors, carries data only when it should, and 18 invalid variants do not conform.
+- **Checks on the checks**: the missing writability check (above), mapping an unreadable store to missing, and dropping the currency
+  character rule each failed a test; the last one first survived because the case used a two-letter currency that the length rule
+  also rejects, so the case now uses `U$D`; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (551 tests: lib 155, `cli_functions` 64,
+  `integration_tests` 41, `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
