@@ -38,7 +38,7 @@ native machine.
   `ordersinfo`, `src/cli/orders_info.rs` and the legacy arm; `src/commands/order/info.rs`; the dispatch;
   `src/parse_human/order_info.rs`. Binary scenarios: success, subset, repeated id, `not_found`, noise
   around the reply, refusal, timeout, one request, byte-identical identity store, parity of both modes.
-- [ ] **5. Failure matrix and examples.** (the `order.info` schemas and fixtures were done in slice 4)
+- [x] **5. Failure matrix and examples.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`; the `order.info` schemas and fixtures were done in slice 4)
   The full failure matrix (identity, configuration, protocol, work, rejected request, relay, malformed
   reply, many ids, secret sentinels, unwritable streams); `order.info` schemas; regenerate
   `docs/schemas/discovery-v1.json`, add `docs/schemas/order-info-v1.json` and

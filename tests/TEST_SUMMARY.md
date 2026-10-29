@@ -2994,8 +2994,32 @@ this is the only evidence entry for the slice.
   `integration_tests` 34, `order_info_process` 28, `order_list_process` 46, `parser_orders` 123, others unchanged, doctests 6),
   `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. Not yet run on Windows.
 
-Still open for slice 5: the failure matrix at binary level (identity and configuration errors, protocol and work, rejected
-request, relay failures, secret sentinels in every input), `contracts/examples.json`, and its validation.
+## Order Info, Slice 5: Failure Matrix And Examples: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `a8c7db3`. Lean mode: the only evidence entry for the slice. The schemas and
+fixtures of this slice were done in slice 4.
+
+- **Failure matrix** (6 new binary tests, `tests/order_info_process.rs`; each failure runs as JSON, human and `--verbose`,
+  with a planted sentinel where an input carries text): no store, an empty `users` table (`identity_missing`); a file that is
+  not a database, no `users` table, a null mnemonic (`identity_unreadable`); missing node key or relays
+  (`configuration_missing`); a bad node key, relay, `--pow` or `--transport` (`configuration_invalid`); protocol 1
+  (`protocol_unsupported`); more work expected than configured (`pow_required`); a relay rejecting writes
+  (`request_rejected`); an unreachable relay (`relay_connection_failed`). For each: the exit code, `command` `order.info`,
+  stages (`not_attempted`/`unknown`, `persistence` `not_applicable`), JSON on stdout only and nothing on stderr, human on
+  stderr only as one `error:` line, no sentinel and no `127.0.0.1` in any stream, zero requests at the relay, and the data
+  directory byte-identical with nothing created elsewhere. An explicit `--transport nip44` with enough `--pow` succeeds on a
+  node advertising protocol 1.
+- **Argument errors**: exit 2, `invalid_arguments`, `order.info` as the command for a missing, malformed or valueless
+  `--order` and an unknown option, `null` for the removed `ordersinfo`; no request, nothing created, the bad value not echoed.
+- **Unwritable stderr** (JSON mode) keeps exit 1 and the document.
+- **Examples** (`contracts/examples.json`, 3 tests in `schema_fixtures`): every proposed outcome conforms to the checked-in
+  schema, is reproduced by the owned constructors, and invalid variants are rejected.
+- **Checks on the checks**: mapping an unreadable store to `identity_missing` and skipping the work check each failed the
+  matrix; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (508 tests: lib 146, `cli_functions` 71,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
+  --all-features`: all pass. Slice 4 and 5 are not yet run on Windows until CI runs after a push.
 
 ## Overview
 

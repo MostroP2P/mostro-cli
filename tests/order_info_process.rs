@@ -23,6 +23,7 @@ use nostr_sdk::prelude::{
     WritePolicy, WritePolicyResult,
 };
 use serde_json::{json, Value};
+use sqlx::sqlite::SqliteConnectOptions;
 use tokio::process::Command;
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -289,15 +290,32 @@ fn limits() -> ExchangeLimits {
 
 /// A world whose info event is issued for the node it creates.
 async fn world(info: impl FnOnce(&Keys) -> Option<Event>, respond: Respond) -> World {
+    world_on(
+        |node, requests| {
+            LocalRelay::builder()
+                .write_policy(CountRequests {
+                    node: node.public_key(),
+                    count: requests,
+                })
+                .build()
+        },
+        info,
+        respond,
+    )
+    .await
+}
+
+/// Like [`world`], on a relay that `make` builds from the node's keys and the
+/// request counter.
+async fn world_on(
+    make: impl FnOnce(&Keys, Arc<AtomicUsize>) -> LocalRelay,
+    info: impl FnOnce(&Keys) -> Option<Event>,
+    respond: Respond,
+) -> World {
     // The node keys must exist before the info event, so build them first.
     let node = Keys::generate();
     let requests = Arc::new(AtomicUsize::new(0));
-    let relay = LocalRelay::builder()
-        .write_policy(CountRequests {
-            node: node.public_key(),
-            count: Arc::clone(&requests),
-        })
-        .build();
+    let relay = make(&node, Arc::clone(&requests));
     if let Some(event) = info(&node) {
         relay.add_event(event).await.unwrap();
     }
@@ -765,25 +783,91 @@ async fn a_request_without_an_identifier_fails_before_any_connection() {
 
 // --- The command, run as a child process (spec 002, slice 4) ----------------
 
-/// A world plus a sandbox holding a real identity store for the child to read.
+/// What the identity store looks like in the child's data directory.
+#[derive(Clone, Copy, Debug)]
+enum Store {
+    /// A real store with one user.
+    Valid,
+    /// No file at all.
+    Absent,
+    /// A database whose `users` table is empty.
+    EmptyUsers,
+    /// A file that is not a database.
+    Garbage,
+    /// A database without a `users` table.
+    NoUsersTable,
+    /// A user row without a mnemonic.
+    NullMnemonic,
+}
+
+/// A world plus a sandbox with an identity store for the child to read.
 struct Bin {
     world: World,
     sandbox: Sandbox,
     identity: Keys,
-    db_before: Vec<u8>,
+    /// Names and bytes of the data directory before any run.
+    dir_before: Vec<(String, Vec<u8>)>,
 }
 
 async fn bin(respond: Respond) -> Bin {
-    let world = world(plain_info, respond).await;
+    bin_in(world(plain_info, respond).await, Store::Valid).await
+}
+
+async fn bin_in(world: World, store: Store) -> Bin {
     let sandbox = Sandbox::new().unwrap();
-    let identity = seed_identity(&sandbox.mcli_dir()).await;
-    let db_before = fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap();
+    let dir = sandbox.mcli_dir();
+    let identity = match store {
+        Store::Valid => seed_identity(&dir).await,
+        Store::Absent => Keys::generate(),
+        Store::Garbage => {
+            fs::write(dir.join("mcli.db"), b"this is not a sqlite database").unwrap();
+            Keys::generate()
+        }
+        Store::EmptyUsers | Store::NoUsersTable | Store::NullMnemonic => {
+            let options = SqliteConnectOptions::new()
+                .filename(dir.join("mcli.db"))
+                .create_if_missing(true);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            let schema = match store {
+                Store::NoUsersTable => "CREATE TABLE other (x INTEGER)",
+                _ => {
+                    "CREATE TABLE users (i0_pubkey char(64) PRIMARY KEY, mnemonic TEXT, \
+                      last_trade_index INTEGER, created_at INTEGER)"
+                }
+            };
+            sqlx::query(schema).execute(&pool).await.unwrap();
+            if matches!(store, Store::NullMnemonic) {
+                sqlx::query("INSERT INTO users (i0_pubkey, mnemonic) VALUES ('aa', NULL)")
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            pool.close().await;
+            Keys::generate()
+        }
+    };
+    let dir_before = directory(&dir);
     Bin {
         world,
         sandbox,
         identity,
-        db_before,
+        dir_before,
     }
+}
+
+fn directory(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<_> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                fs::read(entry.path()).unwrap_or_default(),
+            )
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 impl Bin {
@@ -803,22 +887,39 @@ impl Bin {
         run
     }
 
-    /// The identity store is byte-identical and nothing else was created.
+    /// The data directory is exactly as it was (no file added, none changed) and
+    /// nothing was created elsewhere.
     fn assert_untouched(&self, label: &str) {
-        let files: Vec<String> = fs::read_dir(self.sandbox.mcli_dir())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(files, ["mcli.db"], "{label}: files appeared");
-        let after = fs::read(self.sandbox.mcli_dir().join("mcli.db")).unwrap();
+        let now = directory(&self.sandbox.mcli_dir());
+        let names =
+            |files: &[(String, Vec<u8>)]| files.iter().map(|f| f.0.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            names(&now),
+            names(&self.dir_before),
+            "{label}: files appeared or vanished"
+        );
         assert!(
-            after == self.db_before,
+            now == self.dir_before,
             "{label}: the identity store changed"
         );
         assert!(
             is_empty_dir(&self.sandbox.home()) && is_empty_dir(&self.sandbox.cwd()),
             "{label}"
         );
+    }
+
+    /// Run with environment changes applied after the defaults.
+    async fn run_env(&self, args: &[&str], set: &[(&str, &str)], unset: &[&str]) -> Captured {
+        let mut command = self.command(args);
+        for (name, value) in set {
+            command.env(name, value);
+        }
+        for name in unset {
+            command.env_remove(name);
+        }
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
     }
 }
 
@@ -1242,4 +1343,266 @@ async fn an_unwritable_stdout_exits_1_with_one_fixed_line_after_one_request() {
         2,
         "one request per run"
     );
+}
+
+/// One failure of the matrix: where it comes from and what both modes show.
+struct Failing {
+    label: &'static str,
+    store: Store,
+    /// Environment added to the child, then variables removed.
+    set: &'static [(&'static str, &'static str)],
+    unset: &'static [&'static str],
+    /// Extra global arguments placed before the command.
+    flags: &'static [&'static str],
+    code: &'static str,
+    exit: i32,
+    publication: &'static str,
+    acceptance: &'static str,
+}
+
+const SENTINEL: &str = "SENTINEL-zq81";
+
+impl Failing {
+    const fn new(label: &'static str, store: Store, code: &'static str) -> Self {
+        Self {
+            label,
+            store,
+            set: &[],
+            unset: &[],
+            flags: &[],
+            code,
+            exit: 1,
+            publication: "not_attempted",
+            acceptance: "unknown",
+        }
+    }
+}
+
+/// Run `case` in both modes plus `--verbose`, against a world made by `make`,
+/// and return the world's request count seen from the relay.
+async fn check_failure(case: &Failing, bin: &Bin) {
+    let ids = [text(1)];
+    let label = case.label;
+    for output in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
+        let mut flags: Vec<&str> = case.flags.to_vec();
+        flags.extend(output);
+        let run = bin
+            .run_env(&info_args(&flags, &ids), case.set, case.unset)
+            .await;
+        assert_eq!(
+            run.code(),
+            Some(case.exit),
+            "{label} {output:?}: {}",
+            run.stderr_text()
+        );
+        let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+        for stream in [&stdout, &stderr] {
+            assert!(!stream.contains(SENTINEL), "{label}: a sentinel leaked");
+            assert!(
+                !stream.contains("127.0.0.1"),
+                "{label}: a relay address leaked"
+            );
+        }
+        if output == ["--output", "json"] {
+            let outcome = document(&run);
+            assert_eq!(outcome["command"], "order.info", "{label}");
+            assert_eq!(outcome["status"], "error", "{label}");
+            assert_eq!(outcome["data"], Value::Null, "{label}");
+            assert_eq!(outcome["error"]["code"], case.code, "{label}");
+            assert_eq!(outcome["meta"]["publication"], case.publication, "{label}");
+            assert_eq!(
+                outcome["meta"]["daemon_acceptance"], case.acceptance,
+                "{label}"
+            );
+            assert_eq!(outcome["meta"]["persistence"], "not_applicable", "{label}");
+            assert!(stderr.is_empty(), "{label}: {stderr}");
+        } else {
+            assert!(stdout.is_empty(), "{label} {output:?}: {stdout}");
+            assert!(stderr.starts_with("error: "), "{label}: {stderr}");
+            assert_eq!(
+                stderr.lines().next().unwrap().matches("error:").count(),
+                1,
+                "{label}"
+            );
+        }
+    }
+    bin.assert_untouched(label);
+}
+
+#[tokio::test]
+async fn failures_before_any_request_are_stable_and_leave_no_trace() {
+    let cases = [
+        Failing::new("no store", Store::Absent, "identity_missing"),
+        Failing::new("no user", Store::EmptyUsers, "identity_missing"),
+        Failing::new("not a database", Store::Garbage, "identity_unreadable"),
+        Failing::new("no users table", Store::NoUsersTable, "identity_unreadable"),
+        Failing::new("null mnemonic", Store::NullMnemonic, "identity_unreadable"),
+        Failing {
+            unset: &["MOSTRO_PUBKEY"],
+            ..Failing::new("no node key", Store::Valid, "configuration_missing")
+        },
+        Failing {
+            unset: &["RELAYS"],
+            ..Failing::new("no relays", Store::Valid, "configuration_missing")
+        },
+        Failing {
+            set: &[("MOSTRO_PUBKEY", SENTINEL)],
+            ..Failing::new("bad node key", Store::Valid, "configuration_invalid")
+        },
+        Failing {
+            set: &[("RELAYS", "http://SENTINEL-zq81.invalid")],
+            ..Failing::new("bad relay", Store::Valid, "configuration_invalid")
+        },
+        Failing {
+            flags: &["--pow", SENTINEL],
+            ..Failing::new("bad pow", Store::Valid, "configuration_invalid")
+        },
+        Failing {
+            flags: &["--transport", SENTINEL],
+            ..Failing::new("bad transport", Store::Valid, "configuration_invalid")
+        },
+    ];
+    for case in &cases {
+        let bin = bin_in(world(plain_info, silent()).await, case.store).await;
+        check_failure(case, &bin).await;
+        assert!(bin.world.fake.received().is_empty(), "{}", case.label);
+        assert_eq!(
+            bin.world.requests.load(Ordering::SeqCst),
+            0,
+            "{}",
+            case.label
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_node_that_cannot_be_served_fails_before_publishing() {
+    let unsupported = Failing::new("protocol 1", Store::Valid, "protocol_unsupported");
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(1), Some(0), None, None)),
+            silent(),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    check_failure(&unsupported, &bin).await;
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 0);
+
+    let work = Failing::new("more work expected", Store::Valid, "pow_required");
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(2), Some(9), None, None)),
+            silent(),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    check_failure(&work, &bin).await;
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 0);
+
+    // An explicit transport skips the protocol check, and enough work passes.
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(1), Some(9), None, None)),
+            reply_with(vec![order(Uuid::from_u128(1))]),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    let ids = [text(1)];
+    let mut args = vec!["--transport", "nip44", "--pow", "9", "--output", "json"];
+    args.extend(&info_args(&[], &ids));
+    let run = bin.run(&args).await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+}
+
+#[tokio::test]
+async fn a_relay_that_rejects_the_request_is_request_rejected_with_nothing_published() {
+    let bin = bin_in(
+        world_on(
+            |_, _| LocalRelay::builder().write_policy(BlockWrites).build(),
+            plain_info,
+            silent(),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    let case = Failing::new("rejected", Store::Valid, "request_rejected");
+    check_failure(&case, &bin).await;
+    assert!(bin.world.fake.received().is_empty());
+}
+
+#[tokio::test]
+async fn relay_failures_are_told_apart_and_cost_one_attempt() {
+    // Nothing listens on the configured relay.
+    let bin = bin(silent()).await;
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead = format!("ws://{}", free.local_addr().unwrap());
+    drop(free);
+    let case = Failing {
+        set: &[],
+        ..Failing::new("unreachable", Store::Valid, "relay_connection_failed")
+    };
+    let ids = [text(1)];
+    let run = bin
+        .run_env(
+            &info_args(&["--output", "json"], &ids),
+            &[("RELAYS", dead.as_str())],
+            &[],
+        )
+        .await;
+    assert_eq!(run.code(), Some(case.exit), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["error"]["code"], case.code);
+    assert_eq!(outcome["meta"]["publication"], "not_attempted");
+    assert!(!run.stderr_text().contains("127.0.0.1"));
+    assert!(bin.world.fake.received().is_empty());
+    bin.assert_untouched("unreachable");
+}
+
+#[tokio::test]
+async fn argument_errors_name_the_command_only_when_it_resolved() {
+    let bin = bin(silent()).await;
+    let cases: [(&[&str], Value); 5] = [
+        (&["order", "info"], json!("order.info")),
+        (
+            &["order", "info", "--order", "not-a-uuid"],
+            json!("order.info"),
+        ),
+        (&["order", "info", "--order"], json!("order.info")),
+        (
+            &["order", "info", "--order", &text(1), "--bogus"],
+            json!("order.info"),
+        ),
+        (&["ordersinfo", "--order", &text(1)], Value::Null),
+    ];
+    for (args, command) in cases {
+        let mut all = vec!["--output", "json"];
+        all.extend(args);
+        let run = bin.run(&all).await;
+        assert_eq!(run.code(), Some(2), "{args:?}: {}", run.stderr_text());
+        let outcome = document(&run);
+        assert_eq!(outcome["command"], command, "{args:?}");
+        assert_eq!(outcome["error"]["code"], "invalid_arguments", "{args:?}");
+        assert_eq!(outcome["meta"]["publication"], "not_attempted", "{args:?}");
+        assert!(!run.stdout_text().contains("not-a-uuid"), "{args:?}");
+    }
+    assert!(bin.world.fake.received().is_empty());
+    bin.assert_untouched("arguments");
+}
+
+#[tokio::test]
+async fn an_unwritable_stderr_changes_neither_the_exit_nor_the_document() {
+    let bin = bin(silent()).await;
+    let ids = [text(1)];
+    let mut command = bin.command(&info_args(&["--output", "json", "--pow", "x"], &ids));
+    command.stderr(closed_pipe());
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert_eq!(run.code(), Some(1));
+    assert_eq!(document(&run)["error"]["code"], "configuration_invalid");
 }
