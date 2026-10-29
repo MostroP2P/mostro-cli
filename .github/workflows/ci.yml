@@ -66,9 +66,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with: { cache-on-failure: true }
-      # Includes the process, grammar, schema-drift and boundary tests.
+      # Includes the process, grammar, schema-drift and boundary tests. All test
+      # binaries run even if one fails, so a first Windows run shows every failure.
       - name: cargo test (native Windows)
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
 
   build:
     runs-on: ubuntu-latest
