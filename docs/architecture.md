@@ -30,9 +30,11 @@ main ──▶ cli::run ──▶ cli::invocation::parse_invocation   (args_os, 
 | --- | --- | --- |
 | Parsing and routing | `cli.rs`, `cli/args.rs`, `cli/commands.rs`, `cli/invocation.rs`, `cli/registry.rs` | Clap grammar (`Cli`, `Commands`, `OrderCommands`, `Schema`), fallible `args_os` parsing with `--output` recovery, the canonical-name and JSON-capability registry, dispatch order (discovery, listing, JSON guard, then legacy) and the only stdout/stderr writes of migrated commands |
 | Discovery | `cli/schema.rs`, `docs/schemas/*.json` | `DiscoveryData` and descriptors, Clap-driven input schemas, `offline_discovery()`; the checked-in fixtures are its output and are drift-tested |
-| Operations | `commands/order/list.rs` | Validate filters, resolve public configuration, call `fetch_msg`, map to a typed outcome. No printing, exit, storage or client access |
+| Operations | `commands/order/list.rs`, `commands/order/info.rs` | Validate input, call `fetch_msg` (list) or `exchange` (info), map to a typed outcome. No printing, exit, storage or client access; `order info` receives the identity keys as an argument |
+| Identity | `identity.rs` | Read-only loader of the local identity key from `mcli.db` (`Missing`/`Unreadable`); never creates, migrates or writes; `db.rs` delegates its derivation to it |
 | Public reads | `msg/mod.rs`, `msg/receive_msg.rs`, `msg/orders.rs` | `PublicReadConfig` and `ReadLimits`, the private `Session` that owns the Nostr client, the bounded all-relays-EOSE collector (`fetch_msg`) and the shared order filter, decoder and reducer |
-| Outcomes | `outcome.rs`, `outcome/order.rs`, `outcome/schema.rs` | The v1 envelope, stable error and warning codes with exits, the order DTOs, and the generated Draft 2020-12 output schemas |
+| Request and reply | `msg/exchange.rs`, `msg/send_msg.rs`, `msg/reply.rs`, `msg/node_info.rs` | `exchange`: one connection, node-info probe (protocol, work), notifications armed before subscribe and publish, one publish, the reply correlated by request id and sender, bounded cleanup, no retry. The doors stay private |
+| Outcomes | `outcome.rs`, `outcome/codes.rs`, `outcome/order.rs`, `outcome/info.rs`, `outcome/schema.rs` | The v1 envelope, stable error and warning codes with exits, the order DTOs, and the generated Draft 2020-12 output schemas |
 | Rendering | `parse_machine.rs`, `parse_human/*` | `emit` serializes fully and writes one line; `render_list` builds the human table. Neither decodes events nor touches the network or database |
 
 Rules that hold today:
@@ -40,7 +42,9 @@ Rules that hold today:
 - **No effects on the migrated paths.** `schema` and `order list` never open the
   database, read identity files, create `MCLI_DIR`, mutate the environment, install a
   logger from user input or read stdin. The public read resolves only
-  `MOSTRO_PUBKEY` and `RELAYS`, flags over environment.
+  `MOSTRO_PUBKEY` and `RELAYS`, flags over environment. `order info` also opens
+  `mcli.db` read-only to take the identity key, creates nothing, publishes exactly one
+  event and never retries; with no identity it fails before any network access.
 - **Typed outcomes, pure presentation.** A command returns an `Envelope`; both
   renderers consume the same data. Machine output is one UTF-8 JSON line, written only
   after complete serialization; a failed write exits 1 and appends nothing.
@@ -89,7 +93,12 @@ Four files exceed 400 production lines: `parser/dms.rs` (1,210), `db.rs` (704),
 `util/messaging.rs` (556) and `cli/take_dispute.rs` (403). Every file created or
 migrated by the pilot is at or below 316 production lines (`cli.rs` is the largest).
 T019 found the T002 table inconsistent with the files; this table was produced by one
-script over all `src/` files and supersedes it.
+script over all `src/` files and supersedes it. It is a snapshot from the end of the
+pilot: `order info` (spec 002) later added `identity.rs`, `cli/migrated.rs`,
+`commands/order/info.rs`, `msg/{exchange,send_msg,reply,node_info}.rs`,
+`outcome/{codes,info}.rs` and `parse_human/order_info.rs`, each at or below 400
+production lines, and removed `cli/orders_info.rs`; `cli.rs` shrank to 189. The size test
+(`production_files_respect_the_size_limit_and_the_frozen_exceptions`) is the current check.
 
 | Source under src/ | Physical | Test-only | Production |
 | --- | ---: | ---: | ---: |
@@ -197,7 +206,7 @@ violation.
   - Very thin; most logic starts in `src/cli.rs`.
 
 - **`src/cli.rs`** (facade and dispatcher)
-  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
+  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `new_order`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
   - Re-exports `Cli`, `Commands`, `OrderCommands`, `Context`, the registry (`lookup`, `REGISTRY`, `JsonSupport`) and the discovery types, so callers keep using `crate::cli::{...}`.
   - `run()`:
     - Parses `args_os()` through `parse_invocation`: help and version print text and exit 0; a rejected invocation exits 2 (a JSON error outcome only when JSON was clearly selected).
@@ -282,6 +291,7 @@ violation.
 
 - **`src/outcome.rs`**, **`src/outcome/order.rs`**, **`src/outcome/schema.rs`**: the machine-readable envelope (contract v1), the `order.list` DTOs and the generated output schemas. `Envelope::ok` and `Envelope::error` are the only constructors, so status, data and error agree; error and warning codes carry fixed messages and exit statuses; `ExecutionMeta` holds the write-stage fields and optional snapshot. `PublicOrder` maps explicit public fields only, with money and times as decimal strings; no core or database record is serialized wholesale.
 - **`src/commands/order/list.rs`**: `list_orders`, the typed `order.list` operation (validate, resolve public configuration, `fetch_msg`, select and map). It never prints, exits, writes storage or touches a client.
+- **`src/identity.rs`**, **`src/msg/exchange.rs`** (with `send_msg.rs`, `reply.rs`, `node_info.rs`), **`src/commands/order/info.rs`**, **`src/cli/migrated.rs`**: the read-only identity loader, the correlated request and reply, the typed `order.info` operation, and the extracted dispatch of the migrated commands (discovery, listing, info).
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text.
@@ -301,11 +311,11 @@ violation.
 
 Each file in `src/cli/` encapsulates the logic of a specific feature or a group of related commands:
 
-- Order-related: `add_invoice.rs`, `new_order.rs`, `take_order.rs`, `orders_info.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
+- Order-related: `add_invoice.rs`, `new_order.rs`, `take_order.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list` and `schema` are not in this group: they are migrated and live in `commands/` and `cli/schema.rs`.
+Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs` and `cli/schema.rs`.
 
 ### Typical flow: creating a new order
 

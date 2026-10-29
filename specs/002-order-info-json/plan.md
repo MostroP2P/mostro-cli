@@ -4,7 +4,7 @@
 
 **Feature directory**: `002-order-info-json`, not a Git branch.
 
-**Status**: Proposed design; no implementation and no runtime evidence. Behavior against a real daemon is unverified.
+**Status**: Implemented (slices 1-6) with Linux evidence against a scripted fake daemon. Behavior against a real daemon is unverified.
 
 ## Summary
 

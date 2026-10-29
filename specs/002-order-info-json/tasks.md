@@ -43,7 +43,7 @@ native machine.
   reply, many ids, secret sentinels, unwritable streams); `order.info` schemas; regenerate
   `docs/schemas/discovery-v1.json`, add `docs/schemas/order-info-v1.json` and
   `contracts/examples.json`; extend the drift tests. `order-list-v1.json` stays unchanged.
-- [ ] **6. Docs, boundaries, verification.**
+- [x] **6. Docs, boundaries, verification.** (done 2026-10-29; the regtest probe stays open)
   Update the frozen counts in the boundary tests and the CI wiring test deliberately; architecture,
   command reference, README and the `ordersinfo` migration (the MCP `get_order` tool stops working
   until it is migrated); Linux quickstart run and final gates. The regtest probe needs separate

@@ -3021,6 +3021,23 @@ fixtures of this slice were done in slice 4.
   `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
   --all-features`: all pass. Slice 4 and 5 are not yet run on Windows until CI runs after a push.
 
+## Order Info, Slice 6: Docs And Verification: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `d593399` (pushed). Documentation only; no production change. Lean mode: the
+only evidence entry for the slice.
+
+- **Docs**: `docs/architecture.md` (new identity, request-and-reply and operation rows, the order-info effects rule, the
+  `orders_info.rs` removal, a note that the size table is a pilot-time snapshot), the `README.md` and `docs/commands.md`
+  migration notes (done in slice 4), the requirement evidence in `tests/README.md`, and the status lines of the spec, plan,
+  quickstart, `AGENTS.md`, `docs/ai-development.md` and the roadmap (Amendment 10). The frozen boundary counts had been
+  updated deliberately in slices 3-4 and are green.
+- **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order info --order ... --output
+  json` gives `configuration_missing`, exit 1, `not_attempted`, nothing created; `schema --output json` lists `order.info`.
+- Gates on the final tree: fmt, Clippy `-D warnings`, `cargo test --locked` (508 tests), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features` (the last three as in slice 5; no source changed since).
+- **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), Windows evidence
+  for slices 4-6 via CI, and the MCP `get_order` migration.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

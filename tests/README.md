@@ -169,3 +169,31 @@ the whole pilot: live-relay and live-node behavior, a Windows run on a developer
 workstation (the CI-hosted run passed, see SC-005), NIP-42 AUTH, and the unmigrated write commands and MCP, which
 are outside this pilot.
 
+
+## Order Info: Requirement Evidence
+
+Reconciliation of the [specification](../specs/002-order-info-json/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-5), as of 2026-10-29. **Automated verification on Linux with loopback relays
+and a scripted fake daemon only.** Not run against any real daemon, regtest or public node; the daemon behavior the fake
+encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Slices 4 and 5 have not
+yet run on a Windows host. Contracts: [CLI](../specs/002-order-info-json/contracts/cli.md),
+[data model](../specs/002-order-info-json/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json) and [info](../docs/schemas/order-info-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001, FR-001a ids, no cap, order, `not_returned`, `not_found`, removed spellings | `order_info_grammar`, `parser_orders::info_contract`, `a_subset_keeps_request_order_...`, `a_repeated_id_in_any_case_...`, `not_found_is_the_same_success_...`, `many_ids_go_out_in_one_request_...`, `argument_errors_name_the_command_only_when_it_resolved` | Verified on Linux |
+| FR-002 read-only, one request, identity key | `one_id_returns_the_order_...`, `a_seeded_identity_is_a_real_store_...`, `identity` unit tests, the matrix's `assert_untouched` | Verified on Linux |
+| FR-003 correlation, deadline, cleanup | the `exchange` contract tests in `order_info_process`, `noise_around_the_reply_never_decides_the_result` | Verified on Linux |
+| FR-004, FR-006 one envelope, parity, default human | `human_and_json_describe_the_same_orders`, `the_output_flag_works_at_every_position` | Verified on Linux |
+| FR-005, FR-007 stages and stable failures | `failures_before_any_request_are_stable_...`, `a_node_that_cannot_be_served_...`, `a_relay_that_rejects_...`, `relay_failures_are_told_apart_...`, the refusal, malformed and timeout tests | Verified on Linux, except: no process-level `internal_error`; a relay that drops the subscription is covered only at the `exchange` level |
+| FR-008 discovery, fixtures, unmigrated guard | `schema_fixtures` (drift, examples), `cli_functions` registry tests | Verified on Linux |
+| FR-009 shared transport boundary | `source_boundaries` with the updated frozen counts, `compile_fail` doctests | Verified on Linux |
+| FR-010 untrusted text, diagnostics | the sentinel sweep in the failure matrix, `verbose_adds_one_allow_listed_line_...`, escape tests | Verified on Linux |
+| FR-011 documented contract | `contracts/cli.md`, `docs/commands.md` (the prose has no automated check) | Documented |
+| SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
+| SC-006 Windows and Linux | Linux: all process tests and sentinels | Windows open until CI runs after the push |
+
+No scenario above is marked complete by documentation alone. Open: the regtest probe
+([quickstart](../specs/002-order-info-json/quickstart.md)), which needs separate authorization; Windows evidence for
+slices 4-5; MCP `get_order`, which breaks until migrated.

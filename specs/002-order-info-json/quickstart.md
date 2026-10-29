@@ -1,6 +1,7 @@
 # Validation Guide: Order Info
 
-**Status**: Planned acceptance procedure. Nothing below is implemented, and no scenario is recorded as passed.
+**Status**: Implemented and verified on Linux with loopback relays and a scripted fake daemon (evidence in
+`tests/TEST_SUMMARY.md`). The regtest probe below has not been run; no claim about a real daemon is made.
 
 ## Prerequisites
 
