@@ -162,10 +162,10 @@ public relay and no Windows run. Contracts: [CLI](../specs/001-order-list-json/c
 | SC-002 human and machine agree; zero mutations | `order_list_human_and_json_describe_the_same_book` and the no-effects assertions | Verified on Linux |
 | SC-003 offline discovery, no identity files | `schema_runs_offline_in_both_modes` | Verified on Linux |
 | SC-004 invalid input and failed reads exit nonzero; empty books succeed | the read-failure, configuration and empty-result process tests | Verified on Linux |
-| SC-005 native Windows and Linux process checks pass; no secrets | Linux: all process tests and sentinel sweeps pass | **Open**: Windows was not run. Not satisfied until it is |
+| SC-005 native Windows and Linux process checks pass; no secrets | Linux: all process tests and sentinel sweeps pass | Windows: all automated tests passed on a GitHub-hosted native Windows runner (CI run 40934312083, commit `3a4145e`, `cargo test --locked --no-fail-fast`), including the 46 process tests and the secret sentinels; it is a CI runner, not a developer workstation, and the quickstart rows were not walked by hand there | Verified on Linux and on the CI-hosted Windows runner |
 
 No scenario above is marked complete by documentation alone. Remaining blockers for
-the whole pilot: the Windows run (SC-005), the first run of the CI Windows job,
-live-relay and live-node behavior, and the unmigrated write commands and MCP, which
+the whole pilot: live-relay and live-node behavior, a Windows run on a developer
+workstation (the CI-hosted run passed, see SC-005), NIP-42 AUTH, and the unmigrated write commands and MCP, which
 are outside this pilot.
 

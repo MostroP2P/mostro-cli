@@ -1,6 +1,6 @@
 # CLI Contract: Order Listing And Discovery
 
-**Status**: Schema v1 interface, implemented by the current binary and verified on Linux with loopback relays (2026-10-28); native Windows verification is open. The [examples](examples.json) remain hand-authored design fixtures, not captured output.
+**Status**: Schema v1 interface, implemented by the current binary and verified on Linux with loopback relays (2026-10-28); the whole suite also passed on a GitHub-hosted native Windows runner (2026-10-29). The [examples](examples.json) remain hand-authored design fixtures, not captured output.
 
 [Data model](../data-model.md) defines wire fields; [examples](examples.json)
 are synthetic design fixtures, not captured production output or generated schemas.

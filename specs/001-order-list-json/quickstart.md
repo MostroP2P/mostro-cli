@@ -2,7 +2,7 @@
 
 **Status**: Acceptance procedure. On 2026-10-28 every row below passed on native Linux with
 loopback relays ([T052 evidence](../../tests/TEST_SUMMARY.md#t052-quickstart-acceptance-2026-10-28)).
-The native Windows run is blocked, so nothing here is recorded as passed on Windows.
+On 2026-10-29 the whole automated suite passed on a GitHub-hosted native Windows runner (CI run 40934312083); the rows were not walked by hand on Windows.
 
 ## Prerequisites
 

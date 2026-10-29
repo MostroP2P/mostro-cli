@@ -6,7 +6,7 @@
 
 **Created**: 2026-10-16
 
-**Status**: Implemented and verified on Linux with loopback relays (2026-10-28); native Windows verification (SC-005) is open. See [the plan](plan.md) and `tests/README.md`
+**Status**: Implemented and verified on Linux with loopback relays (2026-10-28); SC-005 (Windows) passed on a GitHub-hosted native Windows runner on 2026-10-29. See [the plan](plan.md) and `tests/README.md`
 
 **Input**: Pilot from the agreed AI-ready CLI roadmap: canonical `order list`,
 human/JSON output, structured errors, and offline schema discovery.

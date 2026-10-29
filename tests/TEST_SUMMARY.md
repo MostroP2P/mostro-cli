@@ -2766,7 +2766,11 @@ process tests are the evidence that nothing is read or written.
   unchanged (no EVENT published), and rejected invocations make zero relay
   connections.
 
-### Windows (blocked)
+### Windows (blocked at the time; later covered by CI)
+
+Update 2026-10-29: the full suite passed on a GitHub-hosted native Windows runner; see
+[the CI result recorded with slice 3](#ci-result-for-the-previous-push-3a4145e-native-windows-passed).
+The text below is the original record.
 
 Not run: row-by-row Windows results, the watchdog test's Windows behavior after
 the 6 s change, and the new `pilot-windows` CI job. Until they exist, SC-005 and the
