@@ -1566,3 +1566,154 @@ mod order_info_grammar {
         ));
     }
 }
+
+/// What the legacy `neworder` accepts today (spec 003, slice 1). Removed with
+/// the command in slice 4; the new grammar gets its own tests then. Long flags
+/// are squashed (`--fiatcode`, `--paymentmethod`, `--expirationdays`).
+mod neworder_characterization {
+    use clap::Parser;
+    use mostro_client::cli::new_order::{confirm_new_order, validate_market_fiat, FiatNames};
+    use mostro_client::cli::{Cli, Commands};
+
+    type Fields = (
+        String,
+        i64,
+        String,
+        (i64, Option<i64>),
+        String,
+        i64,
+        Option<String>,
+        i64,
+    );
+
+    fn parse(args: &[&str]) -> Result<Fields, clap::Error> {
+        let argv = std::iter::once("mostro-cli").chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::NewOrder {
+                kind,
+                amount,
+                fiat_code,
+                fiat_amount,
+                payment_method,
+                premium,
+                invoice,
+                expiration_days,
+            }) => Ok((
+                kind,
+                amount,
+                fiat_code,
+                fiat_amount,
+                payment_method,
+                premium,
+                invoice,
+                expiration_days,
+            )),
+            _ => panic!("not neworder"),
+        }
+    }
+
+    const BASE: [&str; 9] = [
+        "neworder", "-k", "sell", "-c", "USD", "-f", "100", "-m", "SEPA",
+    ];
+
+    fn with(tail: &[&'static str]) -> Vec<&'static str> {
+        BASE.iter().copied().chain(tail.iter().copied()).collect()
+    }
+
+    #[test]
+    fn required_flags_and_defaults() {
+        let (kind, amount, code, fiat, method, premium, invoice, days) = parse(&BASE).unwrap();
+        assert_eq!((kind.as_str(), amount, code.as_str()), ("sell", 0, "USD"));
+        assert_eq!((fiat, method.as_str()), ((100, None), "SEPA"));
+        assert_eq!((premium, invoice, days), (0, None, 0));
+        for missing in [3, 5, 7, 8] {
+            let mut args = BASE.to_vec();
+            args.drain(missing - 1..=missing);
+            assert!(
+                parse(&args).is_err(),
+                "without {:?}",
+                &BASE[missing - 1..=missing]
+            );
+        }
+    }
+
+    #[test]
+    fn every_short_and_long_spelling_and_the_kind_text_is_not_checked_by_the_grammar() {
+        let long = [
+            "neworder",
+            "--kind",
+            "BUY",
+            "--amount",
+            "5000",
+            "--fiatcode",
+            "eur",
+            "--fiatamount",
+            "10-20",
+            "--paymentmethod",
+            "SEPA",
+            "--premium",
+            "-3",
+            "--invoice",
+            "lnbc1",
+            "--expirationdays",
+            "7",
+        ];
+        let (kind, amount, code, fiat, _, premium, invoice, days) = parse(&long).unwrap();
+        assert_eq!((kind.as_str(), amount, code.as_str()), ("BUY", 5000, "eur"));
+        assert_eq!(
+            (fiat, premium, invoice.as_deref(), days),
+            ((10, Some(20)), -3, Some("lnbc1"), 7)
+        );
+        let short = with(&["-a", "1", "-p", "-5", "-i", "x", "-e", "2"]);
+        let parsed = parse(&short).unwrap();
+        assert_eq!((parsed.1, parsed.5, parsed.7), (1, -5, 2));
+        // A nonsense kind parses; `execute_new_order` rejects it later.
+        assert_eq!(parse(&with(&[])).unwrap().0, "sell");
+        let odd = [
+            "neworder", "-k", "sideways", "-c", "USD", "-f", "1", "-m", "x",
+        ];
+        assert_eq!(parse(&odd).unwrap().0, "sideways");
+    }
+
+    #[test]
+    fn the_fiat_range_syntax_and_its_failures() {
+        let fiat = |text: &'static str| {
+            let args = ["neworder", "-k", "sell", "-c", "USD", "-f", text, "-m", "x"];
+            parse(&args).map(|f| f.3)
+        };
+        assert_eq!(fiat("100").unwrap(), (100, None));
+        assert_eq!(fiat("100-200").unwrap(), (100, Some(200)));
+        for bad in [
+            "200-100", "100-100", "1-2-3", "100-", "-100", "abc", "1.5", "",
+        ] {
+            assert!(fiat(bad).is_err(), "{bad:?} must not parse");
+        }
+        // Zero and negative single amounts parse; the node refuses them.
+        assert_eq!(fiat("0").unwrap(), (0, None));
+    }
+
+    #[test]
+    fn the_confirmation_prompt_accepts_blank_and_y_and_never_eof() {
+        let ask = |text: &str| confirm_new_order(text.as_bytes()).map_err(|e| e.to_string());
+        // Only the end of the line is trimmed, so whitespace alone is blank.
+        for yes in ["\n", "y\n", "Y\n", "  \n", "y  \n"] {
+            assert!(ask(yes).is_ok(), "{yes:?}");
+        }
+        assert!(ask(" y\n").is_err(), "leading space is not trimmed");
+        assert_eq!(ask("n\n").unwrap_err(), "Order cancelled");
+        assert!(ask("maybe\n")
+            .unwrap_err()
+            .contains("Invalid order confirmation"));
+        assert!(ask("").unwrap_err().contains("stdin reached EOF"));
+    }
+
+    #[test]
+    fn a_market_priced_currency_must_be_in_the_yadio_list() {
+        let names: FiatNames = [("USD".to_string(), "Dollar".to_string())].into();
+        assert!(validate_market_fiat("USD", &names).is_ok());
+        assert!(validate_market_fiat("XXX", &names)
+            .unwrap_err()
+            .to_string()
+            .contains("not present in the fiat market"));
+    }
+}

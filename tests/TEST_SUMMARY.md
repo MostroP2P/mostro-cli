@@ -3038,6 +3038,36 @@ only evidence entry for the slice.
 - **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), Windows evidence
   for slices 4-6 via CI, and the MCP `get_order` migration.
 
+## Order New, Slice 1: Characterization And Fixtures: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `2cec5e7` (pushed). No production change. Lean mode: the only evidence entry
+for the slice.
+
+- **Legacy `neworder` pinned** (`cli_functions::neworder_characterization`, removed with the command in slice 4): required
+  flags and defaults (amount 0, premium 0, expiration 0); long flags are squashed (`--fiatcode`, `--fiatamount`,
+  `--paymentmethod`, `--expirationdays`) and short ones exist; the kind text is not checked by the grammar; the `100-200`
+  range syntax and its failures (`200-100`, `100-100`, `1-2-3`, `100-`, `-100`, text, empty), zero accepted; the
+  confirmation (blank, `y`, trailing spaces accept, leading space, `n`, other text and EOF do not); the Yadio check.
+- **Wire facts** (`tests/order_new_process.rs`): the request is authored and signed by the trade key under the identity seal;
+  the inner signature verifies; the index rides in the message, the id is the node's; the payload of a fixed and of a range
+  order (`fiat_amount` 0 with `min`/`max`).
+- **Legacy local effects pinned**: computing the next key writes nothing; `save_order` writes the order row and the index
+  together, only when called after an accepted reply; saving the same order again replaces its row and advances the index; a
+  store that cannot be written fails the save and leaves the local index behind the node's (the `invalid_trade_index` trap
+  the new command avoids).
+- **Fixtures**: the scripted daemon records the trade index, the order and whether the inner signature verifies, and
+  `new_order_daemon(last, bonded)` applies the source's checks in its order (signature, index above the last or an identity used
+  as trade key, half-specified range, zero fiat amount) and remembers the index only after every check passes; replies go to
+  the trade key; `order_created` and `bond_requested` build the accepted and bonded answers; `set_last_trade_index` edits the
+  seeded store. Self-tests cover an acknowledgement and its trade-key addressing, each refusal, the index kept on refusal and
+  spent on success, the bonded answer and the seeded index.
+- **Check on the check**: letting the scripted node remember the index before its checks failed the refusal self-test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (520 tests: lib 146, `cli_functions` 76,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `order_new_process` 7, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. CI result for slice 6 of order info (`edeb118`)
+  not yet read.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

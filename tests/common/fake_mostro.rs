@@ -40,6 +40,12 @@ pub struct Received {
     pub action: Action,
     /// The ids of an `Ids` payload, empty for anything else.
     pub ids: Vec<Uuid>,
+    /// The trade index the message carries.
+    pub trade_index: Option<i64>,
+    /// The order of an `Order` payload.
+    pub order: Option<SmallOrder>,
+    /// Whether the inner signature verifies against the author (false when absent).
+    pub signature_valid: bool,
 }
 
 /// Who signs an outgoing message.
@@ -127,6 +133,78 @@ pub fn malformed_reply(request: &Received) -> Message {
     )
 }
 
+/// The acknowledgement of a `new-order`: the order the daemon created from the
+/// request, with `id`, echoing the request id and trade index.
+pub fn order_created(request: &Received, id: Uuid) -> Message {
+    let mut order = request.order.clone().expect("a new-order carries an order");
+    order.id = Some(id);
+    Message::new_order(
+        Some(id),
+        request.request_id,
+        request.trade_index,
+        Action::NewOrder,
+        Some(Payload::Order(order)),
+    )
+}
+
+/// What a bonded node answers instead: a bond invoice to pay first.
+pub fn bond_requested(request: &Received, id: Uuid) -> Message {
+    let mut order = request.order.clone().expect("a new-order carries an order");
+    order.id = Some(id);
+    Message::new_order(
+        Some(id),
+        request.request_id,
+        request.trade_index,
+        Action::PayBondInvoice,
+        Some(Payload::PaymentRequest(
+            Some(order),
+            "lnbcrt1bondinvoice".to_string(),
+            None,
+        )),
+    )
+}
+
+/// The daemon's checks on a `new-order`, in the order of its source
+/// (`check_trade_index`, then `order_action`), and the index it remembers.
+/// Returns the script and a handle on `last_trade_index`.
+pub fn new_order_daemon(last_trade_index: i64, bonded: bool) -> (Respond, Arc<Mutex<i64>>) {
+    let last = Arc::new(Mutex::new(last_trade_index));
+    let state = Arc::clone(&last);
+    let respond: Respond = Arc::new(move |request: &Received| {
+        let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+        if request.action != Action::NewOrder {
+            return refuse(CantDoReason::InvalidAction);
+        }
+        let index = request.trade_index.unwrap_or(0);
+        let mut last = state.lock().unwrap();
+        if index <= *last || request.author == request.identity {
+            return refuse(CantDoReason::InvalidTradeIndex);
+        }
+        if !request.signature_valid {
+            return refuse(CantDoReason::InvalidSignature);
+        }
+        let Some(order) = request.order.as_ref() else {
+            return refuse(CantDoReason::InvalidParameters);
+        };
+        if order.min_amount.is_some() != order.max_amount.is_some() {
+            return refuse(CantDoReason::InvalidAmount);
+        }
+        if order.min_amount.is_none() && order.fiat_amount <= 0 {
+            return refuse(CantDoReason::InvalidAmount);
+        }
+        // The index is remembered only after every check passed.
+        *last = index;
+        let id = Uuid::new_v4();
+        let reply = if bonded {
+            bond_requested(request, id)
+        } else {
+            order_created(request, id)
+        };
+        vec![Outgoing::to_requester(reply)]
+    });
+    (respond, last)
+}
+
 /// What the daemon sends for each request it receives.
 pub type Respond = Arc<dyn Fn(&Received) -> Vec<Outgoing> + Send + Sync>;
 
@@ -185,6 +263,16 @@ impl FakeMostro {
                         Some(Payload::Ids(ids)) => ids.clone(),
                         _ => Vec::new(),
                     };
+                    let signature_valid = match (request.message.as_json(), request.signature) {
+                        (Ok(json), Some(signature)) => {
+                            Message::verify_signature(json, request.sender, signature)
+                        }
+                        _ => false,
+                    };
+                    let order = match &inner.payload {
+                        Some(Payload::Order(order)) => Some(order.clone()),
+                        _ => None,
+                    };
                     let seen = Received {
                         event_id: event.id,
                         author: request.sender,
@@ -192,6 +280,9 @@ impl FakeMostro {
                         request_id: inner.request_id,
                         action: inner.action.clone(),
                         ids,
+                        trade_index: inner.trade_index,
+                        order,
+                        signature_valid,
                     };
                     received.lock().unwrap().push(seen.clone());
                     for outgoing in respond(&seen) {
@@ -276,6 +367,19 @@ pub fn info_event(
         .tags(tags)
         .finalize(node)
         .unwrap()
+}
+
+/// Record `index` as the identity's last trade index in the store at `dir`
+/// (the seeded user row), as a saved order would.
+pub async fn set_last_trade_index(dir: &Path, index: i64) {
+    let options = SqliteConnectOptions::new().filename(dir.join("mcli.db"));
+    let pool = SqlitePool::connect_with(options).await.unwrap();
+    sqlx::query("UPDATE users SET last_trade_index = ?")
+        .bind(index)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
 }
 
 /// Create `dir/mcli.db` the way the CLI does (same tables, a generated
