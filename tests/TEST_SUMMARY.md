@@ -3213,7 +3213,7 @@ Native Linux, rustc 1.97.0, on `develop` after `b90c145` (pushed). Lean mode: th
 - **Checks on the checks**: the missing writability check (above), mapping an unreadable store to missing, and dropping the currency
   character rule each failed a test; the last one first survived because the case used a two-letter currency that the length rule
   also rejects, so the case now uses `U$D`; restored.
-- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (551 tests: lib 155, `cli_functions` 64,
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (554 tests: lib 155, `cli_functions` 64,
   `integration_tests` 41, `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `parser_orders` 123,
   `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
@@ -3232,7 +3232,7 @@ the Windows job. Documentation only; no production change. Lean mode: the only e
 - **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order new` without `--yes` in JSON is
   `invalid_arguments` exit 2; with `--yes` and no configuration `configuration_missing` exit 1; `neworder` is an unrecognized
   subcommand; nothing is created.
-- Gates: fmt, Clippy `-D warnings`, `cargo test --locked` (551 tests), `cargo build --locked`,
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked` (554 tests), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass (no source changed since slice 5).
 - **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), MCP `create_order`, and
   `order take`.
