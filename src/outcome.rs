@@ -16,6 +16,7 @@ pub mod new;
 pub mod order;
 mod rules;
 pub mod schema;
+pub mod take;
 
 /// Contract version, independent of the executable version.
 pub const SCHEMA_VERSION: &str = "1";

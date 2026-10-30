@@ -27,6 +27,7 @@ mod migrated;
 mod order_new;
 mod registry;
 mod schema;
+mod write;
 
 pub use args::Cli;
 pub use commands::{Commands, NewArgs, OrderCommands};

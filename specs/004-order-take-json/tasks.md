@@ -15,7 +15,7 @@ regtest without authorization.
   (`add-invoice` with the order, `waiting-seller-to-pay` with no payload and an echoed message id, `pay-invoice` with the hold invoice, `pay-bond-invoice`) and
   the refusals it models (`pending_order_exists`, `invalid_order_status`, own order, `out_of_range_sats_amount`, `invalid_invoice`, `invalid_trade_index`), with
   a stateful order book. No production change.
-- [ ] **2. Shared dispatch and outcomes.** Extract `cli/write.rs` from `cli/order_new.rs` (order new tests unchanged); `outcome/take.rs` (input,
+- [x] **2. Shared dispatch and outcomes.** (done 2026-10-30; evidence in `tests/TEST_SUMMARY.md`) Extract `cli/write.rs` from `cli/order_new.rs` (order new tests unchanged); `outcome/take.rs` (input,
   payload, `NextStep`, data, minimal order) with unit and schema tests for the two canonical names.
 - [ ] **3. The operation.** `commands/order/take.rs` for both sides against the scripted daemon: each accepted reply and its saved row, refusals, silence,
   unusable reply, bond, forced save failure (two shapes), work stopping before anything is sent, index policy.

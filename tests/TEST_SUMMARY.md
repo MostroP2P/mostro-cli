@@ -3267,6 +3267,30 @@ slice.
   `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`:
   all pass.
 
+## Order Take, Slice 2: Shared Dispatch And Outcomes: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `480d241` (not pushed yet). Lean mode: the only evidence entry for the slice.
+
+- **Extraction first** (behavior-preserving): the steps every write command shares moved from `cli/order_new.rs` (215 lines) to
+  `cli/write.rs` (configuration, identity, store and trade resolution; the JSON `--yes` rule; the refusal envelope; the prompt with a
+  command-supplied preview and question; presentation, the verbose line and the uncertain advice). `order_new.rs` is 77 lines. The 40 `order new`
+  tests, binary scenarios included, are unchanged and green. `WriteOptions` (pow, protocol check) moved to `commands/order` and `NewOptions` is an
+  alias.
+- **Input and data** (`outcome/take.rs`, 8 unit tests): `TakeSide` (command name, action and kind of the order taken); `OrderTakeInput::validate`
+  (positive amount; an invoice only on take-sell, bounded, no whitespace or control characters; the error names the option, never the value, so an
+  invalid invoice is now refused locally instead of printed and sent as the legacy command did); `payload()` is byte for byte the legacy one for every
+  invoice and amount combination (the slice 1 cases); `minimal_order()` (id, side of the order, `waiting-payment`, the amount taken, empty text);
+  `OrderTakeData::from_taken` maps `add-invoice`, `waiting-seller-to-pay` and `pay-invoice` to `add_invoice`, `wait_for_seller_payment` and
+  `pay_hold_invoice` with the order to save, and refuses a reply that names another order or carries no id; the hold invoice is data and appears
+  nowhere else.
+- **Schema tests**: each canonical name generates its own schema (`order.take-sell`, `order.take-buy`, three statuses); real outcomes of every next step and
+  an unsaved take conform; eight contradictions do not.
+- **Checks on the checks**: dropping the other-order check, allowing an invoice on take-buy, changing the zero amount of the legacy payload and changing the
+  minimal row's status each failed a test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (577 tests: lib 168, `cli_functions` 68, `integration_tests` 41,
+  `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 6, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

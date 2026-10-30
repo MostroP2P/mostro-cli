@@ -14,6 +14,7 @@ use mostro_core::prelude::{Action, CantDoReason, Message, Payload};
 use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
+use super::WriteOptions;
 use crate::msg::{
     exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig,
 };
@@ -27,13 +28,8 @@ pub const COMMAND: &str = "order.new";
 
 pub type NewOutcome = Envelope<OrderNewData, ()>;
 
-/// How the request is sent: the work to mine and whether to check the node's
-/// protocol (off when the user chose the transport explicitly).
-#[derive(Clone, Copy, Debug)]
-pub struct NewOptions {
-    pub pow: u8,
-    pub check_protocol: bool,
-}
+/// How the request is sent; shared by the write commands.
+pub type NewOptions = WriteOptions;
 
 /// Codes that leave the outcome `uncertain` when the request was published.
 pub const UNCERTAIN_CODES: [ErrorCode; 6] = [
