@@ -289,9 +289,9 @@ A manual end-to-end check (out of the unit-test scope) is to run against a
 PoW‑enabled local `mostrod`:
 
 ```sh
-POW=0 mostro-cli neworder ...
-# expected: PowRequirementUnmet error, not "deadline has elapsed"
-POW=<required> mostro-cli neworder ...
+POW=0 mostro-cli order new ... --yes --output json
+# expected: `pow_required`, nothing published, not a timeout
+POW=<required> mostro-cli order new ... --yes
 # expected: normal flow, no error
 ```
 

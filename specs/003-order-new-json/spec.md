@@ -6,7 +6,7 @@
 
 **Created**: 2026-10-29
 
-**Status**: Clarified; not planned. Next: plan, research (reply and `CantDo` shapes from the daemon source, trade-key rules), data model, CLI contract, then lean slices in `tasks.md`.
+**Status**: Implemented and verified on Linux and on the CI-hosted Windows runner against a scripted fake daemon; the regtest probe is open. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Third step of the AI-ready CLI roadmap (critical-path step 3): canonical `order new`, replacing
 `neworder`, with human and JSON output, an explicit confirmation rule, the `uncertain` status and a local save.

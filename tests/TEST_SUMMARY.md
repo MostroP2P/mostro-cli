@@ -3218,6 +3218,25 @@ Native Linux, rustc 1.97.0, on `develop` after `b90c145` (pushed). Lean mode: th
   `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
 
+## Order New, Slice 6: Docs And Verification: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `24c2dd2` (pushed). CI is green for every `order new` push up to slice 5, including
+the Windows job. Documentation only; no production change. Lean mode: the only evidence entry for the slice.
+
+- **Docs**: `docs/architecture.md` (the order-new flow replaces the legacy one, the `store.rs`, `commands/order/new.rs`,
+  `cli/order_new.rs` and `outcome/new.rs` entries, the removed `new_order.rs`), `docs/pow_error_handling.md` (the manual PoW check
+  now uses `order new` and `pow_required`), the requirement evidence in `tests/README.md`, `specs/003-order-new-json/quickstart.md`
+  (focused commands, offline smoke check, acceptance matrix, the regtest probe procedure), and the status lines of the spec, plan,
+  `AGENTS.md`, `docs/ai-development.md` and the roadmap (Amendment 11). The README and command reference were migrated in slice 4a; the
+  boundary counts and CI wiring needed no change (the transport owners are still `msg`).
+- **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order new` without `--yes` in JSON is
+  `invalid_arguments` exit 2; with `--yes` and no configuration `configuration_missing` exit 1; `neworder` is an unrecognized
+  subcommand; nothing is created.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked` (551 tests), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass (no source changed since slice 5).
+- **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), MCP `create_order`, and
+  `order take`.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

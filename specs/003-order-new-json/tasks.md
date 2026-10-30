@@ -23,7 +23,7 @@ No push, public-node use or regtest without authorization.
   bond, forced save failure, `--yes` rules, one request, index and database effects.
 - [x] **5. Failure matrix and examples.** (done 2026-10-29; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, rejected relay, ambiguous publication, many bad inputs,
   secret sentinels, unwritable streams, stdin never read; `contracts/examples.json` and its validation.
-- [ ] **6. Docs, boundaries, verification.** Boundary counts, architecture, command reference, README migration (MCP `create_order`),
+- [x] **6. Docs, boundaries, verification.** (done 2026-10-30; the regtest probe stays open) Boundary counts, architecture, command reference, README migration (MCP `create_order`),
   Linux quickstart run, requirement evidence, status lines; the regtest probe stays open until separately authorized.
 
 ## Requirement ownership

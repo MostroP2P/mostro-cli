@@ -251,10 +251,10 @@ In Copilot Agent chat with both repositories open:
 ```text
 Continue mostro-cli on develop. The order-list pilot (specs/001-order-list-json) is
 done: its Linux evidence and a CI-hosted native Windows run are in tests/README.md and
-tests/TEST_SUMMARY.md. Read AGENTS.md and the constitution first. The order-info feature
-(specs/002-order-info-json) is implemented; its open items are the regtest probe
-(needs separate authorization) and Windows evidence. The next work is a new bounded
-spec for `order new` or `order take`; stop after each slice for review. A run on a developer Windows workstation is optional.
+tests/TEST_SUMMARY.md. Read AGENTS.md and the constitution first. The order-info and
+order-new features (specs/002-order-info-json, specs/003-order-new-json) are
+implemented; their open items are the regtest probes (need separate authorization).
+The next work is a new bounded spec for `order take`; stop after each slice for review. A run on a developer Windows workstation is optional.
 Use the existing Spec Kit feature; do not regenerate its artifacts.
 Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.
 Read the cross-repository roadmap in ../plan-aiReadyMostroCli.md (outside both repositories).
