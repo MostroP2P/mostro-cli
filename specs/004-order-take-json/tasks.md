@@ -10,7 +10,7 @@ regtest without authorization.
 
 ## Slices
 
-- [ ] **1. Characterize and extend the fixtures.** Pin what `takesell`/`takebuy` do today: grammar, the payload bytes for every combination of
+- [x] **1. Characterize and extend the fixtures.** (done 2026-10-30; evidence in `tests/TEST_SUMMARY.md`) Pin what `takesell`/`takebuy` do today: grammar, the payload bytes for every combination of
   invoice and amount, `taken_sell_order`, the local effects of `save_order`. Extend the scripted daemon with the take replies of the source
   (`add-invoice` with the order, `waiting-seller-to-pay` with no payload and an echoed message id, `pay-invoice` with the hold invoice, `pay-bond-invoice`) and
   the refusals it models (`pending_order_exists`, `invalid_order_status`, own order, `out_of_range_sats_amount`, `invalid_invoice`, `invalid_trade_index`), with

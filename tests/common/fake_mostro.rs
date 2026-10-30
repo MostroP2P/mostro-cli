@@ -8,12 +8,13 @@
 //! publishes whatever its script returns. It never contacts anything else.
 #![allow(dead_code)]
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
-use mostro_core::order::SmallOrder;
+use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use mostro_core::prelude::{
     unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Transport,
     WrapOptions, NOSTR_INFO_EVENT_KIND,
@@ -46,6 +47,12 @@ pub struct Received {
     pub order: Option<SmallOrder>,
     /// Whether the inner signature verifies against the author (false when absent).
     pub signature_valid: bool,
+    /// The order id the message names (a take names the order it takes).
+    pub order_id: Option<Uuid>,
+    /// The amount a take carries, as `Amount` or inside a payment request.
+    pub amount: Option<i64>,
+    /// The invoice a take carries.
+    pub invoice: Option<String>,
 }
 
 /// Who signs an outgoing message.
@@ -205,6 +212,203 @@ pub fn new_order_daemon(last_trade_index: i64, bonded: bool) -> (Respond, Arc<Mu
     (respond, last)
 }
 
+// --- Takes (spec 004) ---------------------------------------------------------
+
+/// The hold invoice the scripted node returns to a seller.
+pub const HOLD_INVOICE: &str = "lnbcrt1holdinvoicefromthescriptednode";
+
+/// An order in the scripted node's book.
+#[derive(Clone, Debug)]
+pub struct Listed {
+    pub id: Uuid,
+    pub kind: OrderKind,
+    pub status: Status,
+    /// The maker's trade key: the one key that may not take the order.
+    pub maker: PublicKey,
+    pub amount: i64,
+    pub fiat_amount: i64,
+    /// A range order takes its fiat amount from the taker, inside these bounds.
+    pub range: Option<(i64, i64)>,
+}
+
+impl Listed {
+    pub fn fixed(id: Uuid, kind: OrderKind, maker: PublicKey) -> Self {
+        Self {
+            id,
+            kind,
+            status: Status::Pending,
+            maker,
+            amount: 15_000,
+            fiat_amount: 15,
+            range: None,
+        }
+    }
+
+    pub fn ranged(mut self, min: i64, max: i64) -> Self {
+        self.range = Some((min, max));
+        self.fiat_amount = 0;
+        self
+    }
+
+    /// The order as the node sends it, in `status`.
+    pub fn small(&self, status: Status, fiat_amount: i64) -> SmallOrder {
+        SmallOrder::new(
+            Some(self.id),
+            Some(self.kind),
+            Some(status),
+            self.amount,
+            "USD".to_string(),
+            self.range.map(|(min, _)| min),
+            self.range.map(|(_, max)| max),
+            fiat_amount,
+            "bank transfer".to_string(),
+            1,
+            None,
+            None,
+            None,
+            Some(1_792_108_800),
+            Some(1_792_195_200),
+        )
+    }
+}
+
+/// What the scripted node remembers about takes.
+#[derive(Clone, Debug, Default)]
+pub struct Book {
+    pub orders: Vec<Listed>,
+    pub last_trade_index: i64,
+    /// Identities that took an order and have one pending.
+    pub takers: HashSet<PublicKey>,
+}
+
+/// The daemon's checks on a take, in the order of its source
+/// (`check_trade_index`, then `take_sell_action` / `take_buy_action`), the
+/// state it keeps (the index only after every check passed, the order's status)
+/// and the replies it sends. Returns the script and a handle on the book.
+pub fn take_daemon(book: Book, bonded: bool) -> (Respond, Arc<Mutex<Book>>) {
+    let state = Arc::new(Mutex::new(book));
+    let shared = Arc::clone(&state);
+    let respond: Respond = Arc::new(move |request: &Received| {
+        let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+        let selling = match request.action {
+            Action::TakeSell => true,
+            Action::TakeBuy => false,
+            _ => return refuse(CantDoReason::InvalidAction),
+        };
+        let index = request.trade_index.unwrap_or(0);
+        let mut book = shared.lock().unwrap();
+        if index <= book.last_trade_index || request.author == request.identity {
+            return refuse(CantDoReason::InvalidTradeIndex);
+        }
+        if !request.signature_valid {
+            return refuse(CantDoReason::InvalidSignature);
+        }
+        let Some(position) = book
+            .orders
+            .iter()
+            .position(|order| Some(order.id) == request.order_id)
+        else {
+            return refuse(CantDoReason::NotFound);
+        };
+        if book.takers.contains(&request.identity) {
+            return refuse(CantDoReason::PendingOrderExists);
+        }
+        let order = book.orders[position].clone();
+        let wanted = if selling {
+            OrderKind::Sell
+        } else {
+            OrderKind::Buy
+        };
+        if order.kind != wanted {
+            return refuse(CantDoReason::InvalidOrderKind);
+        }
+        if order.status != Status::Pending {
+            return refuse(CantDoReason::InvalidOrderStatus);
+        }
+        if order.maker == request.author {
+            return refuse(CantDoReason::InvalidPubkey);
+        }
+        let fiat_amount = match order.range {
+            Some((min, max)) => match request.amount {
+                Some(amount) if (min..=max).contains(&amount) => amount,
+                _ => return refuse(CantDoReason::OutOfRangeSatsAmount),
+            },
+            None => order.fiat_amount,
+        };
+        if request
+            .invoice
+            .as_deref()
+            .is_some_and(|invoice| !invoice.starts_with("ln") && !invoice.contains('@'))
+        {
+            return refuse(CantDoReason::InvalidInvoice);
+        }
+        // The index is remembered only after every check passed.
+        book.last_trade_index = index;
+        book.takers.insert(request.identity);
+        let taken = |status| order.small(status, fiat_amount);
+        let message = |action, payload| {
+            Message::new_order(
+                Some(order.id),
+                request.request_id,
+                request.trade_index,
+                action,
+                payload,
+            )
+        };
+        if bonded {
+            book.orders[position].status = Status::WaitingTakerBond;
+            let payload = Payload::PaymentRequest(
+                Some(taken(Status::Pending)),
+                "lnbcrt1bondinvoice".to_string(),
+                None,
+            );
+            return vec![Outgoing::to_requester(message(
+                Action::PayBondInvoice,
+                Some(payload),
+            ))];
+        }
+        match (selling, request.invoice.is_some()) {
+            // The taker buys and has no invoice yet: the order, to add one to.
+            (true, false) => {
+                book.orders[position].status = Status::WaitingBuyerInvoice;
+                vec![Outgoing::to_requester(message(
+                    Action::AddInvoice,
+                    Some(Payload::Order(taken(Status::WaitingBuyerInvoice))),
+                ))]
+            }
+            // The taker buys with an invoice: the hold invoice goes to the
+            // maker and the taker only hears that the seller must pay.
+            (true, true) => {
+                book.orders[position].status = Status::WaitingPayment;
+                let pay = Payload::PaymentRequest(
+                    Some(taken(Status::WaitingPayment)),
+                    HOLD_INVOICE.to_string(),
+                    None,
+                );
+                vec![
+                    Outgoing::to_requester(message(Action::PayInvoice, Some(pay)))
+                        .addressed_to(order.maker),
+                    Outgoing::to_requester(message(Action::WaitingSellerToPay, None)),
+                ]
+            }
+            // The taker sells: the hold invoice to pay.
+            (false, _) => {
+                book.orders[position].status = Status::WaitingPayment;
+                let pay = Payload::PaymentRequest(
+                    Some(taken(Status::WaitingPayment)),
+                    HOLD_INVOICE.to_string(),
+                    None,
+                );
+                vec![Outgoing::to_requester(message(
+                    Action::PayInvoice,
+                    Some(pay),
+                ))]
+            }
+        }
+    });
+    (respond, state)
+}
+
 /// What the daemon sends for each request it receives.
 pub type Respond = Arc<dyn Fn(&Received) -> Vec<Outgoing> + Send + Sync>;
 
@@ -273,6 +477,13 @@ impl FakeMostro {
                         Some(Payload::Order(order)) => Some(order.clone()),
                         _ => None,
                     };
+                    let (amount, invoice) = match &inner.payload {
+                        Some(Payload::Amount(amount)) => (Some(*amount), None),
+                        Some(Payload::PaymentRequest(_, invoice, amount)) => {
+                            (*amount, Some(invoice.clone()))
+                        }
+                        _ => (None, None),
+                    };
                     let seen = Received {
                         event_id: event.id,
                         author: request.sender,
@@ -283,6 +494,9 @@ impl FakeMostro {
                         trade_index: inner.trade_index,
                         order,
                         signature_valid,
+                        order_id: inner.id,
+                        amount,
+                        invoice,
                     };
                     received.lock().unwrap().push(seen.clone());
                     for outgoing in respond(&seen) {

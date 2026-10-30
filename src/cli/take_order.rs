@@ -320,6 +320,64 @@ mod tests {
         }
     }
 
+    /// What goes on the wire for each combination (spec 004, slice 1). The new
+    /// commands keep these bytes; an invalid invoice is the one difference: the
+    /// legacy command prints the error and sends it anyway.
+    fn wire(action: Action, invoice: Option<&str>, amount: Option<u32>) -> serde_json::Value {
+        let invoice = invoice.map(str::to_owned);
+        serde_json::to_value(create_take_order_payload(action, &invoice, amount).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_take_buy_sends_only_an_amount_and_only_when_given() {
+        assert_eq!(wire(Action::TakeBuy, None, None), serde_json::Value::Null);
+        assert_eq!(
+            wire(Action::TakeBuy, None, Some(150)),
+            serde_json::json!({"amount": 150})
+        );
+        // A take-buy has no invoice: one given is ignored.
+        assert_eq!(
+            wire(Action::TakeBuy, Some("lnbc1"), None),
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn a_take_sell_without_an_invoice_sends_an_amount_and_zero_when_none_is_given() {
+        assert_eq!(
+            wire(Action::TakeSell, None, None),
+            serde_json::json!({"amount": 0})
+        );
+        assert_eq!(
+            wire(Action::TakeSell, None, Some(150)),
+            serde_json::json!({"amount": 150})
+        );
+    }
+
+    #[test]
+    fn a_take_sell_with_an_invoice_sends_it_with_the_amount_inside_the_same_request() {
+        let address = "buyer@example.com";
+        assert_eq!(
+            wire(Action::TakeSell, Some(address), None),
+            serde_json::json!({"payment_request": [null, address, null]})
+        );
+        assert_eq!(
+            wire(Action::TakeSell, Some(address), Some(150)),
+            serde_json::json!({"payment_request": [null, address, 150]})
+        );
+        // An invalid invoice is printed and sent anyway, unchanged.
+        assert_eq!(
+            wire(Action::TakeSell, Some("not an invoice"), None),
+            serde_json::json!({"payment_request": [null, "not an invoice", null]})
+        );
+    }
+
+    #[test]
+    fn only_the_two_take_actions_build_a_payload() {
+        assert!(create_take_order_payload(Action::NewOrder, &None, None).is_err());
+        assert!(create_take_order_payload(Action::Release, &None, None).is_err());
+    }
+
     #[test]
     fn the_listed_order_is_kept_and_now_waits_for_the_seller() {
         let order = taken_sell_order(order_id(), Some(listed(None)), None);

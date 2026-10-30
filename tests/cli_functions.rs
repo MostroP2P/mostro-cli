@@ -1617,3 +1617,93 @@ mod order_new_grammar {
         assert!(lookup(&["neworder".to_string()]).is_none());
     }
 }
+
+/// What the legacy `takesell` and `takebuy` accept today (spec 004, slice 1).
+/// Removed with the commands in slice 4; the new grammar gets its own tests then.
+/// The long order flag is squashed (`--orderid`).
+mod take_characterization {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
+    use uuid::Uuid;
+
+    const ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+
+    fn sell(args: &[&str]) -> Result<(Uuid, Option<String>, Option<u32>), clap::Error> {
+        let argv = ["mostro-cli", "takesell"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::TakeSell {
+                order_id,
+                invoice,
+                amount,
+            }) => Ok((order_id, invoice, amount)),
+            _ => panic!("not takesell"),
+        }
+    }
+
+    fn buy(args: &[&str]) -> Result<(Uuid, Option<u32>), clap::Error> {
+        let argv = ["mostro-cli", "takebuy"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::TakeBuy { order_id, amount }) => Ok((order_id, amount)),
+            _ => panic!("not takebuy"),
+        }
+    }
+
+    #[test]
+    fn takesell_takes_an_order_id_an_optional_invoice_and_an_optional_amount() {
+        let id: Uuid = ID.parse().unwrap();
+        assert_eq!(sell(&["-o", ID]).unwrap(), (id, None, None));
+        assert_eq!(
+            sell(&["--orderid", ID, "--invoice", "lnbc1", "--amount", "150"]).unwrap(),
+            (id, Some("lnbc1".to_string()), Some(150))
+        );
+        assert_eq!(
+            sell(&["-o", &ID.to_uppercase(), "-i", "a@b.c", "-a", "5"]).unwrap(),
+            (id, Some("a@b.c".to_string()), Some(5))
+        );
+    }
+
+    #[test]
+    fn takebuy_has_no_invoice_option() {
+        let id: Uuid = ID.parse().unwrap();
+        assert_eq!(buy(&["-o", ID]).unwrap(), (id, None));
+        assert_eq!(
+            buy(&["--orderid", ID, "-a", "150"]).unwrap(),
+            (id, Some(150))
+        );
+        assert!(buy(&["-o", ID, "-i", "lnbc1"]).is_err());
+        assert!(buy(&["-o", ID, "--invoice", "lnbc1"]).is_err());
+    }
+
+    #[test]
+    fn the_order_id_is_required_and_the_amount_is_a_non_negative_integer() {
+        for bad in [
+            sell(&[]).err(),
+            sell(&["-o", "not-a-uuid"]).err(),
+            sell(&["-o", ID, "-a", "-5"]).err(),
+            sell(&["-o", ID, "-a", "1.5"]).err(),
+            sell(&["-o", ID, "-a", "abc"]).err(),
+            buy(&[]).err(),
+            buy(&["-o", ID, "-a", "-1"]).err(),
+        ] {
+            assert!(bad.is_some());
+        }
+        // Zero parses; the node refuses it.
+        assert_eq!(sell(&["-o", ID, "-a", "0"]).unwrap().2, Some(0));
+    }
+
+    #[test]
+    fn both_are_registered_legacy_commands_without_json() {
+        for (path, name) in [
+            ("takesell", "order.take-sell"),
+            ("takebuy", "order.take-buy"),
+        ] {
+            let entry = lookup(&[path.to_string()]).unwrap();
+            assert_eq!(entry.canonical, name);
+            assert_eq!(entry.json, JsonSupport::Unsupported);
+        }
+    }
+}

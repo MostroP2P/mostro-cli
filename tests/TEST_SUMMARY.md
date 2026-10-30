@@ -3237,6 +3237,36 @@ the Windows job. Documentation only; no production change. Lean mode: the only e
 - **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), MCP `create_order`, and
   `order take`.
 
+## Order Take, Slice 1: Characterization And Fixtures: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `4be1332` (pushed). No production change. Lean mode: the only evidence entry for the
+slice.
+
+- **Legacy `takesell`/`takebuy` pinned**, removed with the commands in slice 4:
+  - **Payload bytes** (4 unit tests in `cli/take_order.rs`): take-buy sends `Amount(n)` only when an amount is given and ignores an
+    invoice; take-sell without an invoice sends `Amount(n)` and `Amount(0)` when nothing is given; with an invoice it sends the payment request
+    with the amount inside it, and an **invalid invoice is printed and sent anyway**; only the two take actions build a payload.
+  - **Grammar** (4 tests, `cli_functions::take_characterization`): the order id is required and a UUID in any case; the long flag is
+    squashed (`--orderid`); `-i`/`--invoice` exists only on take-sell; the amount is a non-negative integer, zero parses; both are registered
+    legacy commands with canonical names `order.take-sell`/`order.take-buy` and no JSON.
+  - **Local effects** were already pinned by the existing unit tests of `taken_sell_order` and `save_taken_sell_order` (row from the book
+    or minimal, trade keys and index saved, an existing row left alone).
+- **Fixtures** (`tests/common/fake_mostro.rs`, `tests/order_take_process.rs`): the scripted daemon records the order id, amount and invoice a
+  take carries; `take_daemon(book, bonded)` applies the source's checks in order (index and signature, order known, a pending order for the
+  taker, side, status, own order, range amount, invoice) and keeps a book (statuses, the taker set, the index, remembered only after every
+  check passed). Replies as in the source: `add-invoice` with the order (take-sell, no invoice); `waiting-seller-to-pay` with no payload to the
+  taker while the hold invoice `pay-invoice` is addressed to the **maker** (take-sell, invoice); `pay-invoice` with the order and hold invoice
+  (take-buy); `pay-bond-invoice` with the order parked (bonded node); `cant-do` otherwise.
+- **Self-tests** (6): each reply and its addressing (the maker's own listener hears the hold invoice), a range order inside and outside its
+  bounds with the amount echoed, every refusal (stale index, unknown order, wrong side both ways, taken order, invalid invoice, own order,
+  pending order) leaving the index and the taker set untouched, and the bonded answer.
+- **Checks on the checks**: remembering the index before the checks, addressing the hold invoice to the taker, and dropping the pending-order
+  check each failed a self-test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (568 tests: lib 159, `cli_functions` 68, `integration_tests` 41,
+  `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 6, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`:
+  all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
