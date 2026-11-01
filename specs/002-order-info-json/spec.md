@@ -6,7 +6,7 @@
 
 **Created**: 2026-10-28
 
-**Status**: Implemented and verified on Linux against a scripted fake daemon; regtest probe and Windows run open. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented and verified on Linux against a scripted fake daemon; probed on regtest (mostrod v0.19.3, 2026-11-01); Windows is covered by CI. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Second step of the agreed AI-ready CLI roadmap (critical-path step 2): canonical
 `order info`, replacing `ordersinfo`, with human and JSON output, a correlated

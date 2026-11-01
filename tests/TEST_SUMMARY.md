@@ -3411,6 +3411,39 @@ Documentation only; no production change. Lean mode: the only evidence entry for
 - **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), the MCP migration (`create_order`, `take_order`, `get_order` all break against
   the CLI until then), Cashu escrow replies (reported as unusable), and the empty fields of the minimal row.
 
+## Regtest Probe Of order info, order new And The Takes: 2026-11-01
+
+Authorized by the maintainer on 2026-11-01. Regtest only: the MCP repository's `regtest/` network (bitcoind 27, three LND 0.18.3 nodes, nostr-rs-relay 0.9, **mostrod v0.19.3**), the
+throwaway identities Alice and Bob, the debug build of `develop` at `aa20208` through `devenv.sh cli`. No public node, no `devenv.sh clean`, no identity file read (only
+`last_trade_index` columns of the throwaway stores were read or, for the stale-index case, set).
+
+- **Setup defect, not ours**: the first `devenv.sh up` failed with "mostro LND did not sync to chain": the chain left from 2026-10-20 had a stale tip, so bitcoind reported initial block
+  download and LND waited. One `devenv.sh mine 1` fixed it and a second `up` opened the four channels.
+- **`order list`**: `ok`, the book empty then one pending order after Alice's first `order new`, with `completed_relays` 1/1.
+- **`order new`** (Alice, fixed sell order and a buy order; a range order 10..50; four orders in all): `ok`, `published/accepted/applied`; the reply is `new-order` with the order
+  (`pending`, expiry about 24 h, net sats equal to the request), addressed to the trade key; the trade index advances 2, 3, 4, 6, 7 on Alice (5 was spent by a take, see below) and the node
+  accepted each; a range order comes back with `fiat_amount` 0 and `min`/`max`.
+- **`order info`**: the owner sees the order with `seller_trade_pubkey` filled in by the node; another identity asking for it gets `ok` with the id in `not_returned` and the
+  `orders_not_returned` warning (the success the design maps both an empty reply and `not_found` to; the log did not show which the node sent).
+- **`order take-sell` without an invoice** (Bob): `ok`, `add_invoice`, the order in `waiting-buyer-invoice`, `published/accepted/applied`, trade index 1 for a new identity. The legacy
+  `addinvoice -o <id> -i <bolt11>` then accepted the row the new command saved, the hold invoice was paid by Alice, `fiatsent` and `release` ran, and `order info` showed `success`: the
+  rows written by the new commands work with the old ones.
+- **`order take-sell` with an invoice**: `ok`, `wait_for_seller_payment` with a null order, as the source says (#204); the minimal row was enough for `fiatsent` and `release` to complete the trade
+  (`success`).
+- **`order take-buy`** (Bob takes Alice's buy order): `ok`, `pay_hold_invoice`, the order in `waiting-payment`, a hold invoice of 616 characters in `data.payment_request`.
+- **Range take**: `--amount` inside the bounds is accepted (`add_invoice`, the order shows the amount 30 of 10..50); none, 5 and 60 are refused `out_of_range_sats_amount`.
+- **Refusals** (all `node_refused`, `published/rejected/not_attempted`, nothing spent): `pending_order_exists` (a taker who already has a pending order), `invalid_order_status` (an already taken
+  order), `not_found` (unknown id), `invalid_trade_index` (local index set back to 1 while the node's was 4; the local index stayed 1; the legacy `getlasttradeindex` resynchronised it to 4).
+  The checks run in the order of the source: the pending-order check comes before the side check.
+- **Not as the fixture assumed**: taking one's own order **succeeds** when the take uses a fresh trade key (the node compares trade keys, not identities), so the `invalid_pubkey`
+  refusal modeled by the scripted daemon is only reachable by reusing the maker's trade key; the CLI never does. Nothing in the CLI needed to change.
+- **Node stopped during a take** (`docker stop` of mostrod): `uncertain` / `reply_timeout` after 15 s, `published/unknown/applied`, local index 5 spent. After the restart the order was still
+  `pending` on the node (the missed event was not processed) and the next request, at local index 6 over the node's 4, passed the index check (the refusal that followed was
+  `pending_order_exists`), so a gap in the indexes is harmless, as designed.
+- **Not verified**: a bonded node (`bond_required`) and a node with Cashu escrow, because this regtest configures neither; an order outside its take window; a stale market price; the NIP-42
+  AUTH path; behavior on mostrod v0.20.x (the scripted daemon is built from that source, the probe ran on v0.19.3 and they agreed on every case above).
+- **State left behind**: the regtest network is still running with five orders and two completed trades; `regtest/devenv.sh down` stops it and keeps the state.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

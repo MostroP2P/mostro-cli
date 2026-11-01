@@ -15,8 +15,8 @@ It is implemented and verified on Linux with loopback relays and, in CI, on a
 GitHub-hosted native Windows runner: all of T001-T055 are checked in the
 [task list](specs/001-order-list-json/tasks.md). Live relays and nodes are not
 tested. Three follow-on features are implemented and verified on Linux and the
-CI-hosted Windows runner against a scripted fake daemon, with their regtest probes
-open: [order info](specs/002-order-info-json/spec.md)
+CI-hosted Windows runner against a scripted fake daemon, and probed on a local
+regtest node (mostrod v0.19.3, 2026-11-01; bonded and Cashu nodes not covered): [order info](specs/002-order-info-json/spec.md)
 ([tasks.md](specs/002-order-info-json/tasks.md)) and
 [order new](specs/003-order-new-json/spec.md)
 ([tasks.md](specs/003-order-new-json/tasks.md)) and

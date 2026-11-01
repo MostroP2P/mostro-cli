@@ -194,9 +194,9 @@ yet run on a Windows host. Contracts: [CLI](../specs/002-order-info-json/contrac
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
 | SC-006 Windows and Linux | Linux: all process tests and sentinels | Windows open until CI runs after the push |
 
-No scenario above is marked complete by documentation alone. Open: the regtest probe
-([quickstart](../specs/002-order-info-json/quickstart.md)), which needs separate authorization; Windows evidence for
-slices 4-5; MCP `get_order`, which breaks until migrated.
+No scenario above is marked complete by documentation alone. The regtest probe ran on 2026-11-01; still open: bonded and Cashu nodes and the cases
+listed in TEST_SUMMARY.md
+([quickstart](../specs/002-order-info-json/quickstart.md)); MCP `get_order`, which breaks until migrated.
 
 ## Order New: Requirement Evidence
 
@@ -221,9 +221,10 @@ references: [discovery](../docs/schemas/discovery-v1.json) and [order new](../do
 | FR-011 shared transport boundary, untrusted text | `source_boundaries`, escape and sentinel tests | Verified on Linux |
 | FR-012 `neworder` removed | `the_legacy_spellings_are_gone`, the removed-spelling cases | Verified on Linux |
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
-| SC-006 no claim about a daemon | not run | Open: needs the authorized regtest probe |
+| SC-006 no claim about a daemon | regtest probe on mostrod v0.19.3 (2026-11-01, see TEST_SUMMARY.md) | Verified on regtest for the main paths and refusals; bonded and Cashu nodes, take-window and price cases are not verified |
 
-No scenario above is marked complete by documentation alone. Open: the regtest probe
+No scenario above is marked complete by documentation alone. The regtest probe ran on 2026-11-01; still open: bonded and Cashu nodes and the cases
+listed in TEST_SUMMARY.md
 ([quickstart](../specs/003-order-new-json/quickstart.md)), the MCP `create_order` migration (it stays broken until then), and the
 duplicate-order risk of an `uncertain` run, which only the caller can check with `order list`.
 
@@ -250,8 +251,9 @@ public node; the daemon behavior the fake encodes is read from the v0.20.1 sourc
 | FR-012 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel and hold-invoice sweeps | Verified on Linux |
 | FR-013 legacy takes removed | `the_legacy_spellings_are_gone`, the removed-spelling cases | Verified on Linux |
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
-| SC-006 no claim about a daemon | not run | Open: needs the authorized regtest probe |
+| SC-006 no claim about a daemon | regtest probe on mostrod v0.19.3 (2026-11-01, see TEST_SUMMARY.md) | Verified on regtest for the main paths and refusals; bonded and Cashu nodes, take-window and price cases are not verified |
 
-No scenario above is marked complete by documentation alone. Open: the regtest probe
+No scenario above is marked complete by documentation alone. The regtest probe ran on 2026-11-01; still open: bonded and Cashu nodes and the cases
+listed in TEST_SUMMARY.md
 ([quickstart](../specs/004-order-take-json/quickstart.md)), the MCP `take_order` migration (it stays broken until then), the minimal row's empty fields
 until a later command refreshes them, and the duplicate-take risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.

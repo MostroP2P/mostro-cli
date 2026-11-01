@@ -2,6 +2,7 @@
 
 **Status**: Implemented and verified on Linux with loopback relays and a scripted fake daemon (evidence in `tests/TEST_SUMMARY.md`; CI is green to
 slice 5, Windows included). The regtest probe below has not been run; no claim about a real daemon is made.
+The regtest probe below ran on 2026-11-01 against mostrod v0.19.3 for the main paths and refusals (see `tests/TEST_SUMMARY.md`); bonded and Cashu nodes are not covered.
 
 ## Focused Commands
 
