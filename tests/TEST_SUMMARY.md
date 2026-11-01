@@ -3291,6 +3291,31 @@ Native Linux, rustc 1.97.0, on `develop` after `480d241` (not pushed yet). Lean 
   `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 6, `parser_orders` 123, `parser_dms` 19,
   `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
 
+## Order Take, Slice 3: The Operation: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `9304528` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Extraction first** (behavior-preserving): the outcomes every write command shares (`failed`, `malformed`, `bond_required`, `refused`, `saved`,
+  `spend_index`, `unsent`) moved from `commands/order/new.rs` to `commands/order/write.rs` (`Sent`), with the index policy stated once; `new.rs` shrank
+  and its 40 tests, binary scenarios included, are unchanged and green.
+- **The operation** (`commands/order/take.rs`, `order_take` for both sides): one `exchange` with the take actions allowed (`add-invoice`,
+  `waiting-seller-to-pay`, `pay-invoice`, `pay-bond-invoice`, `cant-do`), each reply mapped by side: take-sell accepts `add-invoice` with an order or
+  `waiting-seller-to-pay` naming the order taken; take-buy accepts `pay-invoice` with the order and the hold invoice; anything else, or a reply about
+  another order, is `reply_malformed` (uncertain).
+- **Operation tests** (10 in `tests/order_take_process.rs`, the real `order_take` against the scripted daemon and a seeded store):
+  take-sell without an invoice asks for one and saves the node's order (row `waiting-buyer-invoice`, index 1, trade key stored, the node's book index
+  advanced); take-sell with an invoice waits for the seller and saves the minimal row (kind `sell`, `waiting-payment`, empty currency); take-buy returns the
+  hold invoice as data and stores no invoice; a range take records the amount taken; refusals (stale index, wrong side, unknown order) carry their reason and
+  write nothing; silence is `uncertain` with the index spent and no row; three replies that do not fit (another order's `add-invoice`, a hold invoice for a
+  take-sell, a waiting reply naming another order) are `uncertain`/`reply_malformed`; a bonded node is `bond_required` with the index spent; an order table
+  that cannot be written is `order_not_saved` with the data returned and the index still spent; needed work stops everything with `mcli.db` byte-identical.
+- **Checks on the checks**: dropping the order check on the waiting reply, spending no index after a failed save, spending none after a bond request and
+  accepting a hold invoice for a take-sell each failed a test (the last one first survived because the odd reply carried no order; it now carries a
+  matching one so only the side check can catch it); restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (586 tests: lib 168, `cli_functions` 68, `integration_tests` 41,
+  `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 16, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

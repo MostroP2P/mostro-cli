@@ -17,7 +17,7 @@ regtest without authorization.
   a stateful order book. No production change.
 - [x] **2. Shared dispatch and outcomes.** (done 2026-10-30; evidence in `tests/TEST_SUMMARY.md`) Extract `cli/write.rs` from `cli/order_new.rs` (order new tests unchanged); `outcome/take.rs` (input,
   payload, `NextStep`, data, minimal order) with unit and schema tests for the two canonical names.
-- [ ] **3. The operation.** `commands/order/take.rs` for both sides against the scripted daemon: each accepted reply and its saved row, refusals, silence,
+- [x] **3. The operation.** (done 2026-10-30; evidence in `tests/TEST_SUMMARY.md`) `commands/order/take.rs` for both sides against the scripted daemon: each accepted reply and its saved row, refusals, silence,
   unusable reply, bond, forced save failure (two shapes), work stopping before anything is sent, index policy.
 - [ ] **4. The commands.** Split in two commits. **4a**: grammar, registry (`order.take-sell`, `order.take-buy`), `cli/order_take.rs`,
   `parse_human/order_take.rs`, removal of `takesell`, `takebuy`, `cli/take_order.rs` and the book read, generated schemas and fixtures, README and
