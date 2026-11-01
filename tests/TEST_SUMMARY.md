@@ -3967,3 +3967,27 @@ sandbox store (`tests/invoice_process.rs::operation`, 9 scenarios).
 - **Invalid input**: a malformed order invoice and an address for a bond are `invalid_arguments` before anything happens and are never echoed.
 - **Mutation spot checks** (2): the `--yes` rule removed and the bond share line removed are each caught.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 665 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 5: Failure Matrix And Examples: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `05eb60b` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (`tests/invoice_process.rs::operation`, 8 tests, the real binary), each case run as JSON, human and `--verbose` on **both commands**, checking the
+  code and exit, that nothing was sent, that the sandbox is byte-identical and that no file appears elsewhere:
+  - **Before any request**: no store, no user, a file that is not a database, no `users` table, a null mnemonic, no node key, no relays, a bad node key, a bad relay,
+    a bad `--pow`, a bad `--transport`: each with its stable code, the pre-publication stages and no sentinel, relay address or invoice in any stream.
+  - **Store**: only `order add-invoice` needs a writable store (`store_unwritable` on a read-only file, before anything is sent); `bond add-invoice` still succeeds
+    on it because it writes nothing. (Skipped by the test when the process ignores file modes.)
+  - **Node that cannot be served**: protocol 1 and more required work stop both commands before publishing; an explicit `--transport` and enough `--pow` pass.
+  - **Relays**: a relay rejecting the write is `request_rejected` with nothing changed; a dead relay is `relay_connection_failed`, with no address shown.
+  - **Invalid input** (11 invocations): an oversized invoice, whitespace, `lnurl1...`, a bad UUID, a missing option, an address for a bond, text that is no invoice, the
+    removed `addinvoice`/`addbondinvoice` spellings and the hyphenated `--order-id`: exit 2, `invalid_arguments`, the command named when it resolved, nothing
+    echoed, nothing sent, store unchanged.
+  - **Streams**: an unwritable stdout after the invoice exits 1 with one fixed line per mode and for both commands (the invoice was sent and accepted all the
+    same); an unwritable stderr changes neither the exit nor the document.
+- **Examples** (`specs/005-invoice-json/contracts/examples.json`, 15 cases generated from the owned constructors, not written by hand): every accepted result,
+  the stale local status, a refusal, both uncertain endings, `order_unknown` for each command, the declined and `--yes` cases and the removed spelling. 4 tests in
+  `integration_tests.rs`: all conform to the checked-in schemas with the right exit code and data presence, the constructors reproduce them byte for byte, and
+  17 edited variants (unknown result, uppercase key, bad id, missing key, wrong status or stages, a store error on a bond, a numeric share, ...) do not conform.
+- **Mutation spot checks** (3): the order invoice not requiring a writable store, a bond requiring one, and a changed unwritable-stdout line are each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 676 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.

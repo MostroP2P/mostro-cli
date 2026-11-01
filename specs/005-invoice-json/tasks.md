@@ -18,7 +18,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   forced status-update failure, work stopping before anything is sent, no index spent.
 - [x] **4. The commands.** (4a and 4b done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) **4a**: grammar (`bond` group), registry, `cli/invoice.rs`, `parse_human/invoice.rs`, removal of the legacy commands, generated
   schemas and fixtures, README and command-reference migration. **4b**: binary scenarios.
-- [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input,
+- [x] **5. Failure matrix and examples.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input,
   secret sentinels (including the invoice), unwritable streams; `contracts/examples.json` and its validation.
 - [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration (MCP `add_invoice`), requirement evidence, quickstart with
   the regtest probe procedure for `order add-invoice`; the probe stays open until separately authorized.

@@ -32,6 +32,27 @@ use fake_mostro::{
 use harness::{Backend, LoopbackRelay, Sandbox};
 use mostro_client::store::{Store, StoreError, Trade};
 
+/// Rejects every write with a machine-readable refusal.
+#[derive(Debug)]
+struct BlockWrites;
+
+impl nostr_sdk::prelude::WritePolicy for BlockWrites {
+    fn admit_event<'a>(
+        &'a self,
+        _event: &'a nostr_sdk::prelude::Event,
+        _addr: &'a std::net::SocketAddr,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = nostr_sdk::prelude::WritePolicyResult> + Send + 'a>,
+    > {
+        Box::pin(async {
+            nostr_sdk::prelude::WritePolicyResult::reject(
+                nostr_sdk::prelude::MachineReadablePrefix::Blocked,
+                "writes are off",
+            )
+        })
+    }
+}
+
 const REQUEST_ID: u64 = 7150;
 const WAIT: Duration = Duration::from_millis(700);
 const INVOICE: &str = "lnbcrt1scriptedbuyerinvoice";
@@ -627,6 +648,17 @@ mod operation {
         pow: u8,
         wrap: impl FnOnce(Respond) -> Respond,
     ) -> Holder {
+        holder_with(orders, acks, (2, pow, false), wrap).await
+    }
+
+    /// A node advertising `(protocol, pow)`; its relay refuses every write when
+    /// the last element is set.
+    async fn holder_with(
+        orders: impl FnOnce(PublicKey) -> Vec<Owed>,
+        acks: bool,
+        (protocol, pow, block_writes): (u8, u8, bool),
+        wrap: impl FnOnce(Respond) -> Respond,
+    ) -> Holder {
         let buyer = Keys::generate();
         let ledger = Ledger {
             orders: orders(buyer.public_key()),
@@ -640,9 +672,15 @@ mod operation {
         };
         let (respond, ledger) = invoice_daemon(ledger, acks);
         let node = Keys::generate();
-        let relay = LocalRelay::new();
+        let relay = if block_writes {
+            LocalRelay::builder()
+                .write_policy(super::BlockWrites)
+                .build()
+        } else {
+            LocalRelay::new()
+        };
         relay
-            .add_event(info_event(&node, Some(2), Some(pow), None, Some(10)))
+            .add_event(info_event(&node, Some(protocol), Some(pow), None, Some(10)))
             .await
             .unwrap();
         let relay = LoopbackRelay::start(Backend::Relay(Box::new(relay)))
@@ -1657,5 +1695,530 @@ mod operation {
         }
         assert!(holder.fake.received().is_empty());
         assert_eq!(snapshot(&holder), before);
+    }
+
+    // --- The failure matrix (slice 5) ---
+
+    const SENTINEL: &str = "SENTINEL-zq81";
+
+    /// How the store of the sandbox is damaged before the run.
+    #[derive(Clone, Copy, Debug)]
+    enum Tweak {
+        None,
+        Absent,
+        Garbage,
+        EmptyUsers,
+        NoUsersTable,
+        NullMnemonic,
+        ReadOnly,
+    }
+
+    async fn tweak(holder: &Holder, how: Tweak) {
+        let path = holder.sandbox.mcli_dir().join("mcli.db");
+        let sql = |statement: &'static str| {
+            let path = path.clone();
+            async move {
+                let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+                let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+                sqlx::query(statement).execute(&pool).await.unwrap();
+                pool.close().await;
+            }
+        };
+        match how {
+            Tweak::None => {}
+            Tweak::Absent => std::fs::remove_file(&path).unwrap(),
+            Tweak::Garbage => std::fs::write(&path, b"this is not a sqlite database").unwrap(),
+            Tweak::EmptyUsers => sql("DELETE FROM users").await,
+            Tweak::NoUsersTable => sql("DROP TABLE users").await,
+            Tweak::NullMnemonic => sql("UPDATE users SET mnemonic = NULL").await,
+            Tweak::ReadOnly => {
+                let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+                permissions.set_readonly(true);
+                std::fs::set_permissions(&path, permissions).unwrap();
+            }
+        }
+    }
+
+    /// Whether the process can still write a file marked read-only (root).
+    fn ignores_read_only(holder: &Holder) -> bool {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(holder.sandbox.mcli_dir().join("mcli.db"))
+            .is_ok()
+    }
+
+    struct Failing {
+        label: &'static str,
+        tweak: Tweak,
+        set: &'static [(&'static str, &'static str)],
+        unset: &'static [&'static str],
+        /// Global flags placed before the command.
+        flags: &'static [&'static str],
+        code: &'static str,
+        /// Which commands the case applies to.
+        kinds: &'static [&'static str],
+    }
+
+    impl Failing {
+        const fn new(label: &'static str, tweak: Tweak, code: &'static str) -> Self {
+            Self {
+                label,
+                tweak,
+                set: &[],
+                unset: &[],
+                flags: &[],
+                code,
+                kinds: &["order", "bond"],
+            }
+        }
+    }
+
+    async fn run_env(
+        holder: &Holder,
+        args: &[&str],
+        set: &[(&str, &str)],
+        unset: &[&str],
+    ) -> Captured {
+        let mut command = command(holder, args);
+        for (name, value) in set {
+            command.env(name, value);
+        }
+        for name in unset {
+            command.env_remove(name);
+        }
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// The arguments of `kind` with `front` before the command and `--yes`.
+    fn kind_args<'a>(kind: &str, front: &[&'a str], payout: &'a str) -> Vec<&'a str> {
+        match kind {
+            "order" => order_args(front, &["--yes"]),
+            _ => bond_args(front, payout, &["--yes"]),
+        }
+    }
+
+    /// Run `case` as JSON, human and verbose, on both commands, and check what
+    /// every mode shows, then that nothing was sent and nothing changed.
+    async fn check_failure(case: &Failing, holder: &Holder) {
+        tweak(holder, case.tweak).await;
+        let before = snapshot(holder);
+        let label = case.label;
+        let payout = payout_invoice(SHARE);
+        for kind in case.kinds {
+            for mode in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
+                let mut front: Vec<&str> = case.flags.to_vec();
+                front.extend(mode);
+                let run = run_env(
+                    holder,
+                    &kind_args(kind, &front, &payout),
+                    case.set,
+                    case.unset,
+                )
+                .await;
+                assert_eq!(
+                    run.code(),
+                    Some(1),
+                    "{label} {kind} {mode:?}: {}",
+                    run.stderr_text()
+                );
+                let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+                for stream in [&stdout, &stderr] {
+                    assert!(!stream.contains("SENTINEL"), "{label}: a sentinel leaked");
+                    assert!(!stream.contains(&payout), "{label}: the invoice leaked");
+                    assert!(
+                        !stream.contains("127.0.0.1"),
+                        "{label}: a relay address leaked"
+                    );
+                }
+                if mode == ["--output", "json"] {
+                    let outcome = document(&run);
+                    conforms_to_the_checked_in_schema(kind, &outcome);
+                    assert_eq!(outcome["command"], format!("{kind}.add-invoice"), "{label}");
+                    assert_eq!(outcome["status"], "error", "{label}");
+                    assert_eq!(outcome["data"], Value::Null, "{label}");
+                    assert_eq!(outcome["error"]["code"], case.code, "{label}");
+                    assert_eq!(
+                        outcome["meta"],
+                        json!({"publication": "not_attempted", "daemon_acceptance": "unknown",
+                               "persistence": "not_attempted", "snapshot": null}),
+                        "{label}"
+                    );
+                    assert!(stderr.is_empty(), "{label}: {stderr}");
+                } else {
+                    assert!(stdout.is_empty(), "{label} {mode:?}: {stdout}");
+                    assert!(stderr.starts_with("error: "), "{label}: {stderr}");
+                    assert!(
+                        !stderr.contains("may hold this invoice"),
+                        "{label}: not uncertain"
+                    );
+                }
+            }
+        }
+        assert!(
+            holder.fake.received().is_empty(),
+            "{label}: something was sent"
+        );
+        if !matches!(case.tweak, Tweak::ReadOnly) {
+            assert_eq!(snapshot(holder), before, "{label}: the store changed");
+        }
+        assert!(
+            harness::is_empty_dir(&holder.sandbox.home())
+                && harness::is_empty_dir(&holder.sandbox.cwd()),
+            "{label}: files were created elsewhere"
+        );
+    }
+
+    #[tokio::test]
+    async fn failures_before_any_request_are_stable_and_leave_no_trace() {
+        let cases = [
+            Failing::new("no store", Tweak::Absent, "identity_missing"),
+            Failing::new("no user", Tweak::EmptyUsers, "identity_missing"),
+            Failing::new("not a database", Tweak::Garbage, "identity_unreadable"),
+            Failing::new("no users table", Tweak::NoUsersTable, "identity_unreadable"),
+            Failing::new("null mnemonic", Tweak::NullMnemonic, "identity_unreadable"),
+            Failing {
+                unset: &["MOSTRO_PUBKEY"],
+                ..Failing::new("no node key", Tweak::None, "configuration_missing")
+            },
+            Failing {
+                unset: &["RELAYS"],
+                ..Failing::new("no relays", Tweak::None, "configuration_missing")
+            },
+            Failing {
+                set: &[("MOSTRO_PUBKEY", SENTINEL)],
+                ..Failing::new("bad node key", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                set: &[("RELAYS", "http://SENTINEL-zq81.invalid")],
+                ..Failing::new("bad relay", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                flags: &["--pow", SENTINEL],
+                ..Failing::new("bad pow", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                flags: &["--transport", SENTINEL],
+                ..Failing::new("bad transport", Tweak::None, "configuration_invalid")
+            },
+        ];
+        for case in &cases {
+            let holder = plain().await;
+            check_failure(case, &holder).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn only_the_order_invoice_needs_a_writable_store() {
+        let holder = plain().await;
+        tweak(&holder, Tweak::ReadOnly).await;
+        if ignores_read_only(&holder) {
+            return; // running as a user the file mode does not bind
+        }
+        let case = Failing {
+            kinds: &["order"],
+            ..Failing::new("read-only store", Tweak::None, "store_unwritable")
+        };
+        check_failure(&case, &holder).await;
+
+        // A bond payout writes nothing, so a read-only store does not stop it.
+        let invoice = payout_invoice(SHARE);
+        let run = run(
+            &holder,
+            &bond_args(&["--output", "json"], &invoice, &["--yes"]),
+        )
+        .await;
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(document(&run)["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn a_node_that_cannot_be_served_fails_before_publishing() {
+        let old = holder_with(waiting, true, (1, 0, false), |respond| respond).await;
+        check_failure(
+            &Failing::new("protocol 1", Tweak::None, "protocol_unsupported"),
+            &old,
+        )
+        .await;
+
+        let work = holder_with(waiting, true, (2, 9, false), |respond| respond).await;
+        check_failure(
+            &Failing::new("more work expected", Tweak::None, "pow_required"),
+            &work,
+        )
+        .await;
+
+        // An explicit transport skips the protocol check and enough work passes.
+        let holder = holder_with(waiting, true, (1, 9, false), |respond| respond).await;
+        let run = run(
+            &holder,
+            &order_args(
+                &["--transport", "nip44", "--pow", "9", "--output", "json"],
+                &["--yes"],
+            ),
+        )
+        .await;
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_rejects_the_request_changes_nothing() {
+        let holder = holder_with(waiting, true, (2, 0, true), |respond| respond).await;
+        check_failure(
+            &Failing::new("rejected", Tweak::None, "request_rejected"),
+            &holder,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_relay_is_a_connection_failure_and_costs_nothing() {
+        let holder = plain().await;
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("ws://{}", free.local_addr().unwrap());
+        drop(free);
+        let before = snapshot(&holder);
+
+        let run = run_env(
+            &holder,
+            &order_args(&["--output", "json"], &["--yes"]),
+            &[("RELAYS", dead.as_str())],
+            &[],
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        let outcome = document(&run);
+        assert_eq!(outcome["error"]["code"], "relay_connection_failed");
+        assert_eq!(outcome["status"], "error");
+        assert_eq!(outcome["meta"]["publication"], "not_attempted");
+        assert!(!run.stderr_text().contains("127.0.0.1"));
+        assert_eq!(snapshot(&holder), before);
+    }
+
+    #[tokio::test]
+    async fn invalid_input_is_an_argument_error_before_any_effect() {
+        let holder = plain().await;
+        let before = snapshot(&holder);
+        let huge = "ln".to_string() + &"x".repeat(5000);
+        let order = json!("order.add-invoice");
+        let bond = json!("bond.add-invoice");
+        let cases: Vec<(Vec<&str>, Value)> = vec![
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--order",
+                    ORDER,
+                    "--invoice",
+                    &huge,
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--order",
+                    ORDER,
+                    "--invoice",
+                    "SENTINEL zq",
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--order",
+                    ORDER,
+                    "--invoice",
+                    "lnurl1SENTINEL",
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--order",
+                    "not-a-uuid",
+                    "--invoice",
+                    "lnbc1x",
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--order",
+                    ORDER,
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--invoice",
+                    "lnbc1x",
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "bond",
+                    "add-invoice",
+                    "--order",
+                    BOND_ORDER,
+                    "--invoice",
+                    "buyer@SENTINEL.example",
+                    "--yes",
+                ],
+                bond.clone(),
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "bond",
+                    "add-invoice",
+                    "--order",
+                    BOND_ORDER,
+                    "--invoice",
+                    "SENTINEL-zq81",
+                    "--yes",
+                ],
+                bond.clone(),
+            ),
+            // The removed spellings have no command.
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "addinvoice",
+                    "-o",
+                    ORDER,
+                    "-i",
+                    "lnbc1x",
+                ],
+                Value::Null,
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "addbondinvoice",
+                    "-o",
+                    BOND_ORDER,
+                    "-i",
+                    "lnbc1x",
+                ],
+                Value::Null,
+            ),
+            (
+                vec![
+                    "--output",
+                    "json",
+                    "order",
+                    "add-invoice",
+                    "--order-id",
+                    ORDER,
+                    "--invoice",
+                    "lnbc1x",
+                    "--yes",
+                ],
+                order.clone(),
+            ),
+        ];
+        for (arguments, command) in cases {
+            let run = run(&holder, &arguments).await;
+            assert_eq!(run.code(), Some(2), "{arguments:?}: {}", run.stderr_text());
+            let outcome = document(&run);
+            assert_eq!(outcome["command"], command, "{arguments:?}");
+            assert_eq!(
+                outcome["error"]["code"], "invalid_arguments",
+                "{arguments:?}"
+            );
+            assert_eq!(
+                outcome["meta"]["publication"], "not_attempted",
+                "{arguments:?}"
+            );
+            for text in [run.stdout_text(), run.stderr_text()] {
+                assert!(!text.contains("SENTINEL"), "{arguments:?}: {text}");
+                assert!(!text.contains("zq"), "{arguments:?}");
+            }
+            assert!(
+                run.stderr.is_empty(),
+                "{arguments:?}: {}",
+                run.stderr_text()
+            );
+        }
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(snapshot(&holder), before);
+    }
+
+    #[tokio::test]
+    async fn an_unwritable_stdout_after_the_invoice_exits_1_with_one_fixed_line() {
+        for (front, line) in [
+            (
+                &["--output", "json"][..],
+                "error: the JSON outcome could not be written\n",
+            ),
+            (&[][..], "error: the invoice result could not be written\n"),
+        ] {
+            for kind in ["order", "bond"] {
+                let holder = plain().await;
+                let payout = payout_invoice(SHARE);
+                let all = kind_args(kind, front, &payout);
+                let mut command = command(&holder, &all);
+                command.stdout(harness::closed_pipe());
+                let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+                assert_eq!(
+                    run.code(),
+                    Some(1),
+                    "{kind} {front:?}: {}",
+                    run.stderr_text()
+                );
+                assert_eq!(run.stderr_text(), line, "{kind} {front:?}");
+                // The invoice was sent and the node took it all the same.
+                assert_eq!(holder.fake.received().len(), 1, "{kind}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unwritable_stderr_changes_neither_the_exit_nor_the_document() {
+        let holder = plain().await;
+        let mut command = command(
+            &holder,
+            &order_args(&["--output", "json", "--pow", "x"], &["--yes"]),
+        );
+        command.stderr(harness::closed_pipe());
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(1));
+        assert_eq!(document(&run)["error"]["code"], "configuration_invalid");
     }
 }
