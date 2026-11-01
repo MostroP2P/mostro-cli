@@ -23,7 +23,7 @@ regtest without authorization.
   `parse_human/order_take.rs`, removal of `takesell`, `takebuy`, `cli/take_order.rs` and the book read, generated schemas and fixtures, README and
   command-reference migration. **4b (done 2026-11-01)**: binary scenarios (success per side and invoice case, `--yes` rules, prompt, refusal, silence, bond, unsaved take, range
   amount, verbose, hold invoice only on stdout).
-- [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input, secret
+- [x] **5. Failure matrix and examples.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input, secret
   sentinels (including the invoice and the hold invoice), unwritable streams; `contracts/examples.json` and its validation.
 - [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration (MCP `take_order`), requirement evidence, quickstart with the
   regtest probe procedure, status lines; the probe stays open until separately authorized.

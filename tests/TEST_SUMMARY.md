@@ -3368,6 +3368,29 @@ home; stdin is a closed descriptor or a file the test wrote, never a pipe it has
 - Still open for slice 5: the failure matrix at binary level (identity, configuration, protocol and work, rejected and unreachable relay, unwritable store, invalid input, secret sentinels, unwritable
   streams), `contracts/examples.json` and its validation.
 
+## Order Take, Slice 5: Failure Matrix And Examples: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `0103425` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (binary, `tests/order_take_process.rs`; each case runs on **both** takes as JSON, human and `--verbose`, all with `--yes`, a planted sentinel where an input
+  carries text): no store and an empty `users` table (`identity_missing`); a file that is not a database, no `users` table and a null mnemonic (`identity_unreadable`); missing node
+  key or relays (`configuration_missing`); a bad node key, relay, `--pow` or `--transport` (`configuration_invalid`); protocol 1 (`protocol_unsupported`); more work expected than
+  configured (`pow_required`); a relay rejecting every write (`request_rejected`, index unspent); an unreachable relay (`relay_connection_failed`); a read-only store file
+  (`store_unwritable`). For each: exit 1, the command's own canonical name, status `error`, stages `not_attempted/unknown/not_attempted`, a document that conforms to that command's
+  checked-in schema, nothing on stderr in JSON mode and one `error:` line on stderr only in the others, no sentinel, relay address or hold invoice in any stream, no request at the
+  daemon, the data directory byte-identical and nothing created elsewhere. An explicit `--transport nip44` with enough `--pow` succeeds on a node advertising protocol 1.
+- **Argument errors**: ten cases exit 2 with `invalid_arguments`, nothing sent or written, nothing echoed, nothing on stderr: a zero or negative amount, an invoice with whitespace or over
+  4096 bytes, an invoice on take-buy, a text amount, a bad order id and a missing order (all keeping the resolved command), and the removed `takesell` and `takebuy` (command `null`).
+- **Unwritable streams**: a closed stdout after the take exits 1 with one fixed line per mode and both takes are saved all the same; a closed stderr changes neither the exit nor the
+  JSON document.
+- **Examples** (`contracts/examples.json`, eleven outcomes across both commands: the three next steps, refusal, bond, timeout and unsaved take as `uncertain`, declined, identity
+  missing, `--yes` required, removed spelling): each conforms to its command's checked-in schema, is reproduced by the owned constructors, carries data only when it should, and seventeen
+  invalid variants do not conform.
+- **Checks on the checks**: allowing whitespace in an invoice, mapping an unreadable store to missing and disabling the writable-file check each failed a test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (600 tests: lib 159, `cli_functions` 67, `integration_tests` 45, `order_info_process` 34, `order_list_process` 46,
+  `order_new_process` 40, `order_take_process` 35, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
