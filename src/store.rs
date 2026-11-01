@@ -27,6 +27,8 @@ pub enum StoreError {
     Missing,
     /// The store exists but cannot be opened, read or written.
     Unwritable,
+    /// The store opened but what is in it cannot be read or used.
+    Unreadable,
 }
 
 impl fmt::Display for StoreError {
@@ -34,6 +36,7 @@ impl fmt::Display for StoreError {
         f.write_str(match self {
             Self::Missing => "no local store exists",
             Self::Unwritable => "the local store cannot be written",
+            Self::Unreadable => "the local store cannot be read",
         })
     }
 }
@@ -50,6 +53,26 @@ pub struct Trade {
 impl fmt::Debug for Trade {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Trade").field("index", &self.index).finish()
+    }
+}
+
+/// The trade keys of the newest indexes, newest first. The keys are secret;
+/// `Debug` shows the indexes only.
+pub struct TradeKeys {
+    pub keys: Vec<(i64, Keys)>,
+    /// How many older indexes were not derived.
+    pub not_read: usize,
+}
+
+impl fmt::Debug for TradeKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TradeKeys")
+            .field(
+                "indexes",
+                &self.keys.iter().map(|(index, _)| index).collect::<Vec<_>>(),
+            )
+            .field("not_read", &self.not_read)
+            .finish()
     }
 }
 
@@ -133,6 +156,17 @@ impl Store {
         result
     }
 
+    /// The trade keys of the newest `newest` indexes up to the recorded last
+    /// index, newest first, and how many older ones were left out. Derived from
+    /// the identity's mnemonic, so a trade whose order was never saved has its
+    /// key too. Writes nothing.
+    pub async fn trade_keys(&self, newest: usize) -> Result<TradeKeys, StoreError> {
+        let pool = self.open().await?;
+        let derived = derive_trade_keys(&pool, newest).await;
+        pool.close().await;
+        derived
+    }
+
     /// The trade key stored with the order `id`, or `None` when there is no
     /// such order, it has no key or the key is unusable. Writes nothing. The
     /// secret never leaves this module except as the key itself.
@@ -179,6 +213,28 @@ impl Store {
         pool.close().await;
         result
     }
+}
+
+async fn derive_trade_keys(pool: &SqlitePool, newest: usize) -> Result<TradeKeys, StoreError> {
+    let user = User::get(pool).await.map_err(|error| {
+        if crate::db::is_row_not_found(&error) {
+            StoreError::Missing
+        } else {
+            StoreError::Unreadable
+        }
+    })?;
+    let last = user.last_trade_index.unwrap_or(0).max(0);
+    let wanted = i64::try_from(newest).unwrap_or(i64::MAX);
+    let first = (last - wanted + 1).max(1);
+    let mut keys = Vec::new();
+    for index in (first..=last).rev() {
+        let key = User::get_trade_keys(pool, index)
+            .await
+            .map_err(|_| StoreError::Unreadable)?;
+        keys.push((index, key));
+    }
+    let not_read = usize::try_from(first - 1).unwrap_or(0);
+    Ok(TradeKeys { keys, not_read })
 }
 
 async fn advance_in(pool: &SqlitePool, index: i64) -> Result<(), StoreError> {

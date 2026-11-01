@@ -4054,3 +4054,23 @@ Native Linux, rustc 1.97.0, on `develop` after `22588e0` (pushed). No production
   nothing from an impostor or another key**, and its `since` drops older messages (the filter the new command will use, against the relay the tests use).
 - **Mutation spot checks** (2): the fixture ignoring the given time, and dropping the recipient tag, are each caught by two tests.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 692 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Message List, Slice 2: Keys, Records And Outcomes: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `8f45144` (pushed). Lean mode: the only evidence entry for the slice. No command wiring yet (slice 4).
+
+- **Store** (`store.rs`): `Store::trade_keys(newest)` derives the keys of the newest indexes up to the recorded last index (newest first) and counts the older ones; a trade whose order
+  was never saved still has a key. Read-only, never creates, and its `Debug` shows indexes only. New `StoreError::Unreadable` (a store that opens but cannot be used) with the code
+  `store_unreadable`. 6 tests in `message_list_process::store`: all indexes newest first and distinct, the derivation equals the one `next_trade` uses, the caps (3 of 10 leaves 7, more than
+  there are, zero), no trade yet, a byte-identical file and no secret in `Debug`, and missing store, missing user, a file that is not a database and an unusable mnemonic.
+- **Codes and schema helpers**: error `store_unreadable` (exit 1) and warning `trade_keys_limited`, scoped to `message.list`; `schema::nullable_uuid`.
+- **Records** (`outcome/messages.rs` and `outcome/messages/payload.rs`, 12 tests): `MessageListInput::validate` (1 to 10080 minutes, default 30, zero, negative and over-range refused without echoing),
+  `NextStep` (only the four actions that ask something), `MessageRecord::from_message` (event id, RFC 3339 and Unix time, order id, request id, wire action, trade index and key, payload) and the
+  payload summary: order, payment request (the bond or hold invoice is data), bond payout request with the slash time, refusal reason, counterparty pubkey, bounded text, amount, and any other
+  variant by name only; an order without an id anywhere is not shown as an order; a time outside four-digit years is the aggregate warning and a null field.
+- **Schema**: generated with `OutcomeRules::read` (snapshot on success, read stages only, no uncertain status, no store-write code); real outcomes with every payload kind conform; 12 contradictory
+  edits (bad event id, uppercase key, numeric index or count, unknown next step or payload kind, uppercase action, missing flag, a write stage, no snapshot, another command) do not.
+- **Found by the gates**: the boundary test refused `messages.rs` at 431 production lines; the payload summary moved to `outcome/messages/payload.rs`. (The first run after the fix compiled a test
+  module that was missing imports and printed 0 failures with no passes: the compile errors are now counted as well.)
+- **Mutation spot checks** (3): the key window off by one, a zero-minute window allowed, and unbounded text each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 709 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.

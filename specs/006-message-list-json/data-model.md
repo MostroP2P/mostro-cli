@@ -23,7 +23,7 @@ Standard envelope (v1). Stages are those of `order list`: `not_applicable` for p
 | `request_id` | the request id, as a decimal string, or `null` |
 | `action` | the wire name of the action (`pay-bond-invoice`, `add-invoice`, ...) |
 | `next_step` | `pay_bond_invoice`, `add_invoice`, `pay_hold_invoice`, `add_bond_invoice` or `null` |
-| `trade_index`, `trade_pubkey` | the key the message was addressed to |
+| `trade_index`, `trade_pubkey` | the key the message was addressed to; `trade_index` is `null` when the key was read from an order row and its index is not among the newest 200 |
 | `payload` | a typed summary: `none`; `order` (an `OrderRecord`); `payment_request` (`order`, `invoice`, `amount`); `bond_payout_request` (the order and the amounts the node sent); `cant_do` (`reason`); `peer` (`counterparty_pubkey`); `text` (escaped on output); `amount`; `other` (the variant name only) |
 
 `next_step` per action: `pay-bond-invoice` -> `pay_bond_invoice` (invoice in `payment_request`), `add-invoice` -> `add_invoice`, `pay-invoice` -> `pay_hold_invoice`,

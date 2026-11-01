@@ -51,6 +51,10 @@ pub fn uuid(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "string", "pattern": UUID_PATTERN})
 }
 
+pub fn nullable_uuid(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": ["string", "null"], "pattern": UUID_PATTERN})
+}
+
 pub fn pubkey_hex(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "string", "pattern": PUBKEY_PATTERN})
 }

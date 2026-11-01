@@ -15,10 +15,10 @@ the process harness. Files at or below 400 production lines; imports at the top;
 
 ## Design
 
-1. **Store.** `Store::trade_keys(newest_first: usize)` returns `(index, Keys)` for the newest indexes up to the recorded last index and the count not returned; read-only (it opens the
-   store without writing). `Store::order_key_with_index(id)` for `--order` (the index is found by matching the stored key against the derived ones, or stored `None`).
+1. **Store.** `Store::trade_keys(newest)` returns `(index, Keys)` for the newest indexes up to the recorded last index and the count not returned; read-only. For `--order`, the
+   stored key (`Store::order_keys`) is read and its index is found among the derived keys, or the record's `trade_index` is null.
 2. **Read.** `msg::inbox::read(config, keys, since, limits)`: one filter (kind 14, author the node, the keys as `p`, `since`, a per-relay limit) through `fetch_msg`; decrypt each event with
-   the key it names; dedupe by event id; sort; cap. A relay that refuses many keys makes the read fail as a relay failure (the probe decides whether batching is needed).
+   the key it names; dedupe by event id; sort; cap. A relay that refuses many keys makes the read fail as a relay failure (the probe decides whether batching is needed). The relay limit of the filter is the 50 of `order list`'s snapshot, shared by all keys, so `truncated` is set whenever 50 or more events were received.
 3. **Records.** `outcome/messages.rs`: `MessageRecord`, `MessagePayload`, `NextStep`, `MessageListData`, the mapping from `Message` and a `Payload` summary (typed for the flow's variants,
    `other` by name for the rest); `MessageListInput::validate`.
 4. **Operation.** `commands/message/list.rs`: `message_list(input, config, identity_store, now, limits)` returning the typed outcome; no printing.

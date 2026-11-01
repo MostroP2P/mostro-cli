@@ -84,6 +84,7 @@ fn store_code(error: StoreError) -> ErrorCode {
     match error {
         StoreError::Missing => ErrorCode::IdentityMissing,
         StoreError::Unwritable => ErrorCode::StoreUnwritable,
+        StoreError::Unreadable => ErrorCode::StoreUnreadable,
     }
 }
 

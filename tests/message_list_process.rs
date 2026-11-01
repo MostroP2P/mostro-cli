@@ -376,3 +376,151 @@ mod legacy_getdm {
         assert!(parse_dm_events(set, &trade, None, true).await.is_empty());
     }
 }
+
+// --- The trade keys of the store (spec 006, slice 2) -------------------------
+
+mod store {
+    use super::fake_mostro::{seed_identity, set_last_trade_index};
+    use super::harness::Sandbox;
+    use mostro_client::store::{Store, StoreError};
+
+    async fn stored(last: i64) -> (Sandbox, Store) {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        set_last_trade_index(&sandbox.mcli_dir(), last).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        (sandbox, store)
+    }
+
+    fn database(sandbox: &Sandbox) -> Vec<u8> {
+        std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_keys_of_every_index_up_to_the_last_come_newest_first() {
+        let (_sandbox, store) = stored(4).await;
+
+        let derived = store.trade_keys(200).await.unwrap();
+
+        let indexes: Vec<i64> = derived.keys.iter().map(|(index, _)| *index).collect();
+        assert_eq!(indexes, [4, 3, 2, 1]);
+        assert_eq!(derived.not_read, 0);
+        let distinct: std::collections::BTreeSet<_> = derived
+            .keys
+            .iter()
+            .map(|(_, keys)| keys.public_key())
+            .collect();
+        assert_eq!(distinct.len(), 4, "one key per index");
+    }
+
+    #[tokio::test]
+    async fn the_derivation_is_the_one_the_commands_use_for_the_next_trade() {
+        let (sandbox, store) = stored(3).await;
+        let next = store.next_trade().await.unwrap();
+        assert_eq!(next.index, 4);
+
+        set_last_trade_index(&sandbox.mcli_dir(), 4).await;
+        let derived = store.trade_keys(200).await.unwrap();
+
+        let (index, keys) = &derived.keys[0];
+        assert_eq!(*index, 4);
+        assert_eq!(keys.public_key(), next.keys.public_key());
+    }
+
+    #[tokio::test]
+    async fn only_the_newest_are_derived_and_the_rest_are_counted() {
+        let (_sandbox, store) = stored(10).await;
+
+        let few = store.trade_keys(3).await.unwrap();
+        let all = store.trade_keys(10).await.unwrap();
+        let more = store.trade_keys(50).await.unwrap();
+        let none = store.trade_keys(0).await.unwrap();
+
+        let indexes = |t: &mostro_client::store::TradeKeys| -> Vec<i64> {
+            t.keys.iter().map(|(index, _)| *index).collect()
+        };
+        assert_eq!((indexes(&few), few.not_read), (vec![10, 9, 8], 7));
+        assert_eq!((all.keys.len(), all.not_read), (10, 0));
+        assert_eq!((more.keys.len(), more.not_read), (10, 0));
+        assert_eq!((none.keys.len(), none.not_read), (0, 10));
+    }
+
+    #[tokio::test]
+    async fn no_trade_yet_means_no_keys() {
+        let (_sandbox, store) = stored(0).await;
+
+        let derived = store.trade_keys(200).await.unwrap();
+
+        assert!(derived.keys.is_empty());
+        assert_eq!(derived.not_read, 0);
+    }
+
+    #[tokio::test]
+    async fn reading_the_keys_writes_nothing_and_never_shows_them() {
+        let (sandbox, store) = stored(3).await;
+        let before = database(&sandbox);
+
+        let derived = store.trade_keys(200).await.unwrap();
+
+        assert_eq!(database(&sandbox), before, "no byte changed");
+        let shown = format!("{derived:?}");
+        assert!(
+            shown.contains("indexes") && shown.contains("[3, 2, 1]"),
+            "{shown}"
+        );
+        for (_, keys) in &derived.keys {
+            assert!(!shown.contains(&keys.secret_key().to_secret_hex()));
+            assert!(!shown.contains(&keys.public_key().to_hex()));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_store_or_user_is_missing_and_a_damaged_one_is_unreadable() {
+        let sandbox = Sandbox::new().unwrap();
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        assert_eq!(
+            store.trade_keys(200).await.unwrap_err(),
+            StoreError::Missing
+        );
+        assert!(
+            !sandbox.mcli_dir().join("mcli.db").exists(),
+            "never created"
+        );
+
+        let (sandbox, store) = stored(2).await;
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DELETE FROM users")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        assert_eq!(
+            store.trade_keys(200).await.unwrap_err(),
+            StoreError::Missing
+        );
+
+        let (sandbox, store) = stored(2).await;
+        std::fs::write(sandbox.mcli_dir().join("mcli.db"), b"not a database").unwrap();
+        let error = store.trade_keys(200).await.unwrap_err();
+        assert!(
+            matches!(error, StoreError::Unreadable | StoreError::Unwritable),
+            "{error:?}"
+        );
+
+        let (sandbox, store) = stored(2).await;
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("UPDATE users SET mnemonic = 'not a mnemonic'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        assert_eq!(
+            store.trade_keys(200).await.unwrap_err(),
+            StoreError::Unreadable
+        );
+    }
+}

@@ -11,7 +11,7 @@ regtest without authorization.
 
 - [x] **1. Characterize and extend the fixtures.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Pin what `getdm` does (the key loop and ordering, the window, the saves, the grammar and registration). Build the mailbox fixture
   that publishes node messages to chosen trade keys, with self-tests. No production change beyond testable extractions.
-- [ ] **2. Keys, records and outcomes.** `Store::trade_keys` / the `--order` key, `outcome/messages.rs` (records, payload summary, `next_step`, input), the code `store_unreadable` and the
+- [x] **2. Keys, records and outcomes.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) `Store::trade_keys` / the `--order` key, `outcome/messages.rs` (records, payload summary, `next_step`, input), the code `store_unreadable` and the
   warning `trade_keys_limited`, schema tests.
 - [ ] **3. The read and the operation.** `msg::inbox::read` and `commands/message/list.rs` against the mailbox: every message kind, filtering by author, key, window and shape, duplicates,
   the three caps, `--order`, failures, no write.
