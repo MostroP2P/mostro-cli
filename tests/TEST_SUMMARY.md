@@ -3312,6 +3312,9 @@ Native Linux, rustc 1.97.0, on `develop` after `9304528` (pushed). Lean mode: th
 - **Checks on the checks**: dropping the order check on the waiting reply, spending no index after a failed save, spending none after a bond request and
   accepting a hold invoice for a take-sell each failed a test (the last one first survived because the odd reply carried no order; it now carries a
   matching one so only the side check can catch it); restored.
+- **Correction (2026-11-01)**: this entry claimed all gates passed, but `source_boundaries::production_imports_are_at_the_top_except_frozen_legacy` failed on a `pub use`
+  left at the end of `commands/order/take.rs`; I had summed the per-binary counts without checking for failures, and CI (run 41306913823) caught it. The next slice moved the line to
+  the top (4962983). Failures are now counted explicitly before a slice is reported.
 - Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (586 tests: lib 168, `cli_functions` 68, `integration_tests` 41,
   `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 16, `parser_orders` 123, `parser_dms` 19,
   `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
