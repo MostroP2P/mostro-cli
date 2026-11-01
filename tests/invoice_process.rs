@@ -587,3 +587,660 @@ mod store {
         );
     }
 }
+
+// --- The operations (spec 005, slice 3) -------------------------------------
+
+mod operation {
+    use super::*;
+    use fake_mostro::Outgoing;
+    use mostro_client::commands::order::invoice::{
+        bond_add_invoice, order_add_invoice, BondInvoiceOutcome, OrderInvoiceOutcome,
+    };
+    use mostro_client::commands::order::WriteOptions;
+    use mostro_client::msg::{ExchangeLimits, PublicReadConfig};
+    use mostro_client::outcome::invoice::{
+        BondResult, InvoiceInput, InvoiceKind, InvoiceRequest, InvoiceResult,
+    };
+    use mostro_client::outcome::{ErrorCode, Status as Outcome};
+    use serde_json::{json, Value};
+
+    const SHARE: i64 = 5_000;
+
+    struct Holder {
+        _relay: LoopbackRelay,
+        fake: FakeMostro,
+        ledger: Arc<Mutex<Ledger>>,
+        config: PublicReadConfig,
+        identity: Keys,
+        sandbox: Sandbox,
+        store: Store,
+        buyer: Keys,
+    }
+
+    /// A user who holds orders 1 and 9 under one trade key, against a node that
+    /// answers with `respond` (the invoice daemon when `None`).
+    async fn holder(
+        orders: impl FnOnce(PublicKey) -> Vec<Owed>,
+        acks: bool,
+        pow: u8,
+        wrap: impl FnOnce(Respond) -> Respond,
+    ) -> Holder {
+        let buyer = Keys::generate();
+        let ledger = Ledger {
+            orders: orders(buyer.public_key()),
+            bonds: vec![BondOwed {
+                order: id(9),
+                recipient: buyer.public_key(),
+                share: SHARE,
+                open: true,
+                invoice: None,
+            }],
+        };
+        let (respond, ledger) = invoice_daemon(ledger, acks);
+        let node = Keys::generate();
+        let relay = LocalRelay::new();
+        relay
+            .add_event(info_event(&node, Some(2), Some(pow), None, Some(10)))
+            .await
+            .unwrap();
+        let relay = LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+            .await
+            .unwrap();
+        let fake = FakeMostro::start(&relay.url, node, wrap(respond)).await;
+        let config = PublicReadConfig::new(fake.pubkey(), &relay.url).unwrap();
+        let sandbox = Sandbox::new().unwrap();
+        let identity = seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = Trade {
+            index: 1,
+            keys: buyer.clone(),
+        };
+        for order in [id(1), id(9)] {
+            let small = Owed::waiting(order, buyer.public_key()).small(Status::WaitingBuyerInvoice);
+            store.save_order(&small, &trade, REQUEST_ID).await.unwrap();
+        }
+        Holder {
+            _relay: relay,
+            fake,
+            ledger,
+            config,
+            identity,
+            sandbox,
+            store,
+            buyer,
+        }
+    }
+
+    async fn plain() -> Holder {
+        holder(waiting, true, 0, |respond| respond).await
+    }
+
+    fn input(kind: InvoiceKind, order: Uuid) -> InvoiceInput {
+        let invoice = match kind {
+            InvoiceKind::Order => INVOICE.to_string(),
+            InvoiceKind::Bond => payout_invoice(SHARE),
+        };
+        InvoiceInput::validate(InvoiceRequest {
+            kind,
+            order,
+            invoice,
+        })
+        .unwrap()
+    }
+
+    fn limits() -> ExchangeLimits {
+        ExchangeLimits {
+            connect: Duration::from_secs(2),
+            probe: Duration::from_millis(400),
+            reply: Duration::from_millis(1_500),
+            cleanup: Duration::from_millis(500),
+            ..ExchangeLimits::default()
+        }
+    }
+
+    const OPTIONS: WriteOptions = WriteOptions {
+        pow: 0,
+        check_protocol: true,
+    };
+
+    async fn add(holder: &Holder, order: Uuid) -> OrderInvoiceOutcome {
+        order_add_invoice(
+            &input(InvoiceKind::Order, order),
+            &holder.config,
+            &holder.identity,
+            &holder.store,
+            OPTIONS,
+            &limits(),
+        )
+        .await
+    }
+
+    async fn bond(holder: &Holder, order: Uuid) -> BondInvoiceOutcome {
+        bond_add_invoice(
+            &input(InvoiceKind::Bond, order),
+            &holder.config,
+            &holder.identity,
+            &holder.store,
+            OPTIONS,
+            &limits(),
+        )
+        .await
+    }
+
+    fn database(holder: &Holder) -> Vec<u8> {
+        std::fs::read(holder.sandbox.mcli_dir().join("mcli.db")).unwrap()
+    }
+
+    fn stages<D: serde::Serialize>(outcome: &mostro_client::outcome::Envelope<D, ()>) -> Value {
+        let mut meta = serde_json::to_value(outcome).unwrap()["meta"].clone();
+        meta.as_object_mut().unwrap().remove("snapshot");
+        meta
+    }
+
+    fn meta(publication: &str, acceptance: &str, persistence: &str) -> Value {
+        json!({"publication": publication, "daemon_acceptance": acceptance,
+               "persistence": persistence})
+    }
+
+    async fn status_of(holder: &Holder, order: Uuid) -> String {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(holder.sandbox.mcli_dir().join("mcli.db"))
+            .read_only(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let value = sqlx::query_scalar("SELECT status FROM orders WHERE id = ?1")
+            .bind(order.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    async fn last_index(holder: &Holder) -> i64 {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(holder.sandbox.mcli_dir().join("mcli.db"))
+            .read_only(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let value = sqlx::query_scalar("SELECT last_trade_index FROM users")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    /// Decoys the node sends before its real answer.
+    fn with_decoys(decoys: Vec<Outgoing>) -> impl FnOnce(Respond) -> Respond {
+        move |inner| {
+            Arc::new(move |request: &fake_mostro::Received| {
+                let mut out = decoys.clone();
+                out.extend(inner(request));
+                out
+            })
+        }
+    }
+
+    fn reply_with(action: Action, order: Option<Uuid>, request_id: Option<u64>) -> Message {
+        Message::new_order(order, request_id, None, action, None)
+    }
+
+    // --- order.add-invoice ---
+
+    #[tokio::test]
+    async fn an_invoice_for_a_waiting_order_is_accepted_and_the_local_status_follows() {
+        let holder = plain().await;
+        let index = last_index(&holder).await;
+
+        let outcome = add(&holder, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().expect("data");
+        assert_eq!(data.result(), InvoiceResult::WaitingSellerPayment);
+        assert_eq!(data.order_id(), id(1).to_string());
+        assert_eq!(data.trade_pubkey(), holder.buyer.public_key().to_hex());
+        assert!(data.order().is_none());
+        assert_eq!(stages(&outcome), meta("published", "accepted", "applied"));
+        assert_eq!(status_of(&holder, id(1)).await, "waiting-payment");
+        assert_eq!(status_of(&holder, id(9)).await, "waiting-buyer-invoice");
+        assert_eq!(last_index(&holder).await, index, "no index is spent");
+        let seen = holder.fake.received();
+        assert_eq!(seen.len(), 1, "one publication");
+        assert_eq!(seen[0].trade_index, None);
+        assert_eq!(seen[0].order_id, Some(id(1)));
+        assert_eq!(seen[0].invoice.as_deref(), Some(INVOICE));
+        assert_eq!(seen[0].author, holder.buyer.public_key());
+        assert_eq!(seen[0].identity, holder.identity.public_key());
+        assert!(seen[0].signature_valid);
+    }
+
+    #[tokio::test]
+    async fn a_seller_who_already_paid_makes_the_order_active_and_returns_it() {
+        let holder = holder(
+            |buyer| {
+                vec![Owed {
+                    preimage: true,
+                    ..Owed::waiting(id(1), buyer)
+                }]
+            },
+            true,
+            0,
+            |respond| respond,
+        )
+        .await;
+
+        let outcome = add(&holder, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().expect("data");
+        assert_eq!(data.result(), InvoiceResult::PaymentAccepted);
+        assert_eq!(data.order().expect("order").id(), id(1).to_string());
+        assert_eq!(stages(&outcome), meta("published", "accepted", "applied"));
+        assert_eq!(status_of(&holder, id(1)).await, "active");
+    }
+
+    #[tokio::test]
+    async fn a_replacement_invoice_changes_nothing_locally() {
+        let holder = holder(
+            |buyer| {
+                vec![Owed {
+                    status: Status::SettledHoldInvoice,
+                    ..Owed::waiting(id(1), buyer)
+                }]
+            },
+            true,
+            0,
+            |respond| respond,
+        )
+        .await;
+        let before = database(&holder);
+
+        let outcome = add(&holder, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(
+            outcome.data().expect("data").result(),
+            InvoiceResult::InvoiceUpdated
+        );
+        assert_eq!(
+            stages(&outcome),
+            meta("published", "accepted", "not_attempted")
+        );
+        assert_eq!(database(&holder), before, "no byte changed");
+    }
+
+    #[tokio::test]
+    async fn every_refusal_is_an_error_with_the_nodes_reason_and_changes_nothing() {
+        type Orders = Box<dyn Fn(PublicKey) -> Vec<Owed>>;
+        let cases: Vec<(&str, Orders, &str)> = vec![
+            (
+                "an order that is not waiting",
+                Box::new(|buyer| {
+                    vec![Owed {
+                        status: Status::Active,
+                        ..Owed::waiting(id(1), buyer)
+                    }]
+                }),
+                "not_allowed_by_status",
+            ),
+            (
+                "an order of another buyer",
+                Box::new(|_| vec![Owed::waiting(id(1), Keys::generate().public_key())]),
+                "invalid_peer",
+            ),
+            (
+                "an order the node does not know",
+                Box::new(|_| Vec::new()),
+                "not_found",
+            ),
+        ];
+        for (label, orders, reason) in cases {
+            let holder = holder(orders, true, 0, |respond| respond).await;
+            let before = database(&holder);
+
+            let outcome = add(&holder, id(1)).await;
+
+            assert_eq!(outcome.status(), Outcome::Error, "{label}");
+            assert_eq!(
+                outcome.error_code(),
+                Some(ErrorCode::NodeRefused),
+                "{label}"
+            );
+            let document = serde_json::to_value(&outcome).unwrap();
+            assert_eq!(document["error"]["reason"], reason, "{label}");
+            assert_eq!(
+                stages(&outcome),
+                meta("published", "rejected", "not_attempted"),
+                "{label}"
+            );
+            assert_eq!(database(&holder), before, "{label}");
+            assert_eq!(holder.fake.received().len(), 1, "{label}: never retried");
+        }
+    }
+
+    #[tokio::test]
+    async fn silence_is_uncertain_and_changes_nothing() {
+        let holder = holder(waiting, true, 0, |_| fake_mostro::silent()).await;
+        let before = database(&holder);
+
+        let outcome = add(&holder, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Uncertain);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReplyTimeout));
+        assert!(outcome.data().is_none());
+        assert_eq!(
+            stages(&outcome),
+            meta("published", "unknown", "not_attempted")
+        );
+        assert_eq!(holder.fake.received().len(), 1, "never retried");
+        assert_eq!(database(&holder), before);
+    }
+
+    #[tokio::test]
+    async fn replies_that_do_not_fit_are_uncertain_and_change_nothing() {
+        let text = |action: Action| {
+            move |request: &fake_mostro::Received| {
+                vec![Outgoing::to_requester(Message::new_order(
+                    request.order_id,
+                    request.request_id,
+                    None,
+                    action.clone(),
+                    Some(Payload::TextMessage("unexpected".to_string())),
+                ))]
+            }
+        };
+        let cases: Vec<(&str, Respond)> = vec![
+            (
+                "a waiting reply with a payload",
+                Arc::new(text(Action::WaitingSellerToPay)),
+            ),
+            (
+                "an accepted payment without an order",
+                Arc::new(text(Action::HoldInvoicePaymentAccepted)),
+            ),
+            (
+                "an update with a payload",
+                Arc::new(text(Action::InvoiceUpdated)),
+            ),
+            (
+                "a waiting reply naming another order",
+                Arc::new(|request: &fake_mostro::Received| {
+                    vec![Outgoing::to_requester(reply_with(
+                        Action::WaitingSellerToPay,
+                        Some(id(77)),
+                        request.request_id,
+                    ))]
+                }),
+            ),
+            (
+                "an accepted payment for another order",
+                Arc::new(|request: &fake_mostro::Received| {
+                    let other =
+                        Owed::waiting(id(77), Keys::generate().public_key()).small(Status::Active);
+                    vec![Outgoing::to_requester(Message::new_order(
+                        Some(id(77)),
+                        request.request_id,
+                        None,
+                        Action::HoldInvoicePaymentAccepted,
+                        Some(Payload::Order(other)),
+                    ))]
+                }),
+            ),
+        ];
+        for (label, respond) in cases {
+            let holder = holder(waiting, true, 0, move |_| respond).await;
+            let before = database(&holder);
+
+            let outcome = add(&holder, id(1)).await;
+
+            assert_eq!(outcome.status(), Outcome::Uncertain, "{label}");
+            assert_eq!(
+                outcome.error_code(),
+                Some(ErrorCode::ReplyMalformed),
+                "{label}"
+            );
+            assert_eq!(
+                stages(&outcome),
+                meta("published", "unknown", "not_attempted"),
+                "{label}"
+            );
+            assert_eq!(database(&holder), before, "{label}");
+        }
+    }
+
+    #[tokio::test]
+    async fn decoys_are_ignored_and_the_real_answer_is_used() {
+        let decoys = vec![
+            // A stale request id.
+            Outgoing::to_requester(reply_with(Action::InvoiceUpdated, Some(id(1)), Some(1))),
+            // Another author.
+            Outgoing::to_requester(reply_with(
+                Action::InvoiceUpdated,
+                Some(id(1)),
+                Some(REQUEST_ID),
+            ))
+            .signed_by(Keys::generate()),
+            // Another addressee.
+            Outgoing::to_requester(reply_with(
+                Action::InvoiceUpdated,
+                Some(id(1)),
+                Some(REQUEST_ID),
+            ))
+            .addressed_to(Keys::generate().public_key()),
+            // No request id: only the bond ack may do that.
+            Outgoing::to_requester(reply_with(Action::InvoiceUpdated, Some(id(1)), None)),
+        ];
+        let holder = holder(waiting, true, 0, with_decoys(decoys)).await;
+
+        let outcome = add(&holder, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(
+            outcome.data().expect("data").result(),
+            InvoiceResult::WaitingSellerPayment,
+            "the real answer, not a decoy"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_status_update_still_reports_the_accepted_invoice_with_a_warning() {
+        let holder = plain().await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(holder.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query(
+            "CREATE TRIGGER freeze BEFORE UPDATE ON orders \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let outcome = add(&holder, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(
+            outcome.data().expect("data").result(),
+            InvoiceResult::WaitingSellerPayment
+        );
+        assert_eq!(stages(&outcome), meta("published", "accepted", "failed"));
+        let document = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(document["warnings"][0]["code"], "local_status_stale");
+        assert_eq!(status_of(&holder, id(1)).await, "waiting-buyer-invoice");
+        assert_eq!(holder.fake.received().len(), 1, "never retried");
+    }
+
+    #[tokio::test]
+    async fn an_order_with_no_local_row_or_key_sends_nothing() {
+        let holder = plain().await;
+        let before = database(&holder);
+
+        let unknown = add(&holder, id(2)).await;
+
+        assert_eq!(unknown.status(), Outcome::Error);
+        assert_eq!(unknown.error_code(), Some(ErrorCode::OrderUnknown));
+        assert_eq!(
+            stages(&unknown),
+            meta("not_attempted", "unknown", "not_attempted")
+        );
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(database(&holder), before);
+
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(holder.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("UPDATE orders SET trade_keys = NULL")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        let keyless = add(&holder, id(1)).await;
+        assert_eq!(keyless.error_code(), Some(ErrorCode::OrderUnknown));
+        assert!(holder.fake.received().is_empty());
+    }
+
+    #[tokio::test]
+    async fn work_the_node_expects_stops_both_commands_before_anything_is_sent() {
+        let holder = holder(waiting, true, 9, |respond| respond).await;
+        let before = database(&holder);
+
+        let order = add(&holder, id(1)).await;
+        let bond = bond(&holder, id(9)).await;
+
+        assert_eq!(order.error_code(), Some(ErrorCode::PowRequired));
+        assert_eq!(bond.error_code(), Some(ErrorCode::PowRequired));
+        for status in [order.status(), bond.status()] {
+            assert_eq!(status, Outcome::Error);
+        }
+        assert_eq!(
+            stages(&order),
+            meta("not_attempted", "unknown", "not_attempted")
+        );
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(database(&holder), before);
+    }
+
+    // --- bond.add-invoice ---
+
+    #[tokio::test]
+    async fn an_acknowledged_bond_invoice_is_accepted_though_the_ack_has_no_request_id() {
+        let holder = plain().await;
+        let before = database(&holder);
+
+        let outcome = bond(&holder, id(9)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().expect("data");
+        assert_eq!(data.result(), BondResult::InvoiceAccepted);
+        assert_eq!(data.counterparty_share_sats(), Some("5000"));
+        assert_eq!(data.order_id(), id(9).to_string());
+        assert_eq!(data.trade_pubkey(), holder.buyer.public_key().to_hex());
+        assert_eq!(
+            stages(&outcome),
+            meta("published", "accepted", "not_attempted")
+        );
+        assert_eq!(database(&holder), before, "a bond payout writes nothing");
+        let seen = holder.fake.received();
+        assert_eq!((seen.len(), seen[0].trade_index), (1, None));
+        assert_eq!(seen[0].invoice, Some(payout_invoice(SHARE)));
+        assert!(!holder.ledger.lock().unwrap().bonds[0].open);
+    }
+
+    #[tokio::test]
+    async fn an_older_nodes_silence_is_uncertain_even_though_it_accepted() {
+        let holder = holder(waiting, false, 0, |respond| respond).await;
+
+        let outcome = bond(&holder, id(9)).await;
+
+        assert_eq!(outcome.status(), Outcome::Uncertain);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReplyTimeout));
+        assert_eq!(
+            stages(&outcome),
+            meta("published", "unknown", "not_attempted")
+        );
+        assert!(
+            !holder.ledger.lock().unwrap().bonds[0].open,
+            "the node did take it: that is why the status is not an error"
+        );
+        assert_eq!(holder.fake.received().len(), 1, "never retried");
+    }
+
+    #[tokio::test]
+    async fn bond_refusals_carry_the_nodes_reason() {
+        let cases: Vec<(&str, Uuid, i64, &str)> = vec![
+            ("another amount", id(9), SHARE + 1, "invalid_invoice"),
+            (
+                "an order with no bond",
+                id(1),
+                SHARE,
+                "not_allowed_by_status",
+            ),
+        ];
+        for (label, order, share, reason) in cases {
+            let holder = plain().await;
+            holder.ledger.lock().unwrap().bonds[0].share = share;
+            let before = database(&holder);
+
+            let outcome = bond(&holder, order).await;
+
+            assert_eq!(outcome.status(), Outcome::Error, "{label}");
+            let document = serde_json::to_value(&outcome).unwrap();
+            assert_eq!(document["error"]["code"], "node_refused", "{label}");
+            assert_eq!(document["error"]["reason"], reason, "{label}");
+            assert_eq!(database(&holder), before, "{label}");
+        }
+    }
+
+    #[tokio::test]
+    async fn bond_decoys_and_unusable_acks_are_not_taken_for_the_answer() {
+        let ack = |order: Option<Uuid>, request_id: Option<u64>| {
+            Outgoing::to_requester(reply_with(Action::BondInvoiceAccepted, order, request_id))
+        };
+        // Wrong order, no order, and a stale request id are all ignored; the
+        // real ack still arrives.
+        let decoys = vec![
+            ack(Some(id(77)), None),
+            ack(None, None),
+            ack(Some(id(9)), Some(1)),
+        ];
+        let holder = holder(waiting, true, 0, with_decoys(decoys)).await;
+        let outcome = bond(&holder, id(9)).await;
+        assert_eq!(
+            outcome.status(),
+            Outcome::Ok,
+            "{:?}",
+            serde_json::to_value(&outcome)
+        );
+
+        // Only a decoy, no real answer: the wait times out.
+        let only_decoy: Respond = Arc::new(move |_| vec![ack(Some(id(77)), None)]);
+        let holder = self::holder(waiting, true, 0, move |_| only_decoy).await;
+        let outcome = bond(&holder, id(9)).await;
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReplyTimeout));
+
+        // The right order but a payload that is not an order: unusable.
+        let unusable: Respond = Arc::new(|_| {
+            vec![Outgoing::to_requester(Message::new_order(
+                Some(id(9)),
+                None,
+                None,
+                Action::BondInvoiceAccepted,
+                Some(Payload::TextMessage("unexpected".to_string())),
+            ))]
+        });
+        let holder = self::holder(waiting, true, 0, move |_| unusable).await;
+        let outcome = bond(&holder, id(9)).await;
+        assert_eq!(outcome.status(), Outcome::Uncertain);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReplyMalformed));
+    }
+
+    #[tokio::test]
+    async fn a_bond_for_an_order_the_user_does_not_hold_sends_nothing() {
+        let holder = plain().await;
+
+        let outcome = bond(&holder, id(2)).await;
+
+        assert_eq!(outcome.error_code(), Some(ErrorCode::OrderUnknown));
+        assert!(holder.fake.received().is_empty());
+    }
+}

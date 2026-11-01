@@ -14,7 +14,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   and silent). No production change.
 - [x] **2. Store, correlation and outcomes.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) `Store::trade_for_order`/`set_status`, `by_order` correlation in `msg::exchange`, `outcome/invoice.rs`,
   `order_unknown`, schemas for both names.
-- [ ] **3. The operations.** Both commands against the scripted daemon: every accepted reply, refusals, silence, unusable reply, decoy replies,
+- [x] **3. The operations.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Both commands against the scripted daemon: every accepted reply, refusals, silence, unusable reply, decoy replies,
   forced status-update failure, work stopping before anything is sent, no index spent.
 - [ ] **4. The commands.** **4a**: grammar (`bond` group), registry, `cli/invoice.rs`, `parse_human/invoice.rs`, removal of the legacy commands, generated
   schemas and fixtures, README and command-reference migration. **4b**: binary scenarios.

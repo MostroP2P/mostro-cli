@@ -19,7 +19,8 @@ pub enum Stages {
     Write,
     /// One published request that updates a local row only afterwards:
     /// `applied`, or `failed` on success (the outcome then warns), and
-    /// `not_attempted` for everything that is not a success.
+    /// `not_attempted` when the reply called for no update or the outcome is
+    /// not a success.
     Update,
     /// One published request with no local write at all: persistence is always
     /// `not_attempted`.
@@ -157,6 +158,7 @@ impl<'a> OutcomeRules<'a> {
                     vec![
                         ["published", "accepted", "applied"],
                         ["published", "accepted", "failed"],
+                        ["published", "accepted", "not_attempted"],
                     ]
                 } else {
                     vec![["published", "accepted", "not_attempted"]]

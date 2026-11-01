@@ -1,4 +1,5 @@
 pub mod info;
+pub mod invoice;
 pub mod list;
 pub mod new;
 pub mod take;

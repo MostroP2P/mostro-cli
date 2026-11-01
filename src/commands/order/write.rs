@@ -127,7 +127,7 @@ pub fn unsent<D>(command: &'static str, code: ErrorCode, warnings: Warnings) -> 
 }
 
 /// The node's refusal reason as its wire word, empty when it sent none.
-fn reason(payload: &Option<Payload>) -> String {
+pub(super) fn reason(payload: &Option<Payload>) -> String {
     match payload {
         Some(Payload::CantDo(Some(reason))) => serde_json::to_value::<&CantDoReason>(reason)
             .ok()

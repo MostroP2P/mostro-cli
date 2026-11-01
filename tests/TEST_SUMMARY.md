@@ -3901,3 +3901,27 @@ touched until slice 4 (the legacy entries stay legacy, as in the earlier specs).
   caught.
 - **Gates**: fmt, clippy `-D warnings` (one `large_enum_variant` fixed by boxing the order), `cargo test --locked --no-fail-fast` 644 passed and 0 failed (no FAILED
   line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 3: The Operations: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `fb66dbd` (pushed). Lean mode: the only evidence entry for the slice. No CLI wiring yet (slice 4).
+
+- **Code**: `commands/order/invoice.rs` has `order_add_invoice` and `bond_add_invoice` over one private `send`: look up the order's stored trade key (an unknown
+  order or a missing/unusable key is `order_unknown`, nothing sent), publish one signed reply with the order id and **no trade index**, wait through
+  `msg::exchange` (for the bond the allowed set adds the order-id match for `bond-invoice-accepted`), map the answer. After an accepted `order.add-invoice` the
+  local status follows the reply (`waiting-seller-to-pay` to `waiting-payment`, an accepted payment to the order's status, an update to nothing); a failed
+  update is the `local_status_stale` warning with persistence `failed`, not a failure. `Stages::Update` gained the success combination "published, accepted,
+  not_attempted" for a reply that calls for no update.
+- **Tests** (15, `tests/invoice_process.rs::operation`, against the scripted node and a real seeded store):
+  - `order.add-invoice`: the three accepted replies and their local effect (status, order returned, nothing changed for an update, the trade index unchanged,
+    one request without an index and with a valid signature); every refusal (`not_allowed_by_status`, `invalid_peer`, `not_found`) as `node_refused` with the
+    node's reason and a byte-identical database; silence as `uncertain` with no retry; five unusable replies as `reply_malformed`; decoys (stale request id,
+    another author, another addressee, no request id) ignored; a forced status-update failure (an `UPDATE` trigger) as `ok` with `local_status_stale`; an unknown
+    or keyless order sending nothing.
+  - `bond.add-invoice`: the ack with no request id accepted through the order-id match, with the share and no byte written; an older node's silence as `uncertain`
+    although the node did accept; refusals (`invalid_invoice`, `not_allowed_by_status`); decoy acks (wrong order, no order, stale request id) ignored, an
+    ack for another order alone ending in a timeout, an unusable ack as `reply_malformed`; an unknown order sending nothing.
+  - Work the node expects (`pow_required`) stops both commands before anything is sent or written.
+- **Mutation spot checks** (3): the bond without its order-id match, the stale-status warning removed, and `waiting-seller-to-pay` recording no status are each caught.
+- **Gates**: fmt, clippy `-D warnings` (a `type_complexity` in the new tests fixed with an alias), `cargo test --locked --no-fail-fast` 659 passed and 0 failed
+  (no FAILED line), build, MSRV 1.94.0.
