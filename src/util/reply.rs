@@ -4,6 +4,7 @@
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use std::collections::BTreeSet;
+use uuid::Uuid;
 
 use crate::parser::parse_dm_events;
 
@@ -27,6 +28,7 @@ fn is_mostro_reply(
 pub struct ExpectedReply {
     request_id: u64,
     allowed_actions: Vec<Action>,
+    by_order: Option<(Uuid, Vec<Action>)>,
 }
 
 impl ExpectedReply {
@@ -36,7 +38,17 @@ impl ExpectedReply {
         Self {
             request_id,
             allowed_actions,
+            by_order: None,
         }
+    }
+
+    /// Also accept a message that carries **no** request id but names `order`
+    /// and one of `actions`. For acknowledgements the node sends without
+    /// echoing the request (`bond-invoice-accepted`); a message that carries a
+    /// different request id is never accepted this way.
+    pub fn or_by_order(mut self, order: Uuid, actions: Vec<Action>) -> Self {
+        self.by_order = Some((order, actions));
+        self
     }
 }
 
@@ -45,6 +57,11 @@ impl ExpectedReply {
 /// CantDo-specific handling so an uncorrelated `CantDo` is never accepted.
 fn message_matches_expected_reply(message: &Message, expected: &ExpectedReply) -> bool {
     let inner = message.get_inner_message_kind();
+    if inner.request_id.is_none() {
+        return expected.by_order.as_ref().is_some_and(|(order, actions)| {
+            inner.id == Some(*order) && actions.contains(&inner.action)
+        });
+    }
     if inner.request_id != Some(expected.request_id) {
         return false;
     }
@@ -164,6 +181,7 @@ mod tests {
         ExpectedReply {
             request_id,
             allowed_actions: vec![Action::UserInfo, Action::CantDo],
+            by_order: None,
         }
     }
 
@@ -240,11 +258,75 @@ mod tests {
         );
     }
 
+    fn ack(request_id: Option<u64>, order: Option<Uuid>, action: Action) -> Message {
+        Message::Order(MessageKind::new(order, request_id, None, action, None))
+    }
+
+    fn by_order_expected(order: Uuid) -> ExpectedReply {
+        ExpectedReply::new(42, vec![Action::CantDo])
+            .or_by_order(order, vec![Action::BondInvoiceAccepted])
+    }
+
+    #[test]
+    fn an_ack_without_a_request_id_is_matched_on_its_order_and_action() {
+        let order = Uuid::from_u128(5);
+        let expected = by_order_expected(order);
+
+        assert!(message_matches_expected_reply(
+            &ack(None, Some(order), Action::BondInvoiceAccepted),
+            &expected
+        ));
+        // The request id still matches as before.
+        assert!(message_matches_expected_reply(
+            &ack(Some(42), None, Action::CantDo),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn the_order_match_never_accepts_another_order_action_or_request_id() {
+        let order = Uuid::from_u128(5);
+        let expected = by_order_expected(order);
+
+        for (label, message) in [
+            (
+                "another order",
+                ack(None, Some(Uuid::from_u128(6)), Action::BondInvoiceAccepted),
+            ),
+            ("no order", ack(None, None, Action::BondInvoiceAccepted)),
+            (
+                "an action only the request id may carry",
+                ack(None, Some(order), Action::CantDo),
+            ),
+            (
+                "a stale request id",
+                ack(Some(7), Some(order), Action::BondInvoiceAccepted),
+            ),
+        ] {
+            assert!(
+                !message_matches_expected_reply(&message, &expected),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_an_order_match_an_ack_with_no_request_id_is_never_accepted() {
+        let order = Uuid::from_u128(5);
+        let expected = ExpectedReply::new(42, vec![Action::BondInvoiceAccepted]);
+
+        assert!(!message_matches_expected_reply(
+            &ack(None, Some(order), Action::BondInvoiceAccepted),
+            &expected
+        ));
+    }
+
     #[test]
     fn empty_allow_list_matches_any_action_with_request_id() {
         let expected = ExpectedReply {
             request_id: 42,
             allowed_actions: vec![],
+            by_order: None,
         };
         assert!(message_matches_expected_reply(
             &rate_message(Some(42)),

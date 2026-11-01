@@ -12,7 +12,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
 - [x] **1. Characterize and extend the fixtures.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Pin what `addinvoice`/`addbondinvoice` do today (grammar, payload bytes, the bolt11-only check, the
   timeout-is-success reading). Extend the scripted daemon with the add-invoice replies and refusals and the bond payout mode (ack with no request id,
   and silent). No production change.
-- [ ] **2. Store, correlation and outcomes.** `Store::trade_for_order`/`set_status`, `by_order` correlation in `msg::exchange`, `outcome/invoice.rs`,
+- [x] **2. Store, correlation and outcomes.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) `Store::trade_for_order`/`set_status`, `by_order` correlation in `msg::exchange`, `outcome/invoice.rs`,
   `order_unknown`, schemas for both names.
 - [ ] **3. The operations.** Both commands against the scripted daemon: every accepted reply, refusals, silence, unusable reply, decoy replies,
   forced status-update failure, work stopping before anything is sent, no index spent.

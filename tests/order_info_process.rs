@@ -362,6 +362,7 @@ fn outbound(world: &World, ids: Vec<Uuid>) -> Outbound<'_> {
 fn expect_orders() -> Expect {
     Expect {
         allowed_actions: vec![Action::Orders, Action::CantDo],
+        by_order: None,
     }
 }
 

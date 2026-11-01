@@ -24,9 +24,11 @@ mod fake_mostro;
 mod harness;
 
 use fake_mostro::{
-    info_event, invoice_daemon, payout_invoice, BondOwed, FakeMostro, Ledger, Owed, Respond,
+    info_event, invoice_daemon, payout_invoice, seed_identity, BondOwed, FakeMostro, Ledger, Owed,
+    Respond,
 };
-use harness::{Backend, LoopbackRelay};
+use harness::{Backend, LoopbackRelay, Sandbox};
+use mostro_client::store::{Store, StoreError, Trade};
 
 const REQUEST_ID: u64 = 7150;
 const WAIT: Duration = Duration::from_millis(700);
@@ -445,4 +447,143 @@ async fn any_other_action_is_refused() {
     let kind = only(world.answer(message).await);
 
     assert_eq!(reason(&kind), CantDoReason::InvalidAction);
+}
+
+// --- The store (spec 005, slice 2) ------------------------------------------
+
+mod store {
+    use super::*;
+
+    async fn stored() -> (Sandbox, Store, Trade) {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = store.next_trade().await.unwrap();
+        let order =
+            Owed::waiting(id(1), trade.keys.public_key()).small(Status::WaitingBuyerInvoice);
+        store.save_order(&order, &trade, REQUEST_ID).await.unwrap();
+        (sandbox, store, trade)
+    }
+
+    async fn pool(sandbox: &Sandbox) -> sqlx::SqlitePool {
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        sqlx::SqlitePool::connect_with(options).await.unwrap()
+    }
+
+    async fn status(sandbox: &Sandbox, order: Uuid) -> String {
+        let pool = pool(sandbox).await;
+        let value = sqlx::query_scalar("SELECT status FROM orders WHERE id = ?1")
+            .bind(order.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    async fn index(sandbox: &Sandbox) -> i64 {
+        let pool = pool(sandbox).await;
+        let value = sqlx::query_scalar("SELECT last_trade_index FROM users")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    async fn execute(sandbox: &Sandbox, sql: &'static str) {
+        let pool = pool(sandbox).await;
+        sqlx::query(sql).execute(&pool).await.unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn the_key_of_a_saved_order_comes_back_and_nothing_else_does() {
+        let (_sandbox, store, trade) = stored().await;
+
+        let keys = store.order_keys(id(1)).await.unwrap().expect("the key");
+
+        assert_eq!(keys.public_key(), trade.keys.public_key());
+        assert!(store.order_keys(id(2)).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_row_without_a_usable_key_is_the_same_as_no_order() {
+        let (sandbox, store, _) = stored().await;
+
+        execute(&sandbox, "UPDATE orders SET trade_keys = NULL").await;
+        assert!(store.order_keys(id(1)).await.unwrap().is_none(), "null");
+        execute(&sandbox, "UPDATE orders SET trade_keys = 'not a key'").await;
+        assert!(store.order_keys(id(1)).await.unwrap().is_none(), "garbage");
+    }
+
+    #[tokio::test]
+    async fn a_missing_store_is_missing_not_unknown() {
+        let sandbox = Sandbox::new().unwrap();
+        let store = Store::in_dir(&sandbox.mcli_dir());
+
+        assert_eq!(
+            store.order_keys(id(1)).await.unwrap_err(),
+            StoreError::Missing
+        );
+        assert!(
+            !sandbox.mcli_dir().join("mcli.db").exists(),
+            "never created"
+        );
+    }
+
+    #[tokio::test]
+    async fn reading_a_key_changes_no_byte() {
+        let (sandbox, store, _) = stored().await;
+        let before = std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap();
+
+        store.order_keys(id(1)).await.unwrap();
+        store.order_keys(id(2)).await.unwrap();
+
+        assert_eq!(
+            std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap(),
+            before
+        );
+    }
+
+    #[tokio::test]
+    async fn a_status_update_changes_that_order_and_never_the_trade_index() {
+        let (sandbox, store, trade) = stored().await;
+        let second =
+            Owed::waiting(id(2), trade.keys.public_key()).small(Status::WaitingBuyerInvoice);
+        let other = Trade {
+            index: trade.index + 1,
+            keys: Keys::generate(),
+        };
+        store.save_order(&second, &other, REQUEST_ID).await.unwrap();
+        let before_index = index(&sandbox).await;
+
+        store
+            .set_status(id(1), Status::WaitingPayment)
+            .await
+            .unwrap();
+
+        let first = status(&sandbox, id(1)).await;
+        let untouched = status(&sandbox, id(2)).await;
+        assert_eq!(
+            (first.as_str(), untouched.as_str()),
+            ("waiting-payment", "waiting-buyer-invoice")
+        );
+        assert_eq!(index(&sandbox).await, before_index);
+    }
+
+    #[tokio::test]
+    async fn a_status_update_for_an_unknown_order_fails_and_writes_nothing() {
+        let (sandbox, store, _) = stored().await;
+        let before = std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap();
+
+        let error = store.set_status(id(3), Status::Active).await.unwrap_err();
+
+        assert_eq!(error, StoreError::Unwritable);
+        assert_eq!(
+            std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap(),
+            before
+        );
+    }
 }

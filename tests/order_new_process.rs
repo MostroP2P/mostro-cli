@@ -477,6 +477,7 @@ fn limits() -> ExchangeLimits {
 fn expect_new() -> Expect {
     Expect {
         allowed_actions: vec![Action::NewOrder, Action::PayBondInvoice, Action::CantDo],
+        by_order: None,
     }
 }
 

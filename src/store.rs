@@ -11,10 +11,11 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use mostro_core::order::SmallOrder;
+use mostro_core::order::{SmallOrder, Status};
 use nostr_sdk::prelude::Keys;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use uuid::Uuid;
 
 use crate::db::User;
 use crate::identity::resolve_dir;
@@ -130,6 +131,39 @@ impl Store {
         let result = advance_in(&pool, index).await;
         pool.close().await;
         result
+    }
+
+    /// The trade key stored with the order `id`, or `None` when there is no
+    /// such order, it has no key or the key is unusable. Writes nothing. The
+    /// secret never leaves this module except as the key itself.
+    pub async fn order_keys(&self, id: Uuid) -> Result<Option<Keys>, StoreError> {
+        let pool = self.open().await?;
+        let stored: Result<Option<Option<String>>, _> =
+            sqlx::query_scalar("SELECT trade_keys FROM orders WHERE id = ?1")
+                .bind(id.to_string())
+                .fetch_optional(&pool)
+                .await;
+        pool.close().await;
+        let stored = stored.map_err(|_| StoreError::Unwritable)?;
+        Ok(stored
+            .flatten()
+            .and_then(|secret| Keys::parse(&secret).ok()))
+    }
+
+    /// Set the status of the stored order `id`. Fails when there is no such
+    /// order; touches nothing else, the trade index included.
+    pub async fn set_status(&self, id: Uuid, status: Status) -> Result<(), StoreError> {
+        let pool = self.open().await?;
+        let done = sqlx::query("UPDATE orders SET status = ?1 WHERE id = ?2")
+            .bind(status.to_string())
+            .bind(id.to_string())
+            .execute(&pool)
+            .await;
+        pool.close().await;
+        match done {
+            Ok(done) if done.rows_affected() == 1 => Ok(()),
+            _ => Err(StoreError::Unwritable),
+        }
     }
 
     /// Save the order the node created and record its index, in one transaction:

@@ -3876,3 +3876,28 @@ evidence entry for the slice.
   invoice, wrong status; wrong amount, address, no bond, another key), a second bond invoice refused, the ack with no request id, silence on an older node, any
   other action refused. Two mutation spot checks (ack echoing the request id; the buyer check removed) are caught by their tests.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 619 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 2: Store, Correlation And Outcomes: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `ea47000` (pushed). Lean mode: the only evidence entry for the slice. Registry and generated schemas are not
+touched until slice 4 (the legacy entries stay legacy, as in the earlier specs).
+
+- **Correlation by order id** (`util/reply.rs`, `msg/exchange.rs`): `ExpectedReply::or_by_order(order, actions)` / `Expect::by_order` also accept a message with **no
+  request id** that names the order and one of the given actions, because the node sends `bond-invoice-accepted` that way. A different request id, another
+  order, a missing order and an action outside the list are never accepted this way, and without the option an id-less message is never accepted. 3 unit
+  tests; the existing request-id tests are unchanged.
+- **Store** (`store.rs`): `order_keys(id)` reads the stored trade key (a missing order, a null key or an unusable key is `None`; a missing database is `Missing`;
+  it writes nothing and never creates the file) and `set_status(id, status)` updates one order and fails for an unknown one; neither touches the trade index.
+  6 tests in `tests/invoice_process.rs::store`, including byte-identical files after reads and after a failed update.
+- **Codes**: error `order_unknown` (exit 1) and warning `local_status_stale`, each scoped to the invoice commands; the contract tables of `outcome.rs` list them.
+- **Stage vocabularies** (`outcome/rules.rs`): `Stages::Update` (order: success `applied`, or `failed` with the warning; everything else `not_attempted`; uncertain
+  with `not_attempted`) and `Stages::Delivery` (bond: persistence is always `not_attempted`).
+- **Outcomes** (`outcome/invoice.rs`, 15 tests): `InvoiceInput::validate` (order: BOLT-11 or address; bond: BOLT-11 only; trimmed, bounded, no control or
+  whitespace; the error never echoes the value and `Debug` never shows the invoice), the payload (a bare payment request as given), `OrderInvoiceData::from_answer`
+  (result, the status to record, a reply about another order or without an id is unusable) and `BondInvoiceData::from_ack` (the share when the node gave one).
+  Generated schemas for both names conform for real outcomes (ok, stale, uncertain per code, refusal, `order_unknown`), the bond schema has no store code and
+  allows no local write, and contradictory outcomes do not conform.
+- **Mutation spot checks** (3): the order-id match without the order check, an address accepted for a bond, and a status update that ignores a missing order are each
+  caught.
+- **Gates**: fmt, clippy `-D warnings` (one `large_enum_variant` fixed by boxing the order), `cargo test --locked --no-fail-fast` 644 passed and 0 failed (no FAILED
+  line), build, MSRV 1.94.0.

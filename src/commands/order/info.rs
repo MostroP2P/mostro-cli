@@ -49,6 +49,7 @@ pub async fn order_info(
     };
     let expect = Expect {
         allowed_actions: vec![Action::Orders, Action::CantDo],
+        by_order: None,
     };
     match exchange(config, outbound, &expect, limits).await {
         Err(failure) => failed(&failure),

@@ -56,6 +56,7 @@ pub async fn order_take(
             Action::PayBondInvoice,
             Action::CantDo,
         ],
+        by_order: None,
     };
     let sent = Sent {
         command: input.side().command(),

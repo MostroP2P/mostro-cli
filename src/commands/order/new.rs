@@ -65,6 +65,7 @@ pub async fn order_new(
     };
     let expect = Expect {
         allowed_actions: vec![Action::NewOrder, Action::PayBondInvoice, Action::CantDo],
+        by_order: None,
     };
     let sent = Sent {
         command: COMMAND,
