@@ -4007,3 +4007,27 @@ no production change.
   acknowledgement with no request id remains an assumption from the v0.20.1 source); the MCP `add_invoice` migration; the status update on
   `hold-invoice-payment-accepted`, which the legacy command never did; and, for the whole flow, a command that reads the node's messages.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 676 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Regtest Probe Of order add-invoice (And The Bond Invoice Of order take): 2026-11-01
+
+Authorized by the maintainer on 2026-11-01, including the use of **public relays** (`wss://mostro-p2p.tech`, `wss://relay.shadowbip.com`) because the maintainer's local regtest
+node, with a **taker bond**, is reachable only through them. Two fresh throwaway identities (a maker and a taker) in temporary directories of the session, the debug build of `develop` at
+`dbcf72d`; the maintainer's own store was never used. One test order (payment method `TEST-mostro-cli-probe`, 5 USD, market price) was created, then cancelled at the end; the throwaway
+stores were deleted. The node's version was not queried. The maintainer paid the bond and created the buyer invoice in Polar; no macaroon, certificate or key was shared or read.
+
+- **Why not the MCP regtest network**: `devenv.sh up` failed twice (the image build could not resolve Docker Hub from the build container) and, started from the cached image, its
+  containers were unreachable from the host (every Docker bridge address timed out, the published relay port included; `ufw` is active and the cause needs root). Left alone and stopped again.
+- **`order new`** (maker): `ok`, `wait_for_taker`, `published/accepted/applied`, the order `pending` with 0 sats (market price), trade index 1.
+- **`order take-sell`** (taker) on the bonded node: `ok`, **`pay_bond_invoice`**, the parked order `pending`, a 351-character bond invoice in `data.payment_request`, the row and index
+  saved. This is the first check of the bond fix against a real node: the old build would have reported an error and dropped the invoice. The amount in this reply was 1000 sats; the
+  `add-invoice` that followed the payment carried 6233 sats (the price applied after the bond), so the bond reply's amount is not the amount to invoice.
+- **After the bond was paid** (read with the legacy `getdm`, the only way until `message list` exists): `add-invoice` with the order (6233 sats, `waiting-buyer-invoice`), 2 minutes after the take.
+- **`order add-invoice`** with a 6233-sat invoice: `ok`, `waiting_seller_payment`, `published/accepted/applied`, the local status `waiting-payment`, the trade index unchanged (1). The reply was
+  matched by request id, so this node echoes it.
+- **Refusals**, all `node_refused`, `published/rejected/not_attempted`, local status unchanged: the same invoice again (`not_allowed_by_status`), the maker answering for the taker's order
+  (`invalid_peer`), an invoice the node cannot parse (`invalid_invoice`, answered at a status that would otherwise be `not_allowed_by_status`, which agrees with the source: the invoice is
+  validated before the status).
+- **Cleanup**: the maker's legacy `cancel` cancelled the order; `order info` showed `canceled` and the book held only the maintainer's own order again.
+- **Not verified**: `payment_accepted` (needs the seller to have paid first) and `invoice_updated` (needs a settled order); a valid invoice of the wrong amount; the node stopped during the request
+  (not done on someone else's node); and **all of `bond add-invoice`**, which needs a slashed bond. The acknowledgement without a request id therefore remains an assumption from the v0.20.1 source.
+- **Nothing in the CLI needed to change.**

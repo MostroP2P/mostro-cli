@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-01
 
-**Status**: Implemented and verified on Linux against a scripted fake daemon (slices 1-6, 2026-11-01); CI (Linux and the native Windows runner) was green through slice 4b when this was written; not probed on regtest, which is separately authorized. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented and verified on Linux against a scripted fake daemon (slices 1-6, 2026-11-01); CI (Linux and the native Windows runner) was green through slice 4b when this was written; `order add-invoice` was probed on the maintainer's local regtest node on 2026-11-01 (see `tests/TEST_SUMMARY.md`); `bond add-invoice` was not. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Fifth step of the AI-ready CLI roadmap: canonical `order add-invoice` (replacing `addinvoice`) and `bond add-invoice`
 (replacing `addbondinvoice`), with human and JSON output and the `order take-sell` conventions. Builds on

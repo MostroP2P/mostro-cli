@@ -281,9 +281,9 @@ public node; the daemon behavior the fake encodes is read from the v0.20.1 sourc
 | FR-009 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel and invoice sweeps | Verified on Linux |
 | FR-010 legacy commands removed | `the_legacy_commands_are_gone_with_no_alias`, the removed-spelling cases | Verified on Linux |
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
-| SC-006 no claim about a daemon | not probed | **Open**: `order add-invoice` can be probed on regtest; `bond add-invoice` cannot (no bonds) |
+| SC-006 no claim about a daemon | probe of 2026-11-01 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for `order add-invoice` (accepted, three refusals); **open** for `payment_accepted`, `invoice_updated`, the node-stopped case and all of `bond add-invoice` |
 
-No scenario above is marked complete by documentation alone. Still open: the regtest probe of `order add-invoice`
-([quickstart](../specs/005-invoice-json/quickstart.md)), any bonded node for `bond add-invoice` (including that the acknowledgement carries no request id), the
+No scenario above is marked complete by documentation alone. Still open: the rest of the `order add-invoice` probe
+([quickstart](../specs/005-invoice-json/quickstart.md)), a slashed bond for `bond add-invoice` (including that the acknowledgement carries no request id), the
 MCP `add_invoice` migration (it stays broken until then), and the duplicate-send risk of an `uncertain` run, which only the caller can check with
 `order info --order <id>` (for a bond payout, by waiting for the payout).

@@ -1,8 +1,8 @@
 # Validation Guide: Add Invoice
 
 **Status**: Implemented and verified on Linux with loopback relays and a scripted fake daemon (evidence in `tests/TEST_SUMMARY.md`; CI, Windows included, was
-green through slice 4b). The regtest probe below has not been run; no claim about a real daemon is made, and `bond add-invoice` cannot be probed on the
-regtest network at all (it has no bonds).
+green through slice 4b). `order add-invoice` was probed on the maintainer's local regtest node on 2026-11-01 (steps 1, 2 and 3 below; see `tests/TEST_SUMMARY.md`). `bond add-invoice` was not
+probed: it needs a slashed bond.
 
 ## Focused Commands
 
