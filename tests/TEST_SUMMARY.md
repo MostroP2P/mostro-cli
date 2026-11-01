@@ -4074,3 +4074,25 @@ Native Linux, rustc 1.97.0, on `develop` after `8f45144` (pushed). Lean mode: th
   module that was missing imports and printed 0 failures with no passes: the compile errors are now counted as well.)
 - **Mutation spot checks** (3): the key window off by one, a zero-minute window allowed, and unbounded text each caught.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 709 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
+## Message List, Slice 3: The Read And The Operation: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `e64119e` (pushed). Lean mode: the only evidence entry for the slice. No CLI wiring yet (slice 4).
+
+- **Code**: `msg/inbox.rs` (`read_inbox`: one filter of kind 14, the node as author, every key as recipient, the window and the 50-per-relay limit, through `fetch_msg`; `open_events`: each event
+  is opened with the key it names after the author, kind, time and recipient are checked **here**, not left to the relay; oldest first, the newest 200 kept; nothing asked when there are no keys,
+  because a filter without a recipient would read everyone's mail) and `commands/message/list.rs` (`message_list`: the keys from the store, or the one stored for `--order` with its index when it
+  is among the newest 200 and `null` otherwise; the records, `truncated`, `keys_read`/`keys_not_read`, the `trade_keys_limited` warning; failures with the evidence they have).
+- **Tests** (15 operation tests against the mailbox, 2 unit tests of the opening):
+  - the whole flow in order: seven messages of every kind oldest first with the right `next_step` and trade index, the bond and hold invoices and the payout request as data, read stages,
+    snapshot 1/1 and 7 events, no warning, **the store byte-identical**, and the same answer when read twice;
+  - what must not appear: a message signed by someone else, for another key, older than the window, or not Mostro JSON; the window deciding 1, 2, 2 and 3 messages for 10, 30, default and 300 minutes;
+    the same event from two relays once, with 2/2 completed;
+  - `--order`: only that key's messages with their index; an unknown order asks nothing (no relay connection); an order whose key is beyond the cap is read with an unknown index;
+  - the limits: 250 trades read the newest 200 keys (the message for key 50 is out of reach), reported as `200`/`50` with `trade_keys_limited`; 60 messages in one relay come back as the newest 50
+    with `truncated`; five relays of 50 give 250 and the newest 200 are kept; no trade yet is an empty success with no relay contact and 0 relays completed; an empty window is a success;
+  - failures: a silent relay is `read_timeout` with a snapshot, a dead one `relay_connection_failed` with none, a missing store `identity_missing`, a damaged one `store_unreadable`, nothing written.
+- **Mutation spot checks** (6): the local time bound, the empty-key guard and the record cap are each caught; the explicit author check and the sender check each survive alone because they
+  back each other up (opening with a key already shows the sender) and **fail together**, which is the intended redundancy.
+- **Found by the gates**: one test compared two reads including the snapshot's `since`, which moves with the clock; it now ignores `since` and `observed_at` (a test defect, not a product one).
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 726 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.

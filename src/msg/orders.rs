@@ -10,7 +10,7 @@ use nostr_sdk::prelude::{Event, Filter, Kind, PublicKey, SingleLetterTag, Timest
 use crate::nip33::order_from_tags;
 use crate::outcome::ErrorCode;
 
-const PER_RELAY_LIMIT: usize = 50;
+pub(crate) const PER_RELAY_LIMIT: usize = 50;
 
 /// Events of `kind` by `author` tagged `z`, from seven days before `now`.
 pub(crate) fn seven_day_filter(

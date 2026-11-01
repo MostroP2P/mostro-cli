@@ -524,3 +524,617 @@ mod store {
         );
     }
 }
+
+// --- The operation (spec 006, slice 3) ---------------------------------------
+
+mod operation {
+    use super::fake_mostro::{
+        mail_add_invoice, mail_bond_payout_request, mail_cant_do, mail_pay_bond_invoice,
+        mail_pay_invoice, mail_text, mail_waiting_seller, node_event, seed_identity,
+        set_last_trade_index,
+    };
+    use super::harness::Sandbox;
+    use super::*;
+    use chrono::Utc;
+    use mostro_client::commands::message::list::{message_list, ListOutcome};
+    use mostro_client::msg::{PublicReadConfig, ReadLimits};
+    use mostro_client::outcome::messages::{MessageListInput, NextStep};
+    use mostro_client::outcome::{ErrorCode, Status as Outcome};
+    use mostro_client::store::{Store, Trade};
+    use serde_json::{json, Value};
+
+    struct Mailroom {
+        sandbox: Sandbox,
+        store: Store,
+        node: Keys,
+        relays: Vec<LoopbackRelay>,
+        /// The keys of the user, newest first, as the command derives them.
+        keys: Vec<(i64, Keys)>,
+    }
+
+    impl Mailroom {
+        /// A user with `last` trades and `relays` relays, each holding `events`
+        /// (a function of the node, the keys and the relay number).
+        async fn with<F, Fut>(last: i64, relays: usize, events: F) -> Self
+        where
+            F: Fn(Keys, Vec<(i64, Keys)>, usize) -> Fut,
+            Fut: std::future::Future<Output = Vec<Event>>,
+        {
+            let sandbox = Sandbox::new().unwrap();
+            seed_identity(&sandbox.mcli_dir()).await;
+            set_last_trade_index(&sandbox.mcli_dir(), last).await;
+            let store = Store::in_dir(&sandbox.mcli_dir());
+            let keys = store.trade_keys(1000).await.unwrap().keys;
+            let node = Keys::generate();
+            let mut running = Vec::new();
+            for number in 0..relays {
+                let relay = LocalRelay::new();
+                for event in events(node.clone(), keys.clone(), number).await {
+                    relay.add_event(event).await.unwrap();
+                }
+                running.push(
+                    LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+                        .await
+                        .unwrap(),
+                );
+            }
+            Self {
+                sandbox,
+                store,
+                node,
+                relays: running,
+                keys,
+            }
+        }
+
+        fn key(&self, index: i64) -> &Keys {
+            &self.keys.iter().find(|(i, _)| *i == index).unwrap().1
+        }
+
+        fn config(&self) -> PublicReadConfig {
+            let urls: Vec<&str> = self.relays.iter().map(|r| r.url.as_str()).collect();
+            PublicReadConfig::new(self.node.public_key(), &urls.join(",")).unwrap()
+        }
+
+        fn database(&self) -> Vec<u8> {
+            std::fs::read(self.sandbox.mcli_dir().join("mcli.db")).unwrap()
+        }
+
+        async fn list(&self, since: Option<i64>, order: Option<Uuid>) -> ListOutcome {
+            let input = MessageListInput::validate(since, order).unwrap();
+            message_list(&input, &self.config(), &self.store, &limits(), Utc::now()).await
+        }
+    }
+
+    fn limits() -> ReadLimits {
+        ReadLimits {
+            connect: Duration::from_secs(2),
+            read: Duration::from_millis(1_500),
+            cleanup: Duration::from_millis(500),
+            ..ReadLimits::default()
+        }
+    }
+
+    fn document(outcome: &ListOutcome) -> Value {
+        serde_json::to_value(outcome).unwrap()
+    }
+
+    fn actions(outcome: &ListOutcome) -> Vec<String> {
+        outcome
+            .data()
+            .unwrap()
+            .messages()
+            .iter()
+            .map(|m| m.action().to_string())
+            .collect()
+    }
+
+    /// One message of every kind the flow produces, to the keys of indexes 3, 2
+    /// and 1, in a known order of time.
+    async fn flow(node: Keys, keys: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        let to = |index: i64| {
+            keys.iter()
+                .find(|(i, _)| *i == index)
+                .map(|(_, key)| key.public_key())
+                .unwrap()
+        };
+        let parked = order(1, Status::Pending);
+        vec![
+            node_event(
+                &node,
+                to(3),
+                &mail_pay_bond_invoice(&parked, "lnbcrt1bond"),
+                minutes_ago(25),
+            )
+            .await,
+            node_event(
+                &node,
+                to(3),
+                &mail_add_invoice(&order(1, Status::WaitingBuyerInvoice)),
+                minutes_ago(20),
+            )
+            .await,
+            node_event(&node, to(2), &mail_waiting_seller(id(2)), minutes_ago(15)).await,
+            node_event(
+                &node,
+                to(2),
+                &mail_pay_invoice(&order(2, Status::WaitingPayment), "lnbcrt1hold"),
+                minutes_ago(10),
+            )
+            .await,
+            node_event(
+                &node,
+                to(1),
+                &mail_cant_do(CantDoReason::InvalidPeer),
+                minutes_ago(8),
+            )
+            .await,
+            node_event(
+                &node,
+                to(1),
+                &mail_bond_payout_request(&order(3, Status::Success), 1_792_000_000),
+                minutes_ago(6),
+            )
+            .await,
+            node_event(&node, to(1), &mail_text(id(4), "hello"), minutes_ago(4)).await,
+        ]
+    }
+
+    #[tokio::test]
+    async fn every_message_of_the_flow_comes_back_oldest_first_with_its_next_step() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let before = room.database();
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(
+            actions(&outcome),
+            [
+                "pay-bond-invoice",
+                "add-invoice",
+                "waiting-seller-to-pay",
+                "pay-invoice",
+                "cant-do",
+                "add-bond-invoice",
+                "hold-invoice-payment-accepted",
+            ]
+        );
+        let data = outcome.data().unwrap();
+        let steps: Vec<_> = data.messages().iter().map(|m| m.next_step()).collect();
+        assert_eq!(
+            steps,
+            [
+                Some(NextStep::PayBondInvoice),
+                Some(NextStep::AddInvoice),
+                None,
+                Some(NextStep::PayHoldInvoice),
+                None,
+                Some(NextStep::AddBondInvoice),
+                None,
+            ]
+        );
+        let indexes: Vec<_> = data
+            .messages()
+            .iter()
+            .map(|m| m.trade_index().map(str::to_string))
+            .collect();
+        assert_eq!(
+            indexes,
+            ["3", "3", "2", "2", "1", "1", "1"].map(|i| Some(i.to_string()))
+        );
+        assert_eq!(
+            data.messages()[0].trade_pubkey(),
+            room.key(3).public_key().to_hex()
+        );
+        assert!(!data.truncated());
+        assert_eq!((data.keys_read(), data.keys_not_read()), ("3", "0"));
+        assert_eq!(data.since_minutes(), "30");
+        let doc = document(&outcome);
+        assert_eq!(doc["meta"]["publication"], "not_applicable");
+        assert_eq!(doc["meta"]["persistence"], "not_applicable");
+        assert_eq!(doc["meta"]["snapshot"]["configured_relays"], 1);
+        assert_eq!(doc["meta"]["snapshot"]["completed_relays"], 1);
+        assert_eq!(doc["meta"]["snapshot"]["received_events"], 7);
+        assert_eq!(doc["warnings"], json!([]));
+        assert_eq!(room.database(), before, "a read writes nothing");
+    }
+
+    #[tokio::test]
+    async fn the_bond_invoice_and_the_hold_invoice_are_data_of_their_records() {
+        let room = Mailroom::with(3, 1, flow).await;
+
+        let doc = document(&room.list(None, None).await);
+
+        let messages = doc["data"]["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["payload"]["kind"], "payment_request");
+        assert_eq!(messages[0]["payload"]["invoice"], "lnbcrt1bond");
+        assert_eq!(messages[0]["payload"]["order"]["sats_amount"], "6233");
+        assert_eq!(messages[3]["payload"]["invoice"], "lnbcrt1hold");
+        assert_eq!(
+            messages[4]["payload"],
+            json!({"kind": "cant_do", "reason": "invalid_peer"})
+        );
+        assert_eq!(messages[5]["payload"]["kind"], "bond_payout_request");
+        assert_eq!(
+            messages[6]["payload"],
+            json!({"kind": "text", "text": "hello"})
+        );
+    }
+
+    #[tokio::test]
+    async fn the_same_mailbox_read_twice_gives_the_same_answer() {
+        let room = Mailroom::with(3, 1, flow).await;
+
+        let first = room.list(None, None).await;
+        let second = room.list(None, None).await;
+
+        let strip = |outcome: &ListOutcome| {
+            let mut doc = document(outcome);
+            // The window moves with the clock; the messages do not.
+            doc["meta"]["snapshot"]["observed_at"] = Value::Null;
+            doc["meta"]["snapshot"]["since"] = Value::Null;
+            doc
+        };
+        assert_eq!(strip(&first), strip(&second));
+    }
+
+    #[tokio::test]
+    async fn what_is_not_the_nodes_mail_for_these_keys_in_this_window_never_appears() {
+        let room = Mailroom::with(2, 1, |node, keys, _| async move {
+            let (mine, other) = (keys[0].1.public_key(), Keys::generate().public_key());
+            let impostor = Keys::generate();
+            let mail = mail_waiting_seller(id(1));
+            let garbage =
+                nostr_sdk::prelude::EventBuilder::new(Kind::PrivateDirectMessage, "not a message")
+                    .tags([nostr_sdk::prelude::Tag::public_key(mine)])
+                    .custom_created_at(minutes_ago(3))
+                    .finalize(&node)
+                    .unwrap();
+            vec![
+                node_event(&node, mine, &mail_waiting_seller(id(9)), minutes_ago(5)).await,
+                node_event(&node, other, &mail, minutes_ago(5)).await,
+                node_event(&impostor, mine, &mail, minutes_ago(5)).await,
+                node_event(&node, mine, &mail, minutes_ago(300)).await,
+                garbage,
+            ]
+        })
+        .await;
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().unwrap();
+        assert_eq!(data.messages().len(), 1, "{:?}", actions(&outcome));
+        assert_eq!(
+            data.messages()[0].order_id(),
+            Some(id(9).to_string().as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn the_window_decides_which_messages_are_read() {
+        let room = Mailroom::with(1, 1, |node, keys, _| async move {
+            let to = keys[0].1.public_key();
+            vec![
+                node_event(&node, to, &mail_waiting_seller(id(1)), minutes_ago(200)).await,
+                node_event(&node, to, &mail_waiting_seller(id(2)), minutes_ago(20)).await,
+                node_event(&node, to, &mail_waiting_seller(id(3)), minutes_ago(5)).await,
+            ]
+        })
+        .await;
+
+        let counts = [
+            room.list(Some(10), None)
+                .await
+                .data()
+                .unwrap()
+                .messages()
+                .len(),
+            room.list(Some(30), None)
+                .await
+                .data()
+                .unwrap()
+                .messages()
+                .len(),
+            room.list(None, None).await.data().unwrap().messages().len(),
+            room.list(Some(300), None)
+                .await
+                .data()
+                .unwrap()
+                .messages()
+                .len(),
+        ];
+
+        assert_eq!(counts, [1, 2, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn the_same_event_from_two_relays_appears_once() {
+        let room = Mailroom::with(3, 2, |node, keys, _| async move {
+            // Both relays hold the same events: identical ids.
+            flow(node, keys, 0).await
+        })
+        .await;
+        // The generator ran twice with different events; make both relays equal.
+        let shared = flow(room.node.clone(), room.keys.clone(), 0).await;
+        let both = Mailroom {
+            relays: {
+                let mut relays = Vec::new();
+                for _ in 0..2 {
+                    let relay = LocalRelay::new();
+                    for event in &shared {
+                        relay.add_event(event.clone()).await.unwrap();
+                    }
+                    relays.push(
+                        LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+                            .await
+                            .unwrap(),
+                    );
+                }
+                relays
+            },
+            ..room
+        };
+
+        let outcome = both.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(outcome.data().unwrap().messages().len(), 7, "once each");
+        let doc = document(&outcome);
+        assert_eq!(doc["meta"]["snapshot"]["configured_relays"], 2);
+        assert_eq!(doc["meta"]["snapshot"]["completed_relays"], 2);
+    }
+
+    #[tokio::test]
+    async fn an_order_reads_only_its_own_key_and_knows_its_index() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let trade = Trade {
+            index: 2,
+            keys: room.key(2).clone(),
+        };
+        room.store
+            .save_order(&order(2, Status::WaitingPayment), &trade, 1)
+            .await
+            .unwrap();
+
+        let outcome = room.list(None, Some(id(2))).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(actions(&outcome), ["waiting-seller-to-pay", "pay-invoice"]);
+        let data = outcome.data().unwrap();
+        assert!(data.messages().iter().all(|m| m.trade_index() == Some("2")));
+        assert_eq!((data.keys_read(), data.keys_not_read()), ("1", "0"));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_order_asks_nothing() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let before = room.database();
+
+        let outcome = room.list(None, Some(id(77))).await;
+
+        assert_eq!(outcome.status(), Outcome::Error);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::OrderUnknown));
+        assert_eq!(room.relays[0].connections(), 0, "no relay was contacted");
+        assert_eq!(room.database(), before);
+    }
+
+    #[tokio::test]
+    async fn only_the_newest_two_hundred_keys_are_asked_about_and_the_rest_are_counted() {
+        let room = Mailroom::with(250, 1, |node, keys, _| async move {
+            let key = |index: i64| {
+                keys.iter()
+                    .find(|(i, _)| *i == index)
+                    .unwrap()
+                    .1
+                    .public_key()
+            };
+            vec![
+                node_event(
+                    &node,
+                    key(250),
+                    &mail_waiting_seller(id(250)),
+                    minutes_ago(5),
+                )
+                .await,
+                node_event(&node, key(51), &mail_waiting_seller(id(51)), minutes_ago(4)).await,
+                node_event(&node, key(50), &mail_waiting_seller(id(50)), minutes_ago(3)).await,
+            ]
+        })
+        .await;
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().unwrap();
+        let orders: Vec<_> = data
+            .messages()
+            .iter()
+            .filter_map(|m| m.order_id())
+            .collect();
+        assert_eq!(
+            orders,
+            [id(250).to_string(), id(51).to_string()],
+            "key 50 is out of reach"
+        );
+        assert_eq!((data.keys_read(), data.keys_not_read()), ("200", "50"));
+        let doc = document(&outcome);
+        assert_eq!(doc["warnings"][0]["code"], "trade_keys_limited");
+    }
+
+    #[tokio::test]
+    async fn an_order_older_than_the_key_cap_is_still_read_with_an_unknown_index() {
+        let room = Mailroom::with(250, 1, |node, keys, _| async move {
+            let old = keys.iter().find(|(i, _)| *i == 10).unwrap().1.public_key();
+            vec![node_event(&node, old, &mail_waiting_seller(id(10)), minutes_ago(2)).await]
+        })
+        .await;
+        let trade = Trade {
+            index: 10,
+            keys: room.key(10).clone(),
+        };
+        room.store
+            .save_order(&order(10, Status::WaitingPayment), &trade, 1)
+            .await
+            .unwrap();
+
+        let outcome = room.list(None, Some(id(10))).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().unwrap();
+        assert_eq!(data.messages().len(), 1);
+        assert_eq!(data.messages()[0].trade_index(), None);
+        assert_eq!(data.keys_not_read(), "0");
+    }
+
+    #[tokio::test]
+    async fn a_busy_mailbox_is_cut_at_the_relay_limit_and_says_so() {
+        let room = Mailroom::with(1, 1, |node, keys, _| async move {
+            let to = keys[0].1.public_key();
+            let mut events = Vec::new();
+            for n in 0..60u64 {
+                events.push(
+                    node_event(
+                        &node,
+                        to,
+                        &mail_waiting_seller(id(n as u128 + 1)),
+                        Timestamp::from(Timestamp::now().as_secs() - 3_000 + n * 10),
+                    )
+                    .await,
+                );
+            }
+            events
+        })
+        .await;
+
+        let outcome = room.list(Some(120), None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().unwrap();
+        assert_eq!(data.messages().len(), 50, "the relay's limit");
+        assert!(data.truncated());
+        let times: Vec<_> = data
+            .messages()
+            .iter()
+            .map(|m| m.created_at_unix().parse::<u64>().unwrap())
+            .collect();
+        assert!(times.windows(2).all(|w| w[0] <= w[1]), "oldest first");
+        assert_eq!(
+            data.messages()[49].order_id(),
+            Some(id(60).to_string().as_str()),
+            "the newest are kept"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_record_cap_keeps_the_newest_two_hundred() {
+        let room = Mailroom::with(1, 5, |node, keys, relay| async move {
+            let to = keys[0].1.public_key();
+            let mut events = Vec::new();
+            for n in 0..50u64 {
+                let at = Timestamp::from(
+                    Timestamp::now().as_secs() - 3_000 + (relay as u64 * 50 + n) * 5,
+                );
+                events.push(
+                    node_event(
+                        &node,
+                        to,
+                        &mail_waiting_seller(id((relay as u64 * 50 + n) as u128 + 1)),
+                        at,
+                    )
+                    .await,
+                );
+            }
+            events
+        })
+        .await;
+
+        let outcome = room.list(Some(120), None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().unwrap();
+        assert_eq!(data.messages().len(), 200);
+        assert!(data.truncated());
+        assert_eq!(
+            data.messages()[199].order_id(),
+            Some(id(250).to_string().as_str())
+        );
+        assert_eq!(
+            data.messages()[0].order_id(),
+            Some(id(51).to_string().as_str()),
+            "the 50 oldest are dropped"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_user_with_no_trade_yet_gets_an_empty_answer_and_no_relay_is_asked() {
+        let room = Mailroom::with(0, 1, flow_none).await;
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().unwrap();
+        assert!(data.messages().is_empty() && !data.truncated());
+        assert_eq!((data.keys_read(), data.keys_not_read()), ("0", "0"));
+        assert_eq!(
+            room.relays[0].connections(),
+            0,
+            "a filter with no recipient would read everyone's mail"
+        );
+        assert_eq!(
+            document(&outcome)["meta"]["snapshot"]["completed_relays"],
+            0
+        );
+    }
+
+    async fn flow_none(_: Keys, _: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        Vec::new()
+    }
+
+    #[tokio::test]
+    async fn an_empty_window_is_a_success() {
+        let room = Mailroom::with(2, 1, flow_none).await;
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert!(outcome.data().unwrap().messages().is_empty());
+        assert_eq!(
+            document(&outcome)["meta"]["snapshot"]["completed_relays"],
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn failures_name_their_code_carry_the_evidence_they_have_and_write_nothing() {
+        // A relay that never answers: the read deadline, with a snapshot.
+        let room = Mailroom::with(2, 1, flow_none).await;
+        let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+        let config = PublicReadConfig::new(room.node.public_key(), &silent.url).unwrap();
+        let before = room.database();
+        let input = MessageListInput::validate(None, None).unwrap();
+        let outcome = message_list(&input, &config, &room.store, &limits(), Utc::now()).await;
+        assert_eq!(outcome.error_code(), Some(ErrorCode::ReadTimeout));
+        assert!(document(&outcome)["meta"]["snapshot"].is_object());
+
+        // A relay nobody listens on: before the query, no snapshot.
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("ws://{}", free.local_addr().unwrap());
+        drop(free);
+        let config = PublicReadConfig::new(room.node.public_key(), &dead).unwrap();
+        let outcome = message_list(&input, &config, &room.store, &limits(), Utc::now()).await;
+        assert_eq!(outcome.error_code(), Some(ErrorCode::RelayConnectionFailed));
+        assert_eq!(document(&outcome)["meta"]["snapshot"], Value::Null);
+        assert_eq!(room.database(), before);
+
+        // Store problems.
+        let nowhere = Store::in_dir(&room.sandbox.mcli_dir().join("absent"));
+        let outcome = message_list(&input, &room.config(), &nowhere, &limits(), Utc::now()).await;
+        assert_eq!(outcome.error_code(), Some(ErrorCode::IdentityMissing));
+        std::fs::write(room.sandbox.mcli_dir().join("mcli.db"), b"not a database").unwrap();
+        let outcome =
+            message_list(&input, &room.config(), &room.store, &limits(), Utc::now()).await;
+        assert_eq!(outcome.error_code(), Some(ErrorCode::StoreUnreadable));
+    }
+}

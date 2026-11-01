@@ -13,7 +13,7 @@ regtest without authorization.
   that publishes node messages to chosen trade keys, with self-tests. No production change beyond testable extractions.
 - [x] **2. Keys, records and outcomes.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) `Store::trade_keys` / the `--order` key, `outcome/messages.rs` (records, payload summary, `next_step`, input), the code `store_unreadable` and the
   warning `trade_keys_limited`, schema tests.
-- [ ] **3. The read and the operation.** `msg::inbox::read` and `commands/message/list.rs` against the mailbox: every message kind, filtering by author, key, window and shape, duplicates,
+- [x] **3. The read and the operation.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) `msg::inbox::read` and `commands/message/list.rs` against the mailbox: every message kind, filtering by author, key, window and shape, duplicates,
   the three caps, `--order`, failures, no write.
 - [ ] **4. The command.** **4a**: grammar (`message list`), registry (`message.list` as `Read`), `cli/message.rs`, `parse_human/message.rs`, removal of `getdm`, generated schema and fixture,
   README and command-reference migration. **4b**: binary scenarios.
