@@ -1,6 +1,6 @@
 # Implementation Plan: Add Invoice
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-01 | **Status**: Specified, not implemented.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-01 | **Status**: Implemented (slices 1-6) with Linux evidence against a scripted fake daemon; behavior against a real daemon is unverified.
 
 ## Summary
 

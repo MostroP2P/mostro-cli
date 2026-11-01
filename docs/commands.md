@@ -108,14 +108,14 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--order <UUID>`, `--invoice <BOLT11|ADDRESS>` (required).
     - `--yes`: send without asking. Required with `--output json`, which never prompts or reads stdin.
   - **Output**: a preview (never the invoice) and a prompt in human mode; one JSON document with `--output json`. `data.result` is `waiting_seller_payment`, `payment_accepted` (with the order) or `invoice_updated`. A failed local status update is the warning `local_status_stale`; the node refusing is `node_refused` with its reason; no or an unusable reply is `uncertain`. An order not in the local store is `order_unknown` and nothing is sent.
-  - **Migration**: `addinvoice`, `-o`, `--order-id` and `-i` are gone with no alias.
+  - **Migration**: `addinvoice`, `-o`, `--order-id` and `-i` are gone with no alias; use `order add-invoice --order ID --invoice INVOICE`. The existing MCP server's `add_invoice` tool runs the old command and will not work against this build until the MCP is migrated (a separate change with its own spec).
   - **Handler**: `commands::order::invoice::order_add_invoice` through `msg::exchange` and `store`; dispatch and the prompt in `cli/invoice.rs`.
 
 - **`bond add-invoice`** (replaces `addbondinvoice`)
   - **Description**: Reply to the node's bond payout request with a BOLT-11 invoice for exactly your share of a slashed bond. This is unrelated to `pay-bond-invoice`, the bond you pay when an order or a take asks for one. Writes nothing locally.
   - **Args**: as `order add-invoice`, but the invoice must be BOLT-11 (an address is `invalid_arguments`).
   - **Output**: `data.result` is `invoice_accepted` with the share the node reported. Nodes before v0.20.1 never confirm: silence is `uncertain` (`reply_timeout`), not success, because the program cannot tell it from a lost reply. The confirmation carries no request id and is matched on the order.
-  - **Migration**: `addbondinvoice` and its short flags are gone with no alias; the old "timeout means success" reading is gone.
+  - **Migration**: `addbondinvoice` and its short flags are gone with no alias; use `bond add-invoice --order ID --invoice BOLT11`. The old "timeout means success" reading is gone. An MCP tool for the old command, if any, breaks the same way.
   - **Handler**: `commands::order::invoice::bond_add_invoice`; dispatch in `cli/invoice.rs`.
 
 - **`fiatsent`**

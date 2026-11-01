@@ -257,3 +257,33 @@ No scenario above is marked complete by documentation alone. The regtest probe r
 listed in TEST_SUMMARY.md
 ([quickstart](../specs/004-order-take-json/quickstart.md)), the MCP `take_order` migration (it stays broken until then), the minimal row's empty fields
 until a later command refreshes them, and the duplicate-take risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.
+
+## Add Invoice: Requirement Evidence
+
+Reconciliation of the [specification](../specs/005-invoice-json/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-01. **Automated verification on Linux with loopback relays and a
+scripted fake daemon only**; CI (with the CI-hosted Windows runner) was green through slice 4b when this was written. Not run against any real daemon, regtest or
+public node; the daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
+[CLI](../specs/005-invoice-json/contracts/cli.md), [data model](../specs/005-invoice-json/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json), [order add-invoice](../docs/schemas/order-add-invoice-v1.json) and
+[bond add-invoice](../docs/schemas/bond-add-invoice-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 options, validation, removed spellings | `invoice_grammar`, `outcome::invoice` unit tests, `invalid_input_is_an_argument_error_...` | Verified on Linux |
+| FR-002 existing identity only, key from the store, `order_unknown`, nothing created | the identity cases of `failures_before_any_request_...`, the `store` tests, `an_unknown_order_...` | Verified on Linux |
+| FR-003 `--yes` in JSON, prompt in human, preview never shows the invoice | `json_without_yes_does_nothing_...`, `the_prompt_accepts_y_and_blank_...` | Verified on Linux |
+| FR-004 one request, no trade index, no retry | the operation tests (one request, no index, index unchanged), the refusal and failure cases | Verified on Linux |
+| FR-005 correlation including the order-id match, deadline, cleanup | `util::reply` unit tests, the decoy tests for both commands, the ack with no request id | Verified on Linux |
+| FR-006 statuses and stages per case | `outcome::invoice` schema tests, the operation tests, the binary scenarios | Verified on Linux |
+| FR-007 local status follows the reply; a failed update is a warning | `an_invoice_for_a_waiting_order_...`, `a_failed_status_update_...`, `a_stale_local_status_...` | Verified on Linux; the status update on `hold-invoice-payment-accepted` is new behavior, not a migration |
+| FR-008 one document, own schemas, fixtures, examples, drift | `integration_tests` (fixtures, 15 examples, invalid variants) | Verified on Linux |
+| FR-009 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel and invoice sweeps | Verified on Linux |
+| FR-010 legacy commands removed | `the_legacy_commands_are_gone_with_no_alias`, the removed-spelling cases | Verified on Linux |
+| SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
+| SC-006 no claim about a daemon | not probed | **Open**: `order add-invoice` can be probed on regtest; `bond add-invoice` cannot (no bonds) |
+
+No scenario above is marked complete by documentation alone. Still open: the regtest probe of `order add-invoice`
+([quickstart](../specs/005-invoice-json/quickstart.md)), any bonded node for `bond add-invoice` (including that the acknowledgement carries no request id), the
+MCP `add_invoice` migration (it stays broken until then), and the duplicate-send risk of an `uncertain` run, which only the caller can check with
+`order info --order <id>` (for a bond payout, by waiting for the payout).
