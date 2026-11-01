@@ -15,6 +15,15 @@ use uuid::Uuid;
 /// bolt11 (carried as [`Payload::BondPayoutRequest`]) and we answer with the
 /// invoice in the standard [`Payload::PaymentRequest`] shape, signed with the
 /// order's trade key. See the protocol's "Bond payout invoice" action.
+/// The payload of `add-bond-invoice`: a BOLT-11 invoice that parses and is not
+/// expired, in its canonical form; a Lightning address is refused.
+fn bond_payload(invoice: &str) -> Result<Payload> {
+    let invoice = is_valid_invoice(invoice)
+        .map_err(|e| anyhow::anyhow!("Invalid invoice: {}", e))?
+        .to_string();
+    Ok(Payload::PaymentRequest(None, invoice, None))
+}
+
 pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Context) -> Result<()> {
     // Get order from order id
     let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
@@ -52,10 +61,7 @@ pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Cont
     // Lightning Addresses are not accepted here (the protocol's "Bond payout
     // invoice" reply is a bolt11): validate locally so a bad input fails fast
     // instead of bouncing back as a `cant-do` / `invalid-invoice` from Mostro.
-    let invoice = is_valid_invoice(invoice)
-        .map_err(|e| anyhow::anyhow!("Invalid invoice: {}", e))?
-        .to_string();
-    let payload = Payload::PaymentRequest(None, invoice, None);
+    let payload = bond_payload(invoice)?;
 
     // Create request id
     let request_id = Uuid::new_v4().as_u128() as u64;
@@ -103,4 +109,23 @@ pub async fn execute_add_bond_invoice(order_id: &Uuid, invoice: &str, ctx: &Cont
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lightning_address_is_refused_because_the_node_needs_the_exact_amount() {
+        let error = bond_payload("buyer@example.com").unwrap_err().to_string();
+
+        assert!(error.starts_with("Invalid invoice: "), "{error}");
+    }
+
+    #[test]
+    fn garbage_is_refused_locally() {
+        for bad in ["", "not an invoice", "lnbc1garbage"] {
+            assert!(bond_payload(bad).is_err(), "{bad}");
+        }
+    }
 }

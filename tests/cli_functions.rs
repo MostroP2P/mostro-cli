@@ -1619,3 +1619,81 @@ mod order_take_grammar {
         assert!(lookup(&["takebuy".to_string()]).is_none());
     }
 }
+
+/// What `addinvoice` and `addbondinvoice` accept today (spec 005, slice 1),
+/// pinned before they are replaced by `order add-invoice` and `bond add-invoice`.
+mod invoice_characterization {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
+    use uuid::Uuid;
+
+    const ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+
+    fn parse(command: &str, args: &[&str]) -> Result<Commands, clap::Error> {
+        let argv = ["mostro-cli", command]
+            .into_iter()
+            .chain(args.iter().copied());
+        Ok(Cli::try_parse_from(argv)?.command.expect("a command"))
+    }
+
+    fn fields(command: Commands) -> (Uuid, String) {
+        match command {
+            Commands::AddInvoice { order_id, invoice }
+            | Commands::AddBondInvoice { order_id, invoice } => (order_id, invoice),
+            _ => panic!("not an invoice command"),
+        }
+    }
+
+    #[test]
+    fn both_take_an_order_id_and_an_invoice_and_the_long_flag_is_squashed() {
+        for command in ["addinvoice", "addbondinvoice"] {
+            let short = fields(parse(command, &["-o", ID, "-i", "lnbc1x"]).unwrap());
+            let long = fields(parse(command, &["--orderid", ID, "--invoice", "lnbc1x"]).unwrap());
+            assert_eq!(short, long, "{command}");
+            assert!(
+                parse(command, &["--order-id", ID, "--invoice", "lnbc1x"]).is_err(),
+                "{command}: the hyphenated spelling is unknown"
+            );
+            assert_eq!(
+                (short.0.to_string(), short.1),
+                (ID.to_string(), "lnbc1x".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn the_order_id_is_a_uuid_in_any_case_and_both_options_are_required() {
+        for command in ["addinvoice", "addbondinvoice"] {
+            let upper = fields(parse(command, &["-o", &ID.to_uppercase(), "-i", "x"]).unwrap());
+            assert_eq!(upper.0.to_string(), ID, "{command}");
+            assert!(
+                parse(command, &["-o", "not-a-uuid", "-i", "x"]).is_err(),
+                "{command}"
+            );
+            assert!(parse(command, &["-o", ID]).is_err(), "{command}");
+            assert!(parse(command, &["-i", "x"]).is_err(), "{command}");
+            assert!(parse(command, &[]).is_err(), "{command}");
+        }
+    }
+
+    #[test]
+    fn the_invoice_is_not_checked_by_the_grammar() {
+        for command in ["addinvoice", "addbondinvoice"] {
+            let (_, invoice) =
+                fields(parse(command, &["-o", ID, "-i", "buyer@example.com"]).unwrap());
+            assert_eq!(invoice, "buyer@example.com", "{command}");
+        }
+    }
+
+    #[test]
+    fn both_are_registered_legacy_commands_without_json() {
+        for (name, canonical) in [
+            ("addinvoice", "order.add-invoice"),
+            ("addbondinvoice", "bond.add-invoice"),
+        ] {
+            let entry = lookup(&[name.to_string()]).expect(name);
+            assert_eq!(entry.canonical, canonical);
+            assert_eq!(entry.json, JsonSupport::Unsupported, "{name}");
+        }
+    }
+}

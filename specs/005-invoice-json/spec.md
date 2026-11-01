@@ -21,7 +21,8 @@
 - Q: What are the two commands? -> A: `order add-invoice` answers the node's request for the buyer's payout invoice on an order the user
   already took or made (`add-invoice` is what `order take-sell` and a maker's sell-order take ask for). `bond add-invoice` answers the node's
   request for the user's share of a **slashed bond** (`add-bond-invoice`); it has nothing to do with `pay-bond-invoice`, the taker or maker
-  bond the user must pay, which stays out of scope. The two are specified together because they share the lookup of the stored trade key, one
+  bond the user must pay. `order new` and `order take-*` already return that bond invoice as data (amendment 2026-11-01); paying it is done with any Lightning wallet
+  and is out of scope here. The two are specified together because they share the lookup of the stored trade key, one
   signed request and a correlated reply (decided by the maintainer, 2026-11-01).
 - Q: What does silence from the node mean for `bond add-invoice`? -> A: `uncertain` (decided 2026-11-01). The legacy command read a timeout as
   success because older nodes send no acknowledgement. Node v0.20.1 sends `bond-invoice-accepted`; without it the program cannot know the

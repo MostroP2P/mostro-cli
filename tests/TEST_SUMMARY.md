@@ -3852,3 +3852,27 @@ A user took an order on a bonded local node with `order take-sell --yes --output
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 602 passed and 0 failed (checked on the FAILED lines), build, MSRV 1.94.0.
 - **Open**: the real bonded local node was not probed yet (needs authorization); how a user continues after paying the bond (reading the node's next message) is
   not migrated: `getdm` is legacy and human-only.
+
+## Add Invoice, Slice 1: Characterization And Fixtures: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `e828903` (pushed). One behavior-preserving extraction in production code (below); lean mode: the only
+evidence entry for the slice.
+
+- **Legacy `addinvoice`/`addbondinvoice` pinned**, removed with the commands in slice 4:
+  - **Payload** (4 unit tests, after extracting `invoice_payload` / `bond_payload` from the two `execute_*` functions without changing behavior):
+    `addinvoice` sends a Lightning address as given in a bare `PaymentRequest(None, invoice, None)`; anything that is neither an address nor a parseable,
+    unexpired BOLT-11 is refused locally with `Invalid invoice: ...`; `addbondinvoice` refuses a Lightning address and garbage. The accepted BOLT-11 path
+    (canonical re-serialization) is not unit-tested: no expiry-proof vector exists without a signing dependency; slice 3 covers it through the scripted daemon.
+  - **Grammar** (4 tests, `cli_functions::invoice_characterization`): `-o/--orderid` (the long flag is squashed, `--order-id` is unknown) and `-i/--invoice`,
+    both required, the order id a UUID in any case, the invoice unchecked by clap; both registered legacy with `order.add-invoice` / `bond.add-invoice`, no JSON.
+  - **Read from source, not tested**: `addbondinvoice` treats `WaitForDmTimeout` as success (the `Err(e) if e.downcast_ref::<WaitForDmTimeout>()` arm); only
+    `waiting-seller-to-pay` updated the local row (already pinned by the existing `print_commands_results` tests).
+- **Fixture** (`tests/common/fake_mostro.rs`, `tests/invoice_process.rs`): `invoice_daemon(ledger, acks)` applies the source's rules: the order found by id, only
+  the buyer's trade key may answer (`invalid_peer`), the invoice validated (`invalid_invoice`), then by status: `waiting-seller-to-pay` (no payload, request id
+  echoed, status to `waiting-payment`), `hold-invoice-payment-accepted` with the order (preimage stored), `invoice-updated` (settled order), else
+  `not_allowed_by_status`; for bonds: only the open bond's recipient, the invoice must be exactly the share, then `bond-invoice-accepted` with an order and
+  **no request id** (`acks`), or silence (older node). Neither request carries a trade index.
+- **Self-tests** (9): each reply and its addressing and state change, every refusal leaving the ledger untouched (unknown order, another key, no invoice, bad
+  invoice, wrong status; wrong amount, address, no bond, another key), a second bond invoice refused, the ack with no request id, silence on an older node, any
+  other action refused. Two mutation spot checks (ack echoing the request id; the buyer check removed) are caught by their tests.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 619 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.

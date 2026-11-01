@@ -22,6 +22,12 @@ claim window passed), validates the invoice amount against the counterparty shar
 `bond-invoice-accepted` with an order payload through `enqueue_payout_ack`, which sets **no request id**. Payment follows on the scheduler; a later
 `bond-payout-completed` is out of scope. Older nodes send nothing on success (the legacy command's "timeout is success" reading).
 
+## What the legacy commands did locally
+
+`addinvoice` printed the node's reply through `print_dm_events`; only `waiting-seller-to-pay` changed the local row (status `waiting-payment`, an update
+failure surfaced as an error). `hold-invoice-payment-accepted`, `invoice-updated` and `bond-invoice-accepted` changed nothing locally, so FR-007's status
+update for `hold-invoice-payment-accepted` is new behavior, not a migration of old behavior. `addbondinvoice` treated a timeout as success.
+
 ## Consequences
 
 - Correlation must accept the order id (and author and addressee) when the reply has no request id; `msg::exchange` needs that option.

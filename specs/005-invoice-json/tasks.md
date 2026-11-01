@@ -9,7 +9,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
 
 ## Slices
 
-- [ ] **1. Characterize and extend the fixtures.** Pin what `addinvoice`/`addbondinvoice` do today (grammar, payload bytes, the bolt11-only check, the
+- [x] **1. Characterize and extend the fixtures.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Pin what `addinvoice`/`addbondinvoice` do today (grammar, payload bytes, the bolt11-only check, the
   timeout-is-success reading). Extend the scripted daemon with the add-invoice replies and refusals and the bond payout mode (ack with no request id,
   and silent). No production change.
 - [ ] **2. Store, correlation and outcomes.** `Store::trade_for_order`/`set_status`, `by_order` correlation in `msg::exchange`, `outcome/invoice.rs`,

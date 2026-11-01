@@ -409,6 +409,185 @@ pub fn take_daemon(book: Book, bonded: bool) -> (Respond, Arc<Mutex<Book>>) {
     (respond, state)
 }
 
+/// An order of the scripted node that waits for its buyer to answer.
+#[derive(Clone, Debug)]
+pub struct Owed {
+    pub id: Uuid,
+    /// The buyer's trade key: the one key that may add an invoice.
+    pub buyer: PublicKey,
+    pub status: Status,
+    pub amount: i64,
+    /// A stored preimage means the seller already paid: the order goes active.
+    pub preimage: bool,
+    /// The invoice the node stored for the buyer.
+    pub invoice: Option<String>,
+}
+
+impl Owed {
+    pub fn waiting(id: Uuid, buyer: PublicKey) -> Self {
+        Self {
+            id,
+            buyer,
+            status: Status::WaitingBuyerInvoice,
+            amount: 15_000,
+            preimage: false,
+            invoice: None,
+        }
+    }
+
+    pub fn small(&self, status: Status) -> SmallOrder {
+        SmallOrder::new(
+            Some(self.id),
+            Some(OrderKind::Sell),
+            Some(status),
+            self.amount,
+            "USD".to_string(),
+            None,
+            None,
+            15,
+            "bank transfer".to_string(),
+            1,
+            None,
+            None,
+            None,
+            Some(1_792_108_800),
+            Some(1_792_195_200),
+        )
+    }
+}
+
+/// A slashed bond whose share the node owes to `recipient`.
+#[derive(Clone, Debug)]
+pub struct BondOwed {
+    pub order: Uuid,
+    pub recipient: PublicKey,
+    pub share: i64,
+    /// Still waiting for an invoice (`pending-payout`).
+    pub open: bool,
+    pub invoice: Option<String>,
+}
+
+/// What the scripted node remembers about invoices it waits for.
+#[derive(Clone, Debug, Default)]
+pub struct Ledger {
+    pub orders: Vec<Owed>,
+    pub bonds: Vec<BondOwed>,
+}
+
+/// The one invoice the scripted node accepts for a bond share of `share` sats.
+pub fn payout_invoice(share: i64) -> String {
+    format!("lnbcrt{share}n1bondpayoutinvoice")
+}
+
+/// The daemon's rules for `add-invoice` and `add-bond-invoice`, from its source
+/// (`add_invoice_action`, `add_bond_invoice_action`): neither carries a trade
+/// index; the order is found by id; only the buyer (or the bond's recipient)
+/// may answer; the invoice is validated; then the status decides the reply.
+/// `acks` models a node (v0.20.1) that sends `bond-invoice-accepted`, which
+/// carries **no request id**; without it the node stays silent on success,
+/// as older nodes do.
+pub fn invoice_daemon(ledger: Ledger, acks: bool) -> (Respond, Arc<Mutex<Ledger>>) {
+    let state = Arc::new(Mutex::new(ledger));
+    let shared = Arc::clone(&state);
+    let respond: Respond = Arc::new(move |request: &Received| {
+        let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+        let mut ledger = shared.lock().unwrap();
+        match request.action {
+            Action::AddInvoice => {
+                let Some(position) = ledger
+                    .orders
+                    .iter()
+                    .position(|order| Some(order.id) == request.order_id)
+                else {
+                    return refuse(CantDoReason::NotFound);
+                };
+                let order = ledger.orders[position].clone();
+                if order.buyer != request.author {
+                    return refuse(CantDoReason::InvalidPeer);
+                }
+                let Some(invoice) = request.invoice.clone() else {
+                    return refuse(CantDoReason::InvalidInvoice);
+                };
+                if !invoice.starts_with("ln") && !invoice.contains('@') {
+                    return refuse(CantDoReason::InvalidInvoice);
+                }
+                let reply = |action, payload| {
+                    Message::new_order(Some(order.id), request.request_id, None, action, payload)
+                };
+                let entry = &mut ledger.orders[position];
+                match (order.status, order.preimage) {
+                    (Status::WaitingBuyerInvoice, true) => {
+                        entry.status = Status::Active;
+                        entry.invoice = Some(invoice);
+                        vec![Outgoing::to_requester(reply(
+                            Action::HoldInvoicePaymentAccepted,
+                            Some(Payload::Order(order.small(Status::Active))),
+                        ))]
+                    }
+                    (Status::WaitingBuyerInvoice, false) => {
+                        entry.status = Status::WaitingPayment;
+                        entry.invoice = Some(invoice);
+                        vec![Outgoing::to_requester(reply(
+                            Action::WaitingSellerToPay,
+                            None,
+                        ))]
+                    }
+                    (Status::SettledHoldInvoice, _) => {
+                        entry.invoice = Some(invoice);
+                        vec![Outgoing::to_requester(reply(Action::InvoiceUpdated, None))]
+                    }
+                    _ => refuse(CantDoReason::NotAllowedByStatus),
+                }
+            }
+            Action::AddBondInvoice => {
+                let Some(position) = ledger.bonds.iter().position(|bond| {
+                    Some(bond.order) == request.order_id
+                        && bond.recipient == request.author
+                        && bond.open
+                }) else {
+                    return refuse(CantDoReason::NotAllowedByStatus);
+                };
+                let bond = ledger.bonds[position].clone();
+                match request.invoice.as_deref() {
+                    Some(invoice) if invoice == payout_invoice(bond.share) => {}
+                    _ => return refuse(CantDoReason::InvalidInvoice),
+                }
+                ledger.bonds[position].open = false;
+                ledger.bonds[position].invoice = request.invoice.clone();
+                if !acks {
+                    return Vec::new();
+                }
+                let small = SmallOrder::new(
+                    Some(bond.order),
+                    Some(OrderKind::Sell),
+                    Some(Status::Success),
+                    bond.share,
+                    "USD".to_string(),
+                    None,
+                    None,
+                    0,
+                    "bank transfer".to_string(),
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                vec![Outgoing::to_requester(Message::new_order(
+                    Some(bond.order),
+                    None,
+                    None,
+                    Action::BondInvoiceAccepted,
+                    Some(Payload::Order(small)),
+                ))]
+            }
+            _ => refuse(CantDoReason::InvalidAction),
+        }
+    });
+    (respond, state)
+}
+
 /// What the daemon sends for each request it receives.
 pub type Respond = Arc<dyn Fn(&Received) -> Vec<Outgoing> + Send + Sync>;
 
