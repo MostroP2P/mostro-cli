@@ -3991,3 +3991,19 @@ Native Linux, rustc 1.97.0, on `develop` after `05eb60b` (pushed). Lean mode: th
   17 edited variants (unknown result, uppercase key, bad id, missing key, wrong status or stages, a store error on a bond, a numeric share, ...) do not conform.
 - **Mutation spot checks** (3): the order invoice not requiring a writable store, a bond requiring one, and a changed unwritable-stdout line are each caught.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 676 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 6: Documentation, Boundaries, Verification: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `6c2020a` (pushed; CI was green through slice 4b with the Windows runner, slice 5 was running). Documentation only;
+no production change.
+
+- **Docs**: architecture (modules, `resolve_base`, the order-id match, the two stage vocabularies), command reference (both commands, the MCP `add_invoice` break and
+  the retired "timeout means success" reading), README (usage, the JSON command list), `AGENTS.md` and the resume prompt in `docs/ai-development.md`.
+- **Validation guide** (`specs/005-invoice-json/quickstart.md`): focused commands, an offline smoke check (run and confirmed: exit 2, 1, 2, 2 and an empty home), the
+  acceptance matrix mapped to tests, and the regtest probe procedure for `order add-invoice`.
+- **Requirement evidence** (`tests/README.md`, "Add Invoice: Requirement Evidence"): FR-001 to FR-010 and SC-001 to SC-005 verified on Linux against the scripted node;
+  SC-006 stays **open**.
+- **Open items**: the regtest probe of `order add-invoice` (needs authorization; `bond add-invoice` cannot be probed on regtest, which has no bonds, so the
+  acknowledgement with no request id remains an assumption from the v0.20.1 source); the MCP `add_invoice` migration; the status update on
+  `hold-invoice-payment-accepted`, which the legacy command never did; and, for the whole flow, a command that reads the node's messages.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 676 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.

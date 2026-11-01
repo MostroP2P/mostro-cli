@@ -20,7 +20,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   schemas and fixtures, README and command-reference migration. **4b**: binary scenarios.
 - [x] **5. Failure matrix and examples.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input,
   secret sentinels (including the invoice), unwritable streams; `contracts/examples.json` and its validation.
-- [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration (MCP `add_invoice`), requirement evidence, quickstart with
+- [x] **6. Docs, boundaries, verification.** (done 2026-11-01; the regtest probe stays open) Architecture, command reference, README migration (MCP `add_invoice`), requirement evidence, quickstart with
   the regtest probe procedure for `order add-invoice`; the probe stays open until separately authorized.
 
 ## Requirement ownership
