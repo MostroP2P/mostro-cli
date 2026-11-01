@@ -21,7 +21,7 @@ use mostro_core::prelude::{
 };
 use nostr_sdk::prelude::{
     Client, ClientNotification, Event, EventBuilder, EventId, Filter, FinalizeEvent, Keys, Kind,
-    PublicKey, Tag,
+    PublicKey, Tag, Timestamp,
 };
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
@@ -586,6 +586,108 @@ pub fn invoice_daemon(ledger: Ledger, acks: bool) -> (Respond, Arc<Mutex<Ledger>
         }
     });
     (respond, state)
+}
+
+// --- The mailbox: messages the node volunteers --------------------------------
+
+/// A message as the relay would hold it after the node sent it to `to`: authored
+/// and signed by `node`, encrypted for `to`, tagged with it, created at `at`.
+/// The scripted node answers requests; this is for what a real node sends on its
+/// own (after a bond is paid, when a seller pays, when a bond is slashed).
+pub async fn node_event(node: &Keys, to: PublicKey, message: &Message, at: Timestamp) -> Event {
+    let wrapped = wrap_message_with(
+        Transport::Nip44Direct,
+        message,
+        node,
+        node,
+        to,
+        WrapOptions::default(),
+    )
+    .await
+    .unwrap();
+    EventBuilder::new(Kind::PrivateDirectMessage, wrapped.content.clone())
+        .tags(wrapped.tags.clone())
+        .custom_created_at(at)
+        .finalize(node)
+        .unwrap()
+}
+
+/// `pay-bond-invoice`: the parked order and the bond invoice.
+pub fn mail_pay_bond_invoice(order: &SmallOrder, invoice: &str) -> Message {
+    Message::new_order(
+        order.id,
+        Some(1),
+        None,
+        Action::PayBondInvoice,
+        Some(Payload::PaymentRequest(
+            Some(order.clone()),
+            invoice.to_string(),
+            None,
+        )),
+    )
+}
+
+/// `add-invoice`: the order to answer with an invoice.
+pub fn mail_add_invoice(order: &SmallOrder) -> Message {
+    Message::new_order(
+        order.id,
+        Some(1),
+        None,
+        Action::AddInvoice,
+        Some(Payload::Order(order.clone())),
+    )
+}
+
+/// `pay-invoice`: the hold invoice the seller must pay.
+pub fn mail_pay_invoice(order: &SmallOrder, invoice: &str) -> Message {
+    Message::new_order(
+        order.id,
+        Some(1),
+        None,
+        Action::PayInvoice,
+        Some(Payload::PaymentRequest(
+            Some(order.clone()),
+            invoice.to_string(),
+            None,
+        )),
+    )
+}
+
+/// `waiting-seller-to-pay`: no payload.
+pub fn mail_waiting_seller(order: Uuid) -> Message {
+    Message::new_order(Some(order), Some(1), None, Action::WaitingSellerToPay, None)
+}
+
+/// `cant-do` with a reason.
+pub fn mail_cant_do(reason: CantDoReason) -> Message {
+    Message::cant_do(None, Some(1), Some(Payload::CantDo(Some(reason))))
+}
+
+/// `add-bond-invoice`: the request for the payout invoice of a slashed bond.
+pub fn mail_bond_payout_request(order: &SmallOrder, slashed_at: i64) -> Message {
+    Message::new_order(
+        order.id,
+        None,
+        None,
+        Action::AddBondInvoice,
+        Some(Payload::BondPayoutRequest(
+            mostro_core::prelude::BondPayoutRequest {
+                order: order.clone(),
+                slashed_at,
+            },
+        )),
+    )
+}
+
+/// A message with a free-text payload.
+pub fn mail_text(order: Uuid, text: &str) -> Message {
+    Message::new_order(
+        Some(order),
+        None,
+        None,
+        Action::HoldInvoicePaymentAccepted,
+        Some(Payload::TextMessage(text.to_string())),
+    )
 }
 
 /// What the daemon sends for each request it receives.

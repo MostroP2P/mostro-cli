@@ -1715,3 +1715,50 @@ mod invoice_grammar {
         }
     }
 }
+
+/// What `getdm` accepts today (spec 006, slice 1), pinned before it is replaced
+/// by `message list`.
+mod getdm_characterization {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
+
+    fn parse(args: &[&str]) -> Result<(i64, bool), clap::Error> {
+        let argv = ["mostro-cli", "getdm"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::GetDm { since, from_user }) => Ok((since, from_user)),
+            _ => panic!("not getdm"),
+        }
+    }
+
+    #[test]
+    fn the_window_defaults_to_thirty_minutes_and_peer_chat_is_off() {
+        assert_eq!(parse(&[]).unwrap(), (30, false));
+    }
+
+    #[test]
+    fn both_options_have_short_and_long_forms_and_the_long_flag_is_squashed() {
+        assert_eq!(parse(&["-s", "90", "-f"]).unwrap(), (90, true));
+        assert_eq!(parse(&["--since", "90", "--fromuser"]).unwrap(), (90, true));
+        assert!(
+            parse(&["--from-user"]).is_err(),
+            "the hyphenated spelling is unknown"
+        );
+    }
+
+    #[test]
+    fn the_window_is_any_integer_including_zero_and_negative() {
+        assert_eq!(parse(&["--since", "0"]).unwrap().0, 0);
+        assert_eq!(parse(&["--since=-5"]).unwrap().0, -5);
+        assert!(parse(&["--since", "soon"]).is_err());
+        assert!(parse(&["--since", "1.5"]).is_err());
+    }
+
+    #[test]
+    fn it_is_a_registered_legacy_command_with_the_approved_name_and_no_json() {
+        let entry = lookup(&["getdm".to_string()]).expect("registered");
+        assert_eq!(entry.canonical, "message.list");
+        assert_eq!(entry.json, JsonSupport::Unsupported);
+    }
+}

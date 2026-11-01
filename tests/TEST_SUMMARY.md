@@ -4031,3 +4031,26 @@ stores were deleted. The node's version was not queried. The maintainer paid the
 - **Not verified**: `payment_accepted` (needs the seller to have paid first) and `invoice_updated` (needs a settled order); a valid invoice of the wrong amount; the node stopped during the request
   (not done on someone else's node); and **all of `bond add-invoice`**, which needs a slashed bond. The acknowledgement without a request id therefore remains an assumption from the v0.20.1 source.
 - **Nothing in the CLI needed to change.**
+
+## Message List, Slice 1: Characterization And Fixtures: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `22588e0` (pushed). No production change. Lean mode: the only evidence entry for the slice.
+
+- **Legacy `getdm` pinned**, removed with the command in slice 4:
+  - **Parser** (7 tests, `message_list_process::legacy_getdm`, over the public `parse_dm_events`): messages come back oldest first whatever the order of the events; `--since` is minutes
+    before now (200, 20 and 5 minutes old against windows of 300, 30 and 10), and a negative window is a cutoff in the future that drops everything; an event the key cannot open is
+    skipped silently; the time and the sender of each message are reported; a body that is not Mostro JSON and any kind other than 14 are skipped. **The author is not checked by
+    the parser**: an event signed by another key but addressed to the trade key is opened, so today only the relay filter (`author = node`) keeps impostors out. The new command must
+    check the author itself.
+  - **Grammar** (4 tests, `cli_functions::getdm_characterization`): `-s/--since` (default 30, any integer, zero and negative included) and `-f` with the long flag **squashed to
+    `--fromuser`** (`--from-user` is unknown); registered legacy as `message.list` with no JSON.
+  - **Read from source, not tested**: the key loop (one fetch per index from 1 to the context's trade index, a seven-day window and a 15 s timeout each, so N keys are N sequential
+    reads), `--from-user` decrypting peer chat, and the saves of the counterparty and solver pubkeys (already covered by the existing `persist_*` tests in `parser/dms.rs`).
+- **Mailbox fixture** (`tests/common/fake_mostro.rs`): `node_event(node, to, message, at)` builds the event a real node would leave on a relay (authored by the node, encrypted for the
+  trade key, tagged with it, **created at a chosen time**, re-signed), and `mail_*` constructors for the messages of the flow: `pay-bond-invoice`, `add-invoice`, `pay-invoice`,
+  `waiting-seller-to-pay`, `cant-do`, the bond payout request and a free-text message. The scripted node answers requests; this is for what a node volunteers.
+- **Self-tests** (5, `message_list_process::mailbox`): a node event opens with the addressed key and with no other, is authored by the node, verifies and keeps its time; every
+  constructor round-trips with the right action and order; the bond payload arrives intact; **one filter with several `p` keys returns exactly those keys' messages from the node and
+  nothing from an impostor or another key**, and its `since` drops older messages (the filter the new command will use, against the relay the tests use).
+- **Mutation spot checks** (2): the fixture ignoring the given time, and dropping the recipient tag, are each caught by two tests.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 692 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
