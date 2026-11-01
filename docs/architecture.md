@@ -103,8 +103,6 @@ production lines, and removed `cli/orders_info.rs`; `cli.rs` shrank to 189. The 
 | Source under src/ | Physical | Test-only | Production |
 | --- | ---: | ---: | ---: |
 | cli.rs | 463 | 147 | 316 |
-| cli/add_bond_invoice.rs | 106 | 0 | 106 |
-| cli/add_invoice.rs | 93 | 0 | 93 |
 | cli/adm_send_dm.rs | 37 | 0 | 37 |
 | cli/args.rs | 80 | 0 | 80 |
 | cli/commands.rs | 316 | 0 | 316 |
@@ -204,7 +202,7 @@ violation.
   - Very thin; most logic starts in `src/cli.rs`.
 
 - **`src/cli.rs`** (facade and dispatcher)
-  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
+  - Declares one submodule per legacy command (`adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
   - Re-exports `Cli`, `Commands`, `OrderCommands`, `Context`, the registry (`lookup`, `REGISTRY`, `JsonSupport`) and the discovery types, so callers keep using `crate::cli::{...}`.
   - `run()`:
     - Parses `args_os()` through `parse_invocation`: help and version print text and exit 0; a rejected invocation exits 2 (a JSON error outcome only when JSON was clearly selected).
@@ -292,6 +290,7 @@ violation.
 - **`src/identity.rs`**, **`src/msg/exchange.rs`** (with `send_msg.rs`, `reply.rs`, `node_info.rs`), **`src/commands/order/info.rs`**, **`src/cli/migrated.rs`**: the read-only identity loader, the correlated request and reply, the typed `order.info` operation, and the extracted dispatch of the migrated commands (discovery, listing, info).
 - **`src/store.rs`**, **`src/commands/order/new.rs`**, **`src/cli/order_new.rs`**, **`src/outcome/new.rs`**: the first migrated write. `Store` opens the existing `mcli.db` for writing (never creates it; one operation per open) to read the next trade key and index, advance the index and save the order with the index in one transaction. `order_new` is the typed `order.new` operation, `cli/order_new.rs` its dispatch (validation, `--yes`, preview and prompt) and `outcome/new.rs` the validated input and the data. `Envelope::uncertain` is the only constructor of the `uncertain` status.
 - **`src/cli/write.rs`**, **`src/commands/order/write.rs`**, **`src/commands/order/take.rs`**, **`src/cli/order_take.rs`**, **`src/outcome/take.rs`**: what the write commands share and the takes. `cli/write.rs` resolves configuration, identity, store and the next trade, applies the JSON `--yes` rule, asks the question and presents the outcome; `commands/order/write.rs` (`Sent`) maps every way an exchange can end to an outcome and states the trade-index policy once. `order_take` serves both sides: take-sell accepts `add-invoice` or `waiting-seller-to-pay`, take-buy `pay-invoice`; the minimal row for `waiting-seller-to-pay` comes from the request, with no second read. `outcome/take.rs` holds the validated input, the legacy-compatible payload and `OrderTakeData` with its `next_step`; the hold invoice is data and appears nowhere else.
+- **`src/commands/order/invoice.rs`**, **`src/cli/invoice.rs`**, **`src/outcome/invoice.rs`**: `order add-invoice` and `bond add-invoice`. They reuse `cli/write.rs` through `resolve_base` (configuration, identity, store; writable only for the order invoice) but reserve no trade: the order's stored key (`Store::order_keys`) signs, no trade index is carried and none is spent. `msg::exchange` can also match an acknowledgement that has no request id on the order it names (`Expect::by_order`), which `bond-invoice-accepted` needs. After an accepted `order add-invoice` the local status follows the reply (`Store::set_status`); a failure to update it is the warning `local_status_stale`. `outcome/invoice.rs` holds the validated input (an order invoice is BOLT-11 or an address, a bond invoice BOLT-11 only), both data types and the two stage vocabularies (`Stages::Update`, `Stages::Delivery`).
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text.
@@ -315,7 +314,7 @@ Each file in `src/cli/` encapsulates the logic of a specific feature or a group 
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs` and `cli/schema.rs`.
+Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs`, `cli/invoice.rs` and `cli/schema.rs`.
 
 ### Typical flow: creating a new order
 

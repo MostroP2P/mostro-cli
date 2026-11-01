@@ -2,8 +2,6 @@ use anyhow::Result;
 use nostr_sdk::prelude::PublicKey;
 use std::str::FromStr;
 
-use super::add_bond_invoice::execute_add_bond_invoice;
-use super::add_invoice::execute_add_invoice;
 use super::adm_send_dm::execute_adm_send_dm;
 use super::commands::Commands;
 use super::context::Context;
@@ -102,12 +100,7 @@ impl Commands {
             // Order management commands
             Commands::Order { .. } => unreachable!("public listing runs without a Context"),
             Commands::Schema => unreachable!("discovery runs without a Context"),
-            Commands::AddInvoice { order_id, invoice } => {
-                execute_add_invoice(order_id, invoice, ctx).await
-            }
-            Commands::AddBondInvoice { order_id, invoice } => {
-                execute_add_bond_invoice(order_id, invoice, ctx).await
-            }
+            Commands::Bond { .. } => unreachable!("bond commands run without a Context"),
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 
             // DM retrieval commands

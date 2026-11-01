@@ -321,7 +321,7 @@ Buyer-as-taker flow against an existing sell order:
 3. **If you didn't provide an invoice, add one when prompted:**
 
    ```bash
-   mostro-cli addinvoice -o <order-id> -i lnbc...
+   mostro-cli order add-invoice --order <order-id> --invoice lnbc...
    ```
 
 4. **Pay the seller in fiat** using the agreed payment method.
@@ -592,7 +592,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 ### Taking orders
 - `order take-sell --order <id> [--invoice <invoice>] [--amount <fiat>] [--yes]` — buyer takes a sell order (supports `--output json`, which requires `--yes`). Replaces `takesell`.
 - `order take-buy --order <id> [--amount <fiat>] [--yes]` — seller takes a buy order (supports `--output json`, which requires `--yes`). Replaces `takebuy`.
-- `addinvoice -o <id> -i <invoice>` — buyer adds an invoice after taking.
+- `order add-invoice --order <id> --invoice <invoice> [--yes]` — buyer sends the invoice the node asked for after a take (supports `--output json`, which requires `--yes`). Replaces `addinvoice`; uses the order's stored key, spends no trade index.
 
 ### Trade lifecycle
 - `fiatsent -o <id>` — buyer confirms fiat sent.
@@ -600,7 +600,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `cancel -o <id>` — cancel a pending order or cooperatively cancel later.
 - `rate -o <id> -r <1-5>` — rate counterpart.
 - `dispute -o <id>` — open a dispute.
-- `addbondinvoice -o <id> -i <invoice>` — reply to a bond payout request with an invoice for your share of a slashed bond.
+- `bond add-invoice --order <id> --invoice <bolt11> [--yes]` — reply to a bond payout request with an invoice for your share of a slashed bond (supports `--output json`, which requires `--yes`; BOLT-11 only). Replaces `addbondinvoice`; without a confirmation from the node the result is `uncertain`, not success.
 
 ### Messaging
 - `getdm [--since <min>] [--from-user]` — fetch recent DMs.
@@ -641,7 +641,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell` and `order take-buy` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -655,7 +655,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Six commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info`, `order new`, `order take-sell` and `order take-buy` (the last three need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Eight commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` (the last five need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

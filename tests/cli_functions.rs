@@ -927,7 +927,7 @@ mod output_intent {
             &["getlasttradeindex"],
             &["restore"],
             &["admmaintenancestatus"],
-            &["addinvoice", "--orderid", ORDER, "--invoice", "lnbc1"],
+            &["fiatsent", "--orderid", ORDER],
         ];
         for suffix in valid {
             let argv = [&["--output", "json"][..], suffix].concat();
@@ -938,12 +938,12 @@ mod output_intent {
         }
         check(&[
             (
-                &["--output", "json", "addinvoice"],
-                Expect::Json(Some(&["addinvoice"])),
+                &["--output", "json", "fiatsent"],
+                Expect::Json(Some(&["fiatsent"])),
             ),
             (
-                &["--output", "json", "addinvoice", "--orderid", "not-a-uuid"],
-                Expect::Json(Some(&["addinvoice"])),
+                &["--output", "json", "fiatsent", "--orderid", "not-a-uuid"],
+                Expect::Json(Some(&["fiatsent"])),
             ),
             (
                 &["--output", "json", "getlasttradeindex", "--bogus"],
@@ -954,7 +954,7 @@ mod output_intent {
                 &["--output", "json", "nosuch", "--bogus"],
                 Expect::Json(None),
             ),
-            (&["addinvoice"], Expect::Human),
+            (&["fiatsent"], Expect::Human),
         ]);
     }
 
@@ -1081,8 +1081,6 @@ mod registry {
     const APPROVED: [(&[&str], &str); 34] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
-        (&["addinvoice"], "order.add-invoice"),
-        (&["addbondinvoice"], "bond.add-invoice"),
         (&["getdm"], "message.list"),
         (&["getdmuser"], "chat.history"),
         (&["disputechat"], "dispute.chat"),
@@ -1113,6 +1111,8 @@ mod registry {
         (&["order", "new"], "order.new"),
         (&["order", "take-sell"], "order.take-sell"),
         (&["order", "take-buy"], "order.take-buy"),
+        (&["order", "add-invoice"], "order.add-invoice"),
+        (&["bond", "add-invoice"], "bond.add-invoice"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1186,7 +1186,8 @@ mod registry {
                         )
                     );
                 }
-                "order.new" | "order.take-sell" | "order.take-buy" => {
+                "order.new" | "order.take-sell" | "order.take-buy" | "order.add-invoice"
+                | "bond.add-invoice" => {
                     assert_eq!(entry.json, JsonSupport::Write);
                     assert_eq!(
                         entry.stages::<()>(),
@@ -1251,7 +1252,9 @@ mod registry {
                 "order.info",
                 "order.new",
                 "order.take-sell",
-                "order.take-buy"
+                "order.take-buy",
+                "order.add-invoice",
+                "bond.add-invoice"
             ]
         );
     }
@@ -1620,80 +1623,95 @@ mod order_take_grammar {
     }
 }
 
-/// What `addinvoice` and `addbondinvoice` accept today (spec 005, slice 1),
-/// pinned before they are replaced by `order add-invoice` and `bond add-invoice`.
-mod invoice_characterization {
+/// The grammar of `order add-invoice` and `bond add-invoice` (spec 005, slice 4).
+mod invoice_grammar {
     use clap::Parser;
-    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
-    use uuid::Uuid;
+    use mostro_client::cli::{
+        lookup, AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Cli, Commands, JsonSupport,
+        OrderCommands,
+    };
 
     const ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
 
-    fn parse(command: &str, args: &[&str]) -> Result<Commands, clap::Error> {
-        let argv = ["mostro-cli", command]
+    fn order(args: &[&str]) -> Result<AddInvoiceArgs, clap::Error> {
+        let argv = ["mostro-cli", "order", "add-invoice"]
             .into_iter()
             .chain(args.iter().copied());
-        Ok(Cli::try_parse_from(argv)?.command.expect("a command"))
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Order {
+                command: OrderCommands::AddInvoice(args),
+            }) => Ok(args),
+            _ => panic!("not order add-invoice"),
+        }
     }
 
-    fn fields(command: Commands) -> (Uuid, String) {
-        match command {
-            Commands::AddInvoice { order_id, invoice }
-            | Commands::AddBondInvoice { order_id, invoice } => (order_id, invoice),
-            _ => panic!("not an invoice command"),
+    fn bond(args: &[&str]) -> Result<AddBondInvoiceArgs, clap::Error> {
+        let argv = ["mostro-cli", "bond", "add-invoice"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Bond {
+                command: BondCommands::AddInvoice(args),
+            }) => Ok(args),
+            _ => panic!("not bond add-invoice"),
         }
     }
 
     #[test]
-    fn both_take_an_order_id_and_an_invoice_and_the_long_flag_is_squashed() {
-        for command in ["addinvoice", "addbondinvoice"] {
-            let short = fields(parse(command, &["-o", ID, "-i", "lnbc1x"]).unwrap());
-            let long = fields(parse(command, &["--orderid", ID, "--invoice", "lnbc1x"]).unwrap());
-            assert_eq!(short, long, "{command}");
-            assert!(
-                parse(command, &["--order-id", ID, "--invoice", "lnbc1x"]).is_err(),
-                "{command}: the hyphenated spelling is unknown"
-            );
-            assert_eq!(
-                (short.0.to_string(), short.1),
-                (ID.to_string(), "lnbc1x".to_string())
-            );
-        }
+    fn both_take_an_order_an_invoice_and_yes() {
+        let args = order(&["--order", ID, "--invoice", "lnbc1x"]).unwrap();
+        assert_eq!(args.order.to_string(), ID);
+        assert_eq!((args.invoice.as_str(), args.yes), ("lnbc1x", false));
+        let args = order(&["--order", &ID.to_uppercase(), "--invoice", "a@b.c", "--yes"]).unwrap();
+        assert_eq!(args.order.to_string(), ID, "a UUID in any case");
+        assert!(args.yes);
+
+        let args = bond(&["--order", ID, "--invoice", "lnbc1x", "--yes"]).unwrap();
+        assert_eq!(
+            (args.order.to_string(), args.invoice.as_str()),
+            (ID.to_string(), "lnbc1x")
+        );
+        assert!(args.yes);
     }
 
     #[test]
-    fn the_order_id_is_a_uuid_in_any_case_and_both_options_are_required() {
-        for command in ["addinvoice", "addbondinvoice"] {
-            let upper = fields(parse(command, &["-o", &ID.to_uppercase(), "-i", "x"]).unwrap());
-            assert_eq!(upper.0.to_string(), ID, "{command}");
-            assert!(
-                parse(command, &["-o", "not-a-uuid", "-i", "x"]).is_err(),
-                "{command}"
-            );
-            assert!(parse(command, &["-o", ID]).is_err(), "{command}");
-            assert!(parse(command, &["-i", "x"]).is_err(), "{command}");
-            assert!(parse(command, &[]).is_err(), "{command}");
-        }
-    }
-
-    #[test]
-    fn the_invoice_is_not_checked_by_the_grammar() {
-        for command in ["addinvoice", "addbondinvoice"] {
-            let (_, invoice) =
-                fields(parse(command, &["-o", ID, "-i", "buyer@example.com"]).unwrap());
-            assert_eq!(invoice, "buyer@example.com", "{command}");
-        }
-    }
-
-    #[test]
-    fn both_are_registered_legacy_commands_without_json() {
-        for (name, canonical) in [
-            ("addinvoice", "order.add-invoice"),
-            ("addbondinvoice", "bond.add-invoice"),
+    fn the_order_and_the_invoice_are_required_and_the_old_spellings_are_gone() {
+        for parse in [
+            |a: &[&str]| order(a).map(|_| ()),
+            |a: &[&str]| bond(a).map(|_| ()),
         ] {
-            let entry = lookup(&[name.to_string()]).expect(name);
+            assert!(parse(&[]).is_err());
+            assert!(parse(&["--order", ID]).is_err());
+            assert!(parse(&["--invoice", "lnbc1x"]).is_err());
+            assert!(parse(&["--order", "not-a-uuid", "--invoice", "lnbc1x"]).is_err());
+            for old in [
+                &["-o", ID, "-i", "lnbc1x"][..],
+                &["--orderid", ID, "--invoice", "lnbc1x"],
+                &["--order-id", ID, "--invoice", "lnbc1x"],
+            ] {
+                assert!(parse(old).is_err(), "{old:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_legacy_commands_are_gone_with_no_alias() {
+        for name in ["addinvoice", "addbondinvoice"] {
+            assert!(Cli::try_parse_from(["mostro-cli", name, "-o", ID, "-i", "x"]).is_err());
+            assert!(lookup(&[name.to_string()]).is_none(), "{name}");
+        }
+    }
+
+    #[test]
+    fn both_are_registered_write_commands_with_the_approved_names() {
+        for (path, canonical) in [
+            (["order", "add-invoice"], "order.add-invoice"),
+            (["bond", "add-invoice"], "bond.add-invoice"),
+        ] {
+            let path = path.map(str::to_string);
+            let entry = lookup(&path).expect(canonical);
             assert_eq!(entry.canonical, canonical);
-            assert_eq!(entry.json, JsonSupport::Unsupported, "{name}");
+            assert_eq!(entry.json, JsonSupport::Write, "{canonical}");
         }
     }
 }

@@ -17,23 +17,11 @@ pub enum Commands {
     /// Describe the machine interface offline: commands, inputs, results and
     /// errors. Needs no node, identity or network
     Schema,
-    /// Buyer add a new invoice to receive the payment
-    AddInvoice {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-        /// Invoice string
-        #[arg(short, long)]
-        invoice: String,
-    },
-    /// Reply to a bond payout request with an invoice for your share of a slashed bond
-    AddBondInvoice {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-        /// Invoice string
-        #[arg(short, long)]
-        invoice: String,
+    /// Slashed-bond commands
+    #[command(arg_required_else_help = true)]
+    Bond {
+        #[command(subcommand)]
+        command: BondCommands,
     },
     /// Get the latest direct messages
     GetDm {
@@ -274,6 +262,47 @@ pub enum OrderCommands {
     /// JSON output requires --yes
     #[command(name = "take-buy")]
     TakeBuy(TakeBuyArgs),
+    /// Send your invoice for an order you hold, as the node asked. Needs an
+    /// existing local identity (it never creates one), publishes one signed
+    /// request and updates the order's local status. JSON output requires --yes
+    #[command(name = "add-invoice")]
+    AddInvoice(AddInvoiceArgs),
+}
+
+#[derive(Subcommand, Clone)]
+#[clap(rename_all = "lower")]
+pub enum BondCommands {
+    /// Reply to a bond payout request with an invoice for your share of a
+    /// slashed bond. Needs an existing local identity (it never creates one)
+    /// and publishes one signed request. JSON output requires --yes
+    #[command(name = "add-invoice")]
+    AddInvoice(AddBondInvoiceArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct AddInvoiceArgs {
+    /// Id of the order the node asked an invoice for
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// Your invoice (BOLT-11 or Lightning address) for the sats
+    #[arg(long)]
+    pub invoice: String,
+    /// Send the invoice without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct AddBondInvoiceArgs {
+    /// Id of the order whose bond was slashed
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// A BOLT-11 invoice for exactly your share of the slashed bond
+    #[arg(long)]
+    pub invoice: String,
+    /// Send the invoice without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args, Clone, Debug)]

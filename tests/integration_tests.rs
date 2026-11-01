@@ -311,6 +311,14 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-take-buy-v1.json"
     );
+    const ADD_INVOICE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-add-invoice-v1.json"
+    );
+    const BOND_INVOICE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/bond-add-invoice-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -320,8 +328,10 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new take-sell take-buy; do cargo run -q -- --output json schema | jq \".data.commands[] | \
-    select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done";
+    for NAME in list info new take-sell take-buy add-invoice; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done; \
+    cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
+    .output_schema\" > docs/schemas/bond-add-invoice-v1.json";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -397,6 +407,20 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn invoice_schema_fixtures_match_the_generated_schemas() {
+        for (name, fixture) in [
+            ("order.add-invoice", ADD_INVOICE_FIXTURE),
+            ("bond.add-invoice", BOND_INVOICE_FIXTURE),
+        ] {
+            assert_eq!(
+                generated_output_schema(name),
+                read_json(fixture),
+                "stale fixture of {name}; {REGENERATE}"
+            );
+        }
+    }
+
+    #[test]
     fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
         let fixture = read_json(DISCOVERY_FIXTURE);
         let keys: Vec<&str> = fixture
@@ -439,6 +463,8 @@ mod schema_fixtures {
         assert_eq!(
             machine,
             [
+                "bond.add-invoice",
+                "order.add-invoice",
                 "order.info",
                 "order.list",
                 "order.new",

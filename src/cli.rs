@@ -1,5 +1,3 @@
-pub mod add_bond_invoice;
-pub mod add_invoice;
 pub mod adm_send_dm;
 pub mod conversation_key;
 pub mod dispute_chat;
@@ -21,6 +19,7 @@ pub mod user_info;
 mod args;
 mod commands;
 mod context;
+mod invoice;
 mod legacy;
 mod migrated;
 mod order_new;
@@ -30,7 +29,10 @@ mod schema;
 mod write;
 
 pub use args::Cli;
-pub use commands::{Commands, NewArgs, OrderCommands, TakeBuyArgs, TakeSellArgs};
+pub use commands::{
+    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, NewArgs, OrderCommands,
+    TakeBuyArgs, TakeSellArgs,
+};
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
 pub use schema::{

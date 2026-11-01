@@ -185,7 +185,11 @@ pub(super) fn scoped_codes<T: serde::Serialize + PartialEq + Copy>(
     own: &[T],
 ) -> Value {
     let mut codes: Vec<T> = pilot.to_vec();
-    codes.extend(own.iter().filter(|code| !pilot.contains(code)));
+    for code in own {
+        if !codes.contains(code) {
+            codes.push(*code);
+        }
+    }
     Value::Array(codes.iter().map(value).collect())
 }
 

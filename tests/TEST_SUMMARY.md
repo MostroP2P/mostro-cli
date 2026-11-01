@@ -3925,3 +3925,24 @@ Native Linux, rustc 1.97.0, on `develop` after `fb66dbd` (pushed). Lean mode: th
 - **Mutation spot checks** (3): the bond without its order-id match, the stale-status warning removed, and `waiting-seller-to-pay` recording no status are each caught.
 - **Gates**: fmt, clippy `-D warnings` (a `type_complexity` in the new tests fixed with an alias), `cargo test --locked --no-fail-fast` 659 passed and 0 failed
   (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 4a: The Commands: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `0070511` (pushed). Lean mode: the only evidence entry for 4a; the binary scenarios are 4b.
+
+- **Grammar**: `order add-invoice --order UUID --invoice INVOICE [--yes]` and a new `bond add-invoice --order UUID --invoice BOLT11 [--yes]` group
+  (`BondCommands`, `AddInvoiceArgs`, `AddBondInvoiceArgs`). `addinvoice`, `addbondinvoice`, `-o`, `--orderid`, `--order-id` and `-i` are gone with no alias;
+  `cli/add_invoice.rs` and `cli/add_bond_invoice.rs` (and their `execute_*` and unit tests) are removed. 4 grammar tests replace the 4 characterization tests
+  (options required, UUID in any case, old spellings rejected, legacy names unregistered, both registered as write commands with the approved names).
+- **Dispatch**: `cli/invoice.rs` (`prepare` shared by both: the `--yes` rule, validation, `resolve_base`, the order lookup for the preview and the question) over
+  `cli/write.rs`, whose `resolve` now builds on `resolve_base(cli, writable)`; the store is writable for the order invoice only. The preview shows the order and the
+  trade public key, never the invoice. `parse_human/invoice.rs` renders the preview and both results.
+- **Registry and discovery**: `order.add-invoice` and `bond.add-invoice` are `Write` entries at `["order","add-invoice"]` and `["bond","add-invoice"]` with generated
+  schemas (`OutcomeRules::invoice`) and the machine configuration names; fixtures `docs/schemas/order-add-invoice-v1.json`, `bond-add-invoice-v1.json` and the
+  regenerated discovery, with a drift test. The legacy samples in the output-intent and failure-matrix tests moved to `fiatsent`.
+- **Found and fixed on the way**: the generated `ErrorCode` enums of `order new` and both takes listed `pow_required` and `request_rejected` twice (an error list
+  merged with the uncertain list); `scoped_codes` now keeps each code once and those fixtures are regenerated.
+- **Hints**: the human hints that named `addinvoice` and `addbondinvoice` (take-sell's next step, the bond payout request) now name the new commands.
+- **Docs**: README, command reference and architecture describe the new commands and drop the old ones.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 656 passed and 0 failed (no FAILED line), build, MSRV 1.94.0. Mutation checks and the
+  binary scenarios follow in 4b.

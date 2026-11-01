@@ -61,7 +61,7 @@ pub fn render_taken(data: &OrderTakeData) -> String {
         NextStep::AddInvoice => {
             let _ = writeln!(
                 out,
-                "💡 Next: send your invoice for this order with `addinvoice`."
+                "💡 Next: send your invoice with `order add-invoice --order <id> --invoice <invoice>`."
             );
         }
         NextStep::WaitForSellerPayment => {

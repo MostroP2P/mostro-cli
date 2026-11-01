@@ -30,8 +30,6 @@
         "store_unwritable",
         "reply_timeout",
         "reply_malformed",
-        "request_rejected",
-        "pow_required",
         "order_not_saved"
       ],
       "type": "string"
