@@ -3946,3 +3946,24 @@ Native Linux, rustc 1.97.0, on `develop` after `0070511` (pushed). Lean mode: th
 - **Docs**: README, command reference and architecture describe the new commands and drop the old ones.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 656 passed and 0 failed (no FAILED line), build, MSRV 1.94.0. Mutation checks and the
   binary scenarios follow in 4b.
+
+## Add Invoice, Slice 4b: Binary Scenarios: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `75bcc6a`. Lean mode: the only evidence entry for 4b. The real binary runs against the scripted node and a seeded
+sandbox store (`tests/invoice_process.rs::operation`, 9 scenarios).
+
+- **Accepted, JSON**: `order add-invoice` exits 0 with one document that conforms to the checked-in schema, `waiting_seller_payment`, stages published/accepted/applied,
+  the local status `waiting-payment`, the trade index unchanged, one request carrying the invoice, `--verbose` printing only `verbose: order.add-invoice ok`; the
+  trade key, the invoice and the relay address appear in no stream. `bond add-invoice` exits 0 with `invoice_accepted` and the share, persistence `not_attempted`,
+  and the sandbox directory byte-identical.
+- **Confirmation**: JSON without `--yes` is `invalid_arguments` (exit 2) for both commands, with nothing sent and nothing written; the human prompt accepts `y`,
+  blank and `Y\r\n` and declines `n`, `no`, anything else, empty input and a closed stdin (exit 1, `order_declined`, nothing sent); the preview names the order and
+  the trade key and never the invoice; the bond preview and result show the share.
+- **Unknown order**: fails before any question in both modes (`order_unknown`, fixed line on stderr, nothing sent, nothing written).
+- **Refusal**: `node_refused` with the reason in JSON and in the human line, exit 1, one request per run, nothing written.
+- **Silence**: a silent (older) node is `uncertain` / `reply_timeout` after the production reply budget, never retried; the human run prints the bond-specific
+  advice. (This also showed the older node *had* accepted: a second invoice to the same node is then refused, which is why a fresh node is used for the human run.)
+- **Stale local status**: a forced update failure is still exit 0 with persistence `failed` and the warning `local_status_stale`.
+- **Invalid input**: a malformed order invoice and an address for a bond are `invalid_arguments` before anything happens and are never echoed.
+- **Mutation spot checks** (2): the `--yes` rule removed and the bond share line removed are each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 665 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.

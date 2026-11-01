@@ -22,6 +22,8 @@ use uuid::Uuid;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{
     info_event, invoice_daemon, payout_invoice, seed_identity, BondOwed, FakeMostro, Ledger, Owed,
@@ -1242,5 +1244,418 @@ mod operation {
 
         assert_eq!(outcome.error_code(), Some(ErrorCode::OrderUnknown));
         assert!(holder.fake.received().is_empty());
+    }
+
+    // --- The binary (slice 4b) ---
+
+    use harness::{run_with_watchdog, Captured, WATCHDOG};
+    use std::process::Stdio;
+
+    const ORDER: &str = "00000000-0000-0000-0000-000000000001";
+    const BOND_ORDER: &str = "00000000-0000-0000-0000-000000000009";
+    const SENTINEL_INVOICE: &str = "lnbcrt1buyerinvoiceSENTINEL";
+
+    /// `<front> order add-invoice --order ORDER --invoice SENTINEL <tail>`.
+    fn order_args<'a>(front: &[&'a str], tail: &[&'a str]) -> Vec<&'a str> {
+        let mut all: Vec<&str> = front.to_vec();
+        all.extend(["order", "add-invoice", "--order", ORDER]);
+        all.extend(["--invoice", SENTINEL_INVOICE]);
+        all.extend(tail);
+        all
+    }
+
+    fn bond_args<'a>(front: &[&'a str], invoice: &'a str, tail: &[&'a str]) -> Vec<&'a str> {
+        let mut all: Vec<&str> = front.to_vec();
+        all.extend(["bond", "add-invoice", "--order", BOND_ORDER]);
+        all.extend(["--invoice", invoice]);
+        all.extend(tail);
+        all
+    }
+
+    fn command(holder: &Holder, args: &[&str]) -> tokio::process::Command {
+        let mut command = holder.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", holder.config.mostro_pubkey().to_hex())
+            .env("RELAYS", &holder._relay.url);
+        command
+    }
+
+    async fn run(holder: &Holder, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(command(holder, args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// Run with `answer` as the whole of stdin: a file the test wrote.
+    async fn run_answering(holder: &Holder, args: &[&str], answer: &str) -> Captured {
+        let path = std::env::temp_dir().join(format!(
+            "mcli-answer-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, answer).unwrap();
+        let mut command = command(holder, args);
+        command.stdin(Stdio::from(std::fs::File::open(&path).unwrap()));
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    fn document(run: &Captured) -> Value {
+        let stdout = run.stdout_text();
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{stdout}"
+        );
+        serde_json::from_str(&stdout).unwrap()
+    }
+
+    fn snapshot(holder: &Holder) -> Vec<(String, Vec<u8>)> {
+        let mut files: Vec<_> = std::fs::read_dir(holder.sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    fn conforms_to_the_checked_in_schema(kind: &str, outcome: &Value) {
+        let path = format!(
+            "{}/docs/schemas/{kind}-add-invoice-v1.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            schema_check::conforms(&schema, &schema, outcome),
+            "{outcome}"
+        );
+    }
+
+    #[tokio::test]
+    async fn order_add_invoice_in_json_is_accepted_and_nothing_secret_is_shown() {
+        let holder = plain().await;
+        let index = last_index(&holder).await;
+
+        let run = run(
+            &holder,
+            &order_args(&["--output", "json", "--verbose"], &["--yes"]),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(run.stderr_text(), "verbose: order.add-invoice ok\n");
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("order", &outcome);
+        assert_eq!(outcome["command"], "order.add-invoice");
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(outcome["data"]["result"], "waiting_seller_payment");
+        assert_eq!(outcome["data"]["order_id"], ORDER);
+        assert_eq!(outcome["data"]["order"], Value::Null);
+        assert_eq!(
+            outcome["meta"],
+            json!({"publication": "published", "daemon_acceptance": "accepted",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(holder.fake.received().len(), 1);
+        assert_eq!(
+            holder.fake.received()[0].invoice.as_deref(),
+            Some(SENTINEL_INVOICE)
+        );
+        assert_eq!(status_of(&holder, id(1)).await, "waiting-payment");
+        assert_eq!(last_index(&holder).await, index, "no trade index is spent");
+        let secret = holder.buyer.secret_key().to_secret_hex();
+        for stream in [run.stdout_text(), run.stderr_text()] {
+            assert!(!stream.contains(&secret), "the trade key leaked");
+            assert!(!stream.contains("SENTINEL"), "the invoice came back");
+            assert!(!stream.contains("127.0.0.1"), "a relay address leaked");
+        }
+    }
+
+    #[tokio::test]
+    async fn bond_add_invoice_in_json_is_accepted_and_writes_nothing() {
+        let holder = plain().await;
+        let before = snapshot(&holder);
+        let invoice = payout_invoice(SHARE);
+
+        let run = run(
+            &holder,
+            &bond_args(&["--output", "json", "--verbose"], &invoice, &["--yes"]),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(run.stderr_text(), "verbose: bond.add-invoice ok\n");
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("bond", &outcome);
+        assert_eq!(outcome["command"], "bond.add-invoice");
+        assert_eq!(outcome["data"]["result"], "invoice_accepted");
+        assert_eq!(outcome["data"]["counterparty_share_sats"], "5000");
+        assert_eq!(
+            outcome["meta"],
+            json!({"publication": "published", "daemon_acceptance": "accepted",
+                   "persistence": "not_attempted", "snapshot": null})
+        );
+        assert_eq!(snapshot(&holder), before, "a bond payout writes nothing");
+        assert!(!run.stdout_text().contains(&invoice));
+    }
+
+    #[tokio::test]
+    async fn json_without_yes_does_nothing_for_either_command() {
+        let invoice = payout_invoice(SHARE);
+        for (kind, args) in [
+            ("order", order_args(&["--output", "json"], &[])),
+            ("bond", bond_args(&["--output", "json"], &invoice, &[])),
+        ] {
+            let holder = plain().await;
+            let before = snapshot(&holder);
+
+            let run = run(&holder, &args).await;
+
+            assert_eq!(run.code(), Some(2), "{kind}: {}", run.stderr_text());
+            assert!(run.stderr.is_empty());
+            let outcome = document(&run);
+            conforms_to_the_checked_in_schema(kind, &outcome);
+            assert_eq!(outcome["error"]["code"], "invalid_arguments");
+            assert!(holder.fake.received().is_empty());
+            assert_eq!(snapshot(&holder), before);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_prompt_accepts_y_and_blank_and_declines_everything_else() {
+        for answer in ["y\n", "\n", "Y\r\n"] {
+            let holder = plain().await;
+            let run = run_answering(&holder, &order_args(&[], &[]), answer).await;
+            assert_eq!(run.code(), Some(0), "{answer:?}: {}", run.stderr_text());
+            let out = run.stdout_text();
+            assert!(
+                out.contains("Add Invoice Preview") && out.contains("Invoice Accepted"),
+                "{out}"
+            );
+            assert!(run.stderr_text().contains("Send this invoice? [Y/n]"));
+            assert!(!out.contains("SENTINEL") && !run.stderr_text().contains("SENTINEL"));
+            assert_eq!(
+                status_of(&holder, id(1)).await,
+                "waiting-payment",
+                "{answer:?}"
+            );
+        }
+        for answer in ["n\n", "no\n", "maybe\n", ""] {
+            let holder = plain().await;
+            let before = snapshot(&holder);
+            let run = run_answering(&holder, &order_args(&[], &[]), answer).await;
+            assert_eq!(run.code(), Some(1), "{answer:?}: {}", run.stderr_text());
+            assert!(!run.stdout_text().contains("Invoice Accepted"));
+            assert!(run
+                .stderr_text()
+                .contains("error: The order was not confirmed, so nothing was sent."));
+            assert!(holder.fake.received().is_empty(), "{answer:?}");
+            assert_eq!(snapshot(&holder), before, "{answer:?}");
+        }
+        let holder = plain().await;
+        let invoice = payout_invoice(SHARE);
+        let run = run_answering(&holder, &bond_args(&[], &invoice, &[]), "\n").await;
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let out = run.stdout_text();
+        assert!(
+            out.contains("Bond Payout Invoice Preview") && out.contains("Your share: 5000 sats"),
+            "{out}"
+        );
+        let closed = self::run(&holder, &order_args(&[], &[])).await;
+        assert_eq!(closed.code(), Some(1), "a closed stdin is not approval");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_order_fails_before_any_question_is_asked() {
+        let holder = plain().await;
+        let before = snapshot(&holder);
+        let other = "00000000-0000-0000-0000-000000000002";
+
+        let human = run(
+            &holder,
+            &[
+                "order",
+                "add-invoice",
+                "--order",
+                other,
+                "--invoice",
+                SENTINEL_INVOICE,
+            ],
+        )
+        .await;
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty());
+        assert_eq!(
+            human.stderr_text(),
+            "error: No local order has this id, so nothing was sent.\n"
+        );
+
+        let json = run(
+            &holder,
+            &[
+                "--output",
+                "json",
+                "order",
+                "add-invoice",
+                "--order",
+                other,
+                "--invoice",
+                SENTINEL_INVOICE,
+                "--yes",
+            ],
+        )
+        .await;
+        assert_eq!(json.code(), Some(1));
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("order", &outcome);
+        assert_eq!(outcome["error"]["code"], "order_unknown");
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(snapshot(&holder), before);
+    }
+
+    #[tokio::test]
+    async fn a_refusal_shows_its_reason_in_both_modes_and_changes_nothing() {
+        let holder = holder(
+            |buyer| {
+                vec![Owed {
+                    status: Status::Active,
+                    ..Owed::waiting(id(1), buyer)
+                }]
+            },
+            true,
+            0,
+            |respond| respond,
+        )
+        .await;
+        let before = snapshot(&holder);
+
+        let json = run(&holder, &order_args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("order", &outcome);
+        assert_eq!(outcome["error"]["code"], "node_refused");
+        assert_eq!(outcome["error"]["reason"], "not_allowed_by_status");
+        assert_eq!(outcome["data"], Value::Null);
+
+        let human = run(&holder, &order_args(&[], &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty());
+        assert_eq!(
+            human.stderr_text(),
+            "error: The node refused the request. (reason: not_allowed_by_status)\n"
+        );
+        assert_eq!(snapshot(&holder), before);
+        assert_eq!(holder.fake.received().len(), 2, "one request per run");
+    }
+
+    #[tokio::test]
+    async fn a_silent_node_is_uncertain_after_the_production_budget_and_is_never_retried() {
+        let holder = holder(waiting, false, 0, |respond| respond).await;
+        let invoice = payout_invoice(SHARE);
+        let started = std::time::Instant::now();
+
+        let json = run(
+            &holder,
+            &bond_args(&["--output", "json"], &invoice, &["--yes"]),
+        )
+        .await;
+
+        assert!(started.elapsed() >= ExchangeLimits::default().reply);
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        assert!(json.stderr.is_empty());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("bond", &outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "reply_timeout");
+        assert_eq!(outcome["meta"]["persistence"], "not_attempted");
+        assert_eq!(holder.fake.received().len(), 1, "never retried");
+
+        // The older node took the first invoice, so a second run needs a fresh node.
+        let holder = self::holder(waiting, false, 0, |respond| respond).await;
+        let human = run(&holder, &bond_args(&[], &invoice, &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        let err = human.stderr_text();
+        assert!(
+            err.contains("error: The node did not answer before the deadline."),
+            "{err}"
+        );
+        assert!(err.contains("an older node never confirms it"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_stale_local_status_is_a_warning_and_the_exit_is_still_success() {
+        let holder = plain().await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(holder.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query(
+            "CREATE TRIGGER freeze BEFORE UPDATE ON orders \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let run = run(&holder, &order_args(&["--output", "json"], &["--yes"])).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("order", &outcome);
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(outcome["meta"]["persistence"], "failed");
+        assert_eq!(outcome["warnings"][0]["code"], "local_status_stale");
+    }
+
+    #[tokio::test]
+    async fn invalid_invoices_are_rejected_before_anything_happens_without_echoing_them() {
+        let holder = plain().await;
+        let before = snapshot(&holder);
+        let secret = "SENTINEL value";
+
+        let order = run(
+            &holder,
+            &[
+                "--output",
+                "json",
+                "order",
+                "add-invoice",
+                "--order",
+                ORDER,
+                "--invoice",
+                secret,
+                "--yes",
+            ],
+        )
+        .await;
+        let bond = run(
+            &holder,
+            &bond_args(&["--output", "json"], "buyer@example.com", &["--yes"]),
+        )
+        .await;
+
+        for (kind, run) in [("order", order), ("bond", bond)] {
+            assert_eq!(run.code(), Some(2), "{kind}: {}", run.stderr_text());
+            let outcome = document(&run);
+            conforms_to_the_checked_in_schema(kind, &outcome);
+            assert_eq!(outcome["error"]["code"], "invalid_arguments");
+            for stream in [run.stdout_text(), run.stderr_text()] {
+                assert!(
+                    !stream.contains("SENTINEL") && !stream.contains("buyer@"),
+                    "{stream}"
+                );
+            }
+        }
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(snapshot(&holder), before);
     }
 }

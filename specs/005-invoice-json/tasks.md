@@ -16,7 +16,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   `order_unknown`, schemas for both names.
 - [x] **3. The operations.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Both commands against the scripted daemon: every accepted reply, refusals, silence, unusable reply, decoy replies,
   forced status-update failure, work stopping before anything is sent, no index spent.
-- [ ] **4. The commands.** (4a done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`; 4b open) **4a**: grammar (`bond` group), registry, `cli/invoice.rs`, `parse_human/invoice.rs`, removal of the legacy commands, generated
+- [x] **4. The commands.** (4a and 4b done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) **4a**: grammar (`bond` group), registry, `cli/invoice.rs`, `parse_human/invoice.rs`, removal of the legacy commands, generated
   schemas and fixtures, README and command-reference migration. **4b**: binary scenarios.
 - [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input,
   secret sentinels (including the invoice), unwritable streams; `contracts/examples.json` and its validation.
