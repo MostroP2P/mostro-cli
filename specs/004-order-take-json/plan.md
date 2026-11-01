@@ -1,6 +1,6 @@
 # Implementation Plan: Order Take
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-10-30 | **Status**: Proposed design; no implementation, no runtime evidence.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-10-30 | **Status**: Implemented (slices 1-6) with Linux evidence against a scripted fake daemon; behavior against a real daemon is unverified.
 
 ## Summary
 

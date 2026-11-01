@@ -118,8 +118,9 @@ relays, never break flows that worked before.
 ### 4.3 Where to plug it in — `wait_for_dm`
 
 `wait_for_dm` is the chokepoint for most request/reply flows
-(`add_invoice`, `take_order`, `take_dispute`, `send_msg`, `new_order`,
-`rate_user`, `orders_info`, `restore`, `last_trade_index`, `add_bond_invoice`).
+(`add_invoice`, `take_dispute`, `send_msg`, `rate_user`, `restore`,
+`last_trade_index`, `add_bond_invoice`; the migrated `order new`, `order info`
+and the takes use `msg::exchange`, which probes the same advertised work).
 Centralizing the base-`pow` probe here covers those commands in one place.
 
 **Exception — `getuserinfo`:** that command sends from a trade key that is

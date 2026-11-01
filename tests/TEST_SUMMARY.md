@@ -3391,6 +3391,23 @@ Native Linux, rustc 1.97.0, on `develop` after `0103425` (pushed). Lean mode: th
   `order_new_process` 40, `order_take_process` 35, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
 
+## Order Take, Slice 6: Docs And Verification: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `40f125c` (slice 5, not pushed when this was written; CI is green for the pushed slices up to 4b, Windows included).
+Documentation only; no production change. Lean mode: the only evidence entry for the slice.
+
+- **Docs**: `docs/architecture.md` (the legacy `take_order.rs` and its size row are gone, the shared write dispatch and the take modules are described, a "taking an order" flow
+  is added), `docs/pow_error_handling.md` (the list of flows through `wait_for_dm` no longer names the migrated commands), the requirement evidence in `tests/README.md`,
+  `specs/004-order-take-json/quickstart.md` (focused commands, offline smoke check, acceptance matrix, the six-step regtest probe procedure), and the status lines of the spec, plan,
+  `AGENTS.md`, `docs/ai-development.md` and the roadmap (Amendment 12). The README, command reference and database notes were migrated in slice 4a; the boundary counts and CI
+  wiring needed no change (the transport owners are still `msg`).
+- **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order take-sell` in JSON without `--yes` is `invalid_arguments` exit 2 naming
+  `order.take-sell`; `order take-buy --yes` with no configuration is `configuration_missing` exit 1; `takesell` is an unrecognized subcommand; nothing is created.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked` (600 tests), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass (no source
+  changed since slice 5).
+- **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), the MCP migration (`create_order`, `take_order`, `get_order` all break against
+  the CLI until then), Cashu escrow replies (reported as unusable), and the empty fields of the minimal row.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

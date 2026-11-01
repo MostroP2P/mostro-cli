@@ -128,7 +128,6 @@ production lines, and removed `cli/orders_info.rs`; `cli.rs` shrank to 189. The 
 | cli/send_dm.rs | 70 | 0 | 70 |
 | cli/send_msg.rs | 173 | 0 | 173 |
 | cli/take_dispute.rs | 463 | 60 | 403 |
-| cli/take_order.rs | 384 | 140 | 244 |
 | cli/user_info.rs | 83 | 0 | 83 |
 | commands/mod.rs | 3 | 0 | 3 |
 | commands/order/list.rs | 83 | 0 | 83 |
@@ -205,7 +204,7 @@ violation.
   - Very thin; most logic starts in `src/cli.rs`.
 
 - **`src/cli.rs`** (facade and dispatcher)
-  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
+  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
   - Re-exports `Cli`, `Commands`, `OrderCommands`, `Context`, the registry (`lookup`, `REGISTRY`, `JsonSupport`) and the discovery types, so callers keep using `crate::cli::{...}`.
   - `run()`:
     - Parses `args_os()` through `parse_invocation`: help and version print text and exit 0; a rejected invocation exits 2 (a JSON error outcome only when JSON was clearly selected).
@@ -292,6 +291,7 @@ violation.
 - **`src/commands/order/list.rs`**: `list_orders`, the typed `order.list` operation (validate, resolve public configuration, `fetch_msg`, select and map). It never prints, exits, writes storage or touches a client.
 - **`src/identity.rs`**, **`src/msg/exchange.rs`** (with `send_msg.rs`, `reply.rs`, `node_info.rs`), **`src/commands/order/info.rs`**, **`src/cli/migrated.rs`**: the read-only identity loader, the correlated request and reply, the typed `order.info` operation, and the extracted dispatch of the migrated commands (discovery, listing, info).
 - **`src/store.rs`**, **`src/commands/order/new.rs`**, **`src/cli/order_new.rs`**, **`src/outcome/new.rs`**: the first migrated write. `Store` opens the existing `mcli.db` for writing (never creates it; one operation per open) to read the next trade key and index, advance the index and save the order with the index in one transaction. `order_new` is the typed `order.new` operation, `cli/order_new.rs` its dispatch (validation, `--yes`, preview and prompt) and `outcome/new.rs` the validated input and the data. `Envelope::uncertain` is the only constructor of the `uncertain` status.
+- **`src/cli/write.rs`**, **`src/commands/order/write.rs`**, **`src/commands/order/take.rs`**, **`src/cli/order_take.rs`**, **`src/outcome/take.rs`**: what the write commands share and the takes. `cli/write.rs` resolves configuration, identity, store and the next trade, applies the JSON `--yes` rule, asks the question and presents the outcome; `commands/order/write.rs` (`Sent`) maps every way an exchange can end to an outcome and states the trade-index policy once. `order_take` serves both sides: take-sell accepts `add-invoice` or `waiting-seller-to-pay`, take-buy `pay-invoice`; the minimal row for `waiting-seller-to-pay` comes from the request, with no second read. `outcome/take.rs` holds the validated input, the legacy-compatible payload and `OrderTakeData` with its `next_step`; the hold invoice is data and appears nowhere else.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text.
@@ -305,17 +305,17 @@ violation.
 
 - **`src/lightning/mod.rs`**
   - Houses Lightning Network–specific helpers used by order flows and invoice handling (exact functions depend on the current version of the file).
-  - Typically used by `add_invoice`, `new_order`, and `take_order` modules.
+  - Typically used by `add_invoice` and the order flows.
 
 ### Command modules
 
 Each file in `src/cli/` encapsulates the logic of a specific feature or a group of related commands:
 
-- Order-related: `add_invoice.rs`, `take_order.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
+- Order-related: `add_invoice.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs` and `cli/schema.rs`.
+Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs` and `cli/schema.rs`.
 
 ### Typical flow: creating a new order
 
@@ -325,6 +325,15 @@ Each legacy module exports an `execute_*` function that `Commands::run` in `src/
 4. Human mode shows the preview and asks; JSON never prompts.
 5. `commands::order::new::order_new` sends one `new-order` through `msg::exchange`, signed by the trade key under the identity seal, and maps the reply: the order and the trade index are saved in one transaction (`store.rs`); a refusal writes nothing; a bond request, silence, an unusable reply or a failed save spend the index and, when the node may hold an order, end `uncertain`.
 6. The typed outcome is rendered by `parse_human::order_new` or `parse_machine::emit`.
+
+### Typical flow: taking an order
+
+1. User runs `mostro-cli order take-sell|take-buy --order <uuid> [--invoice ...] [--amount ...] --yes` (JSON mode requires `--yes`).
+2. `clap` parses `OrderCommands::TakeSell` or `TakeBuy`; `cli::migrated::run` hands it to `cli/order_take.rs`, with no legacy `Context`.
+3. `OrderTakeInput::validate`, then `cli/write.rs` resolves configuration, the read-only identity and the store, and picks the next trade, all before anything is published.
+4. Human mode shows the preview (never the invoice) and asks; JSON never prompts.
+5. `commands::order::take::order_take` sends one take through `msg::exchange` and maps the reply to a `next_step`; the order (the node's, or the minimal one) and the trade index are saved in one transaction. A refusal writes nothing; a bond request, silence, an unusable reply or a failed save spend the index and, when the node may hold the take, end `uncertain`.
+6. The typed outcome is rendered by `parse_human::order_take` or `parse_machine::emit`; the hold invoice is on stdout only.
 
 ### Extension guidelines
 

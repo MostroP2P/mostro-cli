@@ -226,3 +226,32 @@ references: [discovery](../docs/schemas/discovery-v1.json) and [order new](../do
 No scenario above is marked complete by documentation alone. Open: the regtest probe
 ([quickstart](../specs/003-order-new-json/quickstart.md)), the MCP `create_order` migration (it stays broken until then), and the
 duplicate-order risk of an `uncertain` run, which only the caller can check with `order list`.
+
+## Order Take: Requirement Evidence
+
+Reconciliation of the [specification](../specs/004-order-take-json/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-01. **Automated verification on Linux with loopback relays and a
+scripted fake daemon only**, plus the CI-hosted Windows runner for slices 1-5 (slice 6 is documentation). Not run against any real daemon, regtest or
+public node; the daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
+[CLI](../specs/004-order-take-json/contracts/cli.md), [data model](../specs/004-order-take-json/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json), [take-sell](../docs/schemas/order-take-sell-v1.json) and [take-buy](../docs/schemas/order-take-buy-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 options, validation, removed spellings | `order_take_grammar`, `outcome::take` unit tests, `invalid_input_is_an_argument_error_...` | Verified on Linux |
+| FR-002 existing identity only, nothing created | the identity cases of `failures_before_any_request_...` (both takes) | Verified on Linux |
+| FR-003 `--yes` in JSON, prompt in human, declined is a stable outcome | `json_without_yes_does_nothing_...`, `the_prompt_accepts_y_and_blank_...` | Verified on Linux |
+| FR-004 one request, trade key, index reserved late, no extra read | the operation tests, the refusal and local-failure cases that leave the index unspent, one request per run | Verified on Linux |
+| FR-005 correlation, deadline, cleanup | the `exchange` tests of `order new` and the replies that do not fit the take | Verified on Linux |
+| FR-006 next step as data, hold invoice only in the result | the three success tests, `a_take_buy_returns_the_hold_invoice_...`, the stream sweeps | Verified on Linux |
+| FR-007 row and index saved together, minimal row, unsaved is `uncertain` | the operation tests, both unsaved-take tests | Verified on Linux |
+| FR-008, FR-009 statuses, stages, stable codes | `outcome::take` schema tests, the binary scenarios, the failure matrix | Verified on Linux, except: no process-level `internal_error`; Cashu escrow replies are only covered as an unusable reply |
+| FR-010, FR-011 one document, own schemas, fixtures, drift | `integration_tests` (fixtures, examples, invalid variants) | Verified on Linux |
+| FR-012 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel and hold-invoice sweeps | Verified on Linux |
+| FR-013 legacy takes removed | `the_legacy_spellings_are_gone`, the removed-spelling cases | Verified on Linux |
+| SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
+| SC-006 no claim about a daemon | not run | Open: needs the authorized regtest probe |
+
+No scenario above is marked complete by documentation alone. Open: the regtest probe
+([quickstart](../specs/004-order-take-json/quickstart.md)), the MCP `take_order` migration (it stays broken until then), the minimal row's empty fields
+until a later command refreshes them, and the duplicate-take risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.

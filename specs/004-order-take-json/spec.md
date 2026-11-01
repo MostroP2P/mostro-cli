@@ -6,7 +6,7 @@
 
 **Created**: 2026-10-30
 
-**Status**: Clarified; not planned. Next: research (reply shapes from the daemon source), plan, data model, CLI contract, then lean slices in `tasks.md`.
+**Status**: Implemented and verified on Linux and (to slice 5, in CI) on the CI-hosted Windows runner against a scripted fake daemon; the regtest probe is open. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Fourth step of the AI-ready CLI roadmap (critical-path step 4): canonical `order take-sell` and `order take-buy`,
 replacing `takesell` and `takebuy`, with human and JSON output, the confirmation rule of `order new`, the `uncertain` status and a
