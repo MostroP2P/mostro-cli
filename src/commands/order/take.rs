@@ -12,6 +12,7 @@ use mostro_core::prelude::{Action, Message, Payload};
 use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
+pub use super::new::UNCERTAIN_CODES;
 use super::write::{self, Sent};
 use super::WriteOptions;
 use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
@@ -112,7 +113,3 @@ async fn answer(
 pub fn unsent(side: TakeSide, code: ErrorCode, warnings: Warnings) -> TakeOutcome {
     write::unsent(side.command(), code, warnings)
 }
-
-/// Codes that leave a take `uncertain` when it was published: those of
-/// `order.new` (the failures are the same).
-pub use super::new::UNCERTAIN_CODES;

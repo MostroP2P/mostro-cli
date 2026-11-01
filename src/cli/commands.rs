@@ -17,27 +17,6 @@ pub enum Commands {
     /// Describe the machine interface offline: commands, inputs, results and
     /// errors. Needs no node, identity or network
     Schema,
-    /// Take a sell order from a Mostro pubkey
-    TakeSell {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-        /// Invoice string
-        #[arg(short, long)]
-        invoice: Option<String>,
-        /// Amount of fiat to pay (someone is selling sats, you are buying)
-        #[arg(short, long)]
-        amount: Option<u32>,
-    },
-    /// Take a buy order from a Mostro pubkey
-    TakeBuy {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-        /// Amount of fiat to receive (someone is buying sats, you are selling)
-        #[arg(short, long)]
-        amount: Option<u32>,
-    },
     /// Buyer add a new invoice to receive the payment
     AddInvoice {
         /// Order id
@@ -285,6 +264,46 @@ pub enum OrderCommands {
     /// never creates one), publishes one signed request and saves the order the
     /// node creates. JSON output requires --yes
     New(NewArgs),
+    /// Take a sell order (you buy sats). Needs an existing local identity (it
+    /// never creates one), publishes one signed request and saves the trade.
+    /// JSON output requires --yes
+    #[command(name = "take-sell")]
+    TakeSell(TakeSellArgs),
+    /// Take a buy order (you sell sats). Needs an existing local identity (it
+    /// never creates one), publishes one signed request and saves the trade.
+    /// JSON output requires --yes
+    #[command(name = "take-buy")]
+    TakeBuy(TakeBuyArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct TakeSellArgs {
+    /// Id of the sell order to take
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// Your invoice (BOLT-11 or Lightning address) for the sats; without one
+    /// the node asks for it next
+    #[arg(long)]
+    pub invoice: Option<String>,
+    /// Fiat amount to buy, for a range order
+    #[arg(long)]
+    pub amount: Option<i64>,
+    /// Take the order without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct TakeBuyArgs {
+    /// Id of the buy order to take
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// Fiat amount to sell, for a range order
+    #[arg(long)]
+    pub amount: Option<i64>,
+    /// Take the order without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args, Clone, Debug)]

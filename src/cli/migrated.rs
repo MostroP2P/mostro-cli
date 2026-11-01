@@ -9,9 +9,9 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::invocation::OutputMode;
-use super::order_new;
 use super::schema::SCHEMA_COMMAND;
 use super::{offline_discovery, Cli, Commands, DiscoveryData, OrderCommands};
+use super::{order_new, order_take};
 use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::identity::{load_identity_keys, IdentityError};
@@ -88,6 +88,17 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
     }) = &cli.command
     {
         return Some(order_new::run(cli, args, output).await);
+    }
+
+    // Taking an order: the same shape as creating one.
+    match &cli.command {
+        Some(Commands::Order {
+            command: OrderCommands::TakeSell(args),
+        }) => return Some(order_take::sell(cli, args, output).await),
+        Some(Commands::Order {
+            command: OrderCommands::TakeBuy(args),
+        }) => return Some(order_take::buy(cli, args, output).await),
+        _ => {}
     }
 
     // The node's record of the user's own orders: one signed request, an

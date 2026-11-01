@@ -301,6 +301,14 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-new-v1.json"
     );
+    const TAKE_SELL_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-take-sell-v1.json"
+    );
+    const TAKE_BUY_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-take-buy-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -310,7 +318,7 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in list info new take-sell take-buy; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -373,6 +381,20 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn take_schema_fixtures_match_the_generated_schemas() {
+        for (name, fixture) in [
+            ("order.take-sell", TAKE_SELL_FIXTURE),
+            ("order.take-buy", TAKE_BUY_FIXTURE),
+        ] {
+            assert_eq!(
+                generated_output_schema(name),
+                read_json(fixture),
+                "stale fixture of {name}; {REGENERATE}"
+            );
+        }
+    }
+
+    #[test]
     fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
         let fixture = read_json(DISCOVERY_FIXTURE);
         let keys: Vec<&str> = fixture
@@ -412,7 +434,17 @@ mod schema_fixtures {
             .filter(|command| command["output_modes"] == json!(["human", "json"]))
             .map(|command| command["name"].as_str().unwrap())
             .collect();
-        assert_eq!(machine, ["order.info", "order.list", "order.new", "schema"]);
+        assert_eq!(
+            machine,
+            [
+                "order.info",
+                "order.list",
+                "order.new",
+                "order.take-buy",
+                "order.take-sell",
+                "schema"
+            ]
+        );
     }
 
     /// A signed 64-bit integer in canonical decimal text, which a JSON Schema

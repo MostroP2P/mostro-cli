@@ -551,8 +551,8 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
             "invalid_arguments",
         ),
         (
-            &["--output", "json", "takesell", &unknown_flag],
-            json!("order.take-sell"),
+            &["--output", "json", "addinvoice", &unknown_flag],
+            json!("order.add-invoice"),
             "invalid_arguments",
         ),
         (&["--output", "json"], Value::Null, "invalid_arguments"),
@@ -1910,8 +1910,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 4,
-        "only order.list, schema, order.info and order.new are machine-capable"
+        REGISTRY.len() - 6,
+        "only order.list, schema, order.info, order.new and the two takes are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];

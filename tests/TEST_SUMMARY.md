@@ -3316,6 +3316,31 @@ Native Linux, rustc 1.97.0, on `develop` after `9304528` (pushed). Lean mode: th
   `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 16, `parser_orders` 123, `parser_dms` 19,
   `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
 
+## Order Take, Slice 4a: The Commands: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `11b27cb` (pushed). `mostro-cli order take-sell` and `order take-buy` exist; the legacy `takesell` and
+`takebuy` (commands, handler `cli/take_order.rs`, the book read after a take-sell with an invoice, their characterization and save tests) are removed with
+no alias. Lean mode: this and the 4b entry are the evidence for the slice; 4b adds the binary scenarios.
+
+- **Pieces**: `OrderCommands::TakeSell(TakeSellArgs)` and `TakeBuy(TakeBuyArgs)` (`--order UUID`, `--amount`, `--invoice` on take-sell only, `--yes`), two registry
+  entries with `JsonSupport::Write` (the canonical names and no registry change), `cli/order_take.rs` (validation, then the shared `cli/write.rs` steps, preview and
+  prompt in human mode only, JSON without `--yes` refused with `invalid_arguments`), `parse_human/order_take.rs` (the preview never shows the invoice the user gave;
+  the hold invoice is alone on its line), the command-scoped schemas (`order.take-sell`, `order.take-buy`), `docs/schemas/order-take-sell-v1.json` and
+  `order-take-buy-v1.json`, and the regenerated `discovery-v1.json` (only the two take descriptors changed; their old human-only entries became machine ones).
+  The dispatch needed `#[command(name = "take-sell")]`: the group's lower-casing rule had named them `takesell`.
+- **Grammar tests** (5, `cli_functions::order_take_grammar`): the options and defaults of both commands, a take-buy without an invoice option, the order
+  required and text amounts rejected, every legacy spelling gone, both registered as JSON-capable writes. The registry, output-intent, discovery and drift tests
+  were updated to the new fact (six machine commands; legacy samples now use `addinvoice`); a drift test covers the two new fixtures.
+- **Boundary check at work**: the import-position test refused a `pub use` I had left at the end of `commands/order/take.rs`.
+- **Docs**: `README.md`, `docs/commands.md` (the two takes replace the legacy entries, with the migration note and the MCP warning) and `docs/database.md` (the
+  minimal row replaces the book read).
+- **Real binary check**: `order take-sell` in JSON without `--yes` is `invalid_arguments` exit 2 naming `order.take-sell`; `order take-buy --yes` with no
+  configuration is `configuration_missing` exit 1; `takesell` is an unrecognized subcommand; nothing is created.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (578 tests: lib 159, `cli_functions` 67, `integration_tests` 42, `order_info_process` 34,
+  `order_list_process` 46, `order_new_process` 40, `order_take_process` 16, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6; fewer
+  than before because the legacy save and characterization tests went with the commands), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
+  --all-features`: all pass.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6
