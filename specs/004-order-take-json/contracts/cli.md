@@ -35,5 +35,5 @@ arguments, invoices or hold invoices.
 ## Stable errors
 
 Inherited from `order new` (`invalid_arguments`, `configuration_*`, `identity_*`, `protocol_unsupported`, `pow_required`, `request_rejected`,
-`node_refused` + reason, `reply_timeout`, `reply_malformed`, `relay_*`, `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable`,
+`node_refused` + reason, `reply_timeout`, `reply_malformed`, `relay_*`, `order_declined`, `order_not_saved`, `store_unwritable`,
 `internal_error`). None is added.

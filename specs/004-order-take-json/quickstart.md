@@ -42,7 +42,7 @@ ls -A "$T"                                           # empty
 | Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, nothing written | `a_refusal_shows_its_reason_...` |
 | No reply | `uncertain` / `reply_timeout` after 15 s, one request, index spent, no row | `a_silent_node_is_uncertain_...` |
 | Unusable reply (another order, wrong action for the side) | `uncertain` / `reply_malformed`, index spent | `replies_that_do_not_fit_the_take_...` |
-| Bonded node | `error` / `bond_required`, index spent | `a_bonded_node_is_an_error_...` |
+| Bonded node | `ok` / `pay_bond_invoice`, bond invoice in `data.payment_request`, row and index saved | `a_bonded_node_returns_the_bond_invoice_...` |
 | Accepted but not saved | `uncertain` / `order_not_saved` with the data (hold invoice included), index still spent | `a_take_that_cannot_be_saved_...`, `an_accepted_take_that_cannot_be_saved_...` |
 | Local failures (identity, configuration, protocol, work, rejected and unreachable relay, unwritable store) on both takes | `error`, `not_attempted`, no request, store byte-identical, no sentinel, relay address or hold invoice | `failures_before_any_request_...` and the tests beside it |
 | Invalid input | exit 2, resolved command (`null` for `takesell`/`takebuy`), nothing echoed | `invalid_input_is_an_argument_error_...` |

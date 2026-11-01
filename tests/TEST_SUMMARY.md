@@ -3837,3 +3837,18 @@ The tests are:
 - **Actionable** - Clear failure messages
 
 All tests follow the project's established patterns and integrate seamlessly with the existing test infrastructure.
+## Correction: Bond Invoices Are Returned, Not Dropped: 2026-11-01
+
+A user took an order on a bonded local node with `order take-sell --yes --output json` and got `bond_required` with no way to pay. The node's
+`pay-bond-invoice` carries the parked order and the bond invoice; slices 3 and 4 of `order new` and `order take` discarded both and reported an error.
+
+- **Fix**: `order take-*` returns `next_step` `pay_bond_invoice` with the bond invoice in `payment_request`; `order new` gains `next_step`
+  (`wait_for_taker` | `pay_bond_invoice`) and `payment_request`. Both are `ok`, and save the parked order with the trade index in one transaction. The error code
+  `bond_required` and the accepted-but-not-live stage combinations are removed from the schemas, discovery and rules. Human text shows the bond invoice alone on
+  its line and a maker or taker wording. Specs 003 and 004 carry an amendment; their examples, data models and quickstarts are updated.
+- **Tests (rewritten first, then green)**: bonded process and binary tests for `order new` and `order take-sell` now expect `ok`, the bond invoice, the order and
+  `(1 row, index 1)`; unit tests for `from_bond` and `Taken::PayBond`; schema fixtures regenerated; examples `bond_to_pay` and `sell_pay_bond_invoice` replace
+  `bond_required` and `sell_bond_required` and are reproduced by the constructors.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 602 passed and 0 failed (checked on the FAILED lines), build, MSRV 1.94.0.
+- **Open**: the real bonded local node was not probed yet (needs authorization); how a user continues after paying the bond (reading the node's next message) is
+  not migrated: `getdm` is legacy and human-only.

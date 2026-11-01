@@ -1033,6 +1033,34 @@ mod schema_fixtures {
             .0
     }
 
+    /// The parked order of a node that asks the maker for a bond first.
+    fn bonded() -> OrderNewData {
+        let input = OrderNewInput::validate(OrderRequest {
+            side: OrderKind::Sell,
+            currency: "usd".to_string(),
+            fiat_amount: 100,
+            fiat_amount_max: None,
+            payment_method: "bank transfer".to_string(),
+            sats: 0,
+            premium: 2,
+            invoice: None,
+            expiration_days: 1,
+        })
+        .unwrap();
+        let mut order = input.small_order(1_792_108_800);
+        order.id = Some(id(7));
+        order.created_at = Some(1_792_108_800);
+        OrderNewData::from_bond(
+            &node(),
+            &order,
+            "lnbcrt1bondinvoice",
+            3,
+            &PublicKey::from_hex(TRADE).unwrap(),
+        )
+        .unwrap()
+        .0
+    }
+
     type NewEnvelope = Envelope<OrderNewData, ()>;
 
     fn write(
@@ -1082,11 +1110,7 @@ mod schema_fixtures {
                 .unwrap(),
                 1,
             ),
-            (
-                "bond_required",
-                to_value(error(ErrorCode::BondRequired, accepted())).unwrap(),
-                1,
-            ),
+            ("bond_to_pay", to_value(ok(bonded())).unwrap(), 0),
             (
                 "reply_timeout_uncertain",
                 to_value(uncertain(
@@ -1166,7 +1190,7 @@ mod schema_fixtures {
                 !outcome["data"].is_null(),
                 matches!(
                     name.as_str(),
-                    "created" | "range_created" | "order_not_saved_uncertain"
+                    "created" | "range_created" | "bond_to_pay" | "order_not_saved_uncertain"
                 ),
                 "{name}"
             );
@@ -1422,9 +1446,19 @@ mod schema_fixtures {
                 1,
             ),
             (
-                "sell_bond_required",
-                error(sell, ErrorCode::BondRequired, accepted()),
-                1,
+                "sell_pay_bond_invoice",
+                ok(
+                    sell,
+                    taken_data(
+                        TakeSide::Sell,
+                        &Taken::PayBond(
+                            pending_order(OrderStatus::Pending),
+                            "lnbcrt1bondinvoice".to_string(),
+                        ),
+                        None,
+                    ),
+                ),
+                0,
             ),
             (
                 "buy_reply_timeout_uncertain",
@@ -1513,6 +1547,7 @@ mod schema_fixtures {
                     "sell_add_invoice"
                         | "sell_waiting_for_the_seller"
                         | "buy_pay_hold_invoice"
+                        | "sell_pay_bond_invoice"
                         | "buy_order_not_saved_uncertain"
                 ),
                 "{name}"

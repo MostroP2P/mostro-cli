@@ -39,7 +39,7 @@ ls -A "$T"                    # empty
 | Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, nothing written | `a_refusal_shows_its_reason_...` |
 | No reply | `uncertain` / `reply_timeout` after 15 s, one request, index spent, no order row | `a_silent_node_is_uncertain_...` |
 | Unusable reply | `uncertain` / `reply_malformed`, index spent | `silence_and_an_odd_reply_...` |
-| Bonded node | `error` / `bond_required`, index spent | `a_bonded_node_is_an_error_...` |
+| Bonded node | `ok` / `pay_bond_invoice`, bond invoice in `data.payment_request`, row and index saved | `a_bonded_node_returns_the_bond_invoice_...` |
 | Accepted but not saved | `uncertain` / `order_not_saved` with the node's order, index still spent | `an_order_that_cannot_be_saved_...`, `a_failed_order_save_still_spends_...` |
 | Range order | `min`/`max` on the wire with fiat amount 0, both bounds saved | `a_range_order_reaches_the_node_...` |
 | Local failures (identity, configuration, protocol, work, rejected relay, unreachable relay, unwritable store) | `error`, `not_attempted`, no request, store byte-identical, no sentinel | `failures_before_any_request_...` and the tests beside it |
@@ -56,7 +56,7 @@ never `devenv.sh clean` as setup), with an existing local identity, and record t
 1. `order new` fixed order, then `order list` and `order info --order <id>` for it; the store holds the row and index 1.
 2. A second order (index 2); then a deliberately stale index (restore an older `last_trade_index`) to see `invalid_trade_index`.
 3. A range order, a market-priced order, an invalid currency and a half-specified range (`invalid_amount`) to record the refusals.
-4. A bonded node, if one is available: confirm `pay-bond-invoice` and the `bond_required` outcome.
+4. A bonded node, if one is available: confirm `pay-bond-invoice` and the `pay_bond_invoice` outcome with the invoice.
 5. Stop the node during a run to see `uncertain`, then confirm with `order list` whether an order exists.
 
 ## Required Gates And Evidence

@@ -15,6 +15,14 @@ local save. Builds on [order new](../003-order-new-json/spec.md) (trade key and 
 
 ## Clarifications
 
+### Amendment 2026-11-01: the taker bond is a next step, not an error
+
+- The first implementation reported a bonded node as the error `bond_required` and dropped the bond invoice, so a CLI user could not pay it (found by taking an
+  order on a bonded local node). Corrected as for `order new`: `pay-bond-invoice` (parked order plus bond invoice) is accepted data; the take is `ok` with
+  `next_step` `pay_bond_invoice` and the bond invoice in `payment_request`; the order and the trade index are saved in one transaction. `bond_required` is removed.
+  The node continues the take once the bond is paid (take-sell then sends `add-invoice` or `waiting-seller-to-pay`, take-buy sends the hold invoice) as a later
+  message.
+
 ### Session 2026-10-30
 
 - Q: How are the commands spelled, given the approved canonical names `order.take-sell` and `order.take-buy` (contract v1)? -> A: Two subcommands, `order take-sell` and `order take-buy` (decided by the maintainer, 2026-10-30). Each path carries its own canonical name, so no registry or contract change is needed and an argument error can always name its command. The roadmap's single `order take --side` form is not used. As elsewhere, the side names the order taken: `take-sell` takes a sell order (the taker buys sats), `take-buy` takes a buy order (the taker sells sats).

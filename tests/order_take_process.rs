@@ -886,15 +886,18 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_bonded_node_is_an_error_that_spends_the_index() {
+    async fn a_bonded_node_returns_the_bond_invoice_and_saves_the_parked_order() {
         let taker = with_book(sell_book(), 0, true, 0).await;
 
         let outcome = take(&taker, &input(TakeSide::Sell, id(1), None, None)).await;
 
-        assert_eq!(outcome.status(), Outcome::Error);
-        assert_eq!(outcome.error_code(), Some(ErrorCode::BondRequired));
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let data = outcome.data().expect("data");
+        assert_eq!(data.next_step(), NextStep::PayBondInvoice);
+        assert_eq!(data.payment_request(), Some("lnbcrt1bondinvoice"));
+        assert!(data.order().is_some(), "the parked order is returned");
         assert_eq!(stages(&outcome), accepted_and_applied());
-        assert_eq!(state(&taker).await, (0, 1));
+        assert_eq!(state(&taker).await, (1, 1), "row and index in one write");
     }
 
     #[tokio::test]
@@ -1260,7 +1263,7 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_bonded_node_is_an_error_and_the_index_is_spent() {
+    async fn a_bonded_node_gives_the_bond_invoice_to_pay() {
         let taker = with_book(sell_book(), 0, true, 0).await;
 
         let run = run(
@@ -1269,12 +1272,13 @@ mod operation {
         )
         .await;
 
-        assert_eq!(run.code(), Some(1));
+        assert_eq!(run.code(), Some(0));
         let outcome = document(&run);
         conforms_to_the_checked_in_schema("take-sell", &outcome);
-        assert_eq!(outcome["status"], "error");
-        assert_eq!(outcome["error"]["code"], "bond_required");
-        assert_eq!(state(&taker).await, (0, 1));
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(outcome["data"]["next_step"], "pay_bond_invoice");
+        assert_eq!(outcome["data"]["payment_request"], "lnbcrt1bondinvoice");
+        assert_eq!(state(&taker).await, (1, 1));
     }
 
     #[tokio::test]

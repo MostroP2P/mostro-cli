@@ -1,7 +1,7 @@
 # Data Model: Order Take
 
 Reuses the order-new pieces: `OrderRecord`, the envelope with `uncertain`, `ExecutionMeta::write`, `OutcomeRules::write`, `error.reason`, the
-codes `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable`, and `Store`. No new error or warning code.
+codes `order_declined`, `order_not_saved`, `store_unwritable`, and `Store`. No new error or warning code.
 
 ## Input (`OrderTakeInput`)
 
@@ -22,7 +22,7 @@ amount is given; take-sell sends the invoice (with the amount inside the same pa
 | `node_pubkey` | the configured node |
 | `order_id` | UUID of the order taken |
 | `side` | the side of the order taken: `sell` (take-sell) or `buy` (take-buy) |
-| `next_step` | `add_invoice` (the taker must send a buyer invoice), `wait_for_seller_payment` (the invoice was accepted), `pay_hold_invoice` (the taker, as seller, must pay `payment_request`) |
+| `next_step` | `add_invoice` (the taker must send a buyer invoice), `wait_for_seller_payment` (the invoice was accepted), `pay_hold_invoice` (the taker, as seller, must pay `payment_request`), `pay_bond_invoice` (the taker must pay the bond in `payment_request`; the node continues the take afterwards) |
 | `order` | the node's order as `OrderRecord`, or null when the reply carried none (`wait_for_seller_payment`) |
 | `payment_request` | the hold invoice, only with `pay_hold_invoice`, else null |
 | `trade_index` | decimal string |
@@ -39,7 +39,7 @@ called for). The data of an `order_not_saved` outcome is the same `OrderTakeData
 | local failure (arguments, identity, configuration, work, protocol, declined, store) | error | its code | not_attempted | unknown | not_attempted |
 | no relay accepted the event (proven) | error | `request_rejected` | not_attempted | unknown | not_attempted |
 | refused by the node (`CantDo`) | error | `node_refused` + reason | published | rejected | not_attempted |
-| bond asked first | error | `bond_required` | published | accepted | applied or failed |
+| bond asked first (amended 2026-11-01) | ok, `next_step` `pay_bond_invoice` | | published | accepted | applied (parked order and bond invoice returned and saved) |
 | accepted, row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
 | no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |
 | unusable reply (wrong action or payload, Cashu escrow) | uncertain | `reply_malformed` | published | unknown | applied or failed |

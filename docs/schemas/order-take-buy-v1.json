@@ -27,7 +27,6 @@
         "request_rejected",
         "node_refused",
         "order_declined",
-        "bond_required",
         "store_unwritable",
         "reply_timeout",
         "reply_malformed",
@@ -92,6 +91,11 @@
         {
           "const": "pay_hold_invoice",
           "description": "Pay the hold invoice in `payment_request`.",
+          "type": "string"
+        },
+        {
+          "const": "pay_bond_invoice",
+          "description": "Pay the taker bond in `payment_request`; the node continues the take\nonce it is paid.",
           "type": "string"
         }
       ]
@@ -268,7 +272,7 @@
           "type": "string"
         },
         "payment_request": {
-          "description": "The hold invoice to pay; present only with `pay_hold_invoice`.",
+          "description": "The hold invoice or the bond invoice to pay; present only with\n`pay_hold_invoice` and `pay_bond_invoice`.",
           "type": [
             "string",
             "null"
@@ -419,7 +423,6 @@
                 "request_rejected",
                 "node_refused",
                 "order_declined",
-                "bond_required",
                 "store_unwritable"
               ]
             },
@@ -453,32 +456,6 @@
                 },
                 "persistence": {
                   "const": "not_attempted"
-                },
-                "publication": {
-                  "const": "published"
-                }
-              }
-            },
-            {
-              "properties": {
-                "daemon_acceptance": {
-                  "const": "accepted"
-                },
-                "persistence": {
-                  "const": "applied"
-                },
-                "publication": {
-                  "const": "published"
-                }
-              }
-            },
-            {
-              "properties": {
-                "daemon_acceptance": {
-                  "const": "accepted"
-                },
-                "persistence": {
-                  "const": "failed"
                 },
                 "publication": {
                   "const": "published"

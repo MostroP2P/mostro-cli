@@ -115,13 +115,10 @@ impl<'a> OutcomeRules<'a> {
             },
             Stages::Write => Combos {
                 success: vec![["published", "accepted", "applied"]],
-                // Nothing sent; refused; or accepted but not live (bond), with
-                // the index recorded or not.
+                // Nothing sent, or refused.
                 failure: vec![
                     ["not_attempted", "unknown", "not_attempted"],
                     ["published", "rejected", "not_attempted"],
-                    ["published", "accepted", "applied"],
-                    ["published", "accepted", "failed"],
                 ],
                 // The node may hold an order: unknown or accepted without a
                 // saved row, with the index recorded or not.

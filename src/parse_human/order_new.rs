@@ -8,7 +8,7 @@ use mostro_core::order::Kind;
 
 use super::table::escape_controls;
 use crate::outcome::info::OrderRecord;
-use crate::outcome::new::{OrderNewData, OrderNewInput};
+use crate::outcome::new::{NewStep, OrderNewData, OrderNewInput};
 
 const RULE: &str = "═══════════════════════════════════════";
 
@@ -55,7 +55,11 @@ pub fn render_preview(input: &OrderNewInput, trade_index: &str, trade_pubkey: &s
 /// The order the node created.
 pub fn render_new(data: &OrderNewData) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "✅ Order Created\n{RULE}");
+    let title = match data.next_step() {
+        NewStep::WaitForTaker => "✅ Order Created",
+        NewStep::PayBondInvoice => "🪙 Maker Bond Required",
+    };
+    let _ = writeln!(out, "{title}\n{RULE}");
     let order: &OrderRecord = data.order();
     let _ = writeln!(out, "🆔 Order ID: {}", order.id());
     let _ = writeln!(out, "📊 Status: {}", wire(order.status()));
@@ -87,6 +91,22 @@ pub fn render_new(data: &OrderNewData) -> String {
     let _ = writeln!(out, "📊 Premium: {}%", order.premium_percent());
     let _ = writeln!(out, "🔢 Trade Index: {}", data.trade_index());
     let _ = writeln!(out, "🔑 Trade Key: {}", data.trade_pubkey());
+    if data.next_step() == NewStep::PayBondInvoice {
+        let _ = writeln!(
+            out,
+            "🪙 The node publishes the order once this maker bond is paid. Pay this bond \
+             invoice with any Lightning wallet:"
+        );
+        let _ = writeln!(
+            out,
+            "{}",
+            escape_controls(data.payment_request().unwrap_or_default())
+        );
+        let _ = writeln!(
+            out,
+            "💡 Then read the node's next message to continue (`getdm`)."
+        );
+    }
     out
 }
 

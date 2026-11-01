@@ -67,6 +67,22 @@ pub fn render_taken(data: &OrderTakeData) -> String {
         NextStep::WaitForSellerPayment => {
             let _ = writeln!(out, "⏳ Waiting for the seller to pay the hold invoice.");
         }
+        NextStep::PayBondInvoice => {
+            let _ = writeln!(
+                out,
+                "🪙 The node asks for a taker bond first. Pay this bond invoice with any \
+                 Lightning wallet; the take continues once it is paid:"
+            );
+            let _ = writeln!(
+                out,
+                "{}",
+                escape_controls(data.payment_request().unwrap_or_default())
+            );
+            let _ = writeln!(
+                out,
+                "💡 Then read the node's next message to continue (`getdm`)."
+            );
+        }
         NextStep::PayHoldInvoice => {
             let _ = writeln!(out, "⚡ Pay this hold invoice to continue:");
             let _ = writeln!(

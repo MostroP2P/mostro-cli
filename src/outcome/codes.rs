@@ -31,7 +31,6 @@ pub enum ErrorCode {
     ReplyMalformed,
     // Added for `order.new`; scoped to that command's schema.
     OrderDeclined,
-    BondRequired,
     OrderNotSaved,
     StoreUnwritable,
 }
@@ -70,7 +69,6 @@ impl ErrorCode {
             | Self::NodeRefused
             | Self::ReplyMalformed
             | Self::OrderDeclined
-            | Self::BondRequired
             | Self::OrderNotSaved
             | Self::StoreUnwritable => RUNTIME_ERROR_EXIT,
         }
@@ -98,7 +96,6 @@ impl ErrorCode {
             Self::NodeRefused => "The node refused the request.",
             Self::ReplyMalformed => "The reply from the node could not be used.",
             Self::OrderDeclined => "The order was not confirmed, so nothing was sent.",
-            Self::BondRequired => "The node asks for a bond before the order goes live.",
             Self::OrderNotSaved => "The node created the order but it could not be saved locally.",
             Self::StoreUnwritable => "The local store cannot be written, so nothing was sent.",
         }

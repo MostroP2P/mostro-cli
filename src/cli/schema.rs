@@ -164,10 +164,10 @@ const INFO_ERRORS: [ErrorCode; 14] = [
     ErrorCode::ReplyMalformed,
 ];
 
-/// Codes that can fail `order.new` with a plain error (nothing sent, a
-/// refusal, a bond request). The ones that leave it `uncertain` are
+/// Codes that can fail `order.new` with a plain error (nothing sent or a
+/// refusal). The ones that leave it `uncertain` are
 /// [`UNCERTAIN_CODES`].
-const NEW_ERRORS: [ErrorCode; 15] = [
+const NEW_ERRORS: [ErrorCode; 14] = [
     ErrorCode::InvalidArguments,
     ErrorCode::ConfigurationMissing,
     ErrorCode::ConfigurationInvalid,
@@ -181,7 +181,6 @@ const NEW_ERRORS: [ErrorCode; 15] = [
     ErrorCode::RequestRejected,
     ErrorCode::NodeRefused,
     ErrorCode::OrderDeclined,
-    ErrorCode::BondRequired,
     ErrorCode::StoreUnwritable,
 ];
 

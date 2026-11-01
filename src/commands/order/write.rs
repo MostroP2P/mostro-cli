@@ -67,21 +67,6 @@ impl Sent<'_> {
         )
     }
 
-    /// The node asked for a bond first: accepted, but not live.
-    pub async fn bond_required<D>(&self) -> Envelope<D, ()> {
-        let meta = ExecutionMeta::write(
-            Publication::Published,
-            DaemonAcceptance::Accepted,
-            self.spend_index().await,
-        );
-        Envelope::error(
-            Some(self.command),
-            ErrorCode::BondRequired,
-            Warnings::new(),
-            meta,
-        )
-    }
-
     /// The node refused: nothing is written.
     pub fn refused<D>(&self, payload: &Option<Payload>) -> Envelope<D, ()> {
         let meta = ExecutionMeta::write(

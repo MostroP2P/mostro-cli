@@ -40,4 +40,4 @@ arguments or the invoice.
 
 Inherited: `invalid_arguments`, `configuration_*`, `identity_missing`, `identity_unreadable`, `protocol_unsupported`,
 `pow_required`, `request_rejected`, `node_refused` (+ reason), `reply_timeout`, `reply_malformed`, `relay_*`, `internal_error`.
-Added (all exit 1, scoped to this command's schema): `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable`.
+Added (all exit 1, scoped to this command's schema): `order_declined`, `order_not_saved`, `store_unwritable`.

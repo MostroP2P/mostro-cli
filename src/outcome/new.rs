@@ -208,6 +208,17 @@ impl OrderNewInput {
     }
 }
 
+/// What the maker does next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NewStep {
+    /// The order is on the book; wait for a taker.
+    WaitForTaker,
+    /// Pay the maker bond in `payment_request`; the node publishes the order
+    /// once it is paid.
+    PayBondInvoice,
+}
+
 /// `order.new` success data (and the data of an `order_not_saved` outcome):
 /// the order the node created and the key slot it was created under.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -215,6 +226,9 @@ pub struct OrderNewData {
     #[schemars(schema_with = "schema::pubkey_hex")]
     node_pubkey: String,
     order: OrderRecord,
+    next_step: NewStep,
+    /// The bond invoice to pay; present only with `pay_bond_invoice`.
+    payment_request: Option<String>,
     #[schemars(schema_with = "schema::decimal")]
     trade_index: String,
     /// The public key of the order's trade key; the private key stays
@@ -233,12 +247,40 @@ impl OrderNewData {
         trade_index: i64,
         trade_pubkey: &PublicKey,
     ) -> Option<(Self, Warnings)> {
-        let id: Uuid = created.id?;
+        Self::build(node, created, None, trade_index, trade_pubkey)
+    }
+
+    /// Map the `pay-bond-invoice` of a node that asks the maker for a bond
+    /// first: the parked order and the bond invoice to pay.
+    pub fn from_bond(
+        node: &PublicKey,
+        parked: &SmallOrder,
+        invoice: &str,
+        trade_index: i64,
+        trade_pubkey: &PublicKey,
+    ) -> Option<(Self, Warnings)> {
+        Self::build(node, parked, Some(invoice), trade_index, trade_pubkey)
+    }
+
+    fn build(
+        node: &PublicKey,
+        order: &SmallOrder,
+        bond_invoice: Option<&str>,
+        trade_index: i64,
+        trade_pubkey: &PublicKey,
+    ) -> Option<(Self, Warnings)> {
+        let id: Uuid = order.id?;
         let mut warnings = Warnings::new();
-        let order = OrderRecord::from_order(id, created, &mut warnings);
+        let record = OrderRecord::from_order(id, order, &mut warnings);
         let data = Self {
             node_pubkey: node.to_hex(),
-            order,
+            order: record,
+            next_step: if bond_invoice.is_some() {
+                NewStep::PayBondInvoice
+            } else {
+                NewStep::WaitForTaker
+            },
+            payment_request: bond_invoice.map(str::to_owned),
             trade_index: trade_index.to_string(),
             trade_pubkey: trade_pubkey.to_hex(),
         };
@@ -247,6 +289,14 @@ impl OrderNewData {
 
     pub fn order(&self) -> &OrderRecord {
         &self.order
+    }
+
+    pub fn next_step(&self) -> NewStep {
+        self.next_step
+    }
+
+    pub fn payment_request(&self) -> Option<&str> {
+        self.payment_request.as_deref()
     }
 
     pub fn trade_index(&self) -> &str {
@@ -436,7 +486,26 @@ mod tests {
         assert!(OrderNewData::from_created(&node, &created(None), 3, &trade).is_none());
     }
 
-    const ERRORS: [ErrorCode; 13] = [
+    #[test]
+    fn a_bond_request_keeps_the_parked_order_and_the_bond_invoice() {
+        let (node, trade) = (Keys::generate().public_key(), Keys::generate().public_key());
+        let parked = created(Some(Uuid::from_u128(7)));
+
+        let (data, _) = OrderNewData::from_bond(&node, &parked, "lnbc1bond", 3, &trade).unwrap();
+
+        assert_eq!(data.next_step(), NewStep::PayBondInvoice);
+        assert_eq!(data.payment_request(), Some("lnbc1bond"));
+        assert!(OrderNewData::from_bond(&node, &created(None), "lnbc1bond", 3, &trade).is_none());
+        let (plain, _) = data_for_plain();
+        assert_eq!(plain.next_step(), NewStep::WaitForTaker);
+        assert_eq!(plain.payment_request(), None);
+    }
+
+    fn data_for_plain() -> (OrderNewData, Warnings) {
+        data()
+    }
+
+    const ERRORS: [ErrorCode; 12] = [
         ErrorCode::IdentityMissing,
         ErrorCode::IdentityUnreadable,
         ErrorCode::ConfigurationMissing,
@@ -448,7 +517,6 @@ mod tests {
         ErrorCode::RelayConnectionFailed,
         ErrorCode::RelayReadFailed,
         ErrorCode::OrderDeclined,
-        ErrorCode::BondRequired,
         ErrorCode::StoreUnwritable,
     ];
     const UNCERTAIN: [ErrorCode; 6] = [
@@ -510,7 +578,6 @@ mod tests {
             .collect();
         for code in [
             "order_declined",
-            "bond_required",
             "order_not_saved",
             "store_unwritable",
             "reply_timeout",
@@ -567,14 +634,6 @@ mod tests {
             error(ErrorCode::OrderDeclined, sent()),
             error(ErrorCode::StoreUnwritable, sent()),
             error(ErrorCode::RequestRejected, sent()),
-            error(
-                ErrorCode::BondRequired,
-                meta(Publication::Published, DaemonAcceptance::Accepted, Applied),
-            ),
-            error(
-                ErrorCode::BondRequired,
-                meta(Publication::Published, DaemonAcceptance::Accepted, Failed),
-            ),
             serde_json::to_value(Envelope::<OrderNewData, ()>::refused(
                 Some("order.new"),
                 "invalid_amount",

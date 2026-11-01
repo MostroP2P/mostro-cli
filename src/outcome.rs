@@ -291,7 +291,7 @@ mod tests {
         WarningCode::CleanupIncomplete,
     ];
     /// Codes added for `order.info`; they belong to that command's schema only.
-    const NEW_ERROR_CODES: [ErrorCode; 12] = [
+    const NEW_ERROR_CODES: [ErrorCode; 11] = [
         ErrorCode::IdentityMissing,
         ErrorCode::IdentityUnreadable,
         ErrorCode::ProtocolUnsupported,
@@ -302,7 +302,6 @@ mod tests {
         ErrorCode::ReplyMalformed,
         // And for `order.new`.
         ErrorCode::OrderDeclined,
-        ErrorCode::BondRequired,
         ErrorCode::OrderNotSaved,
         ErrorCode::StoreUnwritable,
     ];
@@ -362,7 +361,6 @@ mod tests {
             ErrorCode::NodeRefused => ("node_refused", 1),
             ErrorCode::ReplyMalformed => ("reply_malformed", 1),
             ErrorCode::OrderDeclined => ("order_declined", 1),
-            ErrorCode::BondRequired => ("bond_required", 1),
             ErrorCode::OrderNotSaved => ("order_not_saved", 1),
             ErrorCode::StoreUnwritable => ("store_unwritable", 1),
         }

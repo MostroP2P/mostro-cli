@@ -97,7 +97,20 @@ async fn answer(sent: &Sent<'_>, config: &PublicReadConfig, exchanged: &Exchange
                 None => sent.malformed().await,
             }
         }
-        (Action::PayBondInvoice, _) => sent.bond_required().await,
+        (Action::PayBondInvoice, Some(Payload::PaymentRequest(Some(order), invoice, _)))
+            if order.id.is_some() =>
+        {
+            match OrderNewData::from_bond(
+                &config.mostro_pubkey(),
+                order,
+                invoice,
+                sent.trade.index,
+                &sent.trade.keys.public_key(),
+            ) {
+                Some((data, warnings)) => sent.saved(order, data, warnings).await,
+                None => sent.malformed().await,
+            }
+        }
         (Action::CantDo, payload) => sent.refused(payload),
         _ => sent.malformed().await,
     }
