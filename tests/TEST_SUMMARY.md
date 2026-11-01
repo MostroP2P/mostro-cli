@@ -3341,6 +3341,33 @@ no alias. Lean mode: this and the 4b entry are the evidence for the slice; 4b ad
   than before because the legacy save and characterization tests went with the commands), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
   --all-features`: all pass.
 
+## Order Take, Slice 4b: Binary Scenarios: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `4962983` (pushed). The real binary against the scripted daemon, a seeded identity store and a sandboxed
+home; stdin is a closed descriptor or a file the test wrote, never a pipe it has to feed. Lean mode: with 4a, the evidence for the slice.
+
+- **Take-sell in JSON** (`--yes`): exit 0, one document that conforms to the checked-in `order-take-sell-v1.json`, nothing on stderr, `next_step` `add_invoice`, no
+  hold invoice, stages `published/accepted/applied`, one request, the row and index 1 in the store; neither the trade private key (read from the store), the mnemonic
+  nor a relay address appears in any stream.
+- **The user's invoice never comes back**: a take-sell with an invoice carrying a sentinel, in JSON with `--verbose` and in human mode through the prompt, shows no
+  trace of it in stdout or stderr (the preview only says "Invoice: provided"); the node received it; the store keeps no invoice; the reply is
+  `wait_for_seller_payment` with a null order and `--verbose` prints exactly `verbose: order.take-sell ok`.
+- **Take-buy**: JSON `pay_hold_invoice` with the hold invoice in `data.payment_request` (conforming to `order-take-buy-v1.json`); in human mode the hold invoice is alone on its
+  line of stdout and never on stderr; `--verbose` prints exactly `verbose: order.take-buy ok`.
+- **Confirmation**: JSON without `--yes` is `invalid_arguments` exit 2 naming the command, for both sides, with no request and the data directory byte-identical. Through the prompt
+  `y`, blank and `Y` + CRLF accept; `n`, `no`, `maybe`, an empty input and a closed stdin decline with exit 1, the fixed `order_declined` line, no request and an untouched store.
+- **Refusal** (node's index ahead): JSON `node_refused` with the reason and null data, one fixed human line with the reason, the store byte-identical, one request per run.
+  **Silence**: after the production 15 s budget `uncertain` / `reply_timeout`, nothing on stderr, exactly one request, the index spent and no row. **Bonded node**: `bond_required`, index spent.
+- **Unsaved take** (orders table dropped): JSON `uncertain` / `order_not_saved` with the hold invoice still in the data and persistence `failed`; human still prints the hold invoice on its line
+  and the error plus the line pointing to `order info --order <id>`, without repeating the hold invoice on stderr. **Range take**: the amount reaches the node, the document and the row.
+- **Checks on the checks**: putting the hold invoice on the same line as its label, rewording the advice line and printing the user's invoice in the preview each failed the test that guards it;
+  restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (589 tests: lib 159, `cli_functions` 67, `integration_tests` 42, `order_info_process` 34, `order_list_process` 46,
+  `order_new_process` 40, `order_take_process` 27, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+- Still open for slice 5: the failure matrix at binary level (identity, configuration, protocol and work, rejected and unreachable relay, unwritable store, invalid input, secret sentinels, unwritable
+  streams), `contracts/examples.json` and its validation.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

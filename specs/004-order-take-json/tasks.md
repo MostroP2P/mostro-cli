@@ -19,9 +19,9 @@ regtest without authorization.
   payload, `NextStep`, data, minimal order) with unit and schema tests for the two canonical names.
 - [x] **3. The operation.** (done 2026-10-30; evidence in `tests/TEST_SUMMARY.md`) `commands/order/take.rs` for both sides against the scripted daemon: each accepted reply and its saved row, refusals, silence,
   unusable reply, bond, forced save failure (two shapes), work stopping before anything is sent, index policy.
-- [ ] **4. The commands.** Split in two commits. **4a (done 2026-11-01)**: grammar, registry (`order.take-sell`, `order.take-buy`), `cli/order_take.rs`,
+- [x] **4. The commands.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) Split in two commits. **4a**: grammar, registry (`order.take-sell`, `order.take-buy`), `cli/order_take.rs`,
   `parse_human/order_take.rs`, removal of `takesell`, `takebuy`, `cli/take_order.rs` and the book read, generated schemas and fixtures, README and
-  command-reference migration. **4b**: binary scenarios (success per side and invoice case, `--yes` rules, prompt, refusal, silence, bond, unsaved take, range
+  command-reference migration. **4b (done 2026-11-01)**: binary scenarios (success per side and invoice case, `--yes` rules, prompt, refusal, silence, bond, unsaved take, range
   amount, verbose, hold invoice only on stdout).
 - [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, rejected and unreachable relay, unwritable store, invalid input, secret
   sentinels (including the invoice and the hold invoice), unwritable streams; `contracts/examples.json` and its validation.

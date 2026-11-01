@@ -21,6 +21,8 @@ use uuid::Uuid;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{info_event, take_daemon, Book, FakeMostro, Listed, Respond, HOLD_INVOICE};
 use harness::{Backend, LoopbackRelay};
@@ -460,7 +462,7 @@ mod operation {
     use serde_json::json;
 
     struct Taker {
-        _relay: LoopbackRelay,
+        relay: LoopbackRelay,
         fake: FakeMostro,
         book: std::sync::Arc<std::sync::Mutex<Book>>,
         config: PublicReadConfig,
@@ -489,7 +491,7 @@ mod operation {
         let identity = seed_identity(&sandbox.mcli_dir()).await;
         let store = Store::in_dir(&sandbox.mcli_dir());
         Taker {
-            _relay: relay,
+            relay,
             fake,
             book,
             config,
@@ -908,6 +910,415 @@ mod operation {
         assert_eq!(
             std::fs::read(taker.sandbox.mcli_dir().join("mcli.db")).unwrap(),
             before
+        );
+    }
+
+    // --- The binary (slice 4b) ------------------------------------------------
+
+    use harness::{run_with_watchdog, Captured, WATCHDOG};
+    use std::process::Stdio;
+
+    const ORDER: &str = "00000000-0000-0000-0000-000000000001";
+
+    fn args<'a>(front: &[&'a str], command: &'a str, tail: &[&'a str]) -> Vec<&'a str> {
+        let mut all: Vec<&str> = front.to_vec();
+        all.extend(["order", command, "--order", ORDER]);
+        all.extend(tail);
+        all
+    }
+
+    fn command(taker: &Taker, args: &[&str]) -> tokio::process::Command {
+        let mut command = taker.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", taker.config.mostro_pubkey().to_hex())
+            .env("RELAYS", &taker.relay.url);
+        command
+    }
+
+    async fn run(taker: &Taker, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(command(taker, args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// Run with `answer` as the whole of stdin: a file the test wrote.
+    async fn run_answering(taker: &Taker, args: &[&str], answer: &str) -> Captured {
+        let path = std::env::temp_dir().join(format!(
+            "mcli-answer-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, answer).unwrap();
+        let mut command = command(taker, args);
+        command.stdin(Stdio::from(std::fs::File::open(&path).unwrap()));
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    fn document(run: &Captured) -> serde_json::Value {
+        let stdout = run.stdout_text();
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{stdout}"
+        );
+        serde_json::from_str(&stdout).unwrap()
+    }
+
+    fn snapshot(taker: &Taker) -> Vec<(String, Vec<u8>)> {
+        let mut files: Vec<_> = std::fs::read_dir(taker.sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    fn conforms_to_the_checked_in_schema(side: &str, outcome: &serde_json::Value) {
+        let path = format!(
+            "{}/docs/schemas/order-{side}-v1.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let schema: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            super::schema_check::conforms(&schema, &schema, outcome),
+            "{outcome}"
+        );
+    }
+
+    fn buy_book() -> Vec<Listed> {
+        vec![Listed::fixed(
+            id(1),
+            OrderKind::Buy,
+            Keys::generate().public_key(),
+        )]
+    }
+
+    #[tokio::test]
+    async fn a_take_sell_in_json_asks_for_an_invoice_and_nothing_secret_is_shown() {
+        let taker = with_book(sell_book(), 0, false, 0).await;
+
+        let run = run(
+            &taker,
+            &args(&["--output", "json"], "take-sell", &["--yes"]),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("take-sell", &outcome);
+        assert_eq!(outcome["command"], "order.take-sell");
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(outcome["data"]["next_step"], "add_invoice");
+        assert_eq!(outcome["data"]["side"], "sell");
+        assert_eq!(outcome["data"]["payment_request"], serde_json::Value::Null);
+        assert_eq!(outcome["data"]["trade_index"], "1");
+        assert_eq!(outcome["meta"], accepted_and_applied());
+        assert_eq!(taker.fake.received().len(), 1);
+        assert_eq!(state(&taker).await, (1, 1));
+        let secret = scalar::<String>(&taker, "SELECT trade_keys FROM orders").await;
+        let mnemonic = scalar::<String>(&taker, "SELECT mnemonic FROM users").await;
+        for stream in [run.stdout_text(), run.stderr_text()] {
+            assert!(!stream.contains(&secret), "the trade key leaked");
+            assert!(!stream.contains(&mnemonic), "the mnemonic leaked");
+            assert!(!stream.contains("127.0.0.1"), "a relay address leaked");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_invoice_the_user_gives_never_comes_back_in_any_stream() {
+        let taker = with_book(sell_book(), 0, false, 0).await;
+        let invoice = "lnbcrt1buyerinvoiceSENTINEL";
+        let json = run(
+            &taker,
+            &args(
+                &["--output", "json", "--verbose"],
+                "take-sell",
+                &["--invoice", invoice, "--yes"],
+            ),
+        )
+        .await;
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = document(&json);
+        assert_eq!(outcome["data"]["next_step"], "wait_for_seller_payment");
+        assert_eq!(outcome["data"]["order"], serde_json::Value::Null);
+        assert_eq!(json.stderr_text(), "verbose: order.take-sell ok\n");
+
+        // A second taker identity is needed for a second take of a pending book.
+        let taker = with_book(sell_book(), 0, false, 0).await;
+        let human = run_answering(
+            &taker,
+            &args(&[], "take-sell", &["--invoice", invoice]),
+            "y\n",
+        )
+        .await;
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        let out = human.stdout_text();
+        assert!(
+            out.contains("Take Order Preview") && out.contains("Invoice: provided"),
+            "{out}"
+        );
+        assert!(out.contains("Waiting for the seller"), "{out}");
+        for stream in [
+            json.stdout_text(),
+            json.stderr_text(),
+            out,
+            human.stderr_text(),
+        ] {
+            assert!(
+                !stream.contains("SENTINEL"),
+                "the invoice came back: {stream}"
+            );
+        }
+        assert_eq!(taker.fake.received()[0].invoice.as_deref(), Some(invoice));
+        assert_eq!(
+            scalar::<i64>(
+                &taker,
+                "SELECT COUNT(*) FROM orders WHERE buyer_invoice IS NOT NULL"
+            )
+            .await,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn a_take_buy_returns_the_hold_invoice_on_stdout_only() {
+        let taker = with_book(buy_book(), 0, false, 0).await;
+        let json = run(
+            &taker,
+            &args(&["--output", "json", "--verbose"], "take-buy", &["--yes"]),
+        )
+        .await;
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("take-buy", &outcome);
+        assert_eq!(outcome["command"], "order.take-buy");
+        assert_eq!(outcome["data"]["next_step"], "pay_hold_invoice");
+        assert_eq!(outcome["data"]["side"], "buy");
+        assert_eq!(outcome["data"]["payment_request"], HOLD_INVOICE);
+        assert_eq!(json.stderr_text(), "verbose: order.take-buy ok\n");
+
+        let taker = with_book(buy_book(), 0, false, 0).await;
+        let human = run(&taker, &args(&[], "take-buy", &["--yes"])).await;
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        assert!(
+            human.stdout_text().lines().any(|line| line == HOLD_INVOICE),
+            "the hold invoice is alone on its line: {}",
+            human.stdout_text()
+        );
+        assert!(human.stderr.is_empty());
+        assert!(!human.stderr_text().contains(HOLD_INVOICE));
+        assert_eq!(state(&taker).await, (1, 1));
+    }
+
+    #[tokio::test]
+    async fn json_without_yes_does_nothing_for_either_side() {
+        for (command, book) in [("take-sell", sell_book()), ("take-buy", buy_book())] {
+            let taker = with_book(book, 0, false, 0).await;
+            let before = snapshot(&taker);
+
+            let run = run(&taker, &args(&["--output", "json"], command, &[])).await;
+
+            assert_eq!(run.code(), Some(2), "{command}: {}", run.stderr_text());
+            assert!(run.stderr.is_empty());
+            let outcome = document(&run);
+            conforms_to_the_checked_in_schema(command, &outcome);
+            assert_eq!(outcome["command"], format!("order.{command}"));
+            assert_eq!(outcome["error"]["code"], "invalid_arguments");
+            assert!(taker.fake.received().is_empty());
+            assert_eq!(snapshot(&taker), before);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_prompt_accepts_y_and_blank_and_declines_everything_else() {
+        for answer in ["y\n", "\n", "Y\r\n"] {
+            let taker = with_book(sell_book(), 0, false, 0).await;
+            let run = run_answering(&taker, &args(&[], "take-sell", &[]), answer).await;
+            assert_eq!(run.code(), Some(0), "{answer:?}: {}", run.stderr_text());
+            assert!(run.stdout_text().contains("Take Order Preview"));
+            assert!(run.stdout_text().contains("Order Taken"));
+            assert!(run.stderr_text().contains("Take this order? [Y/n]"));
+            assert_eq!(state(&taker).await, (1, 1), "{answer:?}");
+        }
+        for answer in ["n\n", "no\n", "maybe\n", ""] {
+            let taker = with_book(sell_book(), 0, false, 0).await;
+            let before = snapshot(&taker);
+            let run = run_answering(&taker, &args(&[], "take-sell", &[]), answer).await;
+            assert_eq!(run.code(), Some(1), "{answer:?}: {}", run.stderr_text());
+            assert!(!run.stdout_text().contains("Order Taken"));
+            assert!(run
+                .stderr_text()
+                .contains("error: The order was not confirmed, so nothing was sent."));
+            assert!(taker.fake.received().is_empty(), "{answer:?}");
+            assert_eq!(snapshot(&taker), before, "{answer:?}");
+        }
+        let taker = with_book(sell_book(), 0, false, 0).await;
+        let run = run(&taker, &args(&[], "take-sell", &[])).await;
+        assert_eq!(run.code(), Some(1), "a closed stdin is not approval");
+        assert!(taker.fake.received().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_refusal_shows_its_reason_in_both_modes_and_spends_nothing() {
+        let taker = with_book(sell_book(), 5, false, 0).await;
+        let before = snapshot(&taker);
+
+        let json = run(
+            &taker,
+            &args(&["--output", "json"], "take-sell", &["--yes"]),
+        )
+        .await;
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("take-sell", &outcome);
+        assert_eq!(outcome["error"]["code"], "node_refused");
+        assert_eq!(outcome["error"]["reason"], "invalid_trade_index");
+        assert_eq!(outcome["data"], serde_json::Value::Null);
+
+        let human = run(&taker, &args(&[], "take-sell", &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty());
+        assert_eq!(
+            human.stderr_text(),
+            "error: The node refused the request. (reason: invalid_trade_index)\n"
+        );
+        assert_eq!(snapshot(&taker), before);
+        assert_eq!(taker.fake.received().len(), 2, "one request per run");
+    }
+
+    #[tokio::test]
+    async fn a_silent_node_is_uncertain_after_the_production_budget_and_is_never_retried() {
+        let (_, book) = take_daemon(Book::default(), false);
+        let taker = taker(fake_mostro::silent(), book, 0).await;
+        let started = std::time::Instant::now();
+
+        let run = run(
+            &taker,
+            &args(&["--output", "json"], "take-sell", &["--yes"]),
+        )
+        .await;
+
+        assert!(started.elapsed() >= ExchangeLimits::default().reply);
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("take-sell", &outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "reply_timeout");
+        assert_eq!(outcome["meta"]["persistence"], "applied");
+        assert_eq!(taker.fake.received().len(), 1, "one publication, no retry");
+        assert_eq!(state(&taker).await, (0, 1));
+    }
+
+    #[tokio::test]
+    async fn a_bonded_node_is_an_error_and_the_index_is_spent() {
+        let taker = with_book(sell_book(), 0, true, 0).await;
+
+        let run = run(
+            &taker,
+            &args(&["--output", "json"], "take-sell", &["--yes"]),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(1));
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("take-sell", &outcome);
+        assert_eq!(outcome["status"], "error");
+        assert_eq!(outcome["error"]["code"], "bond_required");
+        assert_eq!(state(&taker).await, (0, 1));
+    }
+
+    #[tokio::test]
+    async fn a_take_that_cannot_be_saved_is_uncertain_and_still_shows_what_the_node_asked() {
+        let taker = with_book(buy_book(), 0, false, 0).await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(taker.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DROP TABLE orders")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let json = run(&taker, &args(&["--output", "json"], "take-buy", &["--yes"])).await;
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("take-buy", &outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "order_not_saved");
+        assert_eq!(outcome["data"]["payment_request"], HOLD_INVOICE);
+        assert_eq!(outcome["meta"]["persistence"], "failed");
+    }
+
+    #[tokio::test]
+    async fn a_human_take_that_cannot_be_saved_still_prints_the_hold_invoice_and_the_advice() {
+        let taker = with_book(buy_book(), 0, false, 0).await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(taker.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DROP TABLE orders")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let human = run(&taker, &args(&[], "take-buy", &["--yes"])).await;
+
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout_text().lines().any(|line| line == HOLD_INVOICE));
+        let err = human.stderr_text();
+        assert!(
+            err.contains("error: The node created the order but it could not be saved locally."),
+            "{err}"
+        );
+        assert!(
+            err.contains("Check `order info --order <id>` before trying again."),
+            "{err}"
+        );
+        assert!(!err.contains(HOLD_INVOICE));
+    }
+
+    #[tokio::test]
+    async fn the_amount_of_a_range_take_reaches_the_node_and_the_row() {
+        let taker = with_book(
+            vec![
+                Listed::fixed(id(1), OrderKind::Sell, Keys::generate().public_key())
+                    .ranged(100, 500),
+            ],
+            0,
+            false,
+            0,
+        )
+        .await;
+
+        let run = run(
+            &taker,
+            &args(
+                &["--output", "json"],
+                "take-sell",
+                &["--amount", "150", "--yes"],
+            ),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(taker.fake.received()[0].amount, Some(150));
+        assert_eq!(document(&run)["data"]["order"]["fiat_amount"], "150");
+        assert_eq!(
+            scalar::<i64>(&taker, "SELECT fiat_amount FROM orders").await,
+            150
         );
     }
 }
