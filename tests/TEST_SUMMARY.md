@@ -4111,3 +4111,20 @@ Native Linux, rustc 1.97.0, on `develop` after `e9ea42b` (pushed). Lean mode: th
 - **Behavior changed on purpose**: `getdm` stored the counterparty and solver keys it saw; `message list` is read-only and returns them as data. `disputechat` reads the solver from the store, so
   the solver's key (the `peer` payload of `admin-took-dispute`) is now passed to `getdmuser` / `dmtouser`; the README and the `disputechat` hint say so.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 734 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0 (see the commit).
+
+## Message List, Slice 4b: The Binary Scenarios: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `eaff4da` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Tests** (7 process tests that run the real `mostro-cli` against the mailbox on a loopback relay):
+  - JSON: the whole flow as exactly one line, exit 0, `--verbose` prints only `verbose: message.list ok`, the document conforms to the **checked-in** schema, 7 messages with the bond invoice
+    as data and `next_step: pay_bond_invoice`, read stages with a snapshot, **the database byte-identical**, no trade secret, relay address in either stream; no `--yes` and a stdin that fails
+    when read change nothing;
+  - human: stderr empty, each invoice alone on its line, the next step in words with the command that continues, the refusal reason, oldest first;
+  - `--since 9` and `--order` narrow the result; the store is unchanged;
+  - bad arguments (`0`, `10081`, `-3`, `soon`) exit 2 with `invalid_arguments` in JSON and one `error:` line in human mode, and **no relay was contacted**;
+  - an unknown order is `order_unknown` (exit 1, no relay contact); no identity is `identity_missing` and **no database is created**;
+  - `getdm` is rejected as an unknown subcommand (exit 2) in both modes, no relay contacted;
+  - a read-only store (unix) is read without complaint.
+- **Mutation spot checks** (3): the store opened for writing, the human error line removed, and an invalid window silently defaulted are each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast`, build, MSRV 1.94.0 742 passed and 0 failed (no FAILED line, no compile error).

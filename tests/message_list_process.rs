@@ -19,6 +19,8 @@ use uuid::Uuid;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{
     mail_add_invoice, mail_bond_payout_request, mail_cant_do, mail_pay_bond_invoice,
@@ -1136,5 +1138,275 @@ mod operation {
         let outcome =
             message_list(&input, &room.config(), &room.store, &limits(), Utc::now()).await;
         assert_eq!(outcome.error_code(), Some(ErrorCode::StoreUnreadable));
+    }
+
+    // --- The binary (slice 4b) ---
+
+    use super::harness::{closed_pipe, run_with_watchdog, Captured, WATCHDOG};
+
+    const BOND_INVOICE: &str = "lnbcrt1bond";
+
+    impl Mailroom {
+        fn command(&self, args: &[&str]) -> tokio::process::Command {
+            let mut command = self.sandbox.command(args);
+            let relays: Vec<&LoopbackRelay> = self.relays.iter().collect();
+            super::harness::set_node_env(&mut command, &self.node, &relays);
+            command
+        }
+
+        async fn run(&self, args: &[&str]) -> Captured {
+            let run = run_with_watchdog(self.command(args), WATCHDOG)
+                .await
+                .unwrap();
+            assert!(run.reaped && run.status.is_some(), "{args:?}");
+            run
+        }
+    }
+
+    fn one_document(run: &Captured) -> Value {
+        let stdout = run.stdout_text();
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{stdout}"
+        );
+        serde_json::from_str(&stdout).unwrap()
+    }
+
+    fn conforms_to_the_checked_in_schema(outcome: &Value) {
+        let path = format!(
+            "{}/docs/schemas/message-list-v1.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            super::schema_check::conforms(&schema, &schema, outcome),
+            "{outcome}"
+        );
+    }
+
+    #[tokio::test]
+    async fn json_returns_the_whole_flow_as_one_document_and_changes_nothing() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let before = room.database();
+
+        let run = room
+            .run(&["--output", "json", "--verbose", "message", "list"])
+            .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(run.stderr_text(), "verbose: message.list ok\n");
+        let outcome = one_document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["command"], "message.list");
+        assert_eq!(outcome["status"], "ok");
+        let data = &outcome["data"];
+        assert_eq!(data["messages"].as_array().unwrap().len(), 7);
+        assert_eq!(data["truncated"], false);
+        assert_eq!(data["since_minutes"], "30");
+        assert_eq!(data["node_pubkey"], room.node.public_key().to_hex());
+        let first = &data["messages"][0];
+        assert_eq!(first["next_step"], "pay_bond_invoice");
+        assert_eq!(first["payload"]["invoice"], BOND_INVOICE);
+        assert_eq!(
+            outcome["meta"]["publication"], "not_applicable",
+            "{outcome}"
+        );
+        assert_eq!(outcome["meta"]["snapshot"]["completed_relays"], 1);
+        assert_eq!(room.database(), before, "a read writes nothing");
+        let secrets: Vec<String> = room
+            .keys
+            .iter()
+            .map(|(_, key)| key.secret_key().to_secret_hex())
+            .collect();
+        for stream in [run.stdout_text(), run.stderr_text()] {
+            for secret in &secrets {
+                assert!(!stream.contains(secret), "a trade key leaked");
+            }
+            assert!(!stream.contains("127.0.0.1"), "a relay address leaked");
+        }
+    }
+
+    #[tokio::test]
+    async fn json_needs_no_yes_and_never_reads_stdin() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let mut command = room.command(&["--output", "json", "message", "list"]);
+        // A stdin that fails when read: the write end of a closed pipe.
+        command.stdin(closed_pipe());
+
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(one_document(&run)["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn human_shows_each_invoice_alone_on_its_line_and_says_what_to_do_next() {
+        let room = Mailroom::with(3, 1, flow).await;
+
+        let run = room.run(&["message", "list"]).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let text = run.stdout_text();
+        for invoice in [BOND_INVOICE, "lnbcrt1hold"] {
+            assert!(text.lines().any(|line| line == invoice), "{text}");
+        }
+        assert!(text.contains("Next: pay the bond invoice"), "{text}");
+        assert!(text.contains("`order add-invoice --order <id>"), "{text}");
+        assert!(text.contains("`bond add-invoice --order <id>"), "{text}");
+        assert!(text.contains("Refused: invalid_peer"), "{text}");
+        let bond = text.find("pay-bond-invoice").unwrap();
+        let hold = text.find("Action: pay-invoice").unwrap();
+        assert!(bond < hold, "oldest first");
+    }
+
+    #[tokio::test]
+    async fn the_window_and_the_order_narrow_the_result() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let trade = Trade {
+            index: 2,
+            keys: room.key(2).clone(),
+        };
+        room.store
+            .save_order(&order(2, Status::WaitingPayment), &trade, 1)
+            .await
+            .unwrap();
+        let before = room.database();
+
+        let narrow = room
+            .run(&["--output", "json", "message", "list", "--since", "9"])
+            .await;
+        let for_order = room
+            .run(&[
+                "--output",
+                "json",
+                "message",
+                "list",
+                "--order",
+                &id(2).to_string(),
+            ])
+            .await;
+
+        let narrow = one_document(&narrow);
+        assert_eq!(narrow["data"]["since_minutes"], "9");
+        assert_eq!(narrow["data"]["messages"].as_array().unwrap().len(), 3);
+        let for_order = one_document(&for_order);
+        let actions: Vec<&str> = for_order["data"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["action"].as_str().unwrap())
+            .collect();
+        assert_eq!(actions, ["waiting-seller-to-pay", "pay-invoice"]);
+        assert_eq!(room.database(), before);
+    }
+
+    #[tokio::test]
+    async fn bad_arguments_exit_2_before_any_relay_is_contacted() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let before = room.database();
+        for since in ["0", "10081", "-3"] {
+            let run = room
+                .run(&[
+                    "--output",
+                    "json",
+                    "message",
+                    "list",
+                    &format!("--since={since}"),
+                ])
+                .await;
+            assert_eq!(run.code(), Some(2), "{since}");
+            let outcome = one_document(&run);
+            assert_eq!(outcome["error"]["code"], "invalid_arguments", "{since}");
+            assert_eq!(outcome["command"], "message.list");
+            assert_eq!(outcome["meta"]["publication"], "not_applicable");
+        }
+        let human = room.run(&["message", "list", "--since", "0"]).await;
+        assert_eq!(human.code(), Some(2));
+        assert!(human.stdout.is_empty());
+        assert!(human.stderr_text().starts_with("error: "));
+        let unparsable = room
+            .run(&["--output", "json", "message", "list", "--since", "soon"])
+            .await;
+        assert_eq!(unparsable.code(), Some(2));
+        assert_eq!(
+            one_document(&unparsable)["error"]["code"],
+            "invalid_arguments"
+        );
+        assert_eq!(room.relays[0].connections(), 0, "no relay was contacted");
+        assert_eq!(room.database(), before);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_order_and_a_missing_identity_are_distinct_errors() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let run = room
+            .run(&[
+                "--output",
+                "json",
+                "message",
+                "list",
+                "--order",
+                &id(99).to_string(),
+            ])
+            .await;
+        assert_eq!(run.code(), Some(1));
+        assert_eq!(one_document(&run)["error"]["code"], "order_unknown");
+        assert_eq!(room.relays[0].connections(), 0);
+
+        let bare = Sandbox::new().unwrap();
+        let mut command = bare.command(["--output", "json", "message", "list"]);
+        super::harness::set_node_env(&mut command, &room.node, &[&room.relays[0]]);
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        assert_eq!(one_document(&run)["error"]["code"], "identity_missing");
+        assert!(
+            super::harness::is_empty_dir(&bare.mcli_dir()),
+            "a read never creates the database"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_old_command_is_gone_with_no_alias() {
+        let room = Mailroom::with(3, 1, flow).await;
+
+        let json = room
+            .run(&["--output", "json", "getdm", "--since", "5"])
+            .await;
+        assert_eq!(json.code(), Some(2));
+        let outcome = one_document(&json);
+        assert_eq!(outcome["error"]["code"], "invalid_arguments");
+        assert_eq!(outcome["command"], Value::Null);
+
+        let human = room.run(&["getdm"]).await;
+        assert_eq!(human.code(), Some(2));
+        assert!(human.stdout.is_empty());
+        assert!(human.stderr_text().contains("unrecognized subcommand"));
+        assert_eq!(room.relays[0].connections(), 0);
+    }
+
+    /// The command writes nothing, so a store that refuses writes is enough.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_read_only_store_is_read_without_complaint() {
+        use std::os::unix::fs::PermissionsExt;
+        let room = Mailroom::with(3, 1, flow).await;
+        let database = room.sandbox.mcli_dir().join("mcli.db");
+        std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o444)).unwrap();
+        std::fs::set_permissions(
+            room.sandbox.mcli_dir(),
+            std::fs::Permissions::from_mode(0o555),
+        )
+        .unwrap();
+
+        let run = room.run(&["--output", "json", "message", "list"]).await;
+
+        std::fs::set_permissions(
+            room.sandbox.mcli_dir(),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(one_document(&run)["status"], "ok");
     }
 }
