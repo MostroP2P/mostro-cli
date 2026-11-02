@@ -20,6 +20,21 @@ use uuid::Uuid;
 use crate::db::User;
 use crate::identity::resolve_dir;
 
+/// `is_mine`, `min_amount`, `max_amount` and `fiat_amount` of a stored order.
+type RangeRow = (Option<bool>, Option<i64>, Option<i64>, i64);
+
+/// The rule of the legacy `fiatsent` and `release`: a next trade key is sent
+/// when the order is flagged mine (any value), has a range, and the room left
+/// in it, `max - fiat_amount`, still reaches the minimum.
+pub fn range_has_room(
+    is_mine: Option<bool>,
+    min: Option<i64>,
+    max: Option<i64>,
+    fiat_amount: i64,
+) -> bool {
+    matches!((is_mine, min, max), (Some(_), Some(min), Some(max)) if max - fiat_amount >= min)
+}
+
 /// Why the store could not be read or written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StoreError {
@@ -182,6 +197,22 @@ impl Store {
         Ok(stored
             .flatten()
             .and_then(|secret| Keys::parse(&secret).ok()))
+    }
+
+    /// Whether `fiat-sent` and `release` for the stored order `id` must carry a
+    /// next trade key: the user made a range order with room left in it.
+    /// `Ok(false)` when there is no such order. Writes nothing.
+    pub async fn range_has_room(&self, id: Uuid) -> Result<bool, StoreError> {
+        let pool = self.open().await?;
+        let row: Result<Option<RangeRow>, _> = sqlx::query_as(
+            "SELECT is_mine, min_amount, max_amount, fiat_amount FROM orders WHERE id = ?1",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&pool)
+        .await;
+        pool.close().await;
+        let row = row.map_err(|_| StoreError::Unwritable)?;
+        Ok(row.is_some_and(|(is_mine, min, max, fiat)| range_has_room(is_mine, min, max, fiat)))
     }
 
     /// Set the status of the stored order `id`. Fails when there is no such

@@ -153,9 +153,11 @@ pub async fn execute_send_msg(
 /// Whether `fiatsent` and `release` must carry a next trade key: the user made
 /// a range order and its range still has room for another child order.
 fn wants_next_trade(order: &Order) -> bool {
-    matches!(
-        (order.is_mine, order.min_amount, order.max_amount),
-        (Some(_), Some(min), Some(max)) if max - order.fiat_amount >= min
+    crate::store::range_has_room(
+        order.is_mine,
+        order.min_amount,
+        order.max_amount,
+        order.fiat_amount,
     )
 }
 

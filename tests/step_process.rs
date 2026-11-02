@@ -23,8 +23,9 @@ mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
 
-use fake_mostro::{info_event, step_daemon, FakeMostro, Respond, Traded};
-use harness::{Backend, LoopbackRelay};
+use fake_mostro::{info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
+use harness::{Backend, LoopbackRelay, Sandbox};
+use mostro_client::store::Store;
 
 const REQUEST_ID: u64 = 7070;
 const WAIT: Duration = Duration::from_millis(700);
@@ -423,5 +424,70 @@ async fn an_unknown_order_is_not_found_for_all_three_steps() {
             .act(&world.buyer, &world.seller, step(action, id(99), None))
             .await;
         assert_eq!(reason(&only(heard)), CantDoReason::NotFound);
+    }
+}
+
+// --- The store (spec 007, slice 2) ------------------------------------------
+
+mod store {
+    use super::*;
+
+    async fn stored(update: &'static str) -> (Sandbox, Store) {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = store.next_trade().await.unwrap();
+        let order = Traded::active(id(1), trade.keys.public_key(), trade.keys.public_key()).small();
+        store.save_order(&order, &trade, REQUEST_ID).await.unwrap();
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query(update).execute(&pool).await.unwrap();
+        pool.close().await;
+        (sandbox, store)
+    }
+
+    #[tokio::test]
+    async fn a_range_order_of_mine_with_room_left_has_room() {
+        let (_sandbox, store) = stored(
+            "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 40",
+        )
+        .await;
+
+        assert!(store.range_has_room(id(1)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_exhausted_range_a_fixed_order_and_an_unknown_order_have_none() {
+        let (_sandbox, store) = stored(
+            "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95",
+        )
+        .await;
+        assert!(!store.range_has_room(id(1)).await.unwrap());
+        assert!(!store.range_has_room(id(2)).await.unwrap(), "unknown");
+
+        let (_sandbox, store) = stored(
+            "UPDATE orders SET is_mine = 1, min_amount = NULL, max_amount = NULL, fiat_amount = 40",
+        )
+        .await;
+        assert!(!store.range_has_room(id(1)).await.unwrap(), "fixed");
+    }
+
+    #[tokio::test]
+    async fn reading_the_range_changes_no_byte_and_a_missing_store_is_not_created() {
+        let (sandbox, store) = stored(
+            "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 40",
+        )
+        .await;
+        let db = sandbox.mcli_dir().join("mcli.db");
+        let before = std::fs::read(&db).unwrap();
+
+        store.range_has_room(id(1)).await.unwrap();
+
+        assert_eq!(std::fs::read(&db).unwrap(), before);
+        let empty = Sandbox::new().unwrap();
+        let missing = Store::in_dir(&empty.mcli_dir());
+        assert!(missing.range_has_room(id(1)).await.is_err());
+        assert!(!empty.mcli_dir().join("mcli.db").exists());
     }
 }

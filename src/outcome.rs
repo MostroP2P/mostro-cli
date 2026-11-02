@@ -18,6 +18,7 @@ pub mod new;
 pub mod order;
 mod rules;
 pub mod schema;
+pub mod step;
 pub mod take;
 
 /// Contract version, independent of the executable version.
