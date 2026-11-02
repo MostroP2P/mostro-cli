@@ -18,7 +18,7 @@ use super::WriteOptions;
 use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
 use crate::outcome::new::{OrderNewData, OrderNewInput};
 use crate::outcome::{Envelope, ErrorCode, Warnings};
-use crate::store::{Store, Trade};
+use crate::store::{Role, Store, Trade};
 
 pub const COMMAND: &str = "order.new";
 
@@ -72,6 +72,7 @@ pub async fn order_new(
         trade,
         store,
         request_id,
+        role: Role::Maker,
     };
     match exchange(config, outbound, &expect, limits).await {
         Err(failure) => sent.failed(&failure).await,

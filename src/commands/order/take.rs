@@ -18,7 +18,7 @@ use super::WriteOptions;
 use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
 use crate::outcome::take::{OrderTakeData, OrderTakeInput, TakeSide, Taken};
 use crate::outcome::{Envelope, ErrorCode, Warnings};
-use crate::store::{Store, Trade};
+use crate::store::{Role, Store, Trade};
 
 pub type TakeOutcome = Envelope<OrderTakeData, ()>;
 
@@ -63,6 +63,7 @@ pub async fn order_take(
         trade,
         store,
         request_id,
+        role: Role::Taker,
     };
     match exchange(config, outbound, &expect, limits).await {
         Err(failure) => sent.failed(&failure).await,

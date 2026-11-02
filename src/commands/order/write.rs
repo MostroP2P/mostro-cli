@@ -12,7 +12,7 @@ use crate::msg::ExchangeFailure;
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Warnings,
 };
-use crate::store::{Store, Trade};
+use crate::store::{Role, Store, Trade};
 
 /// What a write command knows about the request it published.
 pub(super) struct Sent<'a> {
@@ -20,6 +20,8 @@ pub(super) struct Sent<'a> {
     pub trade: &'a Trade,
     pub store: &'a Store,
     pub request_id: u64,
+    /// Whose order a saved row is.
+    pub role: Role,
 }
 
 impl Sent<'_> {
@@ -93,7 +95,7 @@ impl Sent<'_> {
         };
         match self
             .store
-            .save_order(order, self.trade, self.request_id)
+            .save_order_as(order, self.trade, self.request_id, self.role)
             .await
         {
             Ok(()) => Envelope::ok(self.command, data, warnings, accepted(Persistence::Applied)),

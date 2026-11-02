@@ -762,6 +762,10 @@ mod operation {
             scalar::<i64>(&taker, "SELECT max_amount FROM orders").await,
             500
         );
+        assert!(
+            !scalar::<bool>(&taker, "SELECT is_mine FROM orders").await,
+            "a taken order is not the user's own"
+        );
     }
 
     #[tokio::test]

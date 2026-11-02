@@ -27,7 +27,7 @@ mod schema_check;
 
 use fake_mostro::{info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
 use harness::{Backend, LoopbackRelay, Sandbox};
-use mostro_client::store::Store;
+use mostro_client::store::{Role, Store};
 
 const REQUEST_ID: u64 = 7070;
 const WAIT: Duration = Duration::from_millis(700);
@@ -494,6 +494,72 @@ mod store {
         )
         .await;
         assert!(!store.range_has_room(id(1)).await.unwrap(), "fixed");
+    }
+
+    async fn marker(sandbox: &Sandbox, order: Uuid) -> Option<bool> {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(sandbox.mcli_dir().join("mcli.db"))
+            .read_only(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let value = sqlx::query_scalar("SELECT is_mine FROM orders WHERE id = ?1")
+            .bind(order.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    fn range(order: Uuid, owner: PublicKey) -> mostro_core::order::SmallOrder {
+        let mut small = Traded::active(order, owner, owner).small();
+        small.min_amount = Some(10);
+        small.max_amount = Some(100);
+        small.fiat_amount = 40;
+        small
+    }
+
+    #[tokio::test]
+    async fn the_maker_marker_is_exact_and_only_the_makers_range_has_room() {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = store.next_trade().await.unwrap();
+        let mine = range(id(1), trade.keys.public_key());
+        let taken = range(id(2), trade.keys.public_key());
+
+        store
+            .save_order_as(&mine, &trade, REQUEST_ID, Role::Maker)
+            .await
+            .unwrap();
+        store
+            .save_order_as(&taken, &trade, REQUEST_ID, Role::Taker)
+            .await
+            .unwrap();
+
+        assert_eq!(marker(&sandbox, id(1)).await, Some(true));
+        assert_eq!(marker(&sandbox, id(2)).await, Some(false));
+        assert!(store.range_has_room(id(1)).await.unwrap(), "the maker's");
+        assert!(
+            !store.range_has_room(id(2)).await.unwrap(),
+            "a taker needs no next key"
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_again_keeps_the_role_of_the_latest_save_and_save_order_is_the_makers() {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = store.next_trade().await.unwrap();
+        let order = range(id(1), trade.keys.public_key());
+
+        store.save_order(&order, &trade, REQUEST_ID).await.unwrap();
+        assert_eq!(marker(&sandbox, id(1)).await, Some(true), "the default");
+        store
+            .save_order_as(&order, &trade, REQUEST_ID, Role::Taker)
+            .await
+            .unwrap();
+        assert_eq!(marker(&sandbox, id(1)).await, Some(false), "updated");
     }
 
     #[tokio::test]
@@ -1123,6 +1189,21 @@ mod operation {
             assert_eq!(last_index(&holder).await, index, "no index is reserved");
             assert_eq!(holder.fake.received()[0].next_trade, None);
         }
+    }
+
+    #[tokio::test]
+    async fn no_range_warning_for_the_taker_of_a_range_order() {
+        let holder = self::holder(buying, 0, |respond| respond).await;
+        sql(
+            &holder,
+            "UPDATE orders SET is_mine = 0, min_amount = 10, max_amount = 100, fiat_amount = 40",
+        )
+        .await;
+
+        let outcome = take(&holder, StepKind::FiatSent, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert!(warnings(&outcome).is_empty(), "a taker continues nothing");
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-02
 
-**Status**: Draft, awaiting maintainer review. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: In progress (slice 1 done, 2026-11-02); the maintainer approved the shape including `order sync`. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Required follow-up of [trade steps](../007-trade-steps-json/spec.md): continue a range order from the CLI. A maker's range order
 (`order new --fiat-amount 10 --fiat-amount-max 100`) is taken one slice at a time; after each slice the node creates a child order for the rest, but

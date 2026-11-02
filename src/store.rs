@@ -23,16 +23,24 @@ use crate::identity::resolve_dir;
 /// `is_mine`, `min_amount`, `max_amount` and `fiat_amount` of a stored order.
 type RangeRow = (Option<bool>, Option<i64>, Option<i64>, i64);
 
-/// The rule of the legacy `fiatsent` and `release`: a next trade key is sent
-/// when the order is flagged mine (any value), has a range, and the room left
-/// in it, `max - fiat_amount`, still reaches the minimum.
+/// Whether the user's range order has room for a child order: the order is the
+/// user's own (a taker continues nothing), has a range, and the room left in
+/// it, `max - fiat_amount`, still reaches the minimum.
 pub fn range_has_room(
     is_mine: Option<bool>,
     min: Option<i64>,
     max: Option<i64>,
     fiat_amount: i64,
 ) -> bool {
-    matches!((is_mine, min, max), (Some(_), Some(min), Some(max)) if max - fiat_amount >= min)
+    matches!((is_mine, min, max), (Some(true), Some(min), Some(max)) if max - fiat_amount >= min)
+}
+
+/// Whose order a saved row is: the one the user made with `order new`, or the
+/// one the user took with `order take-*`. Only a maker continues a range order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Maker,
+    Taker,
 }
 
 /// Why the store could not be read or written.
@@ -231,7 +239,7 @@ impl Store {
         }
     }
 
-    /// Save the order the node created and record its index, in one transaction:
+    /// Save the order the user made and record its index, in one transaction:
     /// both are written or neither is.
     pub async fn save_order(
         &self,
@@ -239,8 +247,20 @@ impl Store {
         trade: &Trade,
         request_id: u64,
     ) -> Result<(), StoreError> {
+        self.save_order_as(order, trade, request_id, Role::Maker)
+            .await
+    }
+
+    /// [`Store::save_order`] for an order of the given `role`.
+    pub async fn save_order_as(
+        &self,
+        order: &SmallOrder,
+        trade: &Trade,
+        request_id: u64,
+        role: Role,
+    ) -> Result<(), StoreError> {
         let pool = self.open().await?;
-        let result = save_in(&pool, order, trade, request_id).await;
+        let result = save_in(&pool, order, trade, request_id, role).await;
         pool.close().await;
         result
     }
@@ -296,6 +316,7 @@ async fn save_in(
     order: &SmallOrder,
     trade: &Trade,
     request_id: u64,
+    role: Role,
 ) -> Result<(), StoreError> {
     let (Some(id), Some(kind), Some(status)) =
         (order.id, order.kind.as_ref(), order.status.as_ref())
@@ -307,10 +328,10 @@ async fn save_in(
     sqlx::query(
         "INSERT INTO orders (id, kind, status, amount, min_amount, max_amount, fiat_code, \
          fiat_amount, payment_method, premium, trade_keys, is_mine, request_id, created_at, \
-         expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14) \
+         expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?15, ?12, ?13, ?14) \
          ON CONFLICT(id) DO UPDATE SET kind = ?2, status = ?3, amount = ?4, min_amount = ?5, \
          max_amount = ?6, fiat_code = ?7, fiat_amount = ?8, payment_method = ?9, premium = ?10, \
-         trade_keys = ?11, is_mine = 1, request_id = ?12, expires_at = ?14",
+         trade_keys = ?11, is_mine = ?15, request_id = ?12, expires_at = ?14",
     )
     .bind(id.to_string())
     .bind(kind.to_string())
@@ -326,6 +347,7 @@ async fn save_in(
     .bind(request_id as i64)
     .bind(chrono::Utc::now().timestamp())
     .bind(order.expires_at)
+    .bind(role == Role::Maker)
     .execute(&mut *transaction)
     .await
     .map_err(unwritable)?;

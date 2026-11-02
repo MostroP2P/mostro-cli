@@ -30,7 +30,7 @@ trade without the legacy commands. None of those documents change.
   **not continued** by the node (no child order is created). The outcome says so with the warning `range_not_continued` (new), in JSON and in the
   human text, and the user can post a new order for the rest. Doing this correctly (reserving the index, sending the next trade key, and
   giving the child order a usable local row) is **required follow-up work, spec 008 "range children"**, not an option; this spec stays free
-  of it so the three commands can be finished and verified first. The room test is the shared `range_has_room` rule (already in the store).
+  of it so the three commands can be finished and verified first. The room test is the shared `range_has_room` rule (already in the store). Amended by [spec 008](../008-range-children/spec.md): the rule now also requires the order to be the user's own, which the first version could not tell (a taker of a range order got the warning too).
   The old command waited for the child's `new-order` message; neither this spec nor 008 needs the command to wait, `message list` shows it.
 - Q: Local effects? -> A: After an accepted reply the local row status follows the node (`fiat-sent`; `settled-hold-invoice`; `canceled`,
   `cooperatively-canceled`; a cooperative cancel started by either side leaves the status as it is). A failed update is `ok` with the

@@ -1215,6 +1215,10 @@ mod operation {
             scalar::<String>(&maker, "SELECT id FROM orders").await,
             outcome["data"]["order"]["id"].as_str().unwrap()
         );
+        assert!(
+            scalar::<bool>(&maker, "SELECT is_mine FROM orders").await,
+            "an order made with order new is the user's own"
+        );
         // The trade private key and the mnemonic stay in the store.
         let secret = scalar::<String>(&maker, "SELECT trade_keys FROM orders").await;
         let mnemonic = scalar::<String>(&maker, "SELECT mnemonic FROM users").await;

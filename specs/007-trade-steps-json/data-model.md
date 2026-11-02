@@ -33,7 +33,7 @@ its payload empty (a `peer` for `fiat-sent-ok`), otherwise the outcome is `reply
 | accepted, row updated | `ok` | | published / accepted / applied |
 | accepted, nothing to record (cancel request) | `ok` | | published / accepted / not_attempted |
 | accepted, row update failed | `ok` + warning `local_status_stale` | | published / accepted / failed |
-| accepted on a range order with room left (`fiat-sent`, `release`) | `ok` + warning `range_not_continued` | | as above |
+| accepted on a range order of the user's own with room left (`fiat-sent`, `release`) | `ok` + warning `range_not_continued` | | as above |
 | `cant-do(r)` | `error` | `node_refused` + reason `r` | published / rejected / not_attempted |
 | no reply | `uncertain` | `reply_timeout` | published / unknown / not_attempted |
 | unusable reply | `uncertain` | `reply_malformed` | published / unknown / not_attempted |

@@ -4270,3 +4270,12 @@ Authorized by the maintainer on 2026-11-02 ("go testing on my local node, it's s
 - **Not verified**: a range order (the `range_not_continued` warning and what the node does without the next trade key), `uncertain` against a stopped node, `fiat-sent` and `release` on a disputed order, the `released` action reaching a seller (only `hold-invoice-payment-settled` was seen), cooperative cancel from a `fiat-sent` order, other node versions.
 - **Nothing in the CLI needed to change.**
 
+## Range Children (spec 008) Slice 1: The Maker Marker: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `7880630` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **The flaw, found while writing the spec**: `Store::save_order` wrote `is_mine = 1` for every order, so the rows of `order take-*` looked like the user's own and the `range_not_continued` warning of spec 007 also appeared for the taker of a range order (the legacy `Some(_)` test had the same flaw). Two tests were written first and failed for that reason: `no_range_warning_for_the_taker_of_a_range_order` (the warning appeared) and `the_maker_marker_is_exact_and_only_the_makers_range_has_room` (a taker's range reported room).
+- **The fix**: `store::Role` (`Maker`, `Taker`), `Store::save_order_as` (`save_order` stays the maker's), the marker written on insert and on update; `Sent` carries the role (`order new` maker, `order take-*` taker); `range_has_room` requires `is_mine = true`. Rows written before this change keep their marker (the spec 008 clarification: no migration).
+- **Evidence**: the two store tests (exact marker for both roles, `save_order` is the maker's, a second save updates the role), the taker warning test, and one new assertion each in the `order new` and `order take-sell` process tests that the saved row has the right marker. The spec 007 texts (spec, data model, command reference) now say "an order you made".
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 821 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
