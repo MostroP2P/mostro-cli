@@ -121,13 +121,13 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
 - **`order fiat-sent`** (replaces `fiatsent`)
   - **Description**: Tell the node that you, the buyer, sent the fiat. Publishes one signed request with the stored trade key of the order and updates the local status to `fiat-sent`. It needs an existing local identity (`mcli.db`) and never creates one. In JSON mode it requires `--yes`.
   - **Args**: `--order <UUID>`, required; `--yes`.
-  - **Output**: `data.result` is `fiat_sent` and `data.next_step` is `wait_for_release`. A refusal (for example `invalid_pubkey` for the seller, `not_allowed_by_status`) is `node_refused` with the reason; silence or an unusable reply is `uncertain` and is not retried. A failed local status update is a success with the warning `local_status_stale`. On a range order you made with room left the warning `range_not_continued` says the node will not create an order for the rest of the range (spec 008 will continue it).
+  - **Output**: `data.result` is `fiat_sent` and `data.next_step` is `wait_for_release`. A refusal (for example `invalid_pubkey` for the seller, `not_allowed_by_status`) is `node_refused` with the reason; silence or an unusable reply is `uncertain` and is not retried. A failed local status update is a success with the warning `local_status_stale`. On a range order you made with room left, a buyer's `fiat-sent` carries a fresh trade key (the node keeps it until the seller releases) and `data.next_trade_index` reports the index reserved for it; the child order appears when the seller releases, and `order sync` gives it a local row. If the index cannot be recorded after the node accepted, the result is a success with the warning `trade_index_not_recorded`.
   - **Migration**: `fiatsent`, `-o` and `--order-id` are gone with no alias. The existing MCP server has no tool for it.
   - **Handler**: `commands::order::step::order_step` through `msg::exchange` and `store`; dispatch and the prompt in `cli/step.rs`.
 
 - **`order release`** (replaces `release`)
-  - **Description**: Settle the hold invoice so the node pays the buyer. Irreversible; the preview says so. Same rules, arguments and failure behaviour as `order fiat-sent`; the local status becomes `settled-hold-invoice`.
-  - **Output**: `data.result` is `released`. The `rate` message the node sends afterwards is visible with `message list`.
+  - **Description**: Settle the hold invoice so the node pays the buyer. Irreversible; the preview says so. Same rules, arguments and failure behaviour as `order fiat-sent`; the local status becomes `settled-hold-invoice`. On a range order you made as the seller, with room left, it carries a fresh trade key so the node creates the child order for the rest of the range (see `order sync`).
+  - **Output**: `data.result` is `released`; with a key sent, `data.next_trade_index` is the reserved index and `data.next_step` is `sync_child_order`. The `rate` message the node sends afterwards is visible with `message list`.
   - **Migration**: `release`, `-o` and `--order-id` are gone with no alias; the existing MCP server has no tool for it.
 
 - **`order cancel`** (replaces `cancel`)

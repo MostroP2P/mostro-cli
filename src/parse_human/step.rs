@@ -59,6 +59,21 @@ pub fn render_step(data: &StepData) -> String {
     let _ = writeln!(out, "📋 Order ID: {}", data.order_id());
     let _ = writeln!(out, "🔑 Trade Key: {}", data.trade_pubkey());
     let _ = writeln!(out, "{next}");
+    match (data.result(), data.next_trade_index()) {
+        (StepResult::Released, Some(_)) => {
+            let _ = writeln!(
+                out,
+                "💡 The rest of the range continues as a new order: run `order sync` to add it."
+            );
+        }
+        (StepResult::FiatSent, Some(_)) => {
+            let _ = writeln!(
+                out,
+                "💡 The rest of the range continues when the seller releases: run `order sync` then."
+            );
+        }
+        _ => {}
+    }
     out
 }
 
@@ -114,6 +129,28 @@ mod tests {
             assert!(text.contains(&Uuid::from_u128(9).to_string()));
             assert!(text.contains(data.trade_pubkey()));
         }
+    }
+
+    #[test]
+    fn a_step_that_sent_a_key_points_at_order_sync() {
+        let node = Keys::generate().public_key();
+        let trade = Keys::generate().public_key();
+        let human = |kind, action: Action| {
+            let data = StepData::from_reply(
+                &node,
+                &StepInput::new(kind, Uuid::from_u128(9)),
+                (&action, &None, Some(Uuid::from_u128(9))),
+                &trade,
+                Some(4),
+            )
+            .unwrap()
+            .0;
+            render_step(&data)
+        };
+        assert!(human(StepKind::Release, Action::HoldInvoicePaymentSettled).contains("order sync"));
+        assert!(human(StepKind::FiatSent, Action::FiatSentOk).contains("when the seller releases"));
+        let plain = render_step(&data(StepKind::Release, Action::HoldInvoicePaymentSettled));
+        assert!(!plain.contains("order sync"), "{plain}");
     }
 
     #[test]

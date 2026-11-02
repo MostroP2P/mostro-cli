@@ -598,7 +598,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 ### Trade lifecycle
 - `order fiat-sent --order <id> [--yes]` — buyer confirms fiat sent (supports `--output json`, which requires `--yes`). Replaces `fiatsent`; uses the order's stored key, spends no trade index.
-- `order release --order <id> [--yes]` — seller releases the hold invoice; irreversible (supports `--output json`, which requires `--yes`). Replaces `release`. On a range order of yours with room left the node does not continue the range (the result warns `range_not_continued`); post a new order for the rest.
+- `order release --order <id> [--yes]` — seller releases the hold invoice; irreversible (supports `--output json`, which requires `--yes`). Replaces `release`. On a range order you made with room left, the maker's own step (`release` of a sell order, `fiat-sent` of a buy order) carries a fresh trade key so the node creates the child order for the rest of the range; the result gives the reserved `next_trade_index`, and `order sync` then gives the child a local row.
 - `order cancel --order <id> [--yes]` — cancel a pending order, or start or confirm a cooperative cancel of an active trade; the node decides which and the result says so (supports `--output json`, which requires `--yes`). Replaces `cancel`.
 - `rate -o <id> -r <1-5>` — rate counterpart.
 - `dispute -o <id>` — open a dispute.

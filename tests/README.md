@@ -333,7 +333,7 @@ only**; CI (with the CI-hosted Windows runner) is checked after the push. Probed
 | FR-004 one request, no retry, no index | the operation tests (one publication, index unchanged), the refusal and failure cases | Verified on Linux |
 | FR-005 correlation by request id, deadline, cleanup | `util::reply` unit tests, the decoy tests, `a_reply_without_the_request_id_...` | Verified on Linux; the spec's "order id fallback" was dropped because the node echoes the request id |
 | FR-006 statuses and stages per case | `outcome::step` schema tests, the operation tests, the binary scenarios | Verified on Linux |
-| FR-007 data, next step, range warning | `outcome::step` unit tests, the range tests | Verified on Linux; `next_trade_index` stays null until spec 008 |
+| FR-007 data, next step, the range key | `outcome::step` unit tests, the range tests of spec 008 | Verified on Linux; the warning `range_not_continued` was replaced by the key and index of spec 008 |
 | FR-008 one document, own schemas, fixtures, examples, drift | `integration_tests` (fixtures, 16 examples, 17 invalid variants) | Verified on Linux |
 | FR-009 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel sweeps | Verified on Linux |
 | FR-010 legacy arms removed | the removed-spelling cases, `cli/send_msg.rs` serving only `dispute` and the admin commands | Verified on Linux |

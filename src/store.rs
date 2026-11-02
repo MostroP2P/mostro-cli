@@ -20,8 +20,8 @@ use uuid::Uuid;
 use crate::db::User;
 use crate::identity::resolve_dir;
 
-/// `is_mine`, `min_amount`, `max_amount` and `fiat_amount` of a stored order.
-type RangeRow = (Option<bool>, Option<i64>, Option<i64>, i64);
+/// `is_mine`, `min_amount`, `max_amount`, `fiat_amount` and `kind` of a stored order.
+type RangeRow = (Option<bool>, Option<i64>, Option<i64>, i64, Option<String>);
 
 /// Whether the user's range order has room for a child order: the order is the
 /// user's own (a taker continues nothing), has a range, and the room left in
@@ -41,6 +41,13 @@ pub fn range_has_room(
 pub enum Role {
     Maker,
     Taker,
+}
+
+/// A range order the user made, with room left in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MakerRange {
+    /// The user sells (a `sell` order); otherwise the user buys.
+    pub sells: bool,
 }
 
 /// Why the store could not be read or written.
@@ -207,20 +214,25 @@ impl Store {
             .and_then(|secret| Keys::parse(&secret).ok()))
     }
 
-    /// Whether `fiat-sent` and `release` for the stored order `id` must carry a
-    /// next trade key: the user made a range order with room left in it.
-    /// `Ok(false)` when there is no such order. Writes nothing.
-    pub async fn range_has_room(&self, id: Uuid) -> Result<bool, StoreError> {
+    /// What `fiat-sent` and `release` need to know about the stored order `id`
+    /// when it is a range order the user made with room left in it: `None` for
+    /// anything else (a taken order, a fixed order, an exhausted range, an unknown
+    /// order). Writes nothing.
+    pub async fn maker_range(&self, id: Uuid) -> Result<Option<MakerRange>, StoreError> {
         let pool = self.open().await?;
         let row: Result<Option<RangeRow>, _> = sqlx::query_as(
-            "SELECT is_mine, min_amount, max_amount, fiat_amount FROM orders WHERE id = ?1",
+            "SELECT is_mine, min_amount, max_amount, fiat_amount, kind FROM orders WHERE id = ?1",
         )
         .bind(id.to_string())
         .fetch_optional(&pool)
         .await;
         pool.close().await;
         let row = row.map_err(|_| StoreError::Unwritable)?;
-        Ok(row.is_some_and(|(is_mine, min, max, fiat)| range_has_room(is_mine, min, max, fiat)))
+        Ok(row.and_then(|(is_mine, min, max, fiat, kind)| {
+            range_has_room(is_mine, min, max, fiat).then(|| MakerRange {
+                sells: kind.as_deref() == Some("sell"),
+            })
+        }))
     }
 
     /// Set the status of the stored order `id`. Fails when there is no such

@@ -2515,6 +2515,11 @@
                 "const": "wait_for_peer_cancel",
                 "description": "Wait for the other party to confirm with `order cancel`.",
                 "type": "string"
+              },
+              {
+                "const": "sync_child_order",
+                "description": "The node created a child order for the rest of the range; `order sync`\ngives it a local row.",
+                "type": "string"
               }
             ]
           },
@@ -2568,7 +2573,7 @@
               "invalid_event_timestamp",
               "cleanup_incomplete",
               "local_status_stale",
-              "range_not_continued"
+              "trade_index_not_recorded"
             ],
             "type": "string"
           },
@@ -3143,6 +3148,11 @@
                 "const": "wait_for_peer_cancel",
                 "description": "Wait for the other party to confirm with `order cancel`.",
                 "type": "string"
+              },
+              {
+                "const": "sync_child_order",
+                "description": "The node created a child order for the rest of the range; `order sync`\ngives it a local row.",
+                "type": "string"
               }
             ]
           },
@@ -3196,7 +3206,7 @@
               "invalid_event_timestamp",
               "cleanup_incomplete",
               "local_status_stale",
-              "range_not_continued"
+              "trade_index_not_recorded"
             ],
             "type": "string"
           },
@@ -5662,6 +5672,11 @@
                 "const": "wait_for_peer_cancel",
                 "description": "Wait for the other party to confirm with `order cancel`.",
                 "type": "string"
+              },
+              {
+                "const": "sync_child_order",
+                "description": "The node created a child order for the rest of the range; `order sync`\ngives it a local row.",
+                "type": "string"
               }
             ]
           },
@@ -5715,7 +5730,7 @@
               "invalid_event_timestamp",
               "cleanup_incomplete",
               "local_status_stale",
-              "range_not_continued"
+              "trade_index_not_recorded"
             ],
             "type": "string"
           },

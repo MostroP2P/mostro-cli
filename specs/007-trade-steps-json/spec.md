@@ -27,8 +27,7 @@ trade without the legacy commands. None of those documents change.
   back; `fiat-sent` is cheap to undo only by dispute, so it is not exempt.
 - Q: Trade index and range orders? -> A: Decided 2026-11-02: these commands sign with the order's stored trade key and spend no index, and they
   do **not** send a next trade key. On a range order of the user's with room left, `fiat-sent` and `release` therefore leave the range
-  **not continued** by the node (no child order is created). The outcome says so with the warning `range_not_continued` (new), in JSON and in the
-  human text, and the user can post a new order for the rest. Doing this correctly (reserving the index, sending the next trade key, and
+  **not continued** by the node (no child order is created). (Superseded by spec 008, which sends the key and removes the warning `range_not_continued`.) Doing this correctly (reserving the index, sending the next trade key, and
   giving the child order a usable local row) is **required follow-up work, spec 008 "range children"**, not an option; this spec stays free
   of it so the three commands can be finished and verified first. The room test is the shared `range_has_room` rule (already in the store). Amended by [spec 008](../008-range-children/spec.md): the rule now also requires the order to be the user's own, which the first version could not tell (a taker of a range order got the warning too).
   The old command waited for the child's `new-order` message; neither this spec nor 008 needs the command to wait, `message list` shows it.
@@ -61,7 +60,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
   `not_allowed_by_status`, `order_already_canceled`, `is_not_your_order`) or nothing was published; `uncertain` when published and the result
   is unknown (no reply, malformed reply, relay read failure).
 - **FR-007**: Data per command (see the plan): the order id, a `result` word (`fiat_sent`; `released`; `canceled`, `cancel_requested`,
-  `cancel_accepted`), the trade public key, and, when the range was not continued, the warning `range_not_continued`. A `next_step` names only commands that exist (for
+  `cancel_accepted`), the trade public key, and, for a range order, the reserved `next_trade_index` (spec 008). A `next_step` names only commands that exist (for
   cancel_requested: wait for the peer, who answers with `order cancel`; for fiat-sent: wait for the seller to release).
 - **FR-008**: One versioned JSON outcome per command (`order.fiat-sent`, `order.release`, `order.cancel`, names already in the registry),
   command-scoped schemas, fixtures, regenerated discovery, drift and boundary checks. No private key, mnemonic or database record is

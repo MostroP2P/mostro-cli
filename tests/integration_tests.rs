@@ -1807,13 +1807,13 @@ mod schema_fixtures {
         }
     }
 
-    fn step_data(kind: StepKind, action: Action) -> Value {
+    fn step_data(kind: StepKind, action: Action, index: Option<i64>) -> Value {
         let data = StepData::from_reply(
             &node(),
             &StepInput::new(kind, id(1)),
             (&action, &None, Some(id(1))),
             &PublicKey::from_hex(TRADE).unwrap(),
-            None,
+            index,
         )
         .unwrap()
         .0;
@@ -1870,8 +1870,6 @@ mod schema_fixtures {
             ))
             .unwrap()
         };
-        let mut range = Warnings::new();
-        range.add(mostro_client::outcome::WarningCode::RangeNotContinued);
         let mut stale = Warnings::new();
         stale.add(mostro_client::outcome::WarningCode::LocalStatusStale);
         vec![
@@ -1879,18 +1877,18 @@ mod schema_fixtures {
                 "fiat_sent",
                 ok(
                     fiat,
-                    step_data(StepKind::FiatSent, Action::FiatSentOk),
+                    step_data(StepKind::FiatSent, Action::FiatSentOk, None),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
                 0,
             ),
             (
-                "fiat_sent_range_not_continued",
+                "fiat_sent_range_key_sent",
                 ok(
                     fiat,
-                    step_data(StepKind::FiatSent, Action::FiatSentOk),
-                    range,
+                    step_data(StepKind::FiatSent, Action::FiatSentOk, Some(4)),
+                    Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
                 0,
@@ -1899,7 +1897,21 @@ mod schema_fixtures {
                 "release_released",
                 ok(
                     release,
-                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled),
+                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled, None),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "release_range_continued",
+                ok(
+                    release,
+                    step_data(
+                        StepKind::Release,
+                        Action::HoldInvoicePaymentSettled,
+                        Some(4),
+                    ),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
@@ -1909,7 +1921,7 @@ mod schema_fixtures {
                 "release_stale_status",
                 ok(
                     release,
-                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled),
+                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled, None),
                     stale,
                     accepted(Persistence::Failed),
                 ),
@@ -1919,7 +1931,7 @@ mod schema_fixtures {
                 "cancel_canceled",
                 ok(
                     cancel,
-                    step_data(StepKind::Cancel, Action::Canceled),
+                    step_data(StepKind::Cancel, Action::Canceled, None),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
@@ -1929,7 +1941,11 @@ mod schema_fixtures {
                 "cancel_requested",
                 ok(
                     cancel,
-                    step_data(StepKind::Cancel, Action::CooperativeCancelInitiatedByYou),
+                    step_data(
+                        StepKind::Cancel,
+                        Action::CooperativeCancelInitiatedByYou,
+                        None,
+                    ),
                     Warnings::new(),
                     accepted(Persistence::NotAttempted),
                 ),
@@ -1939,7 +1955,7 @@ mod schema_fixtures {
                 "cancel_accepted",
                 ok(
                     cancel,
-                    step_data(StepKind::Cancel, Action::CooperativeCancelAccepted),
+                    step_data(StepKind::Cancel, Action::CooperativeCancelAccepted, None),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
@@ -1994,7 +2010,7 @@ mod schema_fixtures {
     #[test]
     fn proposed_step_examples_conform_to_the_checked_in_schemas() {
         let examples = step_examples();
-        assert_eq!(examples.len(), 16);
+        assert_eq!(examples.len(), 17);
         for (name, exit, outcome) in examples {
             if outcome["command"].is_null() {
                 continue; // no command resolved: every schema allows it
@@ -2089,9 +2105,14 @@ mod schema_fixtures {
                 Box::new(|o| o["command"] = json!("order.cancel")),
             ),
             (
-                "fiat_sent_range_not_continued",
+                "release_stale_status",
                 "an unknown warning",
                 Box::new(|o| o["warnings"][0]["code"] = json!("trade_keys_limited")),
+            ),
+            (
+                "release_range_continued",
+                "a numeric index",
+                Box::new(|o| o["data"]["next_trade_index"] = json!(4)),
             ),
             (
                 "release_node_refused",

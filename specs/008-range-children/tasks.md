@@ -13,7 +13,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   spec 007 range tests and documents are amended; the false positive is pinned and gone.
 - [x] **2. The scripted node creates children.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Extend the step daemon: a range order, the key stored by a buy order's `fiat-sent`, the child
   created at `release` and its `new-order` sent to the new key with the echoed request id. No production change.
-- [ ] **3. Key and index in the steps.** The conditions of the spec, the index policy (reserved before, spent after), `next_trade_index`,
+- [x] **3. Key and index in the steps.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) The conditions of the spec, the index policy (reserved before, spent after), `next_trade_index`,
   `next_step` `sync_child_order`, the range warning only for inexact rows; operation and binary tests.
 - [ ] **4. `order sync`.** Outcomes, schema, the operation against the scripted mailbox, the command, human output, fixtures, discovery.
 - [ ] **5. Failure matrix and examples.** Identity, configuration, store, relay, unwritable streams, sentinels; `contracts/examples.json`.

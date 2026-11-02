@@ -321,7 +321,7 @@ mod tests {
         WarningCode::InvalidOrderTimestamp,
         WarningCode::LocalStatusStale,
         WarningCode::TradeKeysLimited,
-        WarningCode::RangeNotContinued,
+        WarningCode::TradeIndexNotRecorded,
     ];
 
     type Json = Envelope<Value, Value>;
@@ -390,7 +390,7 @@ mod tests {
             WarningCode::InvalidOrderTimestamp => "invalid_order_timestamp",
             WarningCode::LocalStatusStale => "local_status_stale",
             WarningCode::TradeKeysLimited => "trade_keys_limited",
-            WarningCode::RangeNotContinued => "range_not_continued",
+            WarningCode::TradeIndexNotRecorded => "trade_index_not_recorded",
         }
     }
 

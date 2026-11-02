@@ -16,9 +16,8 @@ use crate::outcome::{Envelope, ErrorCode, WarningCode};
 use crate::parse_human::{render_step, render_step_preview};
 
 const UNWRITABLE: &str = "error: the result could not be written";
-const RANGE_NOT_CONTINUED: &str = "warning: this is a range order with room left, and the node \
-                                   does not continue it: it creates no order for the rest of the \
-                                   range. Post a new order for it.";
+const INDEX_NOT_RECORDED: &str = "warning: the request was accepted but its new trade index \
+                                  could not be recorded; the next order may reuse it.";
 const STATUS_STALE: &str = "warning: the node accepted the request but the local order status \
                             could not be updated; `order info --order <id>` shows the real one.";
 
@@ -68,8 +67,11 @@ fn advice(kind: StepKind) -> &'static str {
 /// The warnings a human cannot read in a document: fixed lines on stderr.
 fn warn(outcome: &Envelope<StepData, ()>) {
     let mut err = std::io::stderr().lock();
-    if outcome.warnings().contains(WarningCode::RangeNotContinued) {
-        diagnose(&mut err, RANGE_NOT_CONTINUED);
+    if outcome
+        .warnings()
+        .contains(WarningCode::TradeIndexNotRecorded)
+    {
+        diagnose(&mut err, INDEX_NOT_RECORDED);
     }
     if outcome.warnings().contains(WarningCode::LocalStatusStale) {
         diagnose(&mut err, STATUS_STALE);

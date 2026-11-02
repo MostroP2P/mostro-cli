@@ -688,7 +688,7 @@ mod store {
         )
         .await;
 
-        assert!(store.range_has_room(id(1)).await.unwrap());
+        assert!(store.maker_range(id(1)).await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -697,14 +697,17 @@ mod store {
             "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95",
         )
         .await;
-        assert!(!store.range_has_room(id(1)).await.unwrap());
-        assert!(!store.range_has_room(id(2)).await.unwrap(), "unknown");
+        assert!(!store.maker_range(id(1)).await.unwrap().is_some());
+        assert!(
+            !store.maker_range(id(2)).await.unwrap().is_some(),
+            "unknown"
+        );
 
         let (_sandbox, store) = stored(
             "UPDATE orders SET is_mine = 1, min_amount = NULL, max_amount = NULL, fiat_amount = 40",
         )
         .await;
-        assert!(!store.range_has_room(id(1)).await.unwrap(), "fixed");
+        assert!(!store.maker_range(id(1)).await.unwrap().is_some(), "fixed");
     }
 
     async fn marker(sandbox: &Sandbox, order: Uuid) -> Option<bool> {
@@ -749,9 +752,12 @@ mod store {
 
         assert_eq!(marker(&sandbox, id(1)).await, Some(true));
         assert_eq!(marker(&sandbox, id(2)).await, Some(false));
-        assert!(store.range_has_room(id(1)).await.unwrap(), "the maker's");
         assert!(
-            !store.range_has_room(id(2)).await.unwrap(),
+            store.maker_range(id(1)).await.unwrap().is_some(),
+            "the maker's"
+        );
+        assert!(
+            !store.maker_range(id(2)).await.unwrap().is_some(),
             "a taker needs no next key"
         );
     }
@@ -782,12 +788,12 @@ mod store {
         let db = sandbox.mcli_dir().join("mcli.db");
         let before = std::fs::read(&db).unwrap();
 
-        store.range_has_room(id(1)).await.unwrap();
+        store.maker_range(id(1)).await.unwrap();
 
         assert_eq!(std::fs::read(&db).unwrap(), before);
         let empty = Sandbox::new().unwrap();
         let missing = Store::in_dir(&empty.mcli_dir());
-        assert!(missing.range_has_room(id(1)).await.is_err());
+        assert!(missing.maker_range(id(1)).await.is_err());
         assert!(!empty.mcli_dir().join("mcli.db").exists());
     }
 }
@@ -813,7 +819,6 @@ mod operation {
         sandbox: Sandbox,
         store: Store,
         me: Keys,
-        other: Keys,
     }
 
     /// A user holding orders 1 and 2 under one trade key `me`, against a node
@@ -873,7 +878,6 @@ mod operation {
             sandbox,
             store,
             me,
-            other,
         }
     }
 
@@ -1013,7 +1017,7 @@ mod operation {
         assert!(seen[0].signature_valid);
         assert!(seen[0].request_id.is_some());
         assert_eq!(seen[0].trade_index, None);
-        assert_eq!(seen[0].next_trade, None, "range orders are spec 008");
+        assert_eq!(seen[0].next_trade, None, "a fixed order carries no key");
         assert!(seen[0].order.is_none() && seen[0].invoice.is_none());
     }
 
@@ -1379,65 +1383,170 @@ mod operation {
     const RANGE: &str =
         "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 40";
 
+    /// The seller-maker of a range order whose fiat was sent.
+    fn selling_range(me: PublicKey, other: PublicKey) -> Vec<Traded> {
+        vec![Traded::active(id(1), me, other)
+            .ranged(10, 100, 40)
+            .with_status(Status::FiatSent)]
+    }
+
+    /// The buyer-maker of an active range order.
+    fn buying_range(me: PublicKey, other: PublicKey) -> Vec<Traded> {
+        vec![Traded::active_buy(id(1), me, other).ranged(10, 100, 40)]
+    }
+
+    async fn make_buy_order(holder: &Holder) {
+        sql(holder, "UPDATE orders SET kind = 'buy'").await;
+    }
+
+    fn sent_key(holder: &Holder) -> Option<(String, u32)> {
+        holder.fake.received()[0].next_trade.clone()
+    }
+
     #[tokio::test]
-    async fn a_range_order_with_room_left_is_accepted_but_not_continued_and_says_so() {
-        for (kind, trades) in [
-            (
-                StepKind::FiatSent,
-                Box::new(buying) as Box<dyn FnOnce(PublicKey, PublicKey) -> Vec<Traded>>,
-            ),
-            (StepKind::Release, Box::new(selling_at(Status::FiatSent))),
-        ] {
-            let holder = holder(trades, 0, |respond| respond).await;
+    async fn the_makers_own_step_on_a_range_order_carries_a_key_and_spends_one_index() {
+        // A seller releases; a buyer sends fiat-sent. Either way the node gets a
+        // fresh key at the next index and the index is recorded.
+        for (kind, buys) in [(StepKind::Release, false), (StepKind::FiatSent, true)] {
+            let holder = if buys {
+                holder(buying_range, 0, |respond| respond).await
+            } else {
+                holder(selling_range, 0, |respond| respond).await
+            };
             sql(&holder, RANGE).await;
-            let index = last_index(&holder).await;
+            if buys {
+                make_buy_order(&holder).await;
+            }
+            let before = last_index(&holder).await;
 
             let outcome = take(&holder, kind, id(1)).await;
 
             assert_eq!(outcome.status(), Outcome::Ok, "{kind:?}");
-            assert_eq!(warnings(&outcome), ["range_not_continued"], "{kind:?}");
+            let data = outcome.data().expect("data");
+            let index = (before + 1).to_string();
+            assert_eq!(data.next_trade_index(), Some(index.as_str()), "{kind:?}");
+            assert_eq!(
+                data.next_step(),
+                Some(if buys {
+                    StepNext::WaitForRelease
+                } else {
+                    StepNext::SyncChildOrder
+                }),
+                "{kind:?}"
+            );
+            assert!(warnings(&outcome).is_empty(), "{kind:?}");
             assert_eq!(stages(&outcome), meta("published", "accepted", "applied"));
-            assert_eq!(last_index(&holder).await, index, "no index is reserved");
-            assert_eq!(holder.fake.received()[0].next_trade, None);
+            assert_eq!(last_index(&holder).await, before + 1, "{kind:?}");
+            let (key, sent_index) = sent_key(&holder).expect("a next trade key");
+            assert_eq!(i64::from(sent_index), before + 1);
+            assert_eq!(key.len(), 64, "a public key in hex");
+            assert_ne!(key, holder.me.public_key().to_hex(), "a fresh key");
         }
     }
 
     #[tokio::test]
-    async fn no_range_warning_for_the_taker_of_a_range_order() {
-        let holder = self::holder(buying, 0, |respond| respond).await;
-        sql(
-            &holder,
-            "UPDATE orders SET is_mine = 0, min_amount = 10, max_amount = 100, fiat_amount = 40",
-        )
-        .await;
+    async fn no_key_for_a_taker_a_fixed_order_an_exhausted_range_the_wrong_step_or_a_cancel() {
+        type Case = (&'static str, StepKind, &'static str, bool);
+        let cases: [Case; 5] = [
+            ("a taker", StepKind::FiatSent, "UPDATE orders SET is_mine = 0, min_amount = 10, max_amount = 100, fiat_amount = 40", true),
+            ("a fixed order", StepKind::FiatSent, "UPDATE orders SET is_mine = 1", true),
+            ("an exhausted range", StepKind::FiatSent, "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95", true),
+            // A sell order's maker does not carry the key with fiat-sent.
+            ("the seller-maker's fiat-sent", StepKind::FiatSent, RANGE, false),
+            ("a cancel", StepKind::Cancel, RANGE, true),
+        ];
+        for (label, kind, statement, buying_side) in cases {
+            let holder = if buying_side {
+                self::holder(buying, 0, |respond| respond).await
+            } else {
+                self::holder(selling_range, 0, |respond| respond).await
+            };
+            sql(&holder, statement).await;
+            let before = last_index(&holder).await;
 
-        let outcome = take(&holder, StepKind::FiatSent, id(1)).await;
+            let _ = take(&holder, kind, id(1)).await;
 
-        assert_eq!(outcome.status(), Outcome::Ok);
-        assert!(warnings(&outcome).is_empty(), "a taker continues nothing");
+            assert_eq!(sent_key(&holder), None, "{label}");
+            assert_eq!(last_index(&holder).await, before, "{label}: no index");
+        }
     }
 
     #[tokio::test]
-    async fn no_range_warning_for_a_fixed_order_an_exhausted_range_or_a_cancel() {
-        let holder = self::holder(buying, 0, |respond| respond).await;
-        let fixed = take(&holder, StepKind::FiatSent, id(1)).await;
-        assert!(warnings(&fixed).is_empty(), "fixed");
+    async fn the_index_is_spent_when_the_node_may_hold_the_key_and_kept_when_it_refused() {
+        // Refused: the node took nothing.
+        let holder = holder(selling_at(Status::Active), 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let refused = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&refused), Some(ErrorCode::NodeRefused));
+        assert!(sent_key(&holder).is_some(), "the key was sent");
+        assert_eq!(
+            last_index(&holder).await,
+            before,
+            "a refusal spends nothing"
+        );
+        assert_eq!(
+            stages(&refused),
+            meta("published", "rejected", "not_attempted")
+        );
 
-        let holder = self::holder(buying, 0, |respond| respond).await;
+        // Silence: the node may hold it.
+        let holder = self::holder(selling_range, 0, |_| fake_mostro::silent()).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let silent = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&silent), Some(ErrorCode::ReplyTimeout));
+        assert_eq!(stages(&silent), meta("published", "unknown", "applied"));
+        assert_eq!(last_index(&holder).await, before + 1);
+
+        // An unusable reply: the same.
+        let wrong: Respond = Arc::new(|request: &Received| {
+            vec![Outgoing::to_requester(Message::new_order(
+                Some(id(77)),
+                request.request_id,
+                None,
+                Action::HoldInvoicePaymentSettled,
+                None,
+            ))]
+        });
+        let holder = self::holder(selling_range, 0, move |_| wrong).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let malformed = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&malformed), Some(ErrorCode::ReplyMalformed));
+        assert_eq!(stages(&malformed), meta("published", "unknown", "applied"));
+        assert_eq!(last_index(&holder).await, before + 1);
+
+        // Nothing left the machine: nothing spent.
+        let holder = self::holder(selling_range, 9, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let stopped = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&stopped), Some(ErrorCode::PowRequired));
+        assert_eq!(last_index(&holder).await, before);
+        assert!(holder.fake.received().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_trade_index_that_cannot_be_recorded_is_a_warning_on_an_accepted_step() {
+        let holder = holder(selling_range, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
         sql(
             &holder,
-            "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95",
+            "CREATE TRIGGER freeze_users BEFORE UPDATE ON users \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
         )
         .await;
-        let exhausted = take(&holder, StepKind::FiatSent, id(1)).await;
-        assert!(warnings(&exhausted).is_empty(), "exhausted");
+        let before = last_index(&holder).await;
 
-        let holder = self::holder(buying, 0, |respond| respond).await;
-        sql(&holder, RANGE).await;
-        let canceled = take(&holder, StepKind::Cancel, id(1)).await;
-        assert_eq!(canceled.status(), Outcome::Ok);
-        assert!(warnings(&canceled).is_empty(), "a cancel continues nothing");
-        let _ = &holder.other;
+        let outcome = take(&holder, StepKind::Release, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(stages(&outcome), meta("published", "accepted", "failed"));
+        assert_eq!(warnings(&outcome), ["trade_index_not_recorded"]);
+        assert_eq!(last_index(&holder).await, before, "nothing was recorded");
+        assert_eq!(status_of(&holder, id(1)).await, "settled-hold-invoice");
+        assert_eq!(holder.fake.received().len(), 1, "never retried");
     }
 
     // --- The binary (slice 4b) ---
@@ -1743,31 +1852,55 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_range_order_with_room_left_warns_in_both_modes_and_the_exit_is_success() {
-        let holder = holder(buying, 0, |respond| respond).await;
+    async fn a_range_release_reports_the_key_and_points_at_order_sync_in_both_modes() {
+        let holder = holder(selling_range, 0, |respond| respond).await;
         sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
 
         let json = run(
             &holder,
-            &step_args(&["--output", "json"], "fiat-sent", &["--yes"]),
+            &step_args(&["--output", "json"], "release", &["--yes"]),
         )
         .await;
         assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
         let outcome = document(&json);
-        conforms_to_the_checked_in_schema("fiat-sent", &outcome);
-        assert_eq!(outcome["warnings"][0]["code"], "range_not_continued");
+        conforms_to_the_checked_in_schema("release", &outcome);
+        assert_eq!(
+            outcome["data"]["next_trade_index"],
+            (before + 1).to_string()
+        );
+        assert_eq!(outcome["data"]["next_step"], "sync_child_order");
+        assert_eq!(outcome["warnings"], json!([]));
+        assert_eq!(last_index(&holder).await, before + 1);
+        assert!(!json
+            .stdout_text()
+            .contains(&holder.me.secret_key().to_secret_hex()));
 
-        let holder = self::holder(buying, 0, |respond| respond).await;
+        let holder = self::holder(selling_range, 0, |respond| respond).await;
         sql(&holder, RANGE).await;
-        let human = run(&holder, &step_args(&[], "fiat-sent", &["--yes"])).await;
+        let human = run(&holder, &step_args(&[], "release", &["--yes"])).await;
         assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
-        assert!(human.stdout_text().contains("Fiat Marked As Sent"));
+        let out = human.stdout_text();
         assert!(
-            human
-                .stderr_text()
-                .contains("warning: this is a range order with room left"),
-            "{}",
-            human.stderr_text()
+            out.contains("Sats Released") && out.contains("order sync"),
+            "{out}"
+        );
+        assert!(human.stderr.is_empty(), "{}", human.stderr_text());
+    }
+
+    #[tokio::test]
+    async fn a_range_fiat_sent_by_the_buyer_says_the_child_comes_with_the_release() {
+        let holder = holder(buying_range, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        make_buy_order(&holder).await;
+
+        let human = run(&holder, &step_args(&[], "fiat-sent", &["--yes"])).await;
+
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        let out = human.stdout_text();
+        assert!(
+            out.contains("Fiat Marked As Sent") && out.contains("order sync"),
+            "{out}"
         );
     }
 

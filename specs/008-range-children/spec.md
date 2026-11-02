@@ -46,7 +46,7 @@ gives the child order a usable local row. None of the earlier documents change e
   (`Stages::Step` already allows it). The reserved index is `data.next_trade_index`.
 - Q: What does the outcome say about the child? -> A: `next_step` `sync_child_order` (new) on an accepted `release` of a sell range order, and
   on an accepted `fiat-sent` of a buy range order `next_step` stays `wait_for_release` with the child arriving later; the human text names
-  `order sync`. `range_not_continued` is no longer emitted when the key was sent.
+  `order sync`. The warning `range_not_continued` of spec 007 is removed (the key is sent whenever it can be); a new warning `trade_index_not_recorded` covers an accepted step whose index could not be recorded.
 - Q: Existing rows? -> A: Rows written before this spec carry `is_mine = 1` for takers too. They are treated as the user's own (the
   conservative reading: the key is sent and an index is spent); the node ignores it for a taker. Rows saved from now on are exact. No
   migration.
@@ -70,7 +70,7 @@ orders the user took (the taker needs no child), editing a child.
   orders, other actions). Node text is escaped; no key or invoice is serialized.
 - **FR-006**: Statuses and codes as for `message list` (reads) and `order new` (the local write); a failed save of one order is reported and the
   others are still saved. Canonical name `order.sync`, one versioned JSON outcome, schema, fixtures, examples, drift checks.
-- **FR-007**: The documents of spec 007 are amended where they say a range is not continued: the warning remains only for rows that are not exact.
+- **FR-007**: The documents of spec 007 are amended where they say a range is not continued; the warning `range_not_continued` is removed.
 
 ## Success Criteria
 

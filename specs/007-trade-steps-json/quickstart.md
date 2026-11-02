@@ -43,7 +43,7 @@ ls -A "$T"                                                # empty
 | Silence | `uncertain` / `reply_timeout` after the production budget, one request, advice per step | `silence_is_uncertain_...`, `a_silent_node_is_uncertain_...` |
 | Unusable reply, decoys | `reply_malformed` or a timeout; stale ids, other authors, other addressees and replies without the request id ignored | `replies_that_do_not_fit_...`, `decoys_are_ignored_...`, `a_reply_without_the_request_id_...` |
 | Local status update fails | `ok`, persistence `failed`, warning `local_status_stale`, exit 0 | `a_failed_status_update_...`, `a_stale_local_status_...` |
-| Range order with room left | `ok` with `range_not_continued` (JSON) and a stderr line (human); none for a fixed order, an exhausted range or a cancel | `a_range_order_with_room_left_...`, `no_range_warning_...` |
+| Range order the user made, with room left | the maker's step carries a key at the next index, `next_trade_index` and `sync_child_order`; nothing for a taker, a fixed order, an exhausted range or a cancel; the index is kept on a refusal and spent on silence | spec 008: `the_makers_own_step_...`, `no_key_for_...`, `the_index_is_spent_...` |
 | Local failures on all three steps | `error`, `not_attempted`, no request, store byte-identical, no sentinel or relay address | `failures_before_any_request_...` and the tests beside it |
 | Invalid input, unwritable streams | exit 2 with nothing echoed; exit 1 with one fixed line | `invalid_input_is_an_argument_error_...`, the two stream tests |
 | Discovery and drift | three commands listed with generated schemas; fixtures and examples current | `integration_tests` |
@@ -59,7 +59,7 @@ version and each answer:
    gets `hold-invoice-payment-settled` or `released`, and whether the request id is echoed), the local statuses, and that the index did not move.
 2. Refusals: `fiat-sent` as the seller, `release` as the buyer, `release` before fiat was sent, a second `fiat-sent`.
 3. `order cancel`: a pending order by its maker; a waiting order by the taker; an active trade as a cooperative cancel from both sides.
-4. A range order: `fiat-sent` and `release` with room left, to see `range_not_continued` and what the node does without the next trade key.
+4. A range order: `fiat-sent` and `release` with room left, to see the key, the child order and what the node does without the next trade key.
 5. Stop the node during a request to see `uncertain`, then confirm the state with `order info --order <id>`.
 
 ## Required Gates And Evidence
