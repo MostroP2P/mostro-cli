@@ -22,6 +22,8 @@ use uuid::Uuid;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
 use harness::{Backend, LoopbackRelay, Sandbox};
@@ -1085,5 +1087,397 @@ mod operation {
         assert_eq!(canceled.status(), Outcome::Ok);
         assert!(warnings(&canceled).is_empty(), "a cancel continues nothing");
         let _ = &holder.other;
+    }
+
+    // --- The binary (slice 4b) ---
+
+    use harness::{run_with_watchdog, Captured, WATCHDOG};
+    use std::process::Stdio;
+
+    const ORDER: &str = "00000000-0000-0000-0000-000000000001";
+    const STEPS: [(StepKind, &str); 3] = [
+        (StepKind::FiatSent, "fiat-sent"),
+        (StepKind::Release, "release"),
+        (StepKind::Cancel, "cancel"),
+    ];
+
+    /// A holder in the state the step needs to be accepted.
+    async fn ready(kind: StepKind) -> Holder {
+        match kind {
+            StepKind::Release => holder(selling_at(Status::FiatSent), 0, |respond| respond).await,
+            _ => holder(buying, 0, |respond| respond).await,
+        }
+    }
+
+    /// `<front> order <step> --order ORDER <tail>`.
+    fn step_args<'a>(front: &[&'a str], step: &'a str, tail: &[&'a str]) -> Vec<&'a str> {
+        let mut all: Vec<&str> = front.to_vec();
+        all.extend(["order", step, "--order", ORDER]);
+        all.extend(tail);
+        all
+    }
+
+    fn command(holder: &Holder, args: &[&str]) -> tokio::process::Command {
+        let mut command = holder.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", holder.config.mostro_pubkey().to_hex())
+            .env("RELAYS", &holder._relay.url);
+        command
+    }
+
+    async fn run(holder: &Holder, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(command(holder, args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// Run with `answer` as the whole of stdin: a file the test wrote.
+    async fn run_answering(holder: &Holder, args: &[&str], answer: &str) -> Captured {
+        let path = std::env::temp_dir().join(format!(
+            "mcli-step-answer-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, answer).unwrap();
+        let mut command = command(holder, args);
+        command.stdin(Stdio::from(std::fs::File::open(&path).unwrap()));
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    fn document(run: &Captured) -> Value {
+        let stdout = run.stdout_text();
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{stdout}"
+        );
+        serde_json::from_str(&stdout).unwrap()
+    }
+
+    fn snapshot(holder: &Holder) -> Vec<(String, Vec<u8>)> {
+        let mut files: Vec<_> = std::fs::read_dir(holder.sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    fn conforms_to_the_checked_in_schema(step: &str, outcome: &Value) {
+        let path = format!(
+            "{}/docs/schemas/order-{step}-v1.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            schema_check::conforms(&schema, &schema, outcome),
+            "{outcome}"
+        );
+    }
+
+    #[tokio::test]
+    async fn each_step_in_json_is_accepted_and_nothing_secret_is_shown() {
+        let expected = [
+            ("fiat_sent", "fiat-sent", Some("wait_for_release")),
+            ("released", "settled-hold-invoice", None),
+            ("cancel_requested", "active", Some("wait_for_peer_cancel")),
+        ];
+        for ((kind, step), (result, local, next)) in STEPS.into_iter().zip(expected) {
+            let holder = ready(kind).await;
+            let index = last_index(&holder).await;
+
+            let run = run(
+                &holder,
+                &step_args(&["--output", "json", "--verbose"], step, &["--yes"]),
+            )
+            .await;
+
+            assert_eq!(run.code(), Some(0), "{step}: {}", run.stderr_text());
+            assert_eq!(
+                run.stderr_text(),
+                format!("verbose: order.{step} ok\n"),
+                "{step}"
+            );
+            let outcome = document(&run);
+            conforms_to_the_checked_in_schema(step, &outcome);
+            assert_eq!(outcome["command"], format!("order.{step}"));
+            assert_eq!(outcome["status"], "ok");
+            assert_eq!(outcome["data"]["result"], result, "{step}");
+            assert_eq!(outcome["data"]["order_id"], ORDER);
+            assert_eq!(outcome["data"]["next_trade_index"], Value::Null);
+            assert_eq!(
+                outcome["data"]["next_step"],
+                next.map_or(Value::Null, Value::from)
+            );
+            assert_eq!(outcome["meta"]["publication"], "published", "{step}");
+            assert_eq!(status_of(&holder, id(1)).await, local, "{step}");
+            assert_eq!(last_index(&holder).await, index, "no trade index is spent");
+            assert_eq!(holder.fake.received().len(), 1, "{step}");
+            let secret = holder.me.secret_key().to_secret_hex();
+            for stream in [run.stdout_text(), run.stderr_text()] {
+                assert!(!stream.contains(&secret), "{step}: the trade key leaked");
+                assert!(!stream.contains("127.0.0.1"), "{step}: a relay leaked");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn json_without_yes_does_nothing_for_every_step() {
+        for (kind, step) in STEPS {
+            let holder = ready(kind).await;
+            let before = snapshot(&holder);
+
+            let run = run(&holder, &step_args(&["--output", "json"], step, &[])).await;
+
+            assert_eq!(run.code(), Some(2), "{step}: {}", run.stderr_text());
+            assert!(run.stderr.is_empty());
+            let outcome = document(&run);
+            conforms_to_the_checked_in_schema(step, &outcome);
+            assert_eq!(outcome["error"]["code"], "invalid_arguments");
+            assert!(holder.fake.received().is_empty());
+            assert_eq!(snapshot(&holder), before);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_prompt_accepts_y_and_blank_and_declines_everything_else() {
+        let titles = ["Fiat Marked As Sent", "Sats Released", "Cancel Requested"];
+        let previews = ["Fiat Sent Preview", "Release Preview", "Cancel Preview"];
+        for (((kind, step), title), preview) in STEPS.into_iter().zip(titles).zip(previews) {
+            for answer in ["y\n", "\n", "Y\r\n"] {
+                let holder = ready(kind).await;
+                let run = run_answering(&holder, &step_args(&[], step, &[]), answer).await;
+                assert_eq!(
+                    run.code(),
+                    Some(0),
+                    "{step} {answer:?}: {}",
+                    run.stderr_text()
+                );
+                let out = run.stdout_text();
+                assert!(out.contains(preview) && out.contains(title), "{out}");
+                assert!(run.stderr_text().contains("Send this request? [Y/n]"));
+                assert_eq!(holder.fake.received().len(), 1, "{step} {answer:?}");
+            }
+            for answer in ["n\n", "no\n", "maybe\n", ""] {
+                let holder = ready(kind).await;
+                let before = snapshot(&holder);
+                let run = run_answering(&holder, &step_args(&[], step, &[]), answer).await;
+                assert_eq!(
+                    run.code(),
+                    Some(1),
+                    "{step} {answer:?}: {}",
+                    run.stderr_text()
+                );
+                assert!(!run.stdout_text().contains(title));
+                assert!(run
+                    .stderr_text()
+                    .contains("error: The order was not confirmed, so nothing was sent."));
+                assert!(holder.fake.received().is_empty(), "{step} {answer:?}");
+                assert_eq!(snapshot(&holder), before, "{step} {answer:?}");
+            }
+            let holder = ready(kind).await;
+            let closed = self::run(&holder, &step_args(&[], step, &[])).await;
+            assert_eq!(closed.code(), Some(1), "a closed stdin is not approval");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_release_preview_warns_before_the_question() {
+        let holder = ready(StepKind::Release).await;
+
+        let run = run_answering(&holder, &step_args(&[], "release", &[]), "n\n").await;
+
+        assert!(run.stdout_text().contains("cannot be undone"));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_order_fails_before_any_question_is_asked() {
+        let other = "00000000-0000-0000-0000-000000000003";
+        for (kind, step) in STEPS {
+            let holder = ready(kind).await;
+            let before = snapshot(&holder);
+
+            let human = run(&holder, &["order", step, "--order", other]).await;
+            assert_eq!(human.code(), Some(1), "{step}");
+            assert!(human.stdout.is_empty());
+            assert_eq!(
+                human.stderr_text(),
+                "error: No local order has this id, so nothing was sent.\n"
+            );
+            let json = run(
+                &holder,
+                &["--output", "json", "order", step, "--order", other, "--yes"],
+            )
+            .await;
+            assert_eq!(json.code(), Some(1));
+            let outcome = document(&json);
+            conforms_to_the_checked_in_schema(step, &outcome);
+            assert_eq!(outcome["error"]["code"], "order_unknown");
+            assert!(holder.fake.received().is_empty());
+            assert_eq!(snapshot(&holder), before);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_refusal_shows_its_reason_in_both_modes_and_changes_nothing() {
+        // The seller cannot say fiat was sent.
+        let holder = holder(selling_at(Status::Active), 0, |respond| respond).await;
+        let before = snapshot(&holder);
+
+        let json = run(
+            &holder,
+            &step_args(&["--output", "json"], "fiat-sent", &["--yes"]),
+        )
+        .await;
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("fiat-sent", &outcome);
+        assert_eq!(outcome["error"]["code"], "node_refused");
+        assert_eq!(outcome["error"]["reason"], "invalid_pubkey");
+        assert_eq!(outcome["data"], Value::Null);
+
+        let human = run(&holder, &step_args(&[], "fiat-sent", &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty());
+        assert_eq!(
+            human.stderr_text(),
+            "error: The node refused the request. (reason: invalid_pubkey)\n"
+        );
+        assert_eq!(snapshot(&holder), before);
+        assert_eq!(holder.fake.received().len(), 2, "one request per run");
+    }
+
+    #[tokio::test]
+    async fn a_silent_node_is_uncertain_after_the_production_budget_and_is_never_retried() {
+        let holder = holder(buying, 0, |_| fake_mostro::silent()).await;
+        let started = std::time::Instant::now();
+
+        let json = run(
+            &holder,
+            &step_args(&["--output", "json"], "release", &["--yes"]),
+        )
+        .await;
+
+        assert!(started.elapsed() >= ExchangeLimits::default().reply);
+        assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
+        assert!(json.stderr.is_empty());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("release", &outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "reply_timeout");
+        assert_eq!(outcome["meta"]["persistence"], "not_attempted");
+        assert_eq!(holder.fake.received().len(), 1, "never retried");
+
+        let human = run(&holder, &step_args(&[], "release", &["--yes"])).await;
+        assert_eq!(human.code(), Some(1));
+        let err = human.stderr_text();
+        assert!(
+            err.contains("error: The node did not answer before the deadline."),
+            "{err}"
+        );
+        assert!(
+            err.contains("The node may have released the sats. Check `order info --order <id>`"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_range_order_with_room_left_warns_in_both_modes_and_the_exit_is_success() {
+        let holder = holder(buying, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+
+        let json = run(
+            &holder,
+            &step_args(&["--output", "json"], "fiat-sent", &["--yes"]),
+        )
+        .await;
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("fiat-sent", &outcome);
+        assert_eq!(outcome["warnings"][0]["code"], "range_not_continued");
+
+        let holder = self::holder(buying, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        let human = run(&holder, &step_args(&[], "fiat-sent", &["--yes"])).await;
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        assert!(human.stdout_text().contains("Fiat Marked As Sent"));
+        assert!(
+            human
+                .stderr_text()
+                .contains("warning: this is a range order with room left"),
+            "{}",
+            human.stderr_text()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_local_status_is_a_warning_and_the_exit_is_still_success() {
+        let holder = ready(StepKind::Release).await;
+        sql(
+            &holder,
+            "CREATE TRIGGER freeze BEFORE UPDATE ON orders \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .await;
+
+        let json = run(
+            &holder,
+            &step_args(&["--output", "json"], "release", &["--yes"]),
+        )
+        .await;
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("release", &outcome);
+        assert_eq!(outcome["meta"]["persistence"], "failed");
+        assert_eq!(outcome["warnings"][0]["code"], "local_status_stale");
+
+        let holder = ready(StepKind::Release).await;
+        sql(
+            &holder,
+            "CREATE TRIGGER freeze BEFORE UPDATE ON orders \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .await;
+        let human = run(&holder, &step_args(&[], "release", &["--yes"])).await;
+        assert_eq!(human.code(), Some(0));
+        assert!(human
+            .stderr_text()
+            .contains("warning: the node accepted the request but the local order status"));
+    }
+
+    #[tokio::test]
+    async fn the_two_cooperative_cancel_steps_complete_a_cancel_from_the_binary() {
+        let holder = holder(
+            |me, other| {
+                let mut asked = Traded::active(id(1), other, me);
+                asked.initiator = Some(other);
+                vec![asked]
+            },
+            0,
+            |respond| respond,
+        )
+        .await;
+
+        let run = run(
+            &holder,
+            &step_args(&["--output", "json"], "cancel", &["--yes"]),
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let outcome = document(&run);
+        conforms_to_the_checked_in_schema("cancel", &outcome);
+        assert_eq!(outcome["data"]["result"], "cancel_accepted");
+        assert_eq!(status_of(&holder, id(1)).await, "cooperatively-canceled");
     }
 }

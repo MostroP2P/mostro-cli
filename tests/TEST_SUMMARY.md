@@ -4225,3 +4225,18 @@ Native Linux, rustc 1.97.0, on `develop` after `75e99a7` (pushed). Lean mode: th
 - **Docs**: README (flow steps, command list, JSON list, the range note, restore notes), command reference, architecture.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 795 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
 
+## Trade Steps (spec 007) Slice 4b: Binary Scenarios: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `d3cafd4` (pushed). Lean mode: the only evidence entry for the slice. The scenarios run the real `mostro-cli` binary in a sandbox `HOME`/`MCLI_DIR` against the scripted node on a loopback relay (`mod operation`, second half, in `tests/step_process.rs`).
+
+- **Success in JSON, per step** (`fiat-sent` as buyer, `release` as seller of a `fiat-sent` order, `cancel` as a cooperative request): exit 0, the only stderr line is `verbose: order.<step> ok`, one document that conforms to the checked-in schema, the right `result` and `next_step`, `next_trade_index` null, the local status (`fiat-sent`, `settled-hold-invoice`, unchanged `active` for a request), one request published, the trade index unchanged, and neither the trade key nor a relay address on any stream.
+- **`--yes` rules**: JSON without `--yes` exits 2 with `invalid_arguments`, empty stderr, nothing published and every file in the data directory byte-identical, for all three steps.
+- **Prompt**: `y`, blank and `Y\r\n` accept; `n`, `no`, `maybe` and an empty input decline with exit 1 and the fixed declined line, publishing nothing; a closed stdin is not approval; the preview and the result titles are on stdout and the question on stderr. The release preview says it cannot be undone.
+- **Unknown order**: both modes fail before any question with `order_unknown` and publish nothing.
+- **Refusal** (the seller saying fiat was sent): `node_refused` with reason `invalid_pubkey` in JSON and as `error: ... (reason: invalid_pubkey)` in human mode; the data directory is unchanged and each run publishes one request.
+- **Silence**: after the production reply budget, JSON gives `uncertain` / `reply_timeout` with persistence `not_attempted`, and human mode prints the release-specific advice; the request is never retried.
+- **Warnings**: a range order with room left gives exit 0 with `range_not_continued` in JSON and a fixed stderr line in human mode; a frozen order table gives exit 0 with `local_status_stale` and persistence `failed` in JSON and a stderr line in human mode.
+- **Cooperative cancel from the binary**: confirming the peer's request gives `cancel_accepted` and the local status `cooperatively-canceled`.
+- **Mutation spot checks**: bypassing the `--yes` rule failed the no-`--yes` test; dropping the human warnings failed the range and stale-status tests; both restored.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 805 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
