@@ -6120,6 +6120,727 @@
       ]
     },
     {
+      "name": "order.sync",
+      "cli_path": [
+        "order",
+        "sync"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "since": {
+            "description": "How far back to read, in minutes (1 to 10080, default 10080)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "AdoptedOrder": {
+            "description": "An order the store did not know, saved from the node's announcement.",
+            "properties": {
+              "order": {
+                "$ref": "#/$defs/OrderRecord"
+              },
+              "trade_index": {
+                "description": "The index of the trade key the order was announced to.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "order",
+              "trade_index",
+              "trade_pubkey"
+            ],
+            "type": "object"
+          },
+          "CompletionPolicy": {
+            "enum": [
+              "all_relays_eose"
+            ],
+            "type": "string"
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "identity_unreadable",
+              "store_unreadable",
+              "store_unwritable",
+              "order_not_saved"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Snapshot"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "OrderRecord": {
+            "description": "One of the user's orders as the node returned it.",
+            "properties": {
+              "buyer_trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "fiat_amount_max": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_amount_min": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_currency": {
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "payment_method": {
+                "type": "string"
+              },
+              "premium_percent": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "sats_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "seller_trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "canceled",
+                  "canceled-by-admin",
+                  "settled-by-admin",
+                  "completed-by-admin",
+                  "dispute",
+                  "expired",
+                  "fiat-sent",
+                  "settled-hold-invoice",
+                  "pending",
+                  "success",
+                  "waiting-buyer-invoice",
+                  "waiting-payment",
+                  "waiting-taker-bond",
+                  "waiting-maker-bond",
+                  "cooperatively-canceled",
+                  "in-progress",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "side",
+              "status",
+              "sats_amount",
+              "fiat_currency",
+              "fiat_amount",
+              "fiat_amount_min",
+              "fiat_amount_max",
+              "payment_method",
+              "premium_percent",
+              "buyer_trade_pubkey",
+              "seller_trade_pubkey",
+              "created_at",
+              "created_at_unix",
+              "expires_at",
+              "expires_at_unix"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Snapshot": {
+            "description": "Evidence of one bounded public read, serialized as `meta.snapshot`.",
+            "properties": {
+              "complete_history": {
+                "const": false,
+                "type": "boolean"
+              },
+              "completed_relays": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "completion_policy": {
+                "$ref": "#/$defs/CompletionPolicy"
+              },
+              "configured_relays": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_unique_events": {
+                "const": 10000,
+                "type": "integer"
+              },
+              "observed_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": "string"
+              },
+              "per_relay_limit": {
+                "const": 50,
+                "type": "integer"
+              },
+              "received_events": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "since": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": "string"
+              },
+              "until": {
+                "description": "No upper time filter is sent; always null.",
+                "type": "null"
+              }
+            },
+            "required": [
+              "since",
+              "until",
+              "observed_at",
+              "per_relay_limit",
+              "max_unique_events",
+              "configured_relays",
+              "completed_relays",
+              "received_events",
+              "completion_policy",
+              "complete_history"
+            ],
+            "type": "object"
+          },
+          "SyncData": {
+            "description": "What `order sync` found and saved.",
+            "properties": {
+              "adopted": {
+                "description": "The orders saved by this run, oldest first; empty when nothing was due.",
+                "items": {
+                  "$ref": "#/$defs/AdoptedOrder"
+                },
+                "type": "array"
+              },
+              "keys_not_read": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "keys_read": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "messages_ignored": {
+                "description": "The messages that led to no row: other actions and known orders.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "messages_read": {
+                "description": "The messages of the node read in the window.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "since_minutes": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "truncated": {
+                "description": "The result may not be everything: a relay reached its per-relay limit or\nmore than the record cap matched.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "since_minutes",
+              "adopted",
+              "messages_read",
+              "messages_ignored",
+              "truncated",
+              "keys_read",
+              "keys_not_read"
+            ],
+            "type": "object"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "trade_keys_limited",
+              "invalid_order_timestamp"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.sync"
+              },
+              "data": {
+                "$ref": "#/$defs/SyncData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "$ref": "#/$defs/Snapshot"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.sync"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "read_timeout",
+                      "read_limit_exceeded",
+                      "internal_error",
+                      "identity_missing",
+                      "identity_unreadable",
+                      "store_unreadable",
+                      "store_unwritable"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Snapshot"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.sync"
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SyncData"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "order_not_saved"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "failed"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Snapshot"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "uncertain"
+              }
+            },
+            "title": "uncertain outcome of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "uncertain"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.sync outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
+    },
+    {
       "name": "order.take-buy",
       "cli_path": [
         "order",

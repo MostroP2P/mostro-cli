@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "configuration_missing",
+    "message": "Required node configuration is missing."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

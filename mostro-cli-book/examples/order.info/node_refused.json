@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "command": "order.info",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "node_refused",
+    "message": "The node refused the request.",
+    "reason": "too_many_requests"
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "published",
+    "daemon_acceptance": "rejected",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

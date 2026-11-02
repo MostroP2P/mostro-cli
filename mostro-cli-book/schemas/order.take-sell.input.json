@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "amount": {
+      "description": "Fiat amount to buy, for a range order",
+      "type": "string"
+    },
+    "invoice": {
+      "description": "Your invoice (BOLT-11 or Lightning address) for the sats; without one the node asks for it next",
+      "type": "string"
+    },
+    "order": {
+      "description": "Id of the sell order to take",
+      "type": "string"
+    },
+    "yes": {
+      "description": "Take the order without asking (required with --output json)",
+      "enum": [
+        "true",
+        "false"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "order"
+  ],
+  "type": "object"
+}

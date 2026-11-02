@@ -15,7 +15,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   created at `release` and its `new-order` sent to the new key with the echoed request id. No production change.
 - [x] **3. Key and index in the steps.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) The conditions of the spec, the index policy (reserved before, spent after), `next_trade_index`,
   `next_step` `sync_child_order`, the range warning only for inexact rows; operation and binary tests.
-- [ ] **4. `order sync`.** Outcomes, schema, the operation against the scripted mailbox, the command, human output, fixtures, discovery.
+- [x] **4. `order sync`.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`; the examples file is slice 5) Outcomes, schema, the operation against the scripted mailbox, the command, human output, fixtures, discovery.
 - [ ] **5. Failure matrix and examples.** Identity, configuration, store, relay, unwritable streams, sentinels; `contracts/examples.json`.
 - [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README, requirement evidence, quickstart with the regtest probe
   procedure for a range order; the probe stays open until separately authorized.

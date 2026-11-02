@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.info",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "invalid_arguments",
+    "message": "The command arguments are invalid."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_attempted",
+    "daemon_acceptance": "unknown",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

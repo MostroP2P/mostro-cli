@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "currency": {
+      "description": "Keep only this fiat currency code (case-insensitive)",
+      "type": "string"
+    },
+    "side": {
+      "description": "Keep only this side: buy or sell (case-insensitive)",
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "type": "string",
+      "x-case-insensitive": true
+    },
+    "status": {
+      "default": "pending",
+      "description": "Keep only this status (case-insensitive); defaults to pending",
+      "enum": [
+        "active",
+        "canceled",
+        "canceled-by-admin",
+        "settled-by-admin",
+        "completed-by-admin",
+        "dispute",
+        "expired",
+        "fiat-sent",
+        "settled-hold-invoice",
+        "pending",
+        "success",
+        "waiting-buyer-invoice",
+        "waiting-payment",
+        "waiting-taker-bond",
+        "waiting-maker-bond",
+        "cooperatively-canceled",
+        "in-progress"
+      ],
+      "type": "string",
+      "x-case-insensitive": true
+    }
+  },
+  "required": [],
+  "type": "object"
+}

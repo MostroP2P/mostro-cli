@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "command": "order.fiat-sent",
+  "status": "ok",
+  "data": {
+    "next_step": "wait_for_release",
+    "next_trade_index": null,
+    "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "order_id": "00000000-0000-0000-0000-000000000001",
+    "result": "fiat_sent",
+    "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+  },
+  "error": null,
+  "warnings": [],
+  "meta": {
+    "publication": "published",
+    "daemon_acceptance": "accepted",
+    "persistence": "applied",
+    "snapshot": null
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.take-sell",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "order_declined",
+    "message": "The order was not confirmed, so nothing was sent."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_attempted",
+    "daemon_acceptance": "unknown",
+    "persistence": "not_attempted",
+    "snapshot": null
+  }
+}

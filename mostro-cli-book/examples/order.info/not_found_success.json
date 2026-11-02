@@ -1,0 +1,26 @@
+{
+  "schema_version": "1",
+  "command": "order.info",
+  "status": "ok",
+  "data": {
+    "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "orders": [],
+    "not_returned": [
+      "00000000-0000-0000-0000-000000000001",
+      "00000000-0000-0000-0000-000000000002"
+    ]
+  },
+  "error": null,
+  "warnings": [
+    {
+      "code": "orders_not_returned",
+      "message": "Some requested orders were not returned by the node."
+    }
+  ],
+  "meta": {
+    "publication": "published",
+    "daemon_acceptance": "accepted",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

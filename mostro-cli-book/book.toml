@@ -1,0 +1,20 @@
+[build]
+create-missing = false
+
+[book]
+title = "mostro-cli JSON Interface"
+description = "How to drive mostro-cli from a program: commands, the JSON outcome envelope, every field, error and example."
+authors = ["Mostro contributors"]
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/MostroP2P/mostro-cli"
+edit-url-template = "https://github.com/MostroP2P/mostro-cli/edit/develop/mostro-cli-book/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+
+[output.html.fold]
+enable = true
+level = 1

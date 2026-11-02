@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "order": {
+      "description": "Read only the messages of this order",
+      "type": "string"
+    },
+    "since": {
+      "description": "How far back to read, in minutes (1 to 10080, default 30)",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
+}

@@ -63,9 +63,10 @@ orders the user took (the taker needs no child), editing a child.
 - **FR-002**: `fiat-sent` and `release` carry `NextTrade(key, index)` exactly when the clarification says, with the index reserved right before
   publishing and kept per the index policy; otherwise they stay as in spec 007.
 - **FR-003**: An accepted step that sent a key reports `next_trade_index` and, for a sell order's `release`, `next_step` `sync_child_order`.
-- **FR-004**: `order sync [--since MINUTES] [--yes]` reads the `new-order` messages of the user's trade keys through `msg::inbox`, and saves a row
-  (id, kind, status, amounts, trade key, `is_mine = 1`) for every order id the store does not know, advancing the trade index if needed. JSON needs
-  `--yes` (it writes); human mode lists what it would save and asks. It publishes nothing. Idempotent: a second run saves nothing.
+- **FR-004**: `order sync [--since MINUTES]` reads the `new-order` messages of the user's trade keys through `msg::inbox`, and saves a row
+  (id, kind, status, amounts, trade key, `is_mine = 1`) for every order id the store does not know, advancing the trade index if needed. It publishes
+  nothing, so it takes no `--yes` and asks no question (amended 2026-11-02 at slice 4: the confirmation rule of the write commands protects an
+  irreversible publication; this command only caches rows for the user's own keys and never replaces one). Idempotent: a second run saves nothing.
 - **FR-005**: `order sync` data: the orders adopted (id, trade index, status) and the number of messages read, keys read and messages ignored (known
   orders, other actions). Node text is escaped; no key or invoice is serialized.
 - **FR-006**: Statuses and codes as for `message list` (reads) and `order new` (the local write); a failed save of one order is reported and the

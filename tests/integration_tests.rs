@@ -341,6 +341,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-cancel-v1.json"
     );
+    const SYNC_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-sync-v1.json"
+    );
     const MESSAGE_LIST_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/message-list-v1.json"
@@ -354,7 +358,7 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new take-sell take-buy add-invoice fiat-sent release cancel; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in list info new take-sell take-buy add-invoice fiat-sent release cancel sync; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done; \
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
     .output_schema\" > docs/schemas/bond-add-invoice-v1.json; \
@@ -458,6 +462,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn sync_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.sync"),
+            read_json(SYNC_FIXTURE),
+            "stale fixture of order.sync; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn trade_step_schema_fixtures_match_the_generated_schemas() {
         for (name, fixture) in [
             ("order.fiat-sent", FIAT_SENT_FIXTURE),
@@ -524,6 +537,7 @@ mod schema_fixtures {
                 "order.list",
                 "order.new",
                 "order.release",
+                "order.sync",
                 "order.take-buy",
                 "order.take-sell",
                 "schema"

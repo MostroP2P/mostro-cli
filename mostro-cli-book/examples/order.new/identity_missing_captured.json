@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.new",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "identity_missing",
+    "message": "No local identity exists."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_attempted",
+    "daemon_acceptance": "unknown",
+    "persistence": "not_attempted",
+    "snapshot": null
+  }
+}

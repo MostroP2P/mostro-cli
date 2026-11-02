@@ -599,6 +599,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 ### Trade lifecycle
 - `order fiat-sent --order <id> [--yes]` — buyer confirms fiat sent (supports `--output json`, which requires `--yes`). Replaces `fiatsent`; uses the order's stored key, spends no trade index.
 - `order release --order <id> [--yes]` — seller releases the hold invoice; irreversible (supports `--output json`, which requires `--yes`). Replaces `release`. On a range order you made with room left, the maker's own step (`release` of a sell order, `fiat-sent` of a buy order) carries a fresh trade key so the node creates the child order for the rest of the range; the result gives the reserved `next_trade_index`, and `order sync` then gives the child a local row.
+- `order sync [--since MINUTES]` — give the orders the node announced to your trade keys a local row: the child order of a range order, or any order the store lost (supports `--output json`; no `--yes`, it publishes nothing and never replaces a row).
 - `order cancel --order <id> [--yes]` — cancel a pending order, or start or confirm a cooperative cancel of an active trade; the node decides which and the result says so (supports `--output json`, which requires `--yes`). Replaces `cancel`.
 - `rate -o <id> -r <1-5>` — rate counterpart.
 - `dispute -o <id>` — open a dispute.
@@ -643,7 +644,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -657,7 +658,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Twelve commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel` and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Thirteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync` and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

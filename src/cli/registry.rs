@@ -133,6 +133,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "order.cancel",
         json: JsonSupport::Write,
     },
+    // Publishes nothing and reads like a read; it only saves rows locally.
+    CommandEntry {
+        path: &["order", "sync"],
+        canonical: "order.sync",
+        json: JsonSupport::Read,
+    },
     CommandEntry {
         path: &["bond", "add-invoice"],
         canonical: "bond.add-invoice",

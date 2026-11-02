@@ -1,0 +1,372 @@
+{
+  "$defs": {
+    "CommandDescriptor": {
+      "description": "One discoverable command.",
+      "properties": {
+        "cli_path": {
+          "description": "The invocation tokens as typed today.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "description": "`null` for commands without machine output.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Canonical dotted name, as reported in outcomes.",
+          "type": "string"
+        },
+        "output_modes": {
+          "items": {
+            "$ref": "#/$defs/PresentationMode"
+          },
+          "type": "array"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "description": "`null` for commands without machine output.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "required_configuration": {
+          "description": "Environment variable names read; `null` when not modeled.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "cli_path",
+        "output_modes",
+        "input_schema",
+        "output_schema",
+        "required_configuration"
+      ],
+      "type": "object"
+    },
+    "DaemonAcceptance": {
+      "enum": [
+        "unknown",
+        "accepted",
+        "rejected",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "DiscoveryData": {
+      "description": "The discovery document: `schema` data in a JSON outcome and, in human mode,\nprinted as pretty JSON.",
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CommandDescriptor"
+          },
+          "type": "array"
+        },
+        "executable_version": {
+          "type": "string"
+        },
+        "schema_dialect": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "executable_version",
+        "schema_dialect",
+        "commands"
+      ],
+      "type": "object"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_arguments",
+        "output_not_supported",
+        "configuration_missing",
+        "configuration_invalid",
+        "relay_connection_failed",
+        "relay_read_failed",
+        "read_timeout",
+        "read_limit_exceeded",
+        "internal_error"
+      ],
+      "type": "string"
+    },
+    "ErrorInfo": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ExecutionMeta": {
+      "description": "Execution stages and optional snapshot evidence of one outcome.",
+      "properties": {
+        "daemon_acceptance": {
+          "$ref": "#/$defs/DaemonAcceptance"
+        },
+        "persistence": {
+          "$ref": "#/$defs/Persistence"
+        },
+        "publication": {
+          "$ref": "#/$defs/Publication"
+        },
+        "snapshot": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "publication",
+        "daemon_acceptance",
+        "persistence",
+        "snapshot"
+      ],
+      "type": "object"
+    },
+    "Persistence": {
+      "enum": [
+        "not_attempted",
+        "applied",
+        "failed",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "PresentationMode": {
+      "description": "How a command can present its outcome.",
+      "enum": [
+        "human",
+        "json"
+      ],
+      "type": "string"
+    },
+    "Publication": {
+      "enum": [
+        "not_attempted",
+        "unknown",
+        "published",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "Warning": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "enum": [
+        "invalid_event_timestamp",
+        "cleanup_incomplete"
+      ],
+      "type": "string"
+    },
+    "Warnings": {
+      "description": "Warnings of one outcome, at most one per code.",
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "command": {
+          "const": "schema"
+        },
+        "data": {
+          "$ref": "#/$defs/DiscoveryData"
+        },
+        "error": {
+          "type": "null"
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "not_applicable"
+            },
+            "persistence": {
+              "const": "not_applicable"
+            },
+            "publication": {
+              "const": "not_applicable"
+            },
+            "snapshot": {
+              "type": "null"
+            }
+          }
+        },
+        "status": {
+          "const": "ok"
+        }
+      },
+      "title": "success"
+    },
+    {
+      "properties": {
+        "command": {
+          "const": "schema"
+        },
+        "data": {
+          "type": "null"
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_arguments",
+                "internal_error"
+              ]
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "not_applicable"
+            },
+            "persistence": {
+              "const": "not_applicable"
+            },
+            "publication": {
+              "const": "not_applicable"
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "const": "error"
+        }
+      },
+      "title": "failure of the resolved command"
+    },
+    {
+      "properties": {
+        "command": {
+          "type": "null"
+        },
+        "data": {
+          "type": "null"
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "properties": {
+            "code": {
+              "const": "invalid_arguments"
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "unknown"
+            },
+            "persistence": {
+              "const": "not_attempted"
+            },
+            "publication": {
+              "const": "not_attempted"
+            },
+            "snapshot": {
+              "type": "null"
+            }
+          }
+        },
+        "status": {
+          "const": "error"
+        }
+      },
+      "title": "failure before the command was resolved"
+    }
+  ],
+  "properties": {
+    "command": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "meta": {
+      "$ref": "#/$defs/ExecutionMeta"
+    },
+    "schema_version": {
+      "const": "1"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "warnings": {
+      "$ref": "#/$defs/Warnings"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "status",
+    "data",
+    "error",
+    "warnings",
+    "meta"
+  ],
+  "title": "schema outcome",
+  "type": "object"
+}

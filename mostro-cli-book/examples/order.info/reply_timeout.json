@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.info",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "reply_timeout",
+    "message": "The node did not answer before the deadline."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "published",
+    "daemon_acceptance": "unknown",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

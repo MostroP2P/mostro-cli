@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "command": "order.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "relay_read_failed",
+    "message": "A configured relay failed during the public order read."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": {
+      "since": "2026-10-26T10:00:00Z",
+      "until": null,
+      "observed_at": "2026-11-02T10:00:03Z",
+      "per_relay_limit": 50,
+      "max_unique_events": 10000,
+      "configured_relays": 2,
+      "completed_relays": 1,
+      "received_events": 3,
+      "completion_policy": "all_relays_eose",
+      "complete_history": false
+    }
+  }
+}

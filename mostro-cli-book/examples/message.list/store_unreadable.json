@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "message.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "store_unreadable",
+    "message": "The local store cannot be read."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

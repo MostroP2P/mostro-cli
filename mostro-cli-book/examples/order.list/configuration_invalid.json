@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "configuration_invalid",
+    "message": "The node configuration is invalid."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

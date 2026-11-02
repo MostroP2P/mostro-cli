@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "command": "order.list",
+  "status": "ok",
+  "data": {
+    "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "filters": {
+      "side": null,
+      "currency": null,
+      "status": "pending"
+    },
+    "orders": []
+  },
+  "error": null,
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": {
+      "since": "2026-10-09T00:00:00Z",
+      "until": null,
+      "observed_at": "2026-10-16T00:00:01Z",
+      "per_relay_limit": 50,
+      "max_unique_events": 10000,
+      "configured_relays": 1,
+      "completed_relays": 1,
+      "received_events": 0,
+      "completion_policy": "all_relays_eose",
+      "complete_history": false
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "order": {
+      "description": "Order id to ask about; repeat the option for several orders",
+      "type": "string"
+    }
+  },
+  "required": [
+    "order"
+  ],
+  "type": "object"
+}

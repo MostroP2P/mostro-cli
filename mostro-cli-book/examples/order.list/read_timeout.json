@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "command": "order.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "read_timeout",
+    "message": "The public order read did not complete before its deadline."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": {
+      "since": "2026-10-09T00:00:00Z",
+      "until": null,
+      "observed_at": "2026-10-16T00:00:15Z",
+      "per_relay_limit": 50,
+      "max_unique_events": 10000,
+      "configured_relays": 2,
+      "completed_relays": 1,
+      "received_events": 1,
+      "completion_policy": "all_relays_eose",
+      "complete_history": false
+    }
+  }
+}

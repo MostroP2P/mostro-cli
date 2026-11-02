@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "order.new",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "store_unwritable",
+    "message": "The local store cannot be written, so nothing was sent."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_attempted",
+    "daemon_acceptance": "unknown",
+    "persistence": "not_attempted",
+    "snapshot": null
+  }
+}

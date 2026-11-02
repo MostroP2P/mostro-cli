@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "dispute.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "output_not_supported",
+    "message": "This command does not support JSON output."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_attempted",
+    "daemon_acceptance": "unknown",
+    "persistence": "not_attempted",
+    "snapshot": null
+  }
+}

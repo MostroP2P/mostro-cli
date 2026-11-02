@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "command": "order.new",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "node_refused",
+    "message": "The node refused the request.",
+    "reason": "invalid_amount"
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "published",
+    "daemon_acceptance": "rejected",
+    "persistence": "not_attempted",
+    "snapshot": null
+  }
+}

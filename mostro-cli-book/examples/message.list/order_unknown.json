@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "message.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "order_unknown",
+    "message": "No local order has this id, so nothing was sent."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "currency": {
+      "description": "Fiat currency code, such as USD",
+      "type": "string"
+    },
+    "expiration-days": {
+      "description": "Days until the pending order expires; 0 uses the node's default",
+      "type": "string"
+    },
+    "fiat-amount": {
+      "description": "Fiat amount; with --fiat-amount-max, the range minimum",
+      "type": "string"
+    },
+    "fiat-amount-max": {
+      "description": "Range maximum: makes a range order at market price",
+      "type": "string"
+    },
+    "invoice": {
+      "description": "Lightning invoice, when the order needs one",
+      "type": "string"
+    },
+    "payment-method": {
+      "description": "Payment method text",
+      "type": "string"
+    },
+    "premium": {
+      "description": "Premium on the price, in percent",
+      "type": "string"
+    },
+    "sats": {
+      "description": "Sats amount; 0 means the market price",
+      "type": "string"
+    },
+    "side": {
+      "description": "The order's side: buy or sell (case-insensitive)",
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "type": "string",
+      "x-case-insensitive": true
+    },
+    "yes": {
+      "description": "Create the order without asking (required with --output json)",
+      "enum": [
+        "true",
+        "false"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "side",
+    "currency",
+    "fiat-amount",
+    "payment-method"
+  ],
+  "type": "object"
+}

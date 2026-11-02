@@ -1,0 +1,65 @@
+{
+  "schema_version": "1",
+  "command": "message.list",
+  "status": "ok",
+  "data": {
+    "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "since_minutes": "30",
+    "truncated": false,
+    "keys_read": "1",
+    "keys_not_read": "0",
+    "messages": [
+      {
+        "event_id": "0101010101010101010101010101010101010101010101010101010101010101",
+        "created_at": "2026-11-02T09:01:00Z",
+        "created_at_unix": "1793610060",
+        "order_id": "00000000-0000-0000-0000-000000000001",
+        "request_id": "77",
+        "action": "add-invoice",
+        "next_step": "add_invoice",
+        "trade_index": null,
+        "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "payload": {
+          "kind": "order",
+          "order": {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "side": "sell",
+            "status": "waiting-buyer-invoice",
+            "sats_amount": "15000",
+            "fiat_currency": "USD",
+            "fiat_amount": "15",
+            "fiat_amount_min": null,
+            "fiat_amount_max": null,
+            "payment_method": "bank transfer",
+            "premium_percent": "1",
+            "buyer_trade_pubkey": null,
+            "seller_trade_pubkey": null,
+            "created_at": "2026-11-02T09:00:00Z",
+            "created_at_unix": "1793610000",
+            "expires_at": "2026-11-03T09:00:00Z",
+            "expires_at_unix": "1793696400"
+          }
+        }
+      }
+    ]
+  },
+  "error": null,
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": {
+      "since": "2026-10-26T10:00:00Z",
+      "until": null,
+      "observed_at": "2026-11-02T10:00:03Z",
+      "per_relay_limit": 50,
+      "max_unique_events": 10000,
+      "configured_relays": 2,
+      "completed_relays": 2,
+      "received_events": 1,
+      "completion_policy": "all_relays_eose",
+      "complete_history": false
+    }
+  }
+}

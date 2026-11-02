@@ -1075,7 +1075,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 34] = [
+    const APPROVED: [(&[&str], &str); 35] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1109,6 +1109,7 @@ mod registry {
         (&["order", "fiat-sent"], "order.fiat-sent"),
         (&["order", "release"], "order.release"),
         (&["order", "cancel"], "order.cancel"),
+        (&["order", "sync"], "order.sync"),
         (&["bond", "add-invoice"], "bond.add-invoice"),
     ];
 
@@ -1169,7 +1170,7 @@ mod registry {
     fn only_the_migrated_commands_support_json() {
         for entry in REGISTRY {
             match entry.canonical {
-                "order.list" | "schema" | "message.list" => {
+                "order.list" | "schema" | "message.list" | "order.sync" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1255,6 +1256,7 @@ mod registry {
                 "order.fiat-sent",
                 "order.release",
                 "order.cancel",
+                "order.sync",
                 "bond.add-invoice"
             ]
         );
@@ -1853,5 +1855,44 @@ mod trade_step_grammar {
             assert_eq!(entry.canonical, canonical);
             assert_eq!(entry.json, JsonSupport::Write, "{canonical}");
         }
+    }
+}
+
+/// The grammar of `order sync` (spec 008, slice 4).
+mod order_sync_grammar {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport, OrderCommands, SyncArgs};
+
+    fn parse(args: &[&str]) -> Result<SyncArgs, clap::Error> {
+        let argv = ["mostro-cli", "order", "sync"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Order {
+                command: OrderCommands::Sync(args),
+            }) => Ok(args),
+            _ => panic!("not order sync"),
+        }
+    }
+
+    #[test]
+    fn it_takes_only_an_optional_window() {
+        assert_eq!(parse(&[]).unwrap().since, None);
+        assert_eq!(parse(&["--since", "60"]).unwrap().since, Some(60));
+        for bad in [
+            &["--since"][..],
+            &["--since", "x"],
+            &["--yes"],
+            &["--order", "x"],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn it_is_registered_with_json_and_the_approved_name() {
+        let entry = lookup(&["order".to_string(), "sync".to_string()]).expect("registered");
+        assert_eq!(entry.canonical, "order.sync");
+        assert_eq!(entry.json, JsonSupport::Read);
     }
 }

@@ -19,6 +19,7 @@ pub mod order;
 mod rules;
 pub mod schema;
 pub mod step;
+pub mod sync;
 pub mod take;
 
 /// Contract version, independent of the executable version.
@@ -83,6 +84,17 @@ impl<S> ExecutionMeta<S> {
             publication: Publication::NotApplicable,
             daemon_acceptance: DaemonAcceptance::NotApplicable,
             persistence: Persistence::NotApplicable,
+            snapshot,
+        }
+    }
+
+    /// A read of the relays that may save rows locally (`order.sync`): nothing is
+    /// published, `persistence` says what happened to the rows.
+    pub fn sync(snapshot: Option<S>, persistence: Persistence) -> Self {
+        Self {
+            publication: Publication::NotApplicable,
+            daemon_acceptance: DaemonAcceptance::NotApplicable,
+            persistence,
             snapshot,
         }
     }

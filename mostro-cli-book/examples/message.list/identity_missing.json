@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "command": "message.list",
+  "status": "error",
+  "data": null,
+  "error": {
+    "code": "identity_missing",
+    "message": "No local identity exists."
+  },
+  "warnings": [],
+  "meta": {
+    "publication": "not_applicable",
+    "daemon_acceptance": "not_applicable",
+    "persistence": "not_applicable",
+    "snapshot": null
+  }
+}

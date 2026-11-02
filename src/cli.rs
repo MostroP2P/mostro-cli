@@ -17,6 +17,7 @@ pub mod take_dispute;
 pub mod user_info;
 
 mod args;
+mod command_args;
 mod commands;
 mod context;
 mod invoice;
@@ -28,12 +29,13 @@ mod order_take;
 mod registry;
 mod schema;
 mod step;
+mod sync;
 mod write;
 
 pub use args::Cli;
 pub use commands::{
     AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, ListMessagesArgs, MessageCommands,
-    NewArgs, OrderCommands, StepArgs, TakeBuyArgs, TakeSellArgs,
+    NewArgs, OrderCommands, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
