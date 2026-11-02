@@ -11,7 +11,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
 
 - [x] **1. The maker marker.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Failing tests for takers and makers; `save_order` records `is_mine` exactly; `range_has_room` requires it; the
   spec 007 range tests and documents are amended; the false positive is pinned and gone.
-- [ ] **2. The scripted node creates children.** Extend the step daemon: a range order, the key stored by a buy order's `fiat-sent`, the child
+- [x] **2. The scripted node creates children.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Extend the step daemon: a range order, the key stored by a buy order's `fiat-sent`, the child
   created at `release` and its `new-order` sent to the new key with the echoed request id. No production change.
 - [ ] **3. Key and index in the steps.** The conditions of the spec, the index policy (reserved before, spent after), `next_trade_index`,
   `next_step` `sync_child_order`, the range warning only for inexact rows; operation and binary tests.

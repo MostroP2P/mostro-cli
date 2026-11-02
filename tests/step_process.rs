@@ -25,7 +25,7 @@ mod harness;
 #[path = "common/schema_check.rs"]
 mod schema_check;
 
-use fake_mostro::{info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
+use fake_mostro::{child_id, info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
 use harness::{Backend, LoopbackRelay, Sandbox};
 use mostro_client::store::{Role, Store};
 
@@ -235,7 +235,8 @@ async fn fiat_sent_by_the_buyer_moves_the_order_and_notifies_both_sides() {
 
 #[tokio::test]
 async fn fiat_sent_keeps_the_next_trade_key_of_a_range_order() {
-    let world = world(active).await;
+    let world =
+        world(|seller, buyer| vec![Traded::active(id(1), seller, buyer).ranged(10, 100, 40)]).await;
     let next = Payload::NextTrade("02".repeat(32), 9);
 
     world
@@ -447,6 +448,216 @@ async fn an_unknown_order_is_not_found_for_all_three_steps() {
             .act(&world.buyer, &world.seller, step(action, id(99), None))
             .await;
         assert_eq!(reason(&only(heard)), CantDoReason::NotFound);
+    }
+}
+
+// --- Range children (spec 008, slice 2) -------------------------------------
+
+mod children {
+    use super::*;
+
+    /// Send `message` as `from`; what `from`, `other` and a third key hear.
+    async fn act_with(
+        world: &World,
+        from: &Keys,
+        listeners: &[&Keys],
+        message: Message,
+    ) -> Vec<Vec<Message>> {
+        let identity = Keys::generate();
+        let mut all = vec![from];
+        all.extend(listeners);
+        world
+            .peer
+            .hear_all(&all, world.peer.send(&message, &identity, from))
+            .await
+    }
+
+    fn next_key(index: u32) -> (Keys, Payload) {
+        let keys = Keys::generate();
+        let payload = Payload::NextTrade(keys.public_key().to_string(), index);
+        (keys, payload)
+    }
+
+    fn child_of(heard: &[Message]) -> MessageKind {
+        let news: Vec<_> = heard
+            .iter()
+            .map(|message| message.get_inner_message_kind().clone())
+            .filter(|kind| kind.action == Action::NewOrder)
+            .collect();
+        assert_eq!(news.len(), 1, "{heard:?}");
+        news[0].clone()
+    }
+
+    fn order_of(kind: &MessageKind) -> mostro_core::order::SmallOrder {
+        match &kind.payload {
+            Some(Payload::Order(order)) => order.clone(),
+            other => panic!("an order, got {other:?}"),
+        }
+    }
+
+    /// A sell range order of 10 to 100 of which 40 was taken, its fiat sent.
+    fn selling(taken: i64) -> impl FnOnce(PublicKey, PublicKey) -> Vec<Traded> {
+        move |seller, buyer| {
+            vec![Traded::active(id(1), seller, buyer)
+                .ranged(10, 100, taken)
+                .with_status(Status::FiatSent)]
+        }
+    }
+
+    #[tokio::test]
+    async fn the_release_of_a_sell_range_order_creates_a_child_for_the_key_it_carries() {
+        let world = world(selling(40)).await;
+        let (key, payload) = next_key(7);
+
+        let heard = act_with(
+            &world,
+            &world.seller,
+            &[&world.buyer, &key],
+            step(Action::Release, id(1), Some(payload)),
+        )
+        .await;
+
+        let kind = child_of(&heard[2]);
+        assert_eq!(kind.id, Some(child_id(id(1))));
+        assert_eq!(
+            kind.request_id,
+            Some(REQUEST_ID),
+            "the request id is echoed"
+        );
+        assert_eq!(kind.trade_index, Some(7), "the index of the key");
+        let child = order_of(&kind);
+        assert_eq!(child.status, Some(Status::Pending));
+        assert_eq!(child.min_amount, Some(10));
+        assert_eq!(child.max_amount, Some(60), "what is left of the range");
+        assert_eq!(child.fiat_amount, 0);
+        assert!(heard[0]
+            .iter()
+            .all(|m| m.get_inner_message_kind().action != Action::NewOrder));
+        let trades = world.trades.lock().unwrap();
+        assert_eq!(trades.len(), 2);
+        assert_eq!(trades[1].id, child_id(id(1)));
+        assert_eq!(trades[1].maker, key.public_key());
+    }
+
+    #[tokio::test]
+    async fn a_remainder_equal_to_the_minimum_becomes_a_fixed_order() {
+        let world = world(selling(90)).await;
+        let (key, payload) = next_key(3);
+
+        let heard = act_with(
+            &world,
+            &world.seller,
+            &[&world.buyer, &key],
+            step(Action::Release, id(1), Some(payload)),
+        )
+        .await;
+
+        let child = order_of(&child_of(&heard[2]));
+        assert_eq!(child.fiat_amount, 10);
+        assert_eq!((child.min_amount, child.max_amount), (None, None));
+    }
+
+    #[tokio::test]
+    async fn no_child_without_a_key_below_the_minimum_or_on_a_fixed_order() {
+        let (key, payload) = next_key(3);
+        // No key.
+        let world_a = world(selling(40)).await;
+        let heard = act_with(
+            &world_a,
+            &world_a.seller,
+            &[&world_a.buyer, &key],
+            step(Action::Release, id(1), None),
+        )
+        .await;
+        assert!(heard[2].is_empty(), "no key, no child");
+        assert_eq!(world_a.trades.lock().unwrap().len(), 1);
+        // The remainder is below the minimum.
+        let world_b = world(selling(95)).await;
+        let heard = act_with(
+            &world_b,
+            &world_b.seller,
+            &[&world_b.buyer, &key],
+            step(Action::Release, id(1), Some(payload.clone())),
+        )
+        .await;
+        assert!(heard[2].is_empty(), "nothing left to offer");
+        // A fixed order.
+        let world_c = world(at(Status::FiatSent)).await;
+        let heard = act_with(
+            &world_c,
+            &world_c.seller,
+            &[&world_c.buyer, &key],
+            step(Action::Release, id(1), Some(payload)),
+        )
+        .await;
+        assert!(heard[2].is_empty(), "a fixed order has no child");
+        assert_eq!(world_c.trades.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_buy_range_order_keeps_the_key_of_its_fiat_sent_and_the_peers_release_creates_the_child(
+    ) {
+        // The maker buys: `me` is the buyer-maker, `other` the seller.
+        let world =
+            world(|maker, peer| vec![Traded::active_buy(id(1), maker, peer).ranged(10, 100, 40)])
+                .await;
+        // `world.seller` is the first key, here the buyer-maker.
+        let maker = &world.seller;
+        let taker = &world.buyer;
+        let (key, payload) = next_key(5);
+
+        let sent = act_with(
+            &world,
+            maker,
+            &[taker],
+            step(Action::FiatSent, id(1), Some(payload)),
+        )
+        .await;
+        assert_eq!(
+            sent[0][0].get_inner_message_kind().action,
+            Action::FiatSentOk
+        );
+        assert_eq!(
+            world.trades.lock().unwrap()[0].next_trade,
+            Some((key.public_key().to_string(), 5)),
+            "the node keeps the key"
+        );
+
+        let released = act_with(
+            &world,
+            taker,
+            &[maker, &key],
+            step(Action::Release, id(1), None),
+        )
+        .await;
+
+        let kind = child_of(&released[2]);
+        assert_eq!(
+            kind.request_id,
+            Some(REQUEST_ID),
+            "the release's request id"
+        );
+        assert_eq!(kind.trade_index, Some(5));
+        assert_eq!(order_of(&kind).kind, Some(mostro_core::order::Kind::Buy));
+        assert!(released[1]
+            .iter()
+            .all(|m| m.get_inner_message_kind().action != Action::NewOrder));
+    }
+
+    #[tokio::test]
+    async fn a_fiat_sent_on_a_fixed_order_keeps_no_key() {
+        let world = world(active).await;
+        let (_, payload) = next_key(2);
+
+        world
+            .act(
+                &world.buyer,
+                &world.seller,
+                step(Action::FiatSent, id(1), Some(payload)),
+            )
+            .await;
+
+        assert_eq!(world.trades.lock().unwrap()[0].next_trade, None);
     }
 }
 
