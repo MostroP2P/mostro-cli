@@ -1683,4 +1683,22 @@ mod operation {
             "{text:?}"
         );
     }
+
+    #[tokio::test]
+    async fn work_and_transport_settings_do_not_concern_a_read() {
+        let room = Mailroom::with(3, 1, flow).await;
+
+        for (front, set) in [
+            (&["--pow", SENTINEL][..], &[][..]),
+            (&["--transport", SENTINEL][..], &[][..]),
+            (&[][..], &[("POW", SENTINEL), ("TRANSPORT", SENTINEL)][..]),
+        ] {
+            let mut args = vec!["--output", "json"];
+            args.extend(front);
+            args.extend(["message", "list"]);
+            let run = room.run_env(&args, set, &[]).await;
+            assert_eq!(run.code(), Some(0), "{args:?}: {}", run.stderr_text());
+            assert_eq!(one_document(&run)["status"], "ok");
+        }
+    }
 }

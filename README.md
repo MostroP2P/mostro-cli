@@ -643,7 +643,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -657,7 +657,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Eight commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` (the last five need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Nine commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` (the last five need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

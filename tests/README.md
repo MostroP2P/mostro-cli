@@ -287,3 +287,31 @@ No scenario above is marked complete by documentation alone. Still open: the res
 ([quickstart](../specs/005-invoice-json/quickstart.md)), a slashed bond for `bond add-invoice` (including that the acknowledgement carries no request id), the
 MCP `add_invoice` migration (it stays broken until then), and the duplicate-send risk of an `uncertain` run, which only the caller can check with
 `order info --order <id>` (for a bond payout, by waiting for the payout).
+
+## Message List: Requirement Evidence
+
+Reconciliation of the [specification](../specs/006-message-list-json/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-02. **Automated verification on Linux with loopback relays and a scripted
+mailbox only**; CI (with the CI-hosted Windows runner) is checked after the push. Not run against any real node or public relay; whether real relays honor one
+filter with many recipient keys and what limit they apply is unprobed. NIP-42 AUTH is never exercised. Contracts:
+[CLI](../specs/006-message-list-json/contracts/cli.md), [data model](../specs/006-message-list-json/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json) and [message list](../docs/schemas/message-list-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 options, validation, removed spellings | `message_list_grammar`, `outcome::messages` unit tests, `bad_arguments_exit_2_...`, `the_old_command_is_gone_with_no_alias` | Verified on Linux |
+| FR-002 existing identity only, nothing created or written | the identity cases of `failures_before_any_relay_...`, `a_read_only_store_is_read_without_complaint`, the byte-identical store checks | Verified on Linux |
+| FR-003 keys 1..last (newest 200), `--order`, `order_unknown` | the `store` tests, `250 trades` and `--order` operation tests, `an_unknown_order_and_a_missing_identity_...` | Verified on Linux |
+| FR-004 one bounded read, `order list` completion rules, snapshot | the operation and relay-failure tests, `an_unreachable_relay_...` | Verified on Linux |
+| FR-005 author, key, window, shape, duplicates, caps, oldest first | `what_is_not_the_nodes_mail_...`, the duplicate, relay-limit and record-cap tests, `open_events` unit tests | Verified on Linux |
+| FR-006 record fields, `next_step`, payload summary, escaped text, invoices as data | `outcome::messages` tests, the renderer tests, `text_from_the_node_cannot_reach_the_terminal_raw`, `human_shows_each_invoice_alone_...` | Verified on Linux |
+| FR-007 one document, own schema, fixtures, examples, drift | `integration_tests` (fixture, 10 examples, 12 invalid variants) | Verified on Linux |
+| FR-008 statuses, exits, codes, empty window is `ok` | the failure matrix, `no_messages_in_the_window`, the binary scenarios | Verified on Linux |
+| FR-009 transport boundary, diagnostics | `source_boundaries`, the sentinel, relay-address and invoice sweeps | Verified on Linux |
+| FR-010 `getdm` removed | `message_list_grammar`, the registry tests, `the_old_command_is_gone_with_no_alias` | Verified on Linux; `get_dm.rs` stays for `getadmindm` |
+| FR-011 work and transport settings ignored by a read | `work_and_transport_settings_do_not_concern_a_read` | Verified on Linux |
+| SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted mailbox |
+| SC-006 no claim about a real node | none | **Open**: needs a separately authorized probe ([quickstart](../specs/006-message-list-json/quickstart.md)) |
+
+No scenario above is marked complete by documentation alone. Still open: the probe, the MCP DM tools (broken until migrated), a cursor for slow flows, peer chat as
+a command of its own, and a smoother solver-key flow for disputes (`getdm` used to save the solver's key; `message list` returns it as data).

@@ -4148,3 +4148,18 @@ Native Linux, rustc 1.97.0, on `develop` after `e385ec6` (pushed). Lean mode: th
 - **Not changed, noted**: a bad `--pow`/`--transport` (or `POW`/`TRANSPORT`) still fails `message list` as `configuration_invalid` because the read shares the write commands' configuration step,
   although it sends nothing; the matrix does not pin that.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 749 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
+## Message List, Slice 6: Docs, Boundaries, Verification: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `f5db27c` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **The small fix** (asked for with this slice): a read sends nothing, so `message list` no longer looks at `--pow`, `--transport`, `POW` or `TRANSPORT`. `cli/write.rs` gained `resolve_reader`
+  (configuration, identity, store); `resolve_base` is that plus the request settings, with the same order of checks as before for the write commands. A new process test (a bad value of each
+  setting, as a flag and as a variable, still reads) failed first with `configuration_invalid`, exit 1, and passes now; the 47 + 46 + 40 + 35 process tests of the other commands are unchanged.
+  Recorded as FR-011 in the spec.
+- **Docs**: spec and plan statuses, `quickstart.md` (focused commands, an offline smoke check that was run and matches, the acceptance matrix, the probe procedure), architecture (the message-list
+  paragraph, `get_dm` marked admin-only), README and AGENTS lists, `docs/ai-development.md`, and the requirement evidence table in `tests/README.md` (FR-001 to FR-011, SC-001 to SC-006).
+- **Boundaries**: every new file is under the 400-line limit with imports at the top (the source-boundary test passes); the transport boundary test still finds no new direct fetch.
+- **Open, by design**: SC-006 (no claim about a real node: whether real relays honor one filter with many recipient keys, and their per-relay limit), the MCP DM tools, a cursor for slow flows, peer
+  chat as a command of its own, and a smoother solver-key flow for disputes (`getdm` used to save the solver's key; `message list` returns it as data).
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 750 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.

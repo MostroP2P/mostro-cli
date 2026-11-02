@@ -9,7 +9,7 @@ use chrono::Utc;
 use super::commands::ListMessagesArgs;
 use super::invocation::OutputMode;
 use super::migrated::{code_name, diagnose};
-use super::write::resolve_base;
+use super::write::resolve_reader;
 use super::Cli;
 use crate::commands::message::list::{message_list, ListOutcome, COMMAND};
 use crate::msg::ReadLimits;
@@ -43,14 +43,14 @@ async fn outcome(cli: &Cli, args: &ListMessagesArgs) -> ListOutcome {
     let Ok(input) = MessageListInput::validate(args.since, args.order) else {
         return refused(ErrorCode::InvalidArguments);
     };
-    let base = match resolve_base(cli, false).await {
-        Ok(base) => base,
+    let reader = match resolve_reader(cli, false).await {
+        Ok(reader) => reader,
         Err(code) => return refused(code),
     };
     message_list(
         &input,
-        &base.config,
-        &base.store,
+        &reader.config,
+        &reader.store,
         &ReadLimits::default(),
         Utc::now(),
     )

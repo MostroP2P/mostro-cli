@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-01
 
-**Status**: Specified; nothing implemented. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented and verified on Linux against a scripted mailbox (slices 1-6, 2026-11-02); CI is checked after the push. Not probed on a real node. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Sixth step of the AI-ready CLI roadmap: canonical `message list` (replacing `getdm`), a read-only command that returns what the node sent to the
 user's trade keys, with human and JSON output. It closes the gap the earlier write commands left: after paying a bond, waiting for a seller or answering a
@@ -60,8 +60,9 @@ marking messages read, any local write, MCP.
   `identity_missing`, `identity_unreadable`, `order_unknown`, `store_unreadable`. An empty window is `ok` with no records, not an error.
 - **FR-009**: All reception goes through `msg`; no new direct fetch or subscribe appears elsewhere. Diagnostics follow the allow-list and never include keys, relays,
   arguments, invoices or message text.
-- **FR-010**: The legacy `getdm`, `cli/get_dm.rs` and its `--from-user` branch are removed with no alias after the new command is verified; the unmigrated commands keep
-  rejecting JSON early.
+- **FR-010**: The legacy `getdm` and its `--from-user` option are removed with no alias after the new command is verified; the unmigrated commands keep
+  rejecting JSON early. (`getadmindm` still runs `cli/get_dm.rs`, so the file stays for the admin path only.)
+- **FR-011** (added 2026-11-02): A read sends nothing, so the work and transport settings (`--pow`, `--transport`, `POW`, `TRANSPORT`) are not looked at: a bad value does not fail it.
 
 ## Success Criteria
 

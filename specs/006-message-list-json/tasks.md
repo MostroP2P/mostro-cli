@@ -19,7 +19,7 @@ regtest without authorization.
   README and command-reference migration. **4b**: binary scenarios.
 - [x] **5. Failure matrix and examples.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, relays, unreadable store, invalid input, secret and invoice sentinels, unwritable streams; `contracts/examples.json`
   and its validation.
-- [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration (MCP), requirement evidence, quickstart with the probe procedure; the probe stays open.
+- [x] **6. Docs, boundaries, verification.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Architecture, command reference, README migration (MCP), requirement evidence, quickstart with the probe procedure; the probe stays open.
 
 ## Requirement ownership
 
