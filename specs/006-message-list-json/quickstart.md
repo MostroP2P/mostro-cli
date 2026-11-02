@@ -1,7 +1,7 @@
 # Validation Guide: Message List
 
-**Status**: Implemented and verified on Linux with loopback relays and a scripted mailbox (evidence in `tests/TEST_SUMMARY.md`). Not probed on a real node or
-public relay.
+**Status**: Implemented and verified on Linux with loopback relays and a scripted mailbox (evidence in `tests/TEST_SUMMARY.md`). Probed once on the maintainer's local bonded
+regtest node on 2026-11-02 (steps 1, 3 and 4 below, and two keys of step 2); the rest is open.
 
 ## Focused Commands
 

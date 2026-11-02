@@ -292,8 +292,8 @@ MCP `add_invoice` migration (it stays broken until then), and the duplicate-send
 
 Reconciliation of the [specification](../specs/006-message-list-json/spec.md) with the entries in
 [TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-02. **Automated verification on Linux with loopback relays and a scripted
-mailbox only**; CI (with the CI-hosted Windows runner) is checked after the push. Not run against any real node or public relay; whether real relays honor one
-filter with many recipient keys and what limit they apply is unprobed. NIP-42 AUTH is never exercised. Contracts:
+mailbox only**; CI (with the CI-hosted Windows runner) is checked after the push. Probed once on a real node (below); whether real relays honor one
+filter with many recipient keys beyond two, and what limit they apply, is unprobed. NIP-42 AUTH is never exercised. Contracts:
 [CLI](../specs/006-message-list-json/contracts/cli.md), [data model](../specs/006-message-list-json/data-model.md); generated references:
 [discovery](../docs/schemas/discovery-v1.json) and [message list](../docs/schemas/message-list-v1.json).
 
@@ -311,7 +311,7 @@ filter with many recipient keys and what limit they apply is unprobed. NIP-42 AU
 | FR-010 `getdm` removed | `message_list_grammar`, the registry tests, `the_old_command_is_gone_with_no_alias` | Verified on Linux; `get_dm.rs` stays for `getadmindm` |
 | FR-011 work and transport settings ignored by a read | `work_and_transport_settings_do_not_concern_a_read` | Verified on Linux |
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted mailbox |
-| SC-006 no claim about a real node | none | **Open**: needs a separately authorized probe ([quickstart](../specs/006-message-list-json/quickstart.md)) |
+| SC-006 no claim about a real node | none | Probe of 2026-11-02 on the maintainer's local bonded regtest node (see TEST_SUMMARY.md): **verified on a real node** for the bond/add-invoice flow, two keys in one filter and `canceled`; **open**: many keys (up to 200), a relay's per-relay limit, clock skew ([quickstart](../specs/006-message-list-json/quickstart.md)) |
 
 No scenario above is marked complete by documentation alone. Still open: the probe, the MCP DM tools (broken until migrated), a cursor for slow flows, peer chat as
 a command of its own, and a smoother solver-key flow for disputes (`getdm` used to save the solver's key; `message list` returns it as data).

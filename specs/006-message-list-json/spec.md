@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-01
 
-**Status**: Implemented and verified on Linux against a scripted mailbox (slices 1-6, 2026-11-02); CI is checked after the push. Not probed on a real node. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented and verified on Linux against a scripted mailbox (slices 1-6, 2026-11-02); CI is checked after the push. Probed once on the maintainer's local bonded regtest node on 2026-11-02 (see `tests/TEST_SUMMARY.md`). Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Sixth step of the AI-ready CLI roadmap: canonical `message list` (replacing `getdm`), a read-only command that returns what the node sent to the
 user's trade keys, with human and JSON output. It closes the gap the earlier write commands left: after paying a bond, waiting for a seller or answering a

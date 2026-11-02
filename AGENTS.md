@@ -24,7 +24,7 @@ regtest node (mostrod v0.19.3, 2026-11-01; bonded and Cashu nodes not covered): 
 ([tasks.md](specs/004-order-take-json/tasks.md)); the add-invoice commands
 ([spec](specs/005-invoice-json/spec.md), [tasks.md](specs/005-invoice-json/tasks.md))
 and `message list` ([spec](specs/006-message-list-json/spec.md), [tasks.md](specs/006-message-list-json/tasks.md))
-are verified against the scripted node only; `order add-invoice` was probed on regtest, `message list` and `bond add-invoice` were not. Continue from existing
+are verified against the scripted node only; `order add-invoice` and `message list` were probed on a real regtest node, `bond add-invoice` was not. Continue from existing
 regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

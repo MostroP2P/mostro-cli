@@ -4163,3 +4163,21 @@ Native Linux, rustc 1.97.0, on `develop` after `f5db27c` (pushed). Lean mode: th
 - **Open, by design**: SC-006 (no claim about a real node: whether real relays honor one filter with many recipient keys, and their per-relay limit), the MCP DM tools, a cursor for slow flows, peer
   chat as a command of its own, and a smoother solver-key flow for disputes (`getdm` used to save the solver's key; `message list` returns it as data).
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 750 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
+## Real-Node Probe Of message list: 2026-11-02
+
+Authorized by the maintainer on 2026-11-02 ("my local node is running you can use it for testing"), with the same two **public relays** as the earlier probe (`wss://mostro-p2p.tech`, `wss://relay.shadowbip.com`),
+the only route to the maintainer's local regtest node with a **taker bond**. Two fresh throwaway identities (a maker and a taker) in session temporary directories, the debug build of `develop` at
+`c6215d5`; the maintainer's own store was never used; both stores were deleted. The node's version was not queried. The maintainer paid the bond in Polar; no macaroon, certificate or key was shared or read.
+
+- **Two keys in one filter**: the maker created two orders (trade indexes 1 and 2); one `message list --since 10` returned both `new-order` messages, each with its own order id and trade index,
+  `keys_read` 2, `keys_not_read` 0, `truncated` false, 2 of 2 relays completed, 2 events. No batching was needed at this size.
+- **The point of the spec**: a taker took order 1: `order take-sell` answered `pay_bond_invoice`, and `message list` showed the same message (`pay-bond-invoice`, the parked order `pending`, 1000 sats) with the
+  bond invoice as data, so a JSON user can pay it without the legacy command. That bond invoice expired unpaid; a second take (order 2, index 2) gave a fresh one.
+- **After the bond was paid**: `message list` showed, in order, `pay-bond-invoice` and `add-invoice` (`next_step: add_invoice`, status `waiting-buyer-invoice`, **6224 sats**, 14 seconds later), the amount to
+  invoice (the bond message's 1000 sats is not it, as in the earlier probe). The human output carried the same, with the continuing command in words and the invoice on its own line.
+- **The maker's view**: after the take, the maker's `message list` showed the node's `waiting-buyer-invoice` for that order and trade index 2.
+- **Cleanup**: both orders were cancelled by the maker (legacy `cancel`); `order info` showed `canceled` for both, and the taker's `message list` then showed a `canceled` message (no `next_step`).
+- **Not verified**: many keys (up to the 200 cap) against a real relay, the limit a real relay applies per filter, whether a message can arrive later than the relay's `since` bound (clock skew; none was
+  seen in a window of 2 to 10 minutes), and everything the node sends in the later steps of a trade (hold invoice to pay, `fiat-sent`, release).
+- **Nothing in the CLI needed to change.**
