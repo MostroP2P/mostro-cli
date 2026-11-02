@@ -4096,3 +4096,18 @@ Native Linux, rustc 1.97.0, on `develop` after `e64119e` (pushed). Lean mode: th
   back each other up (opening with a key already shows the sender) and **fail together**, which is the intended redundancy.
 - **Found by the gates**: one test compared two reads including the snapshot's `since`, which moves with the clock; it now ignores `since` and `observed_at` (a test defect, not a product one).
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 726 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Message List, Slice 4a: The Command: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `e9ea42b` (pushed). Lean mode: the only evidence entry for the slice. Binary scenarios are slice 4b.
+
+- **Code**: `Commands::Message` / `MessageCommands::List(--since, --order)` replace `getdm` (removed with no alias, `-s` and `--from-user` with it); registry `["message","list"]` as `Read`
+  with the existing canonical name; `cli/message.rs` (validate, `resolve_base` read-only, `message_list`, human or JSON, `--verbose` one code line); `parse_human/message.rs`
+  (header with window and keys read, one block per message, each invoice alone on its line, the next step in words with the command that continues it, node text escaped, limits stated);
+  generated schema (`OutcomeRules::read`, the `trade_keys_limited` warning) and the new fixtures `docs/schemas/message-list-v1.json` and regenerated `discovery-v1.json`.
+  `getadmindm` keeps `execute_get_dm`. The hints of `order new` / `order take-*` now say `message list`.
+- **Tests**: 5 grammar tests replace the 5 `getdm` characterization tests (defaults unset, long options only, range left to the operation, the old names and `--from-user` rejected, registered as a
+  read); 6 renderer tests; the registry, legacy-JSON and discovery tests count `message.list` as machine-capable; the schema fixture and the discovery fixture match the generated documents.
+- **Behavior changed on purpose**: `getdm` stored the counterparty and solver keys it saw; `message list` is read-only and returns them as data. `disputechat` reads the solver from the store, so
+  the solver's key (the `peer` payload of `admin-took-dispute`) is now passed to `getdmuser` / `dmtouser`; the README and the `disputechat` hint say so.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 734 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0 (see the commit).

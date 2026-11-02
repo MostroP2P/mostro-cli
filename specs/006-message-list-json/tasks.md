@@ -15,7 +15,7 @@ regtest without authorization.
   warning `trade_keys_limited`, schema tests.
 - [x] **3. The read and the operation.** (done 2026-11-01; evidence in `tests/TEST_SUMMARY.md`) `msg::inbox::read` and `commands/message/list.rs` against the mailbox: every message kind, filtering by author, key, window and shape, duplicates,
   the three caps, `--order`, failures, no write.
-- [ ] **4. The command.** **4a**: grammar (`message list`), registry (`message.list` as `Read`), `cli/message.rs`, `parse_human/message.rs`, removal of `getdm`, generated schema and fixture,
+- [ ] **4. The command.** **4a (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`)**: grammar (`message list`), registry (`message.list` as `Read`), `cli/message.rs`, `parse_human/message.rs`, removal of `getdm`, generated schema and fixture,
   README and command-reference migration. **4b**: binary scenarios.
 - [ ] **5. Failure matrix and examples.** Identity, configuration, relays, unreadable store, invalid input, secret and invoice sentinels, unwritable streams; `contracts/examples.json`
   and its validation.

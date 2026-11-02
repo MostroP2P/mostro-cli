@@ -1081,7 +1081,7 @@ mod registry {
     const APPROVED: [(&[&str], &str); 34] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
-        (&["getdm"], "message.list"),
+        (&["message", "list"], "message.list"),
         (&["getdmuser"], "chat.history"),
         (&["disputechat"], "dispute.chat"),
         (&["getadmindm"], "admin.message-list"),
@@ -1172,7 +1172,7 @@ mod registry {
     fn only_the_migrated_commands_support_json() {
         for entry in REGISTRY {
             match entry.canonical {
-                "order.list" | "schema" => {
+                "order.list" | "schema" | "message.list" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1249,6 +1249,7 @@ mod registry {
             [
                 "order.list",
                 "schema",
+                "message.list",
                 "order.info",
                 "order.new",
                 "order.take-sell",
@@ -1716,49 +1717,67 @@ mod invoice_grammar {
     }
 }
 
-/// What `getdm` accepts today (spec 006, slice 1), pinned before it is replaced
-/// by `message list`.
-mod getdm_characterization {
+/// The grammar of `message list` (spec 006, slice 4): `getdm` and its options
+/// are gone with no alias.
+mod message_list_grammar {
     use clap::Parser;
-    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport, MessageCommands};
+    use uuid::Uuid;
 
-    fn parse(args: &[&str]) -> Result<(i64, bool), clap::Error> {
-        let argv = ["mostro-cli", "getdm"]
+    fn parse(args: &[&str]) -> Result<(Option<i64>, Option<Uuid>), clap::Error> {
+        let argv = ["mostro-cli", "message", "list"]
             .into_iter()
             .chain(args.iter().copied());
         match Cli::try_parse_from(argv)?.command {
-            Some(Commands::GetDm { since, from_user }) => Ok((since, from_user)),
-            _ => panic!("not getdm"),
+            Some(Commands::Message {
+                command: MessageCommands::List(args),
+            }) => Ok((args.since, args.order)),
+            _ => panic!("not message list"),
         }
     }
 
     #[test]
-    fn the_window_defaults_to_thirty_minutes_and_peer_chat_is_off() {
-        assert_eq!(parse(&[]).unwrap(), (30, false));
+    fn both_options_are_optional_and_unset_means_the_default() {
+        assert_eq!(parse(&[]).unwrap(), (None, None));
     }
 
     #[test]
-    fn both_options_have_short_and_long_forms_and_the_long_flag_is_squashed() {
-        assert_eq!(parse(&["-s", "90", "-f"]).unwrap(), (90, true));
-        assert_eq!(parse(&["--since", "90", "--fromuser"]).unwrap(), (90, true));
-        assert!(
-            parse(&["--from-user"]).is_err(),
-            "the hyphenated spelling is unknown"
+    fn the_window_and_the_order_are_long_options_only() {
+        let id = "00000000-0000-0000-0000-0000000000AB";
+        assert_eq!(
+            parse(&["--since", "90", "--order", id]).unwrap(),
+            (Some(90), Some(id.parse().unwrap()))
         );
+        for short in [&["-s", "90"][..], &["-o", id], &["-f"]] {
+            assert!(parse(short).is_err(), "{short:?}");
+        }
     }
 
     #[test]
-    fn the_window_is_any_integer_including_zero_and_negative() {
-        assert_eq!(parse(&["--since", "0"]).unwrap().0, 0);
-        assert_eq!(parse(&["--since=-5"]).unwrap().0, -5);
+    fn range_is_the_operation_s_to_judge_but_non_numbers_and_bad_ids_fail_here() {
+        assert_eq!(parse(&["--since", "0"]).unwrap().0, Some(0));
+        assert_eq!(parse(&["--since=-5"]).unwrap().0, Some(-5));
         assert!(parse(&["--since", "soon"]).is_err());
         assert!(parse(&["--since", "1.5"]).is_err());
+        assert!(parse(&["--order", "not-a-uuid"]).is_err());
     }
 
     #[test]
-    fn it_is_a_registered_legacy_command_with_the_approved_name_and_no_json() {
-        let entry = lookup(&["getdm".to_string()]).expect("registered");
+    fn peer_chat_and_the_old_names_are_removed_with_no_alias() {
+        assert!(parse(&["--from-user"]).is_err());
+        assert!(parse(&["--fromuser"]).is_err());
+        for old in [&["getdm"][..], &["getdm", "--since", "5"]] {
+            let argv = ["mostro-cli"].into_iter().chain(old.iter().copied());
+            assert!(Cli::try_parse_from(argv).is_err(), "{old:?}");
+        }
+    }
+
+    #[test]
+    fn it_is_a_registered_read_with_the_canonical_name() {
+        let path = ["message".to_string(), "list".to_string()];
+        let entry = lookup(&path).expect("registered");
         assert_eq!(entry.canonical, "message.list");
-        assert_eq!(entry.json, JsonSupport::Unsupported);
+        assert_eq!(entry.json, JsonSupport::Read);
+        assert!(lookup(&["getdm".to_string()]).is_none());
     }
 }

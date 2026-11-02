@@ -325,6 +325,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/bond-add-invoice-v1.json"
     );
+    const MESSAGE_LIST_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/message-list-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -337,7 +341,9 @@ mod schema_fixtures {
     for NAME in list info new take-sell take-buy add-invoice; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done; \
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
-    .output_schema\" > docs/schemas/bond-add-invoice-v1.json";
+    .output_schema\" > docs/schemas/bond-add-invoice-v1.json; \
+    cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"message.list\\\") | \
+    .output_schema\" > docs/schemas/message-list-v1.json";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -413,6 +419,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn message_list_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("message.list"),
+            read_json(MESSAGE_LIST_FIXTURE),
+            "stale fixture of message.list; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn invoice_schema_fixtures_match_the_generated_schemas() {
         for (name, fixture) in [
             ("order.add-invoice", ADD_INVOICE_FIXTURE),
@@ -470,6 +485,7 @@ mod schema_fixtures {
             machine,
             [
                 "bond.add-invoice",
+                "message.list",
                 "order.add-invoice",
                 "order.info",
                 "order.list",

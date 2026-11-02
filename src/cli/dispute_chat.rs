@@ -16,10 +16,10 @@ use uuid::Uuid;
 /// thing standing between a user and their solver was knowing which pubkey to
 /// derive from.
 ///
-/// `getdm` cannot show these messages: it filters on events tagged with the
-/// user's own pubkey, while the dispute chat is tagged to the conversation
-/// key. Pointing users at `getdm` after opening a dispute, as the README did,
-/// leaves them waiting for a message they will never see.
+/// `message list` cannot show these messages: it filters on events tagged with
+/// the user's own pubkey, while the dispute chat is tagged to the conversation
+/// key. Pointing users at it after opening a dispute, as the README did, leaves
+/// them waiting for a message they will never see.
 pub async fn execute_dispute_chat(
     order_id: Uuid,
     since: &i64,
@@ -36,7 +36,8 @@ pub async fn execute_dispute_chat(
         print_info_line(
             "💡",
             "No solver known for this order yet. The pubkey arrives with the \
-             admin-took-dispute message; run `getdm` once to receive it.",
+             admin-took-dispute message: read it with `message list` and pass it to \
+             `getdmuser --pubkey <solver> --order-id <id>`.",
         );
         return Ok(());
     };

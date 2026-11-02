@@ -101,12 +101,10 @@ impl Commands {
             Commands::Order { .. } => unreachable!("public listing runs without a Context"),
             Commands::Schema => unreachable!("discovery runs without a Context"),
             Commands::Bond { .. } => unreachable!("bond commands run without a Context"),
+            Commands::Message { .. } => unreachable!("message commands run without a Context"),
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 
             // DM retrieval commands
-            Commands::GetDm { since, from_user } => {
-                execute_get_dm(since, false, from_user, ctx).await
-            }
             Commands::GetDmUser {
                 pubkey,
                 order_id,

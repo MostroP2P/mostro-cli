@@ -19,6 +19,9 @@ use crate::outcome::invoice::{
     ORDER_ERRORS as INVOICE_ORDER_ERRORS, ORDER_WARNINGS as INVOICE_ORDER_WARNINGS,
     UNCERTAIN as INVOICE_UNCERTAIN,
 };
+use crate::outcome::messages::{
+    MessageListData, ERRORS as MESSAGE_ERRORS, WARNINGS as MESSAGE_WARNINGS,
+};
 use crate::outcome::new::OrderNewData;
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules, Stages};
@@ -121,7 +124,9 @@ fn descriptor(entry: &CommandEntry, schemas: Option<CommandSchemas>) -> CommandD
 fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
-        | ORDER_ADD_INVOICE | BOND_ADD_INVOICE => Some(LISTING_CONFIGURATION.to_vec()),
+        | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | MESSAGE_LIST => {
+            Some(LISTING_CONFIGURATION.to_vec())
+        }
         SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
@@ -189,6 +194,7 @@ const NEW_ERRORS: [ErrorCode; 14] = [
 ];
 
 /// Canonical names of the two takes.
+const MESSAGE_LIST: &str = "message.list";
 const ORDER_ADD_INVOICE: &str = "order.add-invoice";
 const BOND_ADD_INVOICE: &str = "bond.add-invoice";
 const ORDER_TAKE_SELL: &str = "order.take-sell";
@@ -257,6 +263,10 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &INVOICE_UNCERTAIN,
             &[],
         )),
+        MESSAGE_LIST => output_schema::<MessageListData, Snapshot>(&OutcomeRules {
+            warnings: &MESSAGE_WARNINGS,
+            ..OutcomeRules::read(MESSAGE_LIST, &MESSAGE_ERRORS, true)
+        }),
         SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
             SCHEMA_COMMAND,
             &DISCOVERY_ERRORS,
