@@ -25,12 +25,13 @@ trade without the legacy commands. None of those documents change.
 - Q: Confirmation? -> A: The rule of `order new` for all three: JSON mode requires `--yes`, never prompts or reads stdin, and without it
   fails with `invalid_arguments` doing nothing; human mode previews and asks. `release` is irreversible and `cancel` can lock funds
   back; `fiat-sent` is cheap to undo only by dispute, so it is not exempt.
-- Q: Trade index? -> A: These commands sign with the order's stored trade key and spend no index, except `fiat-sent` and `release` on a
-  range order the user made, where the node needs the next trade key for the child order (`next_trade`). Then the index is reserved right
-  before publishing and kept once published, as in `order new`. The plan names the exact condition from the legacy code
-  (`is_mine` and room left in the range).
-- Q: The child order of a range release? -> A: Not awaited. The legacy command waited for the `new-order` message of the child order. Now
-  the outcome reports the trade index reserved for it and the user reads the message with `message list`.
+- Q: Trade index and range orders? -> A: Decided 2026-11-02: these commands sign with the order's stored trade key and spend no index, and they
+  do **not** send a next trade key. On a range order of the user's with room left, `fiat-sent` and `release` therefore leave the range
+  **not continued** by the node (no child order is created). The outcome says so with the warning `range_not_continued` (new), in JSON and in the
+  human text, and the user can post a new order for the rest. Doing this correctly (reserving the index, sending the next trade key, and
+  giving the child order a usable local row) is **required follow-up work, spec 008 "range children"**, not an option; this spec stays free
+  of it so the three commands can be finished and verified first. The room test is the shared `range_has_room` rule (already in the store).
+  The old command waited for the child's `new-order` message; neither this spec nor 008 needs the command to wait, `message list` shows it.
 - Q: Local effects? -> A: After an accepted reply the local row status follows the node (`fiat-sent`; `settled-hold-invoice`; `canceled`,
   `cooperatively-canceled`; a cooperative cancel started by either side leaves the status as it is). A failed update is `ok` with the
   warning `local_status_stale`, as in `order add-invoice`: the node already acted and a retry is refused.
@@ -41,7 +42,7 @@ trade without the legacy commands. None of those documents change.
 ## Scope
 
 Each command publishes one signed request with the stored trade key of the order, waits for the correlated reply and reports what the node
-did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin commands, waiting for a child order, MCP.
+did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin commands, continuing a range order (spec 008, required), MCP.
 
 ## Requirements
 
@@ -51,7 +52,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
 - **FR-002**: Identity from the existing store, read-only; none means `identity_missing`. The trade key comes from the stored row; an unknown
   order or a row without a key is `order_unknown` and nothing is published.
 - **FR-003**: Confirmation as clarified above; the preview shows the command, the order id and the trade public key.
-- **FR-004**: Exactly one signed request is published, no retry. The trade index changes only in the range case above.
+- **FR-004**: Exactly one signed request is published, no retry. The trade index is never changed.
 - **FR-005**: The reply is selected by node author, addressee (the trade key), allowed actions and the order id, with the request id matched
   when echoed (the node echoes it to the sender in all three source paths), armed before publishing, bounded by a deadline, released on every
   exit, through `msg::exchange`. Allowed: `fiat-sent` -> `fiat-sent-ok`, `cant-do`; `release` -> `hold-invoice-payment-settled`, `released`
@@ -60,7 +61,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
   `not_allowed_by_status`, `order_already_canceled`, `is_not_your_order`) or nothing was published; `uncertain` when published and the result
   is unknown (no reply, malformed reply, relay read failure).
 - **FR-007**: Data per command (see the plan): the order id, a `result` word (`fiat_sent`; `released`; `canceled`, `cancel_requested`,
-  `cancel_accepted`), the trade public key, and for the range case the reserved trade index. A `next_step` names only commands that exist (for
+  `cancel_accepted`), the trade public key, and, when the range was not continued, the warning `range_not_continued`. A `next_step` names only commands that exist (for
   cancel_requested: wait for the peer, who answers with `order cancel`; for fiat-sent: wait for the seller to release).
 - **FR-008**: One versioned JSON outcome per command (`order.fiat-sent`, `order.release`, `order.cancel`, names already in the registry),
   command-scoped schemas, fixtures, regenerated discovery, drift and boundary checks. No private key, mnemonic or database record is
@@ -76,7 +77,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
 - **SC-001**: Against the scripted daemon, each accepted reply (including both cooperative-cancel steps) yields one valid document and one
   published request, with the local status updated; every refusal, silence and argument failure yields one document with its code and exit.
 - **SC-002**: Without `--yes`, JSON mode does nothing and never reads stdin.
-- **SC-003**: Every failure leaves the database byte-identical; the trade index changes only for a published range request.
+- **SC-003**: Every failure leaves the database byte-identical; the trade index never changes.
 - **SC-004**: A reply for another order or another addressee is ignored; the reply is matched by order id when the request id is absent.
 - **SC-005**: Human and JSON agree on every field; no secret sentinel appears in a diagnostic stream; Linux and the CI Windows runner pass.
 - **SC-006**: Nothing about a real daemon is claimed until a separately authorized regtest probe is recorded. The probe can walk a whole trade
