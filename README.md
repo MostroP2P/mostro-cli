@@ -287,7 +287,7 @@ This is the seller flow when you create the order (maker, sell).
 6. **Release the hold invoice** so the buyer gets the sats:
 
    ```bash
-   mostro-cli release -o <order-id>
+   mostro-cli order release --order <order-id>
    ```
 
 7. **Rate your counterpart:**
@@ -296,7 +296,7 @@ This is the seller flow when you create the order (maker, sell).
    mostro-cli rate -o <order-id> -r 5
    ```
 
-If something goes wrong before release, you can `cancel` (only valid in pending state) or `dispute`. See [Disputes](#disputes-as-a-user).
+If something goes wrong before release, you can `order cancel --order <order-id>` (a pending order is canceled at once; an active trade needs both parties to agree) or `dispute`. See [Disputes](#disputes-as-a-user).
 
 ---
 
@@ -330,7 +330,7 @@ Buyer-as-taker flow against an existing sell order:
 5. **Tell Mostro fiat is sent:**
 
    ```bash
-   mostro-cli fiatsent -o <order-id>
+   mostro-cli order fiat-sent --order <order-id>
    ```
 
 6. **Wait for the seller to release.** Check `message list`. When they release, Mostro pays your invoice.
@@ -516,7 +516,7 @@ Store the 12 words offline (paper, metal, encrypted vault). Do **not** commit th
 
 ### Moving to a new machine: copy the database
 
-**If you have trades in flight, copy `~/.mcli/mcli.db` to the new machine.** This is the only path that lets you *continue* those trades, because commands like `release`, `cancel`, `addinvoice` and `senddm` look the order up in the local `orders` table and fail without it. The file contains no funds — only your mnemonic and cached order metadata — but it does contain the mnemonic, so move it over a secure channel and keep the `0600` permissions.
+**If you have trades in flight, copy `~/.mcli/mcli.db` to the new machine.** This is the only path that lets you *continue* those trades, because commands like `order release`, `order cancel`, `order add-invoice` and `senddm` look the order up in the local `orders` table and fail without it. The file contains no funds — only your mnemonic and cached order metadata — but it does contain the mnemonic, so move it over a secure channel and keep the `0600` permissions.
 
 ### Restoring from the mnemonic alone
 
@@ -575,7 +575,7 @@ Use this when the database is gone. It recovers your **identity**, not your loca
    sqlite3 ~/.mcli/mcli.db "UPDATE users SET i0_pubkey = '<pubkey printed by restore>';"
    ```
 
-> **Limitation: `restore` does not rebuild your local order cache.** It reports what Mostro knows, but it does not insert those orders into the local `orders` table. Commands that operate on a specific order — `release`, `cancel`, `fiatsent`, `addinvoice`, `rate`, `senddm` — read that table first and will fail on an order that is not in it. So a mnemonic-only restore gets your identity and your ratings back and lets you trade again from scratch, but it cannot resume a trade that was already in flight. For that, copy the database (see above).
+> **Limitation: `restore` does not rebuild your local order cache.** It reports what Mostro knows, but it does not insert those orders into the local `orders` table. Commands that operate on a specific order — `order release`, `order cancel`, `order fiat-sent`, `order add-invoice`, `rate`, `senddm` — read that table first and will fail on an order that is not in it. So a mnemonic-only restore gets your identity and your ratings back and lets you trade again from scratch, but it cannot resume a trade that was already in flight. For that, copy the database (see above).
 
 > A friendlier `import-mnemonic` subcommand may land in the future. Until then, the flow above is the supported path.
 
@@ -597,9 +597,9 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order add-invoice --order <id> --invoice <invoice> [--yes]` — buyer sends the invoice the node asked for after a take (supports `--output json`, which requires `--yes`). Replaces `addinvoice`; uses the order's stored key, spends no trade index.
 
 ### Trade lifecycle
-- `fiatsent -o <id>` — buyer confirms fiat sent.
-- `release -o <id>` — seller releases the hold invoice.
-- `cancel -o <id>` — cancel a pending order or cooperatively cancel later.
+- `order fiat-sent --order <id> [--yes]` — buyer confirms fiat sent (supports `--output json`, which requires `--yes`). Replaces `fiatsent`; uses the order's stored key, spends no trade index.
+- `order release --order <id> [--yes]` — seller releases the hold invoice; irreversible (supports `--output json`, which requires `--yes`). Replaces `release`. On a range order of yours with room left the node does not continue the range (the result warns `range_not_continued`); post a new order for the rest.
+- `order cancel --order <id> [--yes]` — cancel a pending order, or start or confirm a cooperative cancel of an active trade; the node decides which and the result says so (supports `--output json`, which requires `--yes`). Replaces `cancel`.
 - `rate -o <id> -r <1-5>` — rate counterpart.
 - `dispute -o <id>` — open a dispute.
 - `bond add-invoice --order <id> --invoice <bolt11> [--yes]` — reply to a bond payout request with an invoice for your share of a slashed bond (supports `--output json`, which requires `--yes`; BOLT-11 only). Replaces `addbondinvoice`; without a confirmation from the node the result is `uncertain`, not success.
@@ -643,7 +643,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -657,7 +657,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Nine commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` (the last five need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Twelve commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel` and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr
@@ -742,7 +742,7 @@ Run with `-v` (before the subcommand) for relay-level logs.
 
 **Lost the database / changed machine** — See [Backup, recovery and multi-device](#backup-recovery-and-multi-device). Without the mnemonic you cannot recover anything; with the mnemonic you recover your identity but not in-flight trades (see below).
 
-**I restored my mnemonic but `release` / `addinvoice` / `senddm` says the order doesn't exist** — Expected. `mostro-cli restore` reports the orders Mostro holds for you, but it does not write them into the local `orders` table, and those commands look the order up there first. A mnemonic-only restore cannot resume a trade that was already in flight — copying `~/.mcli/mcli.db` is the only way to do that. See [Moving to a new machine: copy the database](#moving-to-a-new-machine-copy-the-database).
+**I restored my mnemonic but `order release` / `order add-invoice` / `senddm` says the order doesn't exist** — Expected. `mostro-cli restore` reports the orders Mostro holds for you, but it does not write them into the local `orders` table, and those commands look the order up there first. A mnemonic-only restore cannot resume a trade that was already in flight — copying `~/.mcli/mcli.db` is the only way to do that. See [Moving to a new machine: copy the database](#moving-to-a-new-machine-copy-the-database).
 
 **Multiple orders in flight** — Each gets its own derived trade key. The DB tracks them; just keep using order IDs.
 

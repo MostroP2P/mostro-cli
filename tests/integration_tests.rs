@@ -329,6 +329,18 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/bond-add-invoice-v1.json"
     );
+    const FIAT_SENT_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-fiat-sent-v1.json"
+    );
+    const RELEASE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-release-v1.json"
+    );
+    const CANCEL_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-cancel-v1.json"
+    );
     const MESSAGE_LIST_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/message-list-v1.json"
@@ -342,7 +354,7 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new take-sell take-buy add-invoice; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in list info new take-sell take-buy add-invoice fiat-sent release cancel; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done; \
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
     .output_schema\" > docs/schemas/bond-add-invoice-v1.json; \
@@ -446,6 +458,21 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn trade_step_schema_fixtures_match_the_generated_schemas() {
+        for (name, fixture) in [
+            ("order.fiat-sent", FIAT_SENT_FIXTURE),
+            ("order.release", RELEASE_FIXTURE),
+            ("order.cancel", CANCEL_FIXTURE),
+        ] {
+            assert_eq!(
+                generated_output_schema(name),
+                read_json(fixture),
+                "stale fixture of {name}; {REGENERATE}"
+            );
+        }
+    }
+
+    #[test]
     fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
         let fixture = read_json(DISCOVERY_FIXTURE);
         let keys: Vec<&str> = fixture
@@ -491,9 +518,12 @@ mod schema_fixtures {
                 "bond.add-invoice",
                 "message.list",
                 "order.add-invoice",
+                "order.cancel",
+                "order.fiat-sent",
                 "order.info",
                 "order.list",
                 "order.new",
+                "order.release",
                 "order.take-buy",
                 "order.take-sell",
                 "schema"
@@ -2466,7 +2496,6 @@ mod source_boundaries {
             ".fetch_events(",
             &[
                 ("cli/get_dm_user.rs", 1),
-                ("cli/send_msg.rs", 1),
                 ("msg/node_info.rs", 1),
                 ("util/events.rs", 8),
             ],

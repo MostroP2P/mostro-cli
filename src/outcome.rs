@@ -210,6 +210,10 @@ impl<D, S> Envelope<D, S> {
     }
 
     /// The node's refusal reason, only on `node_refused`.
+    pub fn warnings(&self) -> &Warnings {
+        &self.warnings
+    }
+
     pub fn reason(&self) -> Option<&str> {
         self.error.as_ref().and_then(ErrorInfo::reason)
     }

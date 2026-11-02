@@ -2332,26 +2332,1258 @@
     {
       "name": "order.cancel",
       "cli_path": [
+        "order",
         "cancel"
       ],
       "output_modes": [
-        "human"
+        "human",
+        "json"
       ],
-      "input_schema": null,
-      "output_schema": null,
-      "required_configuration": null
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Id of the order",
+            "type": "string"
+          },
+          "yes": {
+            "description": "Send the request without asking (required with --output json)",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "identity_unreadable",
+              "protocol_unsupported",
+              "pow_required",
+              "request_rejected",
+              "node_refused",
+              "order_declined",
+              "store_unwritable",
+              "order_unknown",
+              "reply_timeout",
+              "reply_malformed"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "StepData": {
+            "description": "A step the node answered, as the data of the reply.",
+            "properties": {
+              "next_step": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepNext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_trade_index": {
+                "description": "The trade index reserved for the next order of a range; null when the\nrequest carried none.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "order_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "result": {
+                "$ref": "#/$defs/StepResult"
+              },
+              "trade_pubkey": {
+                "description": "The public key of the order's trade key.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "order_id",
+              "result",
+              "next_step",
+              "trade_pubkey",
+              "next_trade_index"
+            ],
+            "type": "object"
+          },
+          "StepNext": {
+            "description": "What the user can usefully do next, only where a command or a wait is\nmeaningful.",
+            "oneOf": [
+              {
+                "const": "wait_for_release",
+                "description": "Wait for the seller to release the sats.",
+                "type": "string"
+              },
+              {
+                "const": "wait_for_peer_cancel",
+                "description": "Wait for the other party to confirm with `order cancel`.",
+                "type": "string"
+              }
+            ]
+          },
+          "StepResult": {
+            "description": "What the node did with the step.",
+            "oneOf": [
+              {
+                "const": "fiat_sent",
+                "description": "The order is now `fiat-sent`.",
+                "type": "string"
+              },
+              {
+                "const": "released",
+                "description": "The hold invoice was settled; the buyer is paid.",
+                "type": "string"
+              },
+              {
+                "const": "canceled",
+                "description": "The order is canceled.",
+                "type": "string"
+              },
+              {
+                "const": "cancel_requested",
+                "description": "A cooperative cancel was started; the other party has to confirm.",
+                "type": "string"
+              },
+              {
+                "const": "cancel_accepted",
+                "description": "The cooperative cancel was confirmed: the order is canceled by both.",
+                "type": "string"
+              }
+            ]
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "local_status_stale",
+              "range_not_continued"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.cancel"
+              },
+              "data": {
+                "$ref": "#/$defs/StepData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.cancel"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "internal_error",
+                      "identity_missing",
+                      "identity_unreadable",
+                      "protocol_unsupported",
+                      "pow_required",
+                      "request_rejected",
+                      "node_refused",
+                      "order_declined",
+                      "store_unwritable",
+                      "order_unknown"
+                    ]
+                  },
+                  "reason": {
+                    "description": "The node's refusal reason; present only on node_refused.",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "type": "string"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_attempted"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.cancel"
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepData"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "reply_timeout",
+                      "reply_malformed",
+                      "request_rejected",
+                      "relay_read_failed",
+                      "pow_required"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "uncertain"
+              }
+            },
+            "title": "uncertain outcome of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "uncertain"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.cancel outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
     },
     {
       "name": "order.fiat-sent",
       "cli_path": [
-        "fiatsent"
+        "order",
+        "fiat-sent"
       ],
       "output_modes": [
-        "human"
+        "human",
+        "json"
       ],
-      "input_schema": null,
-      "output_schema": null,
-      "required_configuration": null
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Id of the order",
+            "type": "string"
+          },
+          "yes": {
+            "description": "Send the request without asking (required with --output json)",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "identity_unreadable",
+              "protocol_unsupported",
+              "pow_required",
+              "request_rejected",
+              "node_refused",
+              "order_declined",
+              "store_unwritable",
+              "order_unknown",
+              "reply_timeout",
+              "reply_malformed"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "StepData": {
+            "description": "A step the node answered, as the data of the reply.",
+            "properties": {
+              "next_step": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepNext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_trade_index": {
+                "description": "The trade index reserved for the next order of a range; null when the\nrequest carried none.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "order_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "result": {
+                "$ref": "#/$defs/StepResult"
+              },
+              "trade_pubkey": {
+                "description": "The public key of the order's trade key.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "order_id",
+              "result",
+              "next_step",
+              "trade_pubkey",
+              "next_trade_index"
+            ],
+            "type": "object"
+          },
+          "StepNext": {
+            "description": "What the user can usefully do next, only where a command or a wait is\nmeaningful.",
+            "oneOf": [
+              {
+                "const": "wait_for_release",
+                "description": "Wait for the seller to release the sats.",
+                "type": "string"
+              },
+              {
+                "const": "wait_for_peer_cancel",
+                "description": "Wait for the other party to confirm with `order cancel`.",
+                "type": "string"
+              }
+            ]
+          },
+          "StepResult": {
+            "description": "What the node did with the step.",
+            "oneOf": [
+              {
+                "const": "fiat_sent",
+                "description": "The order is now `fiat-sent`.",
+                "type": "string"
+              },
+              {
+                "const": "released",
+                "description": "The hold invoice was settled; the buyer is paid.",
+                "type": "string"
+              },
+              {
+                "const": "canceled",
+                "description": "The order is canceled.",
+                "type": "string"
+              },
+              {
+                "const": "cancel_requested",
+                "description": "A cooperative cancel was started; the other party has to confirm.",
+                "type": "string"
+              },
+              {
+                "const": "cancel_accepted",
+                "description": "The cooperative cancel was confirmed: the order is canceled by both.",
+                "type": "string"
+              }
+            ]
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "local_status_stale",
+              "range_not_continued"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.fiat-sent"
+              },
+              "data": {
+                "$ref": "#/$defs/StepData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.fiat-sent"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "internal_error",
+                      "identity_missing",
+                      "identity_unreadable",
+                      "protocol_unsupported",
+                      "pow_required",
+                      "request_rejected",
+                      "node_refused",
+                      "order_declined",
+                      "store_unwritable",
+                      "order_unknown"
+                    ]
+                  },
+                  "reason": {
+                    "description": "The node's refusal reason; present only on node_refused.",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "type": "string"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_attempted"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.fiat-sent"
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepData"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "reply_timeout",
+                      "reply_malformed",
+                      "request_rejected",
+                      "relay_read_failed",
+                      "pow_required"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "uncertain"
+              }
+            },
+            "title": "uncertain outcome of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "uncertain"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.fiat-sent outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
     },
     {
       "name": "order.info",
@@ -4247,14 +5479,630 @@
     {
       "name": "order.release",
       "cli_path": [
+        "order",
         "release"
       ],
       "output_modes": [
-        "human"
+        "human",
+        "json"
       ],
-      "input_schema": null,
-      "output_schema": null,
-      "required_configuration": null
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Id of the order",
+            "type": "string"
+          },
+          "yes": {
+            "description": "Send the request without asking (required with --output json)",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "identity_unreadable",
+              "protocol_unsupported",
+              "pow_required",
+              "request_rejected",
+              "node_refused",
+              "order_declined",
+              "store_unwritable",
+              "order_unknown",
+              "reply_timeout",
+              "reply_malformed"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "StepData": {
+            "description": "A step the node answered, as the data of the reply.",
+            "properties": {
+              "next_step": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepNext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_trade_index": {
+                "description": "The trade index reserved for the next order of a range; null when the\nrequest carried none.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "order_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "result": {
+                "$ref": "#/$defs/StepResult"
+              },
+              "trade_pubkey": {
+                "description": "The public key of the order's trade key.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "order_id",
+              "result",
+              "next_step",
+              "trade_pubkey",
+              "next_trade_index"
+            ],
+            "type": "object"
+          },
+          "StepNext": {
+            "description": "What the user can usefully do next, only where a command or a wait is\nmeaningful.",
+            "oneOf": [
+              {
+                "const": "wait_for_release",
+                "description": "Wait for the seller to release the sats.",
+                "type": "string"
+              },
+              {
+                "const": "wait_for_peer_cancel",
+                "description": "Wait for the other party to confirm with `order cancel`.",
+                "type": "string"
+              }
+            ]
+          },
+          "StepResult": {
+            "description": "What the node did with the step.",
+            "oneOf": [
+              {
+                "const": "fiat_sent",
+                "description": "The order is now `fiat-sent`.",
+                "type": "string"
+              },
+              {
+                "const": "released",
+                "description": "The hold invoice was settled; the buyer is paid.",
+                "type": "string"
+              },
+              {
+                "const": "canceled",
+                "description": "The order is canceled.",
+                "type": "string"
+              },
+              {
+                "const": "cancel_requested",
+                "description": "A cooperative cancel was started; the other party has to confirm.",
+                "type": "string"
+              },
+              {
+                "const": "cancel_accepted",
+                "description": "The cooperative cancel was confirmed: the order is canceled by both.",
+                "type": "string"
+              }
+            ]
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "local_status_stale",
+              "range_not_continued"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.release"
+              },
+              "data": {
+                "$ref": "#/$defs/StepData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "accepted"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.release"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "internal_error",
+                      "identity_missing",
+                      "identity_unreadable",
+                      "protocol_unsupported",
+                      "pow_required",
+                      "request_rejected",
+                      "node_refused",
+                      "order_declined",
+                      "store_unwritable",
+                      "order_unknown"
+                    ]
+                  },
+                  "reason": {
+                    "description": "The node's refusal reason; present only on node_refused.",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "type": "string"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_attempted"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.release"
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepData"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "reply_timeout",
+                      "reply_malformed",
+                      "request_rejected",
+                      "relay_read_failed",
+                      "pow_required"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "uncertain"
+              }
+            },
+            "title": "uncertain outcome of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "uncertain"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.release outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
     },
     {
       "name": "order.take-buy",

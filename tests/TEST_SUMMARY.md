@@ -4213,3 +4213,15 @@ Native Linux, rustc 1.97.0, on `develop` after `320e85e` (pushed). Lean mode: th
 - **Flake seen once, unrelated**: `read_failures_are_stable_in_every_mode_without_retries` (`tests/order_list_process.rs`) failed in one full run expecting `relay_connection_failed` and getting `relay_read_failed` (a race between a relay that answers then refuses), passed three times alone and in the rerun of the whole suite. Not touched by this slice; noted for a later look.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 794 passed and 0 failed on the clean rerun (the first full run had the flake above), build, MSRV 1.94.0.
 
+## Trade Steps (spec 007) Slice 4a: The Commands Replace The Legacy Ones: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `75e99a7` (pushed). Lean mode: the only evidence entry for the slice. Binary scenarios are slice 4b.
+
+- **Grammar**: `order fiat-sent`, `order release`, `order cancel`, each with `--order UUID` (a UUID in any case) and `--yes`. `fiatsent`, `release`, `cancel`, `-o`, `--orderid` and `--order-id` are gone with no alias (`trade_step_grammar` replaces the slice 1 characterization, 4 tests). Three registry entries (`JsonSupport::Write`) replace the legacy ones; the registry, machine-command, discovery and old-command tests list them.
+- **Dispatch** (`cli/step.rs`, `cli/migrated.rs`): the confirmation rule of the other write commands (JSON needs `--yes`, never prompts; human mode previews and asks, the release preview says it cannot be undone), configuration, identity and a writable store, the order's key for the preview, then `order_step`. In human mode two warnings become fixed stderr lines (`range_not_continued`, `local_status_stale`) because the human result renders data only; the stale-status warning keeps its frozen invoice-worded message in JSON (spec 005 pins it).
+- **Human output** (`parse_human/step.rs`, 3 unit tests): a title per result, the order id and trade key, the next step (`wait for the seller`, the command the other party runs to confirm a cooperative cancel).
+- **Schemas**: command-scoped for each name (`StepData` with `OutcomeRules::step`), fixtures `order-fiat-sent-v1.json`, `order-release-v1.json`, `order-cancel-v1.json`, regenerated discovery (the other fixtures are unchanged), a drift test for the three and the machine-command list.
+- **Legacy removed**: the three `Commands` variants and their `legacy.rs` arm; `cli/send_msg.rs` shrank from 215 to 92 lines and now serves only `dispute` and the admin commands (the next-trade payload, the child-order wait and its `fetch_events` are gone; the frozen transport-call list lost `cli/send_msg.rs`). The schema unit tests and the legacy-JSON tests use `rate` as their example of an unmigrated command.
+- **Docs**: README (flow steps, command list, JSON list, the range note, restore notes), command reference, architecture.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 795 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+

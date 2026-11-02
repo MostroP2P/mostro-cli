@@ -927,7 +927,7 @@ mod output_intent {
             &["getlasttradeindex"],
             &["restore"],
             &["admmaintenancestatus"],
-            &["fiatsent", "--orderid", ORDER],
+            &["rate", "--orderid", ORDER, "--rating", "5"],
         ];
         for suffix in valid {
             let argv = [&["--output", "json"][..], suffix].concat();
@@ -937,13 +937,10 @@ mod output_intent {
             assert_eq!(entry.json, mostro_client::cli::JsonSupport::Unsupported);
         }
         check(&[
+            (&["--output", "json", "rate"], Expect::Json(Some(&["rate"]))),
             (
-                &["--output", "json", "fiatsent"],
-                Expect::Json(Some(&["fiatsent"])),
-            ),
-            (
-                &["--output", "json", "fiatsent", "--orderid", "not-a-uuid"],
-                Expect::Json(Some(&["fiatsent"])),
+                &["--output", "json", "rate", "--orderid", "not-a-uuid"],
+                Expect::Json(Some(&["rate"])),
             ),
             (
                 &["--output", "json", "getlasttradeindex", "--bogus"],
@@ -954,7 +951,7 @@ mod output_intent {
                 &["--output", "json", "nosuch", "--bogus"],
                 Expect::Json(None),
             ),
-            (&["fiatsent"], Expect::Human),
+            (&["rate"], Expect::Human),
         ]);
     }
 
@@ -1087,9 +1084,6 @@ mod registry {
         (&["getadmindm"], "admin.message-list"),
         (&["senddm"], "message.send"),
         (&["dmtouser"], "chat.send"),
-        (&["fiatsent"], "order.fiat-sent"),
-        (&["release"], "order.release"),
-        (&["cancel"], "order.cancel"),
         (&["rate"], "order.rate"),
         (&["restore"], "account.restore"),
         (&["dispute"], "dispute.open"),
@@ -1112,6 +1106,9 @@ mod registry {
         (&["order", "take-sell"], "order.take-sell"),
         (&["order", "take-buy"], "order.take-buy"),
         (&["order", "add-invoice"], "order.add-invoice"),
+        (&["order", "fiat-sent"], "order.fiat-sent"),
+        (&["order", "release"], "order.release"),
+        (&["order", "cancel"], "order.cancel"),
         (&["bond", "add-invoice"], "bond.add-invoice"),
     ];
 
@@ -1187,7 +1184,7 @@ mod registry {
                     );
                 }
                 "order.new" | "order.take-sell" | "order.take-buy" | "order.add-invoice"
-                | "bond.add-invoice" => {
+                | "order.fiat-sent" | "order.release" | "order.cancel" | "bond.add-invoice" => {
                     assert_eq!(entry.json, JsonSupport::Write);
                     assert_eq!(
                         entry.stages::<()>(),
@@ -1255,6 +1252,9 @@ mod registry {
                 "order.take-sell",
                 "order.take-buy",
                 "order.add-invoice",
+                "order.fiat-sent",
+                "order.release",
+                "order.cancel",
                 "bond.add-invoice"
             ]
         );
@@ -1782,71 +1782,76 @@ mod message_list_grammar {
     }
 }
 
-/// What `fiatsent`, `release` and `cancel` accept today (spec 007, slice 1),
-/// pinned before they are replaced by `order fiat-sent`, `order release` and
-/// `order cancel`.
-mod trade_step_characterization {
+/// The grammar of `order fiat-sent`, `order release` and `order cancel` (spec
+/// 007, slice 4).
+mod trade_step_grammar {
     use clap::Parser;
-    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
-    use uuid::Uuid;
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport, OrderCommands, StepArgs};
 
     const ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
     const STEPS: [(&str, &str); 3] = [
-        ("fiatsent", "order.fiat-sent"),
+        ("fiat-sent", "order.fiat-sent"),
         ("release", "order.release"),
         ("cancel", "order.cancel"),
     ];
 
-    fn parse(command: &str, args: &[&str]) -> Result<Commands, clap::Error> {
-        let argv = ["mostro-cli", command]
+    fn parse(step: &str, args: &[&str]) -> Result<StepArgs, clap::Error> {
+        let argv = ["mostro-cli", "order", step]
             .into_iter()
             .chain(args.iter().copied());
-        Ok(Cli::try_parse_from(argv)?.command.expect("a command"))
-    }
-
-    fn order_id(command: Commands) -> Uuid {
-        match command {
-            Commands::FiatSent { order_id }
-            | Commands::Release { order_id }
-            | Commands::Cancel { order_id } => order_id,
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Order {
+                command:
+                    OrderCommands::FiatSent(args)
+                    | OrderCommands::Release(args)
+                    | OrderCommands::Cancel(args),
+            }) => Ok(args),
             _ => panic!("not a trade step"),
         }
     }
 
     #[test]
-    fn each_takes_one_required_order_id_and_the_long_flag_is_squashed() {
-        for (command, _) in STEPS {
-            let short = order_id(parse(command, &["-o", ID]).unwrap());
-            let long = order_id(parse(command, &["--orderid", ID]).unwrap());
-            assert_eq!(short, long, "{command}");
-            assert_eq!(short.to_string(), ID, "{command}");
-            assert!(
-                parse(command, &["--order-id", ID]).is_err(),
-                "{command}: the hyphenated spelling is unknown"
-            );
-            assert!(parse(command, &[]).is_err(), "{command}");
+    fn each_takes_an_order_and_an_optional_yes() {
+        for (step, _) in STEPS {
+            let args = parse(step, &["--order", ID]).unwrap();
+            assert_eq!((args.order.to_string(), args.yes), (ID.to_string(), false));
+            let args = parse(step, &["--order", &ID.to_uppercase(), "--yes"]).unwrap();
+            assert_eq!(args.order.to_string(), ID, "{step}: a UUID in any case");
+            assert!(args.yes);
         }
     }
 
     #[test]
-    fn the_order_id_is_a_uuid_in_any_case_and_nothing_else_is_accepted() {
-        for (command, _) in STEPS {
-            let upper = order_id(parse(command, &["-o", &ID.to_uppercase()]).unwrap());
-            assert_eq!(upper.to_string(), ID, "{command}");
-            assert!(parse(command, &["-o", "not-a-uuid"]).is_err(), "{command}");
-            assert!(
-                parse(command, &["-o", ID, "--yes"]).is_err(),
-                "{command}: there is no confirmation flag yet"
-            );
+    fn the_order_is_required_and_the_old_spellings_are_gone() {
+        for (step, _) in STEPS {
+            assert!(parse(step, &[]).is_err(), "{step}");
+            assert!(parse(step, &["--yes"]).is_err(), "{step}");
+            assert!(parse(step, &["--order", "not-a-uuid"]).is_err(), "{step}");
+            for old in [
+                &["-o", ID][..],
+                &["--orderid", ID],
+                &["--order-id", ID],
+                &["--order", ID, "--invoice", "x"],
+            ] {
+                assert!(parse(step, old).is_err(), "{step} {old:?}");
+            }
         }
     }
 
     #[test]
-    fn all_three_are_registered_legacy_commands_without_json() {
-        for (name, canonical) in STEPS {
-            let entry = lookup(&[name.to_string()]).expect(name);
+    fn the_legacy_commands_are_gone_with_no_alias() {
+        for name in ["fiatsent", "release", "cancel"] {
+            assert!(Cli::try_parse_from(["mostro-cli", name, "-o", ID]).is_err());
+            assert!(lookup(&[name.to_string()]).is_none(), "{name}");
+        }
+    }
+
+    #[test]
+    fn all_three_are_registered_write_commands_with_the_approved_names() {
+        for (step, canonical) in STEPS {
+            let entry = lookup(&["order".to_string(), step.to_string()]).expect(canonical);
             assert_eq!(entry.canonical, canonical);
-            assert_eq!(entry.json, JsonSupport::Unsupported, "{name}");
+            assert_eq!(entry.json, JsonSupport::Write, "{canonical}");
         }
     }
 }

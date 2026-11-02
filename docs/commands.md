@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `bond add-invoice` and `message list` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -44,7 +44,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `bond add-invoice` and `message list`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -118,23 +118,21 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Migration**: `addbondinvoice` and its short flags are gone with no alias; use `bond add-invoice --order ID --invoice BOLT11`. The old "timeout means success" reading is gone. An MCP tool for the old command, if any, breaks the same way.
   - **Handler**: `commands::order::invoice::bond_add_invoice`; dispatch in `cli/invoice.rs`.
 
-- **`fiatsent`**
-  - **Description**: Send a "fiat sent" message to confirm payment to the counterparty.
-  - **Args**:
-    - `--order-id <UUID>`: Order identifier.
-  - **Handler**: `util::run_simple_order_msg(Commands::FiatSent { .. }, Some(order_id), ctx)`.
+- **`order fiat-sent`** (replaces `fiatsent`)
+  - **Description**: Tell the node that you, the buyer, sent the fiat. Publishes one signed request with the stored trade key of the order and updates the local status to `fiat-sent`. It needs an existing local identity (`mcli.db`) and never creates one. In JSON mode it requires `--yes`.
+  - **Args**: `--order <UUID>`, required; `--yes`.
+  - **Output**: `data.result` is `fiat_sent` and `data.next_step` is `wait_for_release`. A refusal (for example `invalid_pubkey` for the seller, `not_allowed_by_status`) is `node_refused` with the reason; silence or an unusable reply is `uncertain` and is not retried. A failed local status update is a success with the warning `local_status_stale`. On a range order of yours with room left the warning `range_not_continued` says the node will not create an order for the rest of the range (spec 008 will continue it).
+  - **Migration**: `fiatsent`, `-o` and `--order-id` are gone with no alias. The existing MCP server's `fiat_sent` tool runs the old command and will not work against this build until the MCP is migrated.
+  - **Handler**: `commands::order::step::order_step` through `msg::exchange` and `store`; dispatch and the prompt in `cli/step.rs`.
 
-- **`release`**
-  - **Description**: Settle the hold invoice and pay to the buyer.
-  - **Args**:
-    - `--order-id <UUID>`: Order identifier.
-  - **Handler**: `util::run_simple_order_msg(Commands::Release { .. }, Some(order_id), ctx)`.
+- **`order release`** (replaces `release`)
+  - **Description**: Settle the hold invoice so the node pays the buyer. Irreversible; the preview says so. Same rules, arguments and failure behaviour as `order fiat-sent`; the local status becomes `settled-hold-invoice`.
+  - **Output**: `data.result` is `released`. The `rate` message the node sends afterwards is visible with `message list`.
+  - **Migration**: `release`, `-o` and `--order-id` are gone with no alias; the MCP `release` tool breaks the same way.
 
-- **`cancel`**
-  - **Description**: Cancel a pending order.
-  - **Args**:
-    - `--order-id <UUID>`: Order identifier.
-  - **Handler**: `util::run_simple_order_msg(Commands::Cancel { .. }, Some(order_id), ctx)`.
+- **`order cancel`** (replaces `cancel`)
+  - **Description**: Cancel an order. The node decides what the request means from the order status, and `data.result` tells which: `canceled` (a pending or waiting order, canceled at once), `cancel_requested` (a cooperative cancel was started on an active trade; `next_step` is `wait_for_peer_cancel` and the other party confirms with `order cancel`) or `cancel_accepted` (you confirmed the other party's request). Same rules, arguments and failure behaviour as `order fiat-sent`; the local status is `canceled` or `cooperatively-canceled`, and unchanged for a request.
+  - **Migration**: `cancel`, `-o` and `--order-id` are gone with no alias; the MCP `cancel` tool breaks the same way.
 
 - **`order info`** (replaces `ordersinfo`)
   - **Description**: Asks the node for its record of your own orders. It publishes one signed request using your identity key, waits for the reply to that request, and writes nothing locally. It needs an existing local identity (`mcli.db`) and never creates one. Orders that are not yours or unknown to the node are not returned; they are listed as not returned.
