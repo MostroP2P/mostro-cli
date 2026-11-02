@@ -312,11 +312,12 @@ mod tests {
         // And for `message.list`.
         ErrorCode::StoreUnreadable,
     ];
-    const NEW_WARNING_CODES: [WarningCode; 4] = [
+    const NEW_WARNING_CODES: [WarningCode; 5] = [
         WarningCode::OrdersNotReturned,
         WarningCode::InvalidOrderTimestamp,
         WarningCode::LocalStatusStale,
         WarningCode::TradeKeysLimited,
+        WarningCode::RangeNotContinued,
     ];
 
     type Json = Envelope<Value, Value>;
@@ -385,6 +386,7 @@ mod tests {
             WarningCode::InvalidOrderTimestamp => "invalid_order_timestamp",
             WarningCode::LocalStatusStale => "local_status_stale",
             WarningCode::TradeKeysLimited => "trade_keys_limited",
+            WarningCode::RangeNotContinued => "range_not_continued",
         }
     }
 

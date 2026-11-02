@@ -13,7 +13,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   condition and index update). Extend the scripted daemon with the replies and refusals of the source, including both cooperative-cancel steps.
   No production change.
 - [x] **2. Outcomes.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) `outcome/step.rs`, schemas for the three names, `Store` helpers if missing.
-- [ ] **3. The operation.** Every accepted reply, refusals, silence, unusable reply, decoy replies, forced status-update failure, the
+- [x] **3. The operation.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Every accepted reply, refusals, silence, unusable reply, decoy replies, forced status-update failure, the
   `range_not_continued` warning (new warning code), work stopping before anything is sent.
 - [ ] **4. The commands.** **4a**: grammar, registry, `cli/step.rs`, `parse_human/step.rs`, removal of the legacy arms, schemas and fixtures,
   README and command-reference migration. **4b**: binary scenarios.

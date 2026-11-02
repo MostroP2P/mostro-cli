@@ -43,7 +43,10 @@ pub const STEP_UNCERTAIN: [ErrorCode; 5] = [
 ];
 
 /// Warnings of the steps beyond the pilot pair.
-pub const STEP_WARNINGS: [WarningCode; 1] = [WarningCode::LocalStatusStale];
+pub const STEP_WARNINGS: [WarningCode; 2] = [
+    WarningCode::LocalStatusStale,
+    WarningCode::RangeNotContinued,
+];
 
 /// Which step is taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
