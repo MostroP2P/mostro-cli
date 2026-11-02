@@ -8,6 +8,7 @@ use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
 use mostro_client::outcome::invoice::{
     Answered, BondInvoiceData, InvoiceInput, InvoiceKind, InvoiceRequest, OrderInvoiceData,
 };
+use mostro_client::outcome::messages::{MessageListData, MessageListInput, MessageRecord};
 use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
@@ -18,7 +19,8 @@ use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
 use mostro_core::prelude::{
-    wrap_message_with, Action, Message, MessageKind, Payload, Transport, UserInfo, WrapOptions,
+    wrap_message_with, Action, CantDoReason, Message, MessageKind, Payload, Transport, UserInfo,
+    WrapOptions,
 };
 use nostr_sdk::prelude::*;
 use rstest::rstest;
@@ -289,7 +291,9 @@ mod schema_fixtures {
         Publication, TakeRequest, TakeSide, Taken, Value, Warnings,
     };
     use super::{
-        Answered, BondInvoiceData, InvoiceInput, InvoiceKind, InvoiceRequest, OrderInvoiceData,
+        Action, Answered, BondInvoiceData, CantDoReason, EventId, InvoiceInput, InvoiceKind,
+        InvoiceRequest, Message, MessageListData, MessageListInput, MessageRecord,
+        OrderInvoiceData, Payload,
     };
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
@@ -2093,6 +2097,318 @@ mod schema_fixtures {
         for (case, label, edit) in variants {
             let (_, mut outcome) = invoice_example(case);
             let schema = invoice_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
+
+    // --- Message list (spec 006) ---
+
+    const MESSAGE_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/006-message-list-json/contracts/examples.json"
+    );
+    const MESSAGE_LIST: &str = "message.list";
+
+    fn message_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(MESSAGE_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn message_example(name: &str) -> (i32, Value) {
+        message_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn message_record(
+        action: Action,
+        order: Option<uuid::Uuid>,
+        payload: Option<Payload>,
+        minute: u64,
+    ) -> MessageRecord {
+        let message = Message::new_order(order, Some(77), None, action, payload);
+        MessageRecord::from_message(
+            &EventId::from_byte_array([7; 32]),
+            1_792_108_800 + minute * 60,
+            &message,
+            Some(3),
+            &PublicKey::from_hex(TRADE).unwrap(),
+            &mut Warnings::new(),
+        )
+    }
+
+    fn message_records() -> Vec<MessageRecord> {
+        let parked = pending_order(OrderStatus::Pending);
+        let waiting = pending_order(OrderStatus::WaitingBuyerInvoice);
+        vec![
+            message_record(
+                Action::PayBondInvoice,
+                Some(id(1)),
+                Some(Payload::PaymentRequest(
+                    Some(parked),
+                    "lnbcrt1bondinvoice".into(),
+                    None,
+                )),
+                1,
+            ),
+            message_record(
+                Action::AddInvoice,
+                Some(id(1)),
+                Some(Payload::Order(waiting)),
+                2,
+            ),
+            message_record(Action::WaitingSellerToPay, Some(id(1)), None, 3),
+            message_record(
+                Action::CantDo,
+                None,
+                Some(Payload::CantDo(Some(CantDoReason::InvalidPeer))),
+                4,
+            ),
+        ]
+    }
+
+    fn message_data(
+        records: Vec<MessageRecord>,
+        truncated: bool,
+        keys: (usize, usize),
+    ) -> MessageListData {
+        let input = MessageListInput::validate(Some(60), None).unwrap();
+        MessageListData::new(&node(), &input, records, truncated, keys)
+    }
+
+    fn read_snapshot(completed: usize, events: usize) -> Value {
+        json!({
+            "since": "2026-10-09T00:00:00Z", "until": null,
+            "observed_at": "2026-10-16T00:00:00Z",
+            "per_relay_limit": 50, "max_unique_events": 10000,
+            "configured_relays": 2, "completed_relays": completed,
+            "received_events": events,
+            "completion_policy": "all_relays_eose", "complete_history": false,
+        })
+    }
+
+    type MessageEnvelope = Envelope<Value, Value>;
+
+    fn message_cases() -> Vec<(&'static str, Value, i32)> {
+        let ok = |data: MessageListData, warnings, snapshot| {
+            to_value(MessageEnvelope::ok(
+                MESSAGE_LIST,
+                to_value(data).unwrap(),
+                warnings,
+                ExecutionMeta::read(Some(snapshot)),
+            ))
+            .unwrap()
+        };
+        let error = |code, snapshot| {
+            to_value(MessageEnvelope::error(
+                Some(MESSAGE_LIST),
+                code,
+                Warnings::new(),
+                ExecutionMeta::read(snapshot),
+            ))
+            .unwrap()
+        };
+        let mut limited = Warnings::new();
+        limited.add(mostro_client::outcome::WarningCode::TradeKeysLimited);
+        vec![
+            (
+                "messages_of_a_trade",
+                ok(
+                    message_data(message_records(), false, (3, 0)),
+                    Warnings::new(),
+                    read_snapshot(2, 4),
+                ),
+                0,
+            ),
+            (
+                "no_messages_in_the_window",
+                ok(
+                    message_data(Vec::new(), false, (3, 0)),
+                    Warnings::new(),
+                    read_snapshot(2, 0),
+                ),
+                0,
+            ),
+            (
+                "more_messages_and_keys_than_were_read",
+                ok(
+                    message_data(message_records(), true, (200, 50)),
+                    limited,
+                    read_snapshot(2, 50),
+                ),
+                0,
+            ),
+            (
+                "identity_missing",
+                error(ErrorCode::IdentityMissing, None),
+                1,
+            ),
+            (
+                "store_unreadable",
+                error(ErrorCode::StoreUnreadable, None),
+                1,
+            ),
+            ("order_unknown", error(ErrorCode::OrderUnknown, None), 1),
+            (
+                "relays_unreachable",
+                error(ErrorCode::RelayConnectionFailed, None),
+                1,
+            ),
+            (
+                "read_timeout",
+                error(ErrorCode::ReadTimeout, Some(read_snapshot(0, 0))),
+                1,
+            ),
+            (
+                "window_out_of_range",
+                error(ErrorCode::InvalidArguments, None),
+                2,
+            ),
+            (
+                "removed_getdm",
+                to_value(Envelope::<Value, ()>::error(
+                    None,
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    ExecutionMeta::not_executed(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_message_examples_conform_to_the_checked_in_schema() {
+        let schema = read_json(MESSAGE_LIST_FIXTURE);
+        let examples = message_examples();
+        assert_eq!(examples.len(), 10);
+        for (name, exit, outcome) in examples {
+            if outcome["command"].is_null() {
+                continue; // no command resolved: the schema allows it
+            }
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                !outcome["data"].is_null(),
+                name.starts_with("messages_")
+                    || name == "no_messages_in_the_window"
+                    || name.starts_with("more_"),
+                "{name}"
+            );
+        }
+        let (_, removed) = message_example("removed_getdm");
+        assert!(schema_check::conforms(&schema, &schema, &removed));
+    }
+
+    #[test]
+    fn message_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = message_cases();
+        assert_eq!(cases.len(), message_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = message_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_message_list_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "messages_of_a_trade",
+                "an unknown next step",
+                Box::new(|o| o["data"]["messages"][0]["next_step"] = json!("wait")),
+            ),
+            (
+                "messages_of_a_trade",
+                "an unknown payload kind",
+                Box::new(|o| o["data"]["messages"][0]["payload"]["kind"] = json!("secret")),
+            ),
+            (
+                "messages_of_a_trade",
+                "a numeric trade index",
+                Box::new(|o| o["data"]["messages"][0]["trade_index"] = json!(3)),
+            ),
+            (
+                "messages_of_a_trade",
+                "an uppercase action",
+                Box::new(|o| o["data"]["messages"][0]["action"] = json!("Pay-Bond-Invoice")),
+            ),
+            (
+                "messages_of_a_trade",
+                "a count that is a number",
+                Box::new(|o| o["data"]["keys_read"] = json!(3)),
+            ),
+            (
+                "messages_of_a_trade",
+                "a missing truncation flag",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("truncated");
+                }),
+            ),
+            (
+                "messages_of_a_trade",
+                "a write stage",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "messages_of_a_trade",
+                "no snapshot",
+                Box::new(|o| o["meta"]["snapshot"] = Value::Null),
+            ),
+            (
+                "messages_of_a_trade",
+                "an uncertain read",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "more_messages_and_keys_than_were_read",
+                "a warning of another command",
+                Box::new(|o| o["warnings"][0]["code"] = json!("orders_not_returned")),
+            ),
+            (
+                "order_unknown",
+                "a store write error",
+                Box::new(|o| o["error"]["code"] = json!("store_unwritable")),
+            ),
+            (
+                "read_timeout",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"messages": []})),
+            ),
+        ];
+        let schema = read_json(MESSAGE_LIST_FIXTURE);
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = message_example(case);
             assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
             edit(&mut outcome);
             assert!(

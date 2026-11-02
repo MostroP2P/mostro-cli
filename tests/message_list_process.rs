@@ -1409,4 +1409,278 @@ mod operation {
         assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
         assert_eq!(one_document(&run)["status"], "ok");
     }
+
+    // --- The failure matrix (slice 5) ---
+
+    const SENTINEL: &str = "SENTINEL-zq81";
+
+    /// How the store of the sandbox is damaged before the run.
+    #[derive(Clone, Copy, Debug)]
+    enum Tweak {
+        None,
+        Absent,
+        Garbage,
+        EmptyUsers,
+        NoUsersTable,
+        NullMnemonic,
+    }
+
+    async fn tweak(room: &Mailroom, how: Tweak) {
+        let path = room.sandbox.mcli_dir().join("mcli.db");
+        let sql = |statement: &'static str| {
+            let path = path.clone();
+            async move {
+                let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+                let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+                sqlx::query(statement).execute(&pool).await.unwrap();
+                pool.close().await;
+            }
+        };
+        match how {
+            Tweak::None => {}
+            Tweak::Absent => std::fs::remove_file(&path).unwrap(),
+            Tweak::Garbage => std::fs::write(&path, b"this is not a sqlite database").unwrap(),
+            Tweak::EmptyUsers => sql("DELETE FROM users").await,
+            Tweak::NoUsersTable => sql("DROP TABLE users").await,
+            Tweak::NullMnemonic => sql("UPDATE users SET mnemonic = NULL").await,
+        }
+    }
+
+    struct Failing {
+        label: &'static str,
+        tweak: Tweak,
+        set: &'static [(&'static str, &'static str)],
+        unset: &'static [&'static str],
+        code: &'static str,
+    }
+
+    impl Failing {
+        const fn new(label: &'static str, tweak: Tweak, code: &'static str) -> Self {
+            Self {
+                label,
+                tweak,
+                set: &[],
+                unset: &[],
+                code,
+            }
+        }
+    }
+
+    impl Mailroom {
+        async fn run_env(&self, args: &[&str], set: &[(&str, &str)], unset: &[&str]) -> Captured {
+            let mut command = self.command(args);
+            for (name, value) in set {
+                command.env(name, value);
+            }
+            for name in unset {
+                command.env_remove(name);
+            }
+            let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+            assert!(run.reaped && run.status.is_some(), "{args:?}");
+            run
+        }
+
+        fn files(&self) -> Vec<(String, Vec<u8>)> {
+            let mut files: Vec<_> = std::fs::read_dir(self.sandbox.mcli_dir())
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (
+                        entry.file_name().to_string_lossy().into_owned(),
+                        std::fs::read(entry.path()).unwrap_or_default(),
+                    )
+                })
+                .collect();
+            files.sort();
+            files
+        }
+    }
+
+    const READ_STAGES: &str = r#"{"publication": "not_applicable", "daemon_acceptance": "not_applicable",
+                                  "persistence": "not_applicable", "snapshot": null}"#;
+
+    /// Run `case` as JSON, human and verbose; every mode shows the same code,
+    /// nothing leaks, no relay is contacted and the store is as it was.
+    async fn check_failure(case: &Failing) {
+        let room = Mailroom::with(3, 1, flow).await;
+        tweak(&room, case.tweak).await;
+        let before = room.files();
+        let label = case.label;
+        let stages: Value = serde_json::from_str(READ_STAGES).unwrap();
+        for mode in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
+            let mut args: Vec<&str> = mode.to_vec();
+            args.extend(["message", "list"]);
+            let run = room.run_env(&args, case.set, case.unset).await;
+            assert_eq!(
+                run.code(),
+                Some(1),
+                "{label} {mode:?}: {}",
+                run.stderr_text()
+            );
+            let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+            for stream in [&stdout, &stderr] {
+                assert!(!stream.contains("SENTINEL"), "{label}: a sentinel leaked");
+                assert!(
+                    !stream.contains("127.0.0.1"),
+                    "{label}: a relay address leaked"
+                );
+                assert!(!stream.contains(BOND_INVOICE), "{label}: an invoice leaked");
+            }
+            if mode == ["--output", "json"] {
+                let outcome = one_document(&run);
+                conforms_to_the_checked_in_schema(&outcome);
+                assert_eq!(outcome["command"], "message.list", "{label}");
+                assert_eq!(outcome["status"], "error", "{label}");
+                assert_eq!(outcome["data"], Value::Null, "{label}");
+                assert_eq!(outcome["error"]["code"], case.code, "{label}");
+                assert_eq!(outcome["meta"], stages, "{label}");
+                assert!(stderr.is_empty(), "{label}: {stderr}");
+            } else {
+                assert!(stdout.is_empty(), "{label} {mode:?}: {stdout}");
+                assert!(stderr.starts_with("error: "), "{label}: {stderr}");
+            }
+        }
+        assert_eq!(
+            room.relays[0].connections(),
+            0,
+            "{label}: a relay was contacted"
+        );
+        assert_eq!(room.files(), before, "{label}: the store changed");
+        assert!(
+            super::harness::is_empty_dir(&room.sandbox.home())
+                && super::harness::is_empty_dir(&room.sandbox.cwd()),
+            "{label}: files were created elsewhere"
+        );
+    }
+
+    #[tokio::test]
+    async fn failures_before_any_relay_are_stable_and_leave_no_trace() {
+        let cases = [
+            Failing::new("no store", Tweak::Absent, "identity_missing"),
+            Failing::new("no user", Tweak::EmptyUsers, "identity_missing"),
+            Failing::new("not a database", Tweak::Garbage, "identity_unreadable"),
+            Failing::new("no users table", Tweak::NoUsersTable, "identity_unreadable"),
+            Failing::new("null mnemonic", Tweak::NullMnemonic, "identity_unreadable"),
+            Failing {
+                unset: &["MOSTRO_PUBKEY"],
+                ..Failing::new("no node key", Tweak::None, "configuration_missing")
+            },
+            Failing {
+                unset: &["RELAYS"],
+                ..Failing::new("no relays", Tweak::None, "configuration_missing")
+            },
+            Failing {
+                set: &[("MOSTRO_PUBKEY", SENTINEL)],
+                ..Failing::new("bad node key", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                set: &[("RELAYS", "http://SENTINEL-zq81.invalid")],
+                ..Failing::new("bad relay", Tweak::None, "configuration_invalid")
+            },
+        ];
+        for case in &cases {
+            check_failure(case).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_relay_is_a_connection_failure_and_a_silent_one_a_timeout() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let before = room.files();
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("ws://{}", free.local_addr().unwrap());
+        drop(free);
+
+        let run = room
+            .run_env(
+                &["--output", "json", "message", "list"],
+                &[("RELAYS", dead.as_str())],
+                &[],
+            )
+            .await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        let outcome = one_document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["error"]["code"], "relay_connection_failed");
+        assert_eq!(outcome["meta"]["snapshot"], Value::Null);
+        assert!(!run.stdout_text().contains(&dead), "the relay was echoed");
+
+        let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+        let run = room
+            .run_env(
+                &["--output", "json", "message", "list"],
+                &[("RELAYS", silent.url.as_str())],
+                &[],
+            )
+            .await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        let outcome = one_document(&run);
+        conforms_to_the_checked_in_schema(&outcome);
+        assert_eq!(outcome["error"]["code"], "read_timeout");
+        assert!(outcome["meta"]["snapshot"].is_object());
+        assert_eq!(room.files(), before);
+    }
+
+    #[tokio::test]
+    async fn streams_that_cannot_be_written_never_change_the_result_or_the_store() {
+        let room = Mailroom::with(3, 1, flow).await;
+        let before = room.files();
+
+        // stdout closed: the document cannot be shown; exit 1, the line on stderr.
+        for args in [
+            &["message", "list"][..],
+            &["--output", "json", "message", "list"],
+        ] {
+            let mut command = room.command(args);
+            command.stdout(closed_pipe());
+            let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+            assert_eq!(run.code(), Some(1), "{args:?}: {}", run.stderr_text());
+            assert!(run.stdout.is_empty());
+            assert!(
+                !run.stderr_text().contains(BOND_INVOICE),
+                "the invoice went to stderr"
+            );
+        }
+
+        // stderr closed: an error keeps its exit status, a success is untouched.
+        let mut command = room.command(&["message", "list", "--since", "0"]);
+        command.stderr(closed_pipe());
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(2));
+        let mut command = room.command(&["--output", "json", "--verbose", "message", "list"]);
+        command.stderr(closed_pipe());
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(0));
+        assert_eq!(one_document(&run)["status"], "ok");
+        assert_eq!(room.files(), before);
+    }
+
+    #[tokio::test]
+    async fn text_from_the_node_cannot_reach_the_terminal_raw() {
+        let room = Mailroom::with(3, 1, |node, keys, _| async move {
+            let to = keys.iter().find(|(i, _)| *i == 2).unwrap().1.public_key();
+            vec![
+                node_event(
+                    &node,
+                    to,
+                    &mail_text(id(1), "pwned\u{1b}]0;title\u{7}\u{1b}[31m"),
+                    minutes_ago(3),
+                )
+                .await,
+            ]
+        })
+        .await;
+
+        let run = room.run(&["message", "list"]).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let text = run.stdout_text();
+        assert!(text.contains("pwned"), "{text:?}");
+        assert!(
+            !text.contains('\u{1b}') && !text.contains('\u{7}'),
+            "{text:?}"
+        );
+    }
 }

@@ -17,7 +17,7 @@ regtest without authorization.
   the three caps, `--order`, failures, no write.
 - [x] **4. The command.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) **4a**: grammar (`message list`), registry (`message.list` as `Read`), `cli/message.rs`, `parse_human/message.rs`, removal of `getdm`, generated schema and fixture,
   README and command-reference migration. **4b**: binary scenarios.
-- [ ] **5. Failure matrix and examples.** Identity, configuration, relays, unreadable store, invalid input, secret and invoice sentinels, unwritable streams; `contracts/examples.json`
+- [x] **5. Failure matrix and examples.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, relays, unreadable store, invalid input, secret and invoice sentinels, unwritable streams; `contracts/examples.json`
   and its validation.
 - [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration (MCP), requirement evidence, quickstart with the probe procedure; the probe stays open.
 

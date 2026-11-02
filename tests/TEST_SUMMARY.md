@@ -4128,3 +4128,23 @@ Native Linux, rustc 1.97.0, on `develop` after `eaff4da` (pushed). Lean mode: th
   - a read-only store (unix) is read without complaint.
 - **Mutation spot checks** (3): the store opened for writing, the human error line removed, and an invalid window silently defaulted are each caught.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast`, build, MSRV 1.94.0 742 passed and 0 failed (no FAILED line, no compile error).
+
+## Message List, Slice 5: Failure Matrix And Examples: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `e385ec6` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (the real binary, each case as JSON, human and `--verbose`): no store and no user (`identity_missing`); a file that is not a database, no `users` table and a null
+  mnemonic (`identity_unreadable`); no node key and no relays (`configuration_missing`); a bad node key and a bad relay (`configuration_invalid`). For every case: exit 1, the same code in each mode,
+  the JSON document conforms to the checked-in schema with read stages and no snapshot, stdout empty and one `error:` line in human mode, no sentinel, relay address or invoice in either stream, **no
+  relay contacted**, the store byte-identical and nothing created in the home or working directory.
+- **Relays**: a relay nobody listens on is `relay_connection_failed` with no snapshot; one that never answers is `read_timeout` with a snapshot; neither echoes the address; the store is unchanged.
+- **Streams**: a stdout that cannot be written exits 1 with nothing on stdout and no invoice on stderr, in both modes; a stderr that cannot be written changes neither the error exit (2) nor a
+  successful read (0) with `--verbose`.
+- **Terminal safety**: node text carrying escape and bell characters is shown with them neutralized.
+- **Examples**: `contracts/examples.json` (10 cases: a trade's messages, an empty window, the limits with the `trade_keys_limited` warning, the six error codes and the removed `getdm`) conforms to
+  the checked-in schema, is reproduced **exactly** by the owned constructors, and 12 contradictory edits (unknown next step or payload kind, numeric index or count, uppercase action, missing flag,
+  a write stage, no snapshot, an uncertain read, another command's warning, a store-write code, data on an error) are rejected.
+- **Mutation spot checks** (3): a write failure ignored, node text not escaped and a relay address echoed in an error are each caught.
+- **Not changed, noted**: a bad `--pow`/`--transport` (or `POW`/`TRANSPORT`) still fails `message list` as `configuration_invalid` because the read shares the write commands' configuration step,
+  although it sends nothing; the matrix does not pin that.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 749 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
