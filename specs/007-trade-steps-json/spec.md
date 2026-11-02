@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-02
 
-**Status**: Draft, awaiting maintainer review. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented and verified on Linux against a scripted node (slices 1-6, 2026-11-02); CI is checked after the push. Not probed on a real node. Range continuation is the required spec 008. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Seventh step of the AI-ready CLI roadmap: canonical `order fiat-sent`, `order release` and `order cancel`
 (replacing `fiatsent`, `release`, `cancel`), with human and JSON output and the conventions of

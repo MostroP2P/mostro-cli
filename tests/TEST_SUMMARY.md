@@ -4251,3 +4251,12 @@ Native Linux, rustc 1.97.0, on `develop` after `009d78b` (pushed). Lean mode: th
 - **Examples** (`specs/007-trade-steps-json/contracts/examples.json`, 16 cases, written once from the owned constructors): success per step and result, the range and stale-status warnings, three node refusals, two uncertain outcomes, unknown order, declined, `--yes` required and the removed spelling. Tests (`integration_tests.rs`): every example conforms to its checked-in schema with the right exit code and data exactly on success; the examples are reproduced byte for byte by the constructors; 17 invalid variants (a bad result, next step, id, key, index, status, stage and warning) do not conform.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 818 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
 
+## Trade Steps (spec 007) Slice 6: Docs, Boundaries, Verification: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `cf10bd7` (pushed). Lean mode: the only evidence entry for the slice. Documentation only.
+
+- **Docs**: `contracts/cli.md`, `data-model.md` and `quickstart.md` for the spec (focused commands, an offline smoke check that was run and matches, the acceptance matrix, the regtest probe procedure for a whole trade, the gates), the requirement-evidence table in `tests/README.md` (FR-001 to FR-010, SC-001 to SC-006), status lines in the spec, plan, tasks, `AGENTS.md` and `docs/ai-development.md`. The command reference, README and architecture were migrated in slice 4a.
+- **Boundaries**: every new file is under the 400-line production limit with imports at the top and the source-boundary test passes; the transport boundary test shows no new direct send, fetch or subscribe (the frozen list lost `cli/send_msg.rs`).
+- **Open, by design**: SC-006 (no claim about a real daemon; the probe needs a paying seller on the maintainer's node), spec 008 (range children: the next trade key, the reserved index and a local row for the child order; until then `fiat-sent` and `release` warn with `range_not_continued`), the MCP `fiat_sent`, `release` and `cancel` tools, the dispute commands and `rate`. CI (Windows included) is checked after the push. One unrelated flaky test was seen once (slice 3 entry).
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 818 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+

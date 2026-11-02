@@ -19,7 +19,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   README and command-reference migration. **4b**: binary scenarios.
 - [x] **5. Failure matrix and examples.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, relay, unwritable store, invalid input, secret sentinels,
   unwritable streams; `contracts/examples.json` and its validation.
-- [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration, requirement evidence, quickstart with the
+- [x] **6. Docs, boundaries, verification.** (done 2026-11-02; the regtest probe stays open) Architecture, command reference, README migration, requirement evidence, quickstart with the
   regtest probe procedure; the probe stays open until separately authorized.
 
 **Follow-up (required, not part of this spec)**: spec 008, range children (next trade key, reserved index, child order row).

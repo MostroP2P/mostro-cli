@@ -1,6 +1,6 @@
 # Implementation Plan: Trade Steps
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-02 | **Status**: Draft
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-02 | **Status**: Implemented (slices 1-6) with Linux evidence against a scripted node; behavior against a real node is unverified.
 
 ## Summary
 
