@@ -17,7 +17,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   `range_not_continued` warning (new warning code), work stopping before anything is sent.
 - [x] **4. The commands.** (4a and 4b done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) **4a**: grammar, registry, `cli/step.rs`, `parse_human/step.rs`, removal of the legacy arms, schemas and fixtures,
   README and command-reference migration. **4b**: binary scenarios.
-- [ ] **5. Failure matrix and examples.** Identity, configuration, protocol, work, relay, unwritable store, invalid input, secret sentinels,
+- [x] **5. Failure matrix and examples.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, protocol, work, relay, unwritable store, invalid input, secret sentinels,
   unwritable streams; `contracts/examples.json` and its validation.
 - [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README migration, requirement evidence, quickstart with the
   regtest probe procedure; the probe stays open until separately authorized.

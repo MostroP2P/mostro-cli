@@ -32,6 +32,27 @@ use mostro_client::store::Store;
 const REQUEST_ID: u64 = 7070;
 const WAIT: Duration = Duration::from_millis(700);
 
+/// Rejects every write with a machine-readable refusal.
+#[derive(Debug)]
+struct BlockWrites;
+
+impl nostr_sdk::prelude::WritePolicy for BlockWrites {
+    fn admit_event<'a>(
+        &'a self,
+        _event: &'a nostr_sdk::prelude::Event,
+        _addr: &'a std::net::SocketAddr,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = nostr_sdk::prelude::WritePolicyResult> + Send + 'a>,
+    > {
+        Box::pin(async {
+            nostr_sdk::prelude::WritePolicyResult::reject(
+                nostr_sdk::prelude::MachineReadablePrefix::Blocked,
+                "writes are off",
+            )
+        })
+    }
+}
+
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }
@@ -525,13 +546,29 @@ mod operation {
         pow: u8,
         wrap: impl FnOnce(Respond) -> Respond,
     ) -> Holder {
+        holder_with(trades, (2, pow, false), wrap).await
+    }
+
+    /// A node advertising `(protocol, pow)`; its relay refuses every write when
+    /// the last element is set.
+    async fn holder_with(
+        trades: impl FnOnce(PublicKey, PublicKey) -> Vec<Traded>,
+        (protocol, pow, block_writes): (u8, u8, bool),
+        wrap: impl FnOnce(Respond) -> Respond,
+    ) -> Holder {
         let (me, other) = (Keys::generate(), Keys::generate());
         let trades = trades(me.public_key(), other.public_key());
         let (respond, _) = step_daemon(trades.clone());
         let node = Keys::generate();
-        let relay = LocalRelay::new();
+        let relay = if block_writes {
+            LocalRelay::builder()
+                .write_policy(super::BlockWrites)
+                .build()
+        } else {
+            LocalRelay::new()
+        };
         relay
-            .add_event(info_event(&node, Some(2), Some(pow), None, Some(10)))
+            .add_event(info_event(&node, Some(protocol), Some(pow), None, Some(10)))
             .await
             .unwrap();
         let relay = LoopbackRelay::start(Backend::Relay(Box::new(relay)))
@@ -976,6 +1013,28 @@ mod operation {
         assert_eq!(outcome.status(), Outcome::Ok);
         assert_eq!(outcome.data().expect("data").result(), StepResult::FiatSent);
         assert_eq!(status_of(&holder, id(1)).await, "fiat-sent");
+    }
+
+    #[tokio::test]
+    async fn a_reply_without_the_request_id_is_never_taken_for_the_answer() {
+        // The node echoes the request id to the sender, so a message that has
+        // none (the notice meant for the other party) is not the answer.
+        let decoys = vec![Outgoing::to_requester(reply_with(
+            Action::CooperativeCancelAccepted,
+            Some(id(1)),
+            None,
+        ))];
+        let holder = holder(buying, 0, with_decoys(decoys)).await;
+
+        let outcome = take(&holder, StepKind::Cancel, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        assert_eq!(
+            outcome.data().expect("data").result(),
+            StepResult::CancelRequested,
+            "the real answer, not the decoy"
+        );
+        assert_eq!(status_of(&holder, id(1)).await, "active");
     }
 
     #[tokio::test]
@@ -1479,5 +1538,390 @@ mod operation {
         conforms_to_the_checked_in_schema("cancel", &outcome);
         assert_eq!(outcome["data"]["result"], "cancel_accepted");
         assert_eq!(status_of(&holder, id(1)).await, "cooperatively-canceled");
+    }
+
+    // --- The failure matrix (slice 5) ---
+
+    const SENTINEL: &str = "SENTINEL-zq81";
+
+    /// How the store of the sandbox is damaged before the run.
+    #[derive(Clone, Copy, Debug)]
+    enum Tweak {
+        None,
+        Absent,
+        Garbage,
+        EmptyUsers,
+        NoUsersTable,
+        NullMnemonic,
+        ReadOnly,
+    }
+
+    async fn tweak(holder: &Holder, how: Tweak) {
+        let path = holder.sandbox.mcli_dir().join("mcli.db");
+        let statement = |sql: &'static str| {
+            let path = path.clone();
+            async move {
+                let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+                let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+                sqlx::query(sql).execute(&pool).await.unwrap();
+                pool.close().await;
+            }
+        };
+        match how {
+            Tweak::None => {}
+            Tweak::Absent => std::fs::remove_file(&path).unwrap(),
+            Tweak::Garbage => std::fs::write(&path, b"this is not a sqlite database").unwrap(),
+            Tweak::EmptyUsers => statement("DELETE FROM users").await,
+            Tweak::NoUsersTable => statement("DROP TABLE users").await,
+            Tweak::NullMnemonic => statement("UPDATE users SET mnemonic = NULL").await,
+            Tweak::ReadOnly => {
+                let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+                permissions.set_readonly(true);
+                std::fs::set_permissions(&path, permissions).unwrap();
+            }
+        }
+    }
+
+    /// Whether the process can still write a file marked read-only (root).
+    fn ignores_read_only(holder: &Holder) -> bool {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(holder.sandbox.mcli_dir().join("mcli.db"))
+            .is_ok()
+    }
+
+    struct Failing {
+        label: &'static str,
+        tweak: Tweak,
+        set: &'static [(&'static str, &'static str)],
+        unset: &'static [&'static str],
+        /// Global flags placed before the command.
+        flags: &'static [&'static str],
+        code: &'static str,
+    }
+
+    impl Failing {
+        const fn new(label: &'static str, tweak: Tweak, code: &'static str) -> Self {
+            Self {
+                label,
+                tweak,
+                set: &[],
+                unset: &[],
+                flags: &[],
+                code,
+            }
+        }
+    }
+
+    async fn run_env(
+        holder: &Holder,
+        args: &[&str],
+        set: &[(&str, &str)],
+        unset: &[&str],
+    ) -> Captured {
+        let mut command = command(holder, args);
+        for (name, value) in set {
+            command.env(name, value);
+        }
+        for name in unset {
+            command.env_remove(name);
+        }
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// Run `case` as JSON, human and verbose, on every step, and check what
+    /// every mode shows, then that nothing was sent and nothing changed.
+    async fn check_failure(case: &Failing, holder: &Holder) {
+        tweak(holder, case.tweak).await;
+        let before = snapshot(holder);
+        let label = case.label;
+        for (_, step) in STEPS {
+            for mode in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
+                let mut front: Vec<&str> = case.flags.to_vec();
+                front.extend(mode);
+                let run = run_env(
+                    holder,
+                    &step_args(&front, step, &["--yes"]),
+                    case.set,
+                    case.unset,
+                )
+                .await;
+                assert_eq!(
+                    run.code(),
+                    Some(1),
+                    "{label} {step} {mode:?}: {}",
+                    run.stderr_text()
+                );
+                let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+                for stream in [&stdout, &stderr] {
+                    assert!(!stream.contains("SENTINEL"), "{label}: a sentinel leaked");
+                    assert!(
+                        !stream.contains("127.0.0.1"),
+                        "{label}: a relay address leaked"
+                    );
+                }
+                if mode == ["--output", "json"] {
+                    let outcome = document(&run);
+                    conforms_to_the_checked_in_schema(step, &outcome);
+                    assert_eq!(outcome["command"], format!("order.{step}"), "{label}");
+                    assert_eq!(outcome["status"], "error", "{label}");
+                    assert_eq!(outcome["data"], Value::Null, "{label}");
+                    assert_eq!(outcome["error"]["code"], case.code, "{label}");
+                    assert_eq!(
+                        outcome["meta"],
+                        json!({"publication": "not_attempted", "daemon_acceptance": "unknown",
+                               "persistence": "not_attempted", "snapshot": null}),
+                        "{label}"
+                    );
+                    assert!(stderr.is_empty(), "{label}: {stderr}");
+                } else {
+                    assert!(stdout.is_empty(), "{label} {mode:?}: {stdout}");
+                    assert!(stderr.starts_with("error: "), "{label}: {stderr}");
+                    assert!(
+                        !stderr.contains("may have"),
+                        "{label}: not uncertain: {stderr}"
+                    );
+                }
+            }
+        }
+        assert!(
+            holder.fake.received().is_empty(),
+            "{label}: something was sent"
+        );
+        if !matches!(case.tweak, Tweak::ReadOnly) {
+            assert_eq!(snapshot(holder), before, "{label}: the store changed");
+        }
+        assert!(
+            harness::is_empty_dir(&holder.sandbox.home())
+                && harness::is_empty_dir(&holder.sandbox.cwd()),
+            "{label}: files were created elsewhere"
+        );
+    }
+
+    #[tokio::test]
+    async fn failures_before_any_request_are_stable_and_leave_no_trace() {
+        let cases = [
+            Failing::new("no store", Tweak::Absent, "identity_missing"),
+            Failing::new("no user", Tweak::EmptyUsers, "identity_missing"),
+            Failing::new("not a database", Tweak::Garbage, "identity_unreadable"),
+            Failing::new("no users table", Tweak::NoUsersTable, "identity_unreadable"),
+            Failing::new("null mnemonic", Tweak::NullMnemonic, "identity_unreadable"),
+            Failing {
+                unset: &["MOSTRO_PUBKEY"],
+                ..Failing::new("no node key", Tweak::None, "configuration_missing")
+            },
+            Failing {
+                unset: &["RELAYS"],
+                ..Failing::new("no relays", Tweak::None, "configuration_missing")
+            },
+            Failing {
+                set: &[("MOSTRO_PUBKEY", SENTINEL)],
+                ..Failing::new("bad node key", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                set: &[("RELAYS", "http://SENTINEL-zq81.invalid")],
+                ..Failing::new("bad relay", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                flags: &["--pow", SENTINEL],
+                ..Failing::new("bad pow", Tweak::None, "configuration_invalid")
+            },
+            Failing {
+                flags: &["--transport", SENTINEL],
+                ..Failing::new("bad transport", Tweak::None, "configuration_invalid")
+            },
+        ];
+        for case in &cases {
+            let holder = ready(StepKind::FiatSent).await;
+            check_failure(case, &holder).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn every_step_needs_a_writable_store() {
+        let holder = ready(StepKind::FiatSent).await;
+        tweak(&holder, Tweak::ReadOnly).await;
+        if ignores_read_only(&holder) {
+            return; // running as a user the file mode does not bind
+        }
+        check_failure(
+            &Failing::new("read-only store", Tweak::None, "store_unwritable"),
+            &holder,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_node_that_cannot_be_served_fails_before_publishing() {
+        let old = holder_with(buying, (1, 0, false), |respond| respond).await;
+        check_failure(
+            &Failing::new("protocol 1", Tweak::None, "protocol_unsupported"),
+            &old,
+        )
+        .await;
+
+        let work = holder_with(buying, (2, 9, false), |respond| respond).await;
+        check_failure(
+            &Failing::new("more work expected", Tweak::None, "pow_required"),
+            &work,
+        )
+        .await;
+
+        // An explicit transport skips the protocol check and enough work passes.
+        let holder = holder_with(buying, (1, 9, false), |respond| respond).await;
+        let run = run(
+            &holder,
+            &step_args(
+                &["--transport", "nip44", "--pow", "9", "--output", "json"],
+                "fiat-sent",
+                &["--yes"],
+            ),
+        )
+        .await;
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_rejects_the_request_changes_nothing() {
+        let holder = holder_with(buying, (2, 0, true), |respond| respond).await;
+        check_failure(
+            &Failing::new("rejected", Tweak::None, "request_rejected"),
+            &holder,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_relay_is_a_connection_failure_and_costs_nothing() {
+        let holder = ready(StepKind::Cancel).await;
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("ws://{}", free.local_addr().unwrap());
+        drop(free);
+        let before = snapshot(&holder);
+
+        let run = run_env(
+            &holder,
+            &step_args(&["--output", "json"], "cancel", &["--yes"]),
+            &[("RELAYS", dead.as_str())],
+            &[],
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        let outcome = document(&run);
+        assert_eq!(outcome["error"]["code"], "relay_connection_failed");
+        assert_eq!(outcome["status"], "error");
+        assert_eq!(outcome["meta"]["publication"], "not_attempted");
+        assert!(!run.stderr_text().contains("127.0.0.1"));
+        assert_eq!(snapshot(&holder), before);
+    }
+
+    #[tokio::test]
+    async fn invalid_input_is_an_argument_error_before_any_effect() {
+        let holder = ready(StepKind::FiatSent).await;
+        let before = snapshot(&holder);
+        let mut cases: Vec<(Vec<&str>, Value)> = Vec::new();
+        for (_, step) in STEPS {
+            let command = json!(format!("order.{step}"));
+            for tail in [
+                vec!["--order", "not-a-uuid", "--yes"],
+                vec!["--yes"],
+                vec!["--order", ORDER, "--yes", "--invoice", SENTINEL],
+                vec!["--order-id", ORDER, "--yes"],
+                vec!["-o", ORDER, "--yes"],
+                vec!["--orderid", ORDER, "--yes"],
+            ] {
+                let mut all = vec!["--output", "json", "order", step];
+                all.extend(tail);
+                cases.push((all, command.clone()));
+            }
+        }
+        // The removed spellings have no command.
+        for name in ["fiatsent", "release", "cancel"] {
+            cases.push((vec!["--output", "json", name, "-o", ORDER], Value::Null));
+        }
+        for (arguments, command) in cases {
+            let run = run(&holder, &arguments).await;
+            assert_eq!(run.code(), Some(2), "{arguments:?}: {}", run.stderr_text());
+            let outcome = document(&run);
+            assert_eq!(outcome["command"], command, "{arguments:?}");
+            assert_eq!(
+                outcome["error"]["code"], "invalid_arguments",
+                "{arguments:?}"
+            );
+            assert_eq!(
+                outcome["meta"]["publication"], "not_attempted",
+                "{arguments:?}"
+            );
+            for text in [run.stdout_text(), run.stderr_text()] {
+                assert!(!text.contains("SENTINEL"), "{arguments:?}: {text}");
+            }
+            assert!(
+                run.stderr.is_empty(),
+                "{arguments:?}: {}",
+                run.stderr_text()
+            );
+        }
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(snapshot(&holder), before);
+    }
+
+    #[tokio::test]
+    async fn an_unwritable_stdout_after_the_step_exits_1_with_one_fixed_line() {
+        for (front, line) in [
+            (
+                &["--output", "json"][..],
+                "error: the JSON outcome could not be written\n",
+            ),
+            (&[][..], "error: the result could not be written\n"),
+        ] {
+            for (kind, step) in STEPS {
+                let holder = ready(kind).await;
+                let all = step_args(front, step, &["--yes"]);
+                let mut command = command(&holder, &all);
+                command.stdout(harness::closed_pipe());
+                let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+                assert_eq!(
+                    run.code(),
+                    Some(1),
+                    "{step} {front:?}: {}",
+                    run.stderr_text()
+                );
+                assert_eq!(run.stderr_text(), line, "{step} {front:?}");
+                // The request was sent and the node acted all the same.
+                assert_eq!(holder.fake.received().len(), 1, "{step}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unwritable_stderr_changes_neither_the_exit_nor_the_document() {
+        let holder = ready(StepKind::FiatSent).await;
+        let mut command = command(
+            &holder,
+            &step_args(&["--output", "json", "--pow", "x"], "fiat-sent", &["--yes"]),
+        );
+        command.stderr(harness::closed_pipe());
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(1));
+        assert_eq!(document(&run)["error"]["code"], "configuration_invalid");
+    }
+
+    #[tokio::test]
+    async fn no_secret_reaches_a_stream_on_a_successful_run() {
+        // The order id, the trade key and the node key are public data; the
+        // secrets of the trade key and the identity never are.
+        for front in [&["--output", "json", "--verbose"][..], &["--verbose"][..]] {
+            let holder = ready(StepKind::Release).await;
+            let run = run(&holder, &step_args(front, "release", &["--yes"])).await;
+            assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+            for stream in [run.stdout_text(), run.stderr_text()] {
+                assert!(!stream.contains(&holder.me.secret_key().to_secret_hex()));
+                assert!(!stream.contains(&holder.identity.secret_key().to_secret_hex()));
+                assert!(!stream.contains("127.0.0.1"));
+            }
+        }
     }
 }

@@ -1764,6 +1764,382 @@ mod schema_fixtures {
         }
     }
 
+    // --- Trade steps (spec 007) ---
+
+    use mostro_client::outcome::step::{StepData, StepInput, StepKind};
+
+    const STEP_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/007-trade-steps-json/contracts/examples.json"
+    );
+
+    fn step_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(STEP_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn step_example(name: &str) -> (i32, Value) {
+        step_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn step_fixture(command: &str) -> Value {
+        match command {
+            "order.fiat-sent" => read_json(FIAT_SENT_FIXTURE),
+            "order.release" => read_json(RELEASE_FIXTURE),
+            "order.cancel" => read_json(CANCEL_FIXTURE),
+            other => panic!("no fixture for {other}"),
+        }
+    }
+
+    fn step_data(kind: StepKind, action: Action) -> Value {
+        let data = StepData::from_reply(
+            &node(),
+            &StepInput::new(kind, id(1)),
+            (&action, &None, Some(id(1))),
+            &PublicKey::from_hex(TRADE).unwrap(),
+            None,
+        )
+        .unwrap()
+        .0;
+        to_value(data).unwrap()
+    }
+
+    fn step_cases() -> Vec<(&'static str, Value, i32)> {
+        let fiat = "order.fiat-sent";
+        let release = "order.release";
+        let cancel = "order.cancel";
+        let accepted = |persistence| {
+            write(
+                Publication::Published,
+                DaemonAcceptance::Accepted,
+                persistence,
+            )
+        };
+        let ok = |command, data: Value, warnings, meta| {
+            to_value(Envelope::<Value, ()>::ok(command, data, warnings, meta)).unwrap()
+        };
+        let refused = |command, reason| {
+            to_value(Envelope::<Value, ()>::refused(
+                Some(command),
+                reason,
+                Warnings::new(),
+                write(
+                    Publication::Published,
+                    DaemonAcceptance::Rejected,
+                    Persistence::NotAttempted,
+                ),
+            ))
+            .unwrap()
+        };
+        let uncertain = |command, code| {
+            to_value(Envelope::<Value, ()>::uncertain(
+                command,
+                code,
+                None,
+                Warnings::new(),
+                write(
+                    Publication::Published,
+                    DaemonAcceptance::Unknown,
+                    Persistence::NotAttempted,
+                ),
+            ))
+            .unwrap()
+        };
+        let error = |command, code| {
+            to_value(Envelope::<Value, ()>::error(
+                Some(command),
+                code,
+                Warnings::new(),
+                unsent_write(),
+            ))
+            .unwrap()
+        };
+        let mut range = Warnings::new();
+        range.add(mostro_client::outcome::WarningCode::RangeNotContinued);
+        let mut stale = Warnings::new();
+        stale.add(mostro_client::outcome::WarningCode::LocalStatusStale);
+        vec![
+            (
+                "fiat_sent",
+                ok(
+                    fiat,
+                    step_data(StepKind::FiatSent, Action::FiatSentOk),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "fiat_sent_range_not_continued",
+                ok(
+                    fiat,
+                    step_data(StepKind::FiatSent, Action::FiatSentOk),
+                    range,
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "release_released",
+                ok(
+                    release,
+                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "release_stale_status",
+                ok(
+                    release,
+                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled),
+                    stale,
+                    accepted(Persistence::Failed),
+                ),
+                0,
+            ),
+            (
+                "cancel_canceled",
+                ok(
+                    cancel,
+                    step_data(StepKind::Cancel, Action::Canceled),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "cancel_requested",
+                ok(
+                    cancel,
+                    step_data(StepKind::Cancel, Action::CooperativeCancelInitiatedByYou),
+                    Warnings::new(),
+                    accepted(Persistence::NotAttempted),
+                ),
+                0,
+            ),
+            (
+                "cancel_accepted",
+                ok(
+                    cancel,
+                    step_data(StepKind::Cancel, Action::CooperativeCancelAccepted),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            ("fiat_sent_node_refused", refused(fiat, "invalid_pubkey"), 1),
+            ("release_node_refused", refused(release, "invalid_peer"), 1),
+            (
+                "cancel_node_refused",
+                refused(cancel, "order_already_canceled"),
+                1,
+            ),
+            (
+                "release_reply_timeout_uncertain",
+                uncertain(release, ErrorCode::ReplyTimeout),
+                1,
+            ),
+            (
+                "cancel_reply_malformed_uncertain",
+                uncertain(cancel, ErrorCode::ReplyMalformed),
+                1,
+            ),
+            (
+                "release_unknown",
+                error(release, ErrorCode::OrderUnknown),
+                1,
+            ),
+            (
+                "cancel_declined",
+                error(cancel, ErrorCode::OrderDeclined),
+                1,
+            ),
+            (
+                "fiat_sent_yes_required",
+                error(fiat, ErrorCode::InvalidArguments),
+                2,
+            ),
+            (
+                "removed_spelling",
+                to_value(Envelope::<Value, ()>::error(
+                    None,
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    ExecutionMeta::not_executed(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_step_examples_conform_to_the_checked_in_schemas() {
+        let examples = step_examples();
+        assert_eq!(examples.len(), 16);
+        for (name, exit, outcome) in examples {
+            if outcome["command"].is_null() {
+                continue; // no command resolved: every schema allows it
+            }
+            let schema = step_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                !outcome["data"].is_null(),
+                outcome["status"] == "ok",
+                "{name}: data exactly on success"
+            );
+        }
+        let (_, removed) = step_example("removed_spelling");
+        for command in ["order.fiat-sent", "order.release", "order.cancel"] {
+            let schema = step_fixture(command);
+            assert!(schema_check::conforms(&schema, &schema, &removed));
+        }
+    }
+
+    #[test]
+    fn step_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = step_cases();
+        assert_eq!(cases.len(), step_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = step_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_step_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "fiat_sent",
+                "an unknown result",
+                Box::new(|o| o["data"]["result"] = json!("paid")),
+            ),
+            (
+                "fiat_sent",
+                "an unknown next step",
+                Box::new(|o| o["data"]["next_step"] = json!("rate")),
+            ),
+            (
+                "fiat_sent",
+                "a bad order id",
+                Box::new(|o| o["data"]["order_id"] = json!("not-a-uuid")),
+            ),
+            (
+                "fiat_sent",
+                "an uppercase trade key",
+                Box::new(|o| o["data"]["trade_pubkey"] = json!(TRADE.to_uppercase())),
+            ),
+            (
+                "fiat_sent",
+                "a numeric index",
+                Box::new(|o| o["data"]["next_trade_index"] = json!(3)),
+            ),
+            (
+                "fiat_sent",
+                "a missing index key",
+                Box::new(|o| {
+                    o["data"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("next_trade_index");
+                }),
+            ),
+            (
+                "fiat_sent",
+                "a success that is uncertain",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "fiat_sent",
+                "a rejected success",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("rejected")),
+            ),
+            (
+                "fiat_sent",
+                "another command's name",
+                Box::new(|o| o["command"] = json!("order.cancel")),
+            ),
+            (
+                "fiat_sent_range_not_continued",
+                "an unknown warning",
+                Box::new(|o| o["warnings"][0]["code"] = json!("trade_keys_limited")),
+            ),
+            (
+                "release_node_refused",
+                "an uppercase reason",
+                Box::new(|o| o["error"]["reason"] = json!("Invalid Peer")),
+            ),
+            (
+                "release_node_refused",
+                "an accepted refusal",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "release_node_refused",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"order_id": null})),
+            ),
+            (
+                "release_reply_timeout_uncertain",
+                "a plain error status",
+                Box::new(|o| o["status"] = json!("error")),
+            ),
+            (
+                "release_reply_timeout_uncertain",
+                "a code that is an error only",
+                Box::new(|o| o["error"]["code"] = json!("order_declined")),
+            ),
+            (
+                "release_reply_timeout_uncertain",
+                "nothing published",
+                Box::new(|o| o["meta"]["publication"] = json!("not_attempted")),
+            ),
+            (
+                "cancel_declined",
+                "a published declined step",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+        ];
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = step_example(case);
+            let schema = step_fixture(outcome["command"].as_str().unwrap());
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
+
     // --- Invoice commands (spec 005) ---
 
     const INVOICE_EXAMPLES: &str = concat!(
