@@ -9,7 +9,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
 
 ## Slices
 
-- [ ] **1. Characterize and extend the fixtures.** Pin what `fiatsent`/`release`/`cancel` do today (grammar, payload bytes, the range `next_trade`
+- [x] **1. Characterize and extend the fixtures.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) Pin what `fiatsent`/`release`/`cancel` do today (grammar, payload bytes, the range `next_trade`
   condition and index update). Extend the scripted daemon with the replies and refusals of the source, including both cooperative-cancel steps.
   No production change.
 - [ ] **2. Outcomes.** `outcome/step.rs`, schemas for the three names, `Store` helpers if missing.

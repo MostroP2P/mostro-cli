@@ -4181,3 +4181,13 @@ the only route to the maintainer's local regtest node with a **taker bond**. Two
 - **Not verified**: many keys (up to the 200 cap) against a real relay, the limit a real relay applies per filter, whether a message can arrive later than the relay's `since` bound (clock skew; none was
   seen in a window of 2 to 10 minutes), and everything the node sends in the later steps of a trade (hold invoice to pay, `fiat-sent`, release).
 - **Nothing in the CLI needed to change.**
+
+## Trade Steps (spec 007) Slice 1: Characterize And Script The Node: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `0e63bab` (pushed). Lean mode: the only evidence entry for the slice. No behavior change.
+
+- **Legacy grammar pinned** (`tests/cli_functions.rs`, `trade_step_characterization`): `fiatsent`, `release` and `cancel` take one required UUID (`-o`, long flag `--orderid`, `--order-id` unknown, any case accepted), no `--yes`, and are registered as `order.fiat-sent`, `order.release`, `order.cancel` without JSON.
+- **Range `next_trade` condition pinned** (`cli/send_msg.rs`, extracted as `wants_next_trade`, 4 unit tests): the payload is sent when `is_mine` is `Some(_)` (any value, `Some(false)` included: a quirk of the legacy code, to be decided in the plan), the order has a `min` and `max`, and `max - fiat_amount >= min`; a fixed order or an exhausted range sends none. Behavior unchanged.
+- **Scripted node** (`tests/common/fake_mostro.rs`: `Traded`, `step_daemon`; `Received.next_trade`): applies the rules of `fiat_sent_action`, `release_action` and `cancel_action_generic` from the v0.20.1 source: the reply to the sender echoes the request id, the notice to the other side does not; fiat-sent only by the buyer on `active`; release only by the seller on `fiat-sent` or `dispute`, answering the seller with `hold-invoice-payment-settled` plus `rate` and the buyer with `released`; cancel as plain `canceled` (pending, waiting), `cooperative-cancel-initiated-by-you/peer`, then `cooperative-cancel-accepted` for the other party, with `order_already_canceled`, `is_not_your_order`, `invalid_pubkey`, `invalid_peer`, `not_allowed_by_status` and `not_found` refusals. Eleven self-tests in `tests/step_process.rs`.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 768 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+

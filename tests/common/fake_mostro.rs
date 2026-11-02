@@ -16,7 +16,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use mostro_core::prelude::{
-    unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Transport,
+    unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Peer, Transport,
     WrapOptions, NOSTR_INFO_EVENT_KIND,
 };
 use nostr_sdk::prelude::{
@@ -53,6 +53,8 @@ pub struct Received {
     pub amount: Option<i64>,
     /// The invoice a take carries.
     pub invoice: Option<String>,
+    /// The next trade key and index a `fiat-sent` or `release` carries.
+    pub next_trade: Option<(String, u32)>,
 }
 
 /// Who signs an outgoing message.
@@ -588,6 +590,227 @@ pub fn invoice_daemon(ledger: Ledger, acks: bool) -> (Respond, Arc<Mutex<Ledger>
     (respond, state)
 }
 
+// --- Trade steps: fiat-sent, release, cancel ---------------------------------
+
+/// One trade of the scripted node, as far as the three steps need it.
+#[derive(Clone, Debug)]
+pub struct Traded {
+    pub id: Uuid,
+    pub status: Status,
+    /// The maker's trade key.
+    pub maker: PublicKey,
+    pub buyer: Option<PublicKey>,
+    pub seller: Option<PublicKey>,
+    /// Who started a cooperative cancel.
+    pub initiator: Option<PublicKey>,
+    /// The key and index the node kept from a range `fiat-sent` or `release`.
+    pub next_trade: Option<(String, u32)>,
+}
+
+impl Traded {
+    /// An active trade: the maker sells to `buyer`.
+    pub fn active(id: Uuid, seller: PublicKey, buyer: PublicKey) -> Self {
+        Self {
+            id,
+            status: Status::Active,
+            maker: seller,
+            buyer: Some(buyer),
+            seller: Some(seller),
+            initiator: None,
+            next_trade: None,
+        }
+    }
+
+    /// A pending order of `maker`, with no taker.
+    pub fn pending(id: Uuid, maker: PublicKey) -> Self {
+        Self {
+            id,
+            status: Status::Pending,
+            maker,
+            buyer: None,
+            seller: None,
+            initiator: None,
+            next_trade: None,
+        }
+    }
+
+    pub fn with_status(mut self, status: Status) -> Self {
+        self.status = status;
+        self
+    }
+
+    fn taker(&self) -> Option<PublicKey> {
+        [self.buyer, self.seller]
+            .into_iter()
+            .flatten()
+            .find(|key| *key != self.maker)
+    }
+
+    pub fn small(&self) -> SmallOrder {
+        SmallOrder::new(
+            Some(self.id),
+            Some(OrderKind::Sell),
+            Some(self.status),
+            15_000,
+            "USD".to_string(),
+            None,
+            None,
+            15,
+            "bank transfer".to_string(),
+            1,
+            None,
+            None,
+            None,
+            Some(1_792_108_800),
+            Some(1_792_195_200),
+        )
+    }
+}
+
+/// The daemon's rules for `fiat-sent`, `release` and `cancel`, from its source
+/// (`fiat_sent_action`, `release_action`, `cancel_action_generic`). None of
+/// them carries a trade index. Every reply to the sender echoes the request
+/// id; the notice to the other party does not. The order is found by id.
+pub fn step_daemon(trades: Vec<Traded>) -> (Respond, Arc<Mutex<Vec<Traded>>>) {
+    let state = Arc::new(Mutex::new(trades));
+    let shared = Arc::clone(&state);
+    let respond: Respond = Arc::new(move |request: &Received| {
+        let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+        let mut trades = shared.lock().unwrap();
+        let Some(trade) = trades
+            .iter_mut()
+            .find(|trade| Some(trade.id) == request.order_id)
+        else {
+            return refuse(CantDoReason::NotFound);
+        };
+        let id = trade.id;
+        let to_sender = |action, payload| {
+            Outgoing::to_requester(Message::new_order(
+                Some(id),
+                request.request_id,
+                None,
+                action,
+                payload,
+            ))
+        };
+        let notice = |to: PublicKey, action, payload| {
+            Outgoing::to_requester(Message::new_order(Some(id), None, None, action, payload))
+                .addressed_to(to)
+        };
+        let peer = |key: PublicKey| {
+            Some(Payload::Peer(Peer {
+                pubkey: key.to_string(),
+                reputation: None,
+            }))
+        };
+        match request.action {
+            Action::FiatSent => {
+                if trade.status != Status::Active {
+                    return refuse(CantDoReason::NotAllowedByStatus);
+                }
+                let (Some(buyer), Some(seller)) = (trade.buyer, trade.seller) else {
+                    return refuse(CantDoReason::NotAllowedByStatus);
+                };
+                if request.author != buyer {
+                    return refuse(CantDoReason::InvalidPubkey);
+                }
+                trade.status = Status::FiatSent;
+                trade.next_trade = request.next_trade.clone();
+                vec![
+                    notice(seller, Action::FiatSentOk, peer(buyer)),
+                    to_sender(Action::FiatSentOk, peer(seller)),
+                ]
+            }
+            Action::Release => {
+                let (Some(buyer), Some(seller)) = (trade.buyer, trade.seller) else {
+                    return refuse(CantDoReason::NotAllowedByStatus);
+                };
+                if request.author != seller {
+                    return refuse(CantDoReason::InvalidPeer);
+                }
+                if !matches!(trade.status, Status::FiatSent | Status::Dispute) {
+                    return refuse(CantDoReason::NotAllowedByStatus);
+                }
+                trade.status = Status::SettledHoldInvoice;
+                trade.next_trade = request.next_trade.clone();
+                vec![
+                    notice(buyer, Action::Released, None),
+                    to_sender(Action::HoldInvoicePaymentSettled, None),
+                    notice(seller, Action::Rate, None),
+                ]
+            }
+            Action::Cancel => cancel_reply(trade, request, to_sender, notice),
+            _ => refuse(CantDoReason::InvalidAction),
+        }
+    });
+    (respond, state)
+}
+
+fn cancel_reply(
+    trade: &mut Traded,
+    request: &Received,
+    to_sender: impl Fn(Action, Option<Payload>) -> Outgoing,
+    notice: impl Fn(PublicKey, Action, Option<Payload>) -> Outgoing,
+) -> Vec<Outgoing> {
+    let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+    if matches!(
+        trade.status,
+        Status::Canceled | Status::CooperativelyCanceled | Status::CanceledByAdmin
+    ) {
+        return refuse(CantDoReason::OrderAlreadyCanceled);
+    }
+    let sender = request.author;
+    let other = [trade.buyer, trade.seller]
+        .into_iter()
+        .flatten()
+        .find(|key| *key != sender);
+    match trade.status {
+        Status::Pending | Status::WaitingTakerBond => {
+            if sender == trade.maker || Some(sender) == trade.taker() {
+                trade.status = Status::Canceled;
+                vec![to_sender(Action::Canceled, None)]
+            } else {
+                refuse(CantDoReason::IsNotYourOrder)
+            }
+        }
+        Status::WaitingPayment | Status::WaitingBuyerInvoice => {
+            if Some(sender) != trade.buyer && Some(sender) != trade.seller {
+                return refuse(CantDoReason::IsNotYourOrder);
+            }
+            trade.status = Status::Canceled;
+            let mut out = vec![to_sender(Action::Canceled, None)];
+            out.extend(other.map(|key| notice(key, Action::Canceled, None)));
+            out
+        }
+        Status::Active | Status::FiatSent | Status::Dispute => {
+            let (Some(other), true) = (
+                other,
+                Some(sender) == trade.buyer || Some(sender) == trade.seller,
+            ) else {
+                return refuse(CantDoReason::InvalidPubkey);
+            };
+            match trade.initiator {
+                None => {
+                    trade.initiator = Some(sender);
+                    vec![
+                        to_sender(Action::CooperativeCancelInitiatedByYou, None),
+                        notice(other, Action::CooperativeCancelInitiatedByPeer, None),
+                    ]
+                }
+                Some(initiator) if initiator == other => {
+                    trade.status = Status::CooperativelyCanceled;
+                    vec![
+                        to_sender(Action::CooperativeCancelAccepted, None),
+                        notice(other, Action::CooperativeCancelAccepted, None),
+                    ]
+                }
+                Some(_) => refuse(CantDoReason::InvalidPubkey),
+            }
+        }
+        _ => refuse(CantDoReason::NotAllowedByStatus),
+    }
+}
+
 // --- The mailbox: messages the node volunteers --------------------------------
 
 /// A message as the relay would hold it after the node sent it to `to`: authored
@@ -778,6 +1001,10 @@ impl FakeMostro {
                         order_id: inner.id,
                         amount,
                         invoice,
+                        next_trade: match &inner.payload {
+                            Some(Payload::NextTrade(key, index)) => Some((key.clone(), *index)),
+                            _ => None,
+                        },
                     };
                     received.lock().unwrap().push(seen.clone());
                     for outgoing in respond(&seen) {

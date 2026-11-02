@@ -150,6 +150,15 @@ pub async fn execute_send_msg(
     Ok(())
 }
 
+/// Whether `fiatsent` and `release` must carry a next trade key: the user made
+/// a range order and its range still has room for another child order.
+fn wants_next_trade(order: &Order) -> bool {
+    matches!(
+        (order.is_mine, order.min_amount, order.max_amount),
+        (Some(_), Some(min), Some(max)) if max - order.fiat_amount >= min
+    )
+}
+
 async fn create_next_trade_payload(
     ctx: &Context,
     order_id: &Option<Uuid>,
@@ -157,17 +166,51 @@ async fn create_next_trade_payload(
     if let Some(order_id) = order_id {
         let order = Order::get_by_id(&ctx.pool, &order_id.to_string()).await?;
 
-        if let (Some(_), Some(min_amount), Some(max_amount)) =
-            (order.is_mine, order.min_amount, order.max_amount)
-        {
-            if max_amount - order.fiat_amount >= min_amount {
-                let (trade_keys, trade_index) = User::get_next_trade_keys(&ctx.pool).await?;
-                return Ok(Some(Payload::NextTrade(
-                    trade_keys.public_key().to_string(),
-                    trade_index.try_into()?,
-                )));
-            }
+        if wants_next_trade(&order) {
+            let (trade_keys, trade_index) = User::get_next_trade_keys(&ctx.pool).await?;
+            return Ok(Some(Payload::NextTrade(
+                trade_keys.public_key().to_string(),
+                trade_index.try_into()?,
+            )));
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn order(is_mine: Option<bool>, range: Option<(i64, i64)>, fiat_amount: i64) -> Order {
+        Order {
+            is_mine,
+            min_amount: range.map(|(min, _)| min),
+            max_amount: range.map(|(_, max)| max),
+            fiat_amount,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_range_order_of_mine_with_room_left_wants_a_next_trade_key() {
+        assert!(wants_next_trade(&order(Some(true), Some((10, 100)), 40)));
+        assert!(wants_next_trade(&order(Some(true), Some((10, 100)), 90)));
+    }
+
+    #[test]
+    fn the_range_is_exhausted_when_less_than_the_minimum_is_left() {
+        assert!(!wants_next_trade(&order(Some(true), Some((10, 100)), 91)));
+        assert!(!wants_next_trade(&order(Some(true), Some((10, 100)), 100)));
+    }
+
+    #[test]
+    fn a_fixed_order_wants_none() {
+        assert!(!wants_next_trade(&order(Some(true), None, 40)));
+    }
+
+    #[test]
+    fn an_unflagged_order_wants_none_and_the_flag_value_is_not_read() {
+        assert!(!wants_next_trade(&order(None, Some((10, 100)), 40)));
+        assert!(wants_next_trade(&order(Some(false), Some((10, 100)), 40)));
+    }
 }

@@ -1781,3 +1781,72 @@ mod message_list_grammar {
         assert!(lookup(&["getdm".to_string()]).is_none());
     }
 }
+
+/// What `fiatsent`, `release` and `cancel` accept today (spec 007, slice 1),
+/// pinned before they are replaced by `order fiat-sent`, `order release` and
+/// `order cancel`.
+mod trade_step_characterization {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands, JsonSupport};
+    use uuid::Uuid;
+
+    const ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+    const STEPS: [(&str, &str); 3] = [
+        ("fiatsent", "order.fiat-sent"),
+        ("release", "order.release"),
+        ("cancel", "order.cancel"),
+    ];
+
+    fn parse(command: &str, args: &[&str]) -> Result<Commands, clap::Error> {
+        let argv = ["mostro-cli", command]
+            .into_iter()
+            .chain(args.iter().copied());
+        Ok(Cli::try_parse_from(argv)?.command.expect("a command"))
+    }
+
+    fn order_id(command: Commands) -> Uuid {
+        match command {
+            Commands::FiatSent { order_id }
+            | Commands::Release { order_id }
+            | Commands::Cancel { order_id } => order_id,
+            _ => panic!("not a trade step"),
+        }
+    }
+
+    #[test]
+    fn each_takes_one_required_order_id_and_the_long_flag_is_squashed() {
+        for (command, _) in STEPS {
+            let short = order_id(parse(command, &["-o", ID]).unwrap());
+            let long = order_id(parse(command, &["--orderid", ID]).unwrap());
+            assert_eq!(short, long, "{command}");
+            assert_eq!(short.to_string(), ID, "{command}");
+            assert!(
+                parse(command, &["--order-id", ID]).is_err(),
+                "{command}: the hyphenated spelling is unknown"
+            );
+            assert!(parse(command, &[]).is_err(), "{command}");
+        }
+    }
+
+    #[test]
+    fn the_order_id_is_a_uuid_in_any_case_and_nothing_else_is_accepted() {
+        for (command, _) in STEPS {
+            let upper = order_id(parse(command, &["-o", &ID.to_uppercase()]).unwrap());
+            assert_eq!(upper.to_string(), ID, "{command}");
+            assert!(parse(command, &["-o", "not-a-uuid"]).is_err(), "{command}");
+            assert!(
+                parse(command, &["-o", ID, "--yes"]).is_err(),
+                "{command}: there is no confirmation flag yet"
+            );
+        }
+    }
+
+    #[test]
+    fn all_three_are_registered_legacy_commands_without_json() {
+        for (name, canonical) in STEPS {
+            let entry = lookup(&[name.to_string()]).expect(name);
+            assert_eq!(entry.canonical, canonical);
+            assert_eq!(entry.json, JsonSupport::Unsupported, "{name}");
+        }
+    }
+}
