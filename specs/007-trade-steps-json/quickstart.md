@@ -1,7 +1,7 @@
 # Validation Guide: Trade Steps
 
 **Status**: Implemented and verified on Linux with loopback relays and a scripted node (evidence in `tests/TEST_SUMMARY.md`); CI is checked after the
-push. Not probed on a real node yet (see the probe procedure below).
+push. Probed on the maintainer's local regtest node on 2026-11-02 (steps 1, 2 and 3 below, and a cooperative cancel; see `tests/TEST_SUMMARY.md`); steps 4 and 5 were not.
 
 ## Focused Commands
 

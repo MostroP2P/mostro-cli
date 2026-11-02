@@ -320,8 +320,7 @@ a command of its own, and a smoother solver-key flow for disputes (`getdm` used 
 
 Reconciliation of the [specification](../specs/007-trade-steps-json/spec.md) with the entries in
 [TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-02. **Automated verification on Linux with loopback relays and a scripted node
-only**; CI (with the CI-hosted Windows runner) is checked after the push. Not run against any real daemon, regtest or public node; the daemon
-behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
+only**; CI (with the CI-hosted Windows runner) is checked after the push. Probed once on a real node (below); the daemon behavior the fake encodes is read from the v0.20.1 source. NIP-42 AUTH is never exercised. Contracts:
 [CLI](../specs/007-trade-steps-json/contracts/cli.md), [data model](../specs/007-trade-steps-json/data-model.md); generated references:
 [discovery](../docs/schemas/discovery-v1.json), [fiat-sent](../docs/schemas/order-fiat-sent-v1.json),
 [release](../docs/schemas/order-release-v1.json) and [cancel](../docs/schemas/order-cancel-v1.json).
@@ -339,9 +338,9 @@ behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3)
 | FR-009 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel sweeps | Verified on Linux |
 | FR-010 legacy arms removed | the removed-spelling cases, `cli/send_msg.rs` serving only `dispute` and the admin commands | Verified on Linux |
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted node |
-| SC-006 no claim about a daemon | none yet | **Open**: the probe in the [quickstart](../specs/007-trade-steps-json/quickstart.md) |
+| SC-006 no claim about a daemon | probe of 2026-11-02 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for a whole trade, the refusals, plain and cooperative cancel; **open** for a range order, `uncertain` and a disputed order |
 
-No scenario above is marked complete by documentation alone. Still open: the regtest probe of a whole trade, spec 008 (range children:
+No scenario above is marked complete by documentation alone. Still open: the rest of the regtest probe (a range order, `uncertain`), spec 008 (range children:
 continuing a range order, which these commands do not do), the MCP `fiat_sent`, `release` and `cancel` migration (they stay broken until then),
 and the duplicate-send risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.
 
