@@ -285,7 +285,7 @@ public node; the daemon behavior the fake encodes is read from the v0.20.1 sourc
 
 No scenario above is marked complete by documentation alone. Still open: the rest of the `order add-invoice` probe
 ([quickstart](../specs/005-invoice-json/quickstart.md)), a slashed bond for `bond add-invoice` (including that the acknowledgement carries no request id), the
-MCP `add_invoice` migration (it stays broken until then), and the duplicate-send risk of an `uncertain` run, which only the caller can check with
+the MCP (which has no invoice tool), and the duplicate-send risk of an `uncertain` run, which only the caller can check with
 `order info --order <id>` (for a bond payout, by waiting for the payout).
 
 ## Message List: Requirement Evidence
@@ -341,6 +341,6 @@ only**; CI (with the CI-hosted Windows runner) is checked after the push. Probed
 | SC-006 no claim about a daemon | probe of 2026-11-02 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for a whole trade, the refusals, plain and cooperative cancel; **open** for a range order, `uncertain` and a disputed order |
 
 No scenario above is marked complete by documentation alone. Still open: the rest of the regtest probe (a range order, `uncertain`), spec 008 (range children:
-continuing a range order, which these commands do not do), the MCP `fiat_sent`, `release` and `cancel` migration (they stay broken until then),
+continuing a range order, which these commands do not do), the MCP (which has no tool for these commands),
 and the duplicate-send risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.
 
