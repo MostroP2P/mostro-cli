@@ -4322,3 +4322,12 @@ Native Linux, rustc 1.97.0, on `develop` after `4a71d3d` (pushed; it also carrie
 - **Mutation spot check**: making `order sync` read the request settings (`resolve_base`) failed the settings test; restored.
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 857 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
 
+## Range Children (spec 008) Slice 6: Docs, Boundaries, Verification: 2026-11-03
+
+Native Linux, rustc 1.97.0, on `develop` after `8229269` (pushed). Lean mode: the only evidence entry for the slice. Documentation only.
+
+- **Docs**: `contracts/cli.md`, `data-model.md` and `quickstart.md` for the spec (focused commands, an offline smoke check that was run and matches, the acceptance matrix, the regtest probe procedure for a sell and a buy range order, the taker case and an exhausted slice, the gates), the requirement-evidence table in `tests/README.md` (FR-001 to FR-007, SC-001 to SC-005), status lines in the spec, plan, tasks, `AGENTS.md` and `docs/ai-development.md`. The command reference, README and architecture were updated in slice 4, and the spec 007 documents in slice 3.
+- **Boundaries**: every file is under the 400-line production limit with imports at the top (`cli/commands.rs` and `store.rs` were split in slice 4 to stay under it) and the source-boundary tests pass; no new direct send, fetch or subscribe.
+- **Open, by design**: SC-005 (no claim about a real node; the probe needs a paying seller and taker on the maintainer's node, and the range buy case in particular), the accepted limits (the maker's local `fiat_amount` is the creation value so a key may be sent when the taken slice leaves no room, one index spent; rows saved before the marker was exact keep the old one), the MCP migration, `rate`, the dispute commands and the solver-key flow. CI (Windows included) is checked after the push.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 857 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+

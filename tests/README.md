@@ -344,3 +344,32 @@ No scenario above is marked complete by documentation alone. Still open: the res
 continuing a range order, which these commands do not do), the MCP (which has no tool for these commands),
 and the duplicate-send risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.
 
+## Range Children: Requirement Evidence
+
+Reconciliation of the [specification](../specs/008-range-children/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-03. **Automated verification on Linux with loopback relays, a scripted node and a
+scripted mailbox only**; CI (with the CI-hosted Windows runner) is checked after the push. Not run against any real daemon, regtest or public node; the
+daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
+[CLI](../specs/008-range-children/contracts/cli.md), [data model](../specs/008-range-children/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json), [order sync](../docs/schemas/order-sync-v1.json) and the amended
+[fiat-sent](../docs/schemas/order-fiat-sent-v1.json) and [release](../docs/schemas/order-release-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 exact maker marker, `range_has_room` needs the user's own | `the_maker_marker_is_exact_...`, `no_range_warning_for_the_taker_...` (before the warning was removed), the marker assertions in the `order new` and `order take-sell` process tests | Verified on Linux |
+| FR-002 key at the maker's own step, index reserved before and spent per the policy | `the_makers_own_step_...`, `no_key_for_...`, `the_index_is_spent_...`, `sends_key` unit tests | Verified on Linux |
+| FR-003 `next_trade_index`, `sync_child_order` | `outcome::step` unit tests, the binary tests, the examples | Verified on Linux |
+| FR-004 `order sync` adds unknown announced orders, idempotent, never replaces, publishes nothing | `tests/sync_process.rs` operation and binary tests | Verified on Linux; the confirmation rule was dropped by amendment |
+| FR-005 data fields, no secrets | the schema and example tests, `no_secret_reaches_a_stream_...` | Verified on Linux |
+| FR-006 statuses, codes, one document, schema, fixtures, examples, drift | `integration_tests` (fixture, 10 examples, 15 invalid variants), the failure matrix | Verified on Linux |
+| FR-007 spec 007 documents amended | the amended spec, data model, contract, command reference and quickstart of spec 007 | Verified by reading |
+| SC-001 a range child is created and usable | `mod children` (the scripted node), `an_adopted_child_can_be_acted_on_at_once` | Verified on Linux against the scripted node |
+| SC-002 no key for a taker, a fixed order, an exhausted range, a cancel | `no_key_for_...` | Verified on Linux |
+| SC-003 `order sync` writes only new rows, idempotent, byte-identical on failure | `a_second_run_...`, `a_known_order_...`, the failure matrix | Verified on Linux |
+| SC-004 human and JSON agree, no secret, CI | the binary tests; CI after the push | Verified on Linux |
+| SC-005 no claim about a daemon | none yet | **Open**: the probe in the [quickstart](../specs/008-range-children/quickstart.md) |
+
+No scenario above is marked complete by documentation alone. Still open: the regtest probe of a range order (sell and buy), and the accepted limits: the
+maker's local `fiat_amount` is the creation value, so the key may be sent when the taken slice leaves no room (one index is spent); rows saved before
+the maker marker was exact keep their old marker; the MCP has no tool for these commands.
+
