@@ -255,7 +255,7 @@ tests/TEST_SUMMARY.md. Read AGENTS.md and the constitution first. The order-info
 order-take features (specs/002-order-info-json, specs/003-order-new-json,
 specs/004-order-take-json) are implemented and probed on regtest (2026-11-01); their open items are the
 bonded and Cashu node cases. The add-invoice commands (specs/005-invoice-json) are implemented against the
-scripted node (`order add-invoice` was probed on regtest) and `message list` (specs/006-message-list-json) against a scripted mailbox (probed once on the bonded regtest node), and `order fiat-sent`, `order release` and `order cancel` (specs/007-trade-steps-json) against the scripted node (probed on regtest except a range order), and range children with `order sync` (specs/008-range-children) against the scripted node and mailbox (not probed). The next work is the MCP
+scripted node (`order add-invoice` was probed on regtest) and `message list` (specs/006-message-list-json) against a scripted mailbox (probed once on the bonded regtest node), and `order fiat-sent`, `order release` and `order cancel` (specs/007-trade-steps-json) against the scripted node (probed on regtest except a range order), and range children with `order sync` (specs/008-range-children) against the scripted node and mailbox (a sell range order probed on regtest; the buy case was not). The next work is the MCP
 migration, the dispute commands (a smoother solver-key flow) or another bounded spec; stop after each slice for review. A run on a developer Windows workstation is optional.
 Use the existing Spec Kit feature; do not regenerate its artifacts.
 Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.

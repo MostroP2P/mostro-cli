@@ -1,7 +1,7 @@
 # Validation Guide: Range Order Children
 
 **Status**: Implemented and verified on Linux with loopback relays, a scripted node and a scripted mailbox (evidence in `tests/TEST_SUMMARY.md`; CI is
-checked after the push). Not probed on a real node: the probe procedure below is open.
+checked after the push). Probed on the maintainer's local regtest node on 2026-11-03 (steps 1, 2 and 4 below, for a sell range order; see `tests/TEST_SUMMARY.md`); steps 3 and 5 are open.
 
 ## Focused Commands
 

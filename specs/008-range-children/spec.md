@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-02
 
-**Status**: Implemented and verified on Linux against a scripted node and mailbox (slices 1-6, 2026-11-03); CI is checked after the push. Not probed on a real node. The maintainer approved the shape including `order sync`. Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented and verified on Linux against a scripted node and mailbox (slices 1-6, 2026-11-03); CI is checked after the push. Probed on the maintainer's local regtest node on 2026-11-03 for a sell range order (see `tests/TEST_SUMMARY.md`); the buy case and an exhausted slice were not. The maintainer approved the shape including `order sync`. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Required follow-up of [trade steps](../007-trade-steps-json/spec.md): continue a range order from the CLI. A maker's range order
 (`order new --fiat-amount 10 --fiat-amount-max 100`) is taken one slice at a time; after each slice the node creates a child order for the rest, but

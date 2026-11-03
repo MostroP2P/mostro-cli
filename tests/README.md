@@ -367,9 +367,9 @@ daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v
 | SC-002 no key for a taker, a fixed order, an exhausted range, a cancel | `no_key_for_...` | Verified on Linux |
 | SC-003 `order sync` writes only new rows, idempotent, byte-identical on failure | `a_second_run_...`, `a_known_order_...`, the failure matrix | Verified on Linux |
 | SC-004 human and JSON agree, no secret, CI | the binary tests; CI after the push | Verified on Linux |
-| SC-005 no claim about a daemon | none yet | **Open**: the probe in the [quickstart](../specs/008-range-children/quickstart.md) |
+| SC-005 no claim about a daemon | probe of 2026-11-03 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for a sell range order (key, child announcement, `order sync`, cancel); **open** for a buy range order and an exhausted slice |
 
-No scenario above is marked complete by documentation alone. Still open: the regtest probe of a range order (sell and buy), and the accepted limits: the
+No scenario above is marked complete by documentation alone. Still open: the regtest probe of a buy range order and of an exhausted slice, and the accepted limits: the
 maker's local `fiat_amount` is the creation value, so the key may be sent when the taken slice leaves no room (one index is spent); rows saved before
 the maker marker was exact keep their old marker; the MCP has no tool for these commands.
 
