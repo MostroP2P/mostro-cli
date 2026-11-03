@@ -780,4 +780,149 @@ mod binary {
         assert_eq!(run.code(), Some(1));
         assert_eq!(outcome(&run)["error"]["code"], "configuration_invalid");
     }
+
+    #[derive(Clone, Copy)]
+    enum Damage {
+        Absent,
+        Garbage,
+        EmptyUsers,
+        NoUsersTable,
+        NullMnemonic,
+    }
+
+    async fn damage(room: &Mailroom, how: Damage) {
+        let path = room.sandbox.mcli_dir().join("mcli.db");
+        let sql = |statement: &'static str| {
+            let path = path.clone();
+            async move {
+                let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+                let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+                sqlx::query(statement).execute(&pool).await.unwrap();
+                pool.close().await;
+            }
+        };
+        match how {
+            Damage::Absent => std::fs::remove_file(&path).unwrap(),
+            Damage::Garbage => std::fs::write(&path, b"this is not a sqlite database").unwrap(),
+            Damage::EmptyUsers => sql("DELETE FROM users").await,
+            Damage::NoUsersTable => sql("DROP TABLE users").await,
+            Damage::NullMnemonic => sql("UPDATE users SET mnemonic = NULL").await,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_damaged_or_empty_identity_is_stable_in_every_mode_and_leaves_no_trace() {
+        let cases = [
+            ("no store", Damage::Absent, "identity_missing"),
+            ("no user", Damage::EmptyUsers, "identity_missing"),
+            ("not a database", Damage::Garbage, "identity_unreadable"),
+            (
+                "no users table",
+                Damage::NoUsersTable,
+                "identity_unreadable",
+            ),
+            ("null mnemonic", Damage::NullMnemonic, "identity_unreadable"),
+        ];
+        for (label, how, code) in cases {
+            let room = Mailroom::with(3, one_child).await;
+            damage(&room, how).await;
+            let before = snapshot(&room);
+            for mode in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
+                let mut args = mode.to_vec();
+                args.extend(["order", "sync"]);
+                let run = run(&room, &args).await;
+                assert_eq!(
+                    run.code(),
+                    Some(1),
+                    "{label} {mode:?}: {}",
+                    run.stderr_text()
+                );
+                for stream in [run.stdout_text(), run.stderr_text()] {
+                    assert!(!stream.contains("127.0.0.1"), "{label}: a relay leaked");
+                }
+                if mode == ["--output", "json"] {
+                    let document = outcome(&run);
+                    conforms_to_the_checked_in_schema(&document);
+                    assert_eq!(document["error"]["code"], code, "{label}");
+                    assert_eq!(document["data"], Value::Null);
+                    assert_eq!(
+                        document["meta"],
+                        json!({"publication": "not_applicable",
+                               "daemon_acceptance": "not_applicable",
+                               "persistence": "not_applicable", "snapshot": null}),
+                        "{label}"
+                    );
+                    assert!(run.stderr.is_empty(), "{label}");
+                } else {
+                    assert!(run.stdout.is_empty(), "{label}");
+                    assert!(run.stderr_text().starts_with("error: "), "{label}");
+                }
+            }
+            assert_eq!(snapshot(&room), before, "{label}: the store changed");
+            assert!(
+                is_empty_dir(&room.sandbox.home()) && is_empty_dir(&room.sandbox.cwd()),
+                "{label}: files were created elsewhere"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_relay_is_a_connection_failure_that_changes_nothing() {
+        let room = Mailroom::with(3, one_child).await;
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("ws://{}", free.local_addr().unwrap());
+        drop(free);
+        let before = snapshot(&room);
+
+        let run = run_env(
+            &room,
+            &["--output", "json", "order", "sync"],
+            &[("RELAYS", dead.as_str())],
+            &[],
+        )
+        .await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        let document = outcome(&run);
+        conforms_to_the_checked_in_schema(&document);
+        assert_eq!(document["error"]["code"], "relay_connection_failed");
+        assert_eq!(document["meta"]["persistence"], "not_attempted");
+        assert!(!run.stderr_text().contains("127.0.0.1"));
+        assert_eq!(snapshot(&room), before);
+    }
+
+    #[tokio::test]
+    async fn work_and_transport_settings_do_not_concern_a_sync() {
+        // It sends nothing, so it does not look at the settings of a request.
+        for flags in [&["--pow", "x"][..], &["--transport", "x"][..]] {
+            let room = Mailroom::with(3, one_child).await;
+            let mut args = vec!["--output", "json"];
+            args.extend(flags);
+            args.extend(["order", "sync"]);
+            let run = run_env(&room, &args, &[("POW", "x"), ("TRANSPORT", "x")], &[]).await;
+            assert_eq!(run.code(), Some(0), "{flags:?}: {}", run.stderr_text());
+            assert_eq!(outcome(&run)["status"], "ok");
+        }
+    }
+
+    #[tokio::test]
+    async fn no_secret_reaches_a_stream_in_any_mode() {
+        for mode in [&["--output", "json", "--verbose"][..], &["--verbose"][..]] {
+            let room = Mailroom::with(3, one_child).await;
+            let secrets = [
+                room.key(3).secret_key().to_secret_hex(),
+                room.identity.secret_key().to_secret_hex(),
+            ];
+            let mut args = mode.to_vec();
+            args.extend(["order", "sync"]);
+            let run = run(&room, &args).await;
+            assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+            for stream in [run.stdout_text(), run.stderr_text()] {
+                for secret in &secrets {
+                    assert!(!stream.contains(secret.as_str()), "a secret key leaked");
+                }
+                assert!(!stream.contains("127.0.0.1"), "a relay address leaked");
+            }
+        }
+    }
 }

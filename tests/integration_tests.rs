@@ -2175,6 +2175,324 @@ mod schema_fixtures {
         }
     }
 
+    // --- Order sync (spec 008) ---
+
+    use mostro_client::outcome::sync::{AdoptedOrder, SyncData, SyncInput};
+
+    const SYNC_COMMAND: &str = "order.sync";
+    const SYNC_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/008-range-children/contracts/examples.json"
+    );
+
+    fn sync_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(SYNC_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn sync_example(name: &str) -> (i32, Value) {
+        sync_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    /// A pending range child of 10 to 60, announced to the key of index 3.
+    fn adopted_child() -> AdoptedOrder {
+        let mut order = pending_order(OrderStatus::Pending);
+        order.min_amount = Some(10);
+        order.max_amount = Some(60);
+        order.fiat_amount = 0;
+        order.amount = 0;
+        AdoptedOrder::new(
+            id(5),
+            &order,
+            (3, &PublicKey::from_hex(TRADE).unwrap()),
+            &mut Warnings::new(),
+        )
+    }
+
+    fn sync_data(
+        adopted: Vec<AdoptedOrder>,
+        read: usize,
+        truncated: bool,
+        keys: (usize, usize),
+    ) -> Value {
+        let input = SyncInput::validate(Some(60)).unwrap();
+        to_value(SyncData::new(
+            &node(),
+            &input,
+            adopted,
+            (read, truncated),
+            keys,
+        ))
+        .unwrap()
+    }
+
+    fn sync_cases() -> Vec<(&'static str, Value, i32)> {
+        let ok = |data: Value, warnings, snapshot, persistence| {
+            to_value(MessageEnvelope::ok(
+                SYNC_COMMAND,
+                data,
+                warnings,
+                ExecutionMeta::sync(Some(snapshot), persistence),
+            ))
+            .unwrap()
+        };
+        let uncertain = |data: Value| {
+            to_value(MessageEnvelope::uncertain(
+                SYNC_COMMAND,
+                ErrorCode::OrderNotSaved,
+                Some(data),
+                Warnings::new(),
+                ExecutionMeta::sync(Some(read_snapshot(2, 2)), Persistence::Failed),
+            ))
+            .unwrap()
+        };
+        let error = |code, meta| {
+            to_value(MessageEnvelope::error(
+                Some(SYNC_COMMAND),
+                code,
+                Warnings::new(),
+                meta,
+            ))
+            .unwrap()
+        };
+        let before_reading = || ExecutionMeta::read(None);
+        let mut limited = Warnings::new();
+        limited.add(mostro_client::outcome::WarningCode::TradeKeysLimited);
+        vec![
+            (
+                "child_order_added",
+                ok(
+                    sync_data(vec![adopted_child()], 4, false, (3, 0)),
+                    Warnings::new(),
+                    read_snapshot(2, 4),
+                    Persistence::Applied,
+                ),
+                0,
+            ),
+            (
+                "nothing_to_add",
+                ok(
+                    sync_data(Vec::new(), 4, false, (3, 0)),
+                    Warnings::new(),
+                    read_snapshot(2, 4),
+                    Persistence::NotAttempted,
+                ),
+                0,
+            ),
+            (
+                "more_messages_and_keys_than_were_read",
+                ok(
+                    sync_data(vec![adopted_child()], 50, true, (200, 50)),
+                    limited,
+                    read_snapshot(2, 50),
+                    Persistence::Applied,
+                ),
+                0,
+            ),
+            (
+                "one_order_saved_and_one_not",
+                uncertain(sync_data(vec![adopted_child()], 2, false, (3, 0))),
+                1,
+            ),
+            (
+                "identity_missing",
+                error(ErrorCode::IdentityMissing, before_reading()),
+                1,
+            ),
+            (
+                "store_unwritable",
+                error(ErrorCode::StoreUnwritable, before_reading()),
+                1,
+            ),
+            (
+                "store_unreadable_after_the_keys",
+                error(
+                    ErrorCode::StoreUnreadable,
+                    ExecutionMeta::sync(None, Persistence::NotAttempted),
+                ),
+                1,
+            ),
+            (
+                "relays_unreachable",
+                error(
+                    ErrorCode::RelayConnectionFailed,
+                    ExecutionMeta::sync(None, Persistence::NotAttempted),
+                ),
+                1,
+            ),
+            (
+                "read_timeout",
+                error(
+                    ErrorCode::ReadTimeout,
+                    ExecutionMeta::sync(Some(read_snapshot(0, 0)), Persistence::NotAttempted),
+                ),
+                1,
+            ),
+            (
+                "window_out_of_range",
+                error(ErrorCode::InvalidArguments, before_reading()),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_sync_examples_conform_to_the_checked_in_schema() {
+        let schema = read_json(SYNC_FIXTURE);
+        let examples = sync_examples();
+        assert_eq!(examples.len(), 10);
+        for (name, exit, outcome) in examples {
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            // Data on a success, and on the one uncertain outcome that saved rows.
+            assert_eq!(
+                !outcome["data"].is_null(),
+                matches!(
+                    name.as_str(),
+                    "child_order_added"
+                        | "nothing_to_add"
+                        | "more_messages_and_keys_than_were_read"
+                        | "one_order_saved_and_one_not"
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn sync_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = sync_cases();
+        assert_eq!(cases.len(), sync_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = sync_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_sync_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "child_order_added",
+                "a numeric trade index",
+                Box::new(|o| o["data"]["adopted"][0]["trade_index"] = json!(3)),
+            ),
+            (
+                "child_order_added",
+                "an uppercase trade key",
+                Box::new(|o| o["data"]["adopted"][0]["trade_pubkey"] = json!(TRADE.to_uppercase())),
+            ),
+            (
+                "child_order_added",
+                "an order without an id",
+                Box::new(|o| {
+                    o["data"]["adopted"][0]["order"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("id");
+                }),
+            ),
+            (
+                "child_order_added",
+                "a count that is a number",
+                Box::new(|o| o["data"]["messages_read"] = json!(4)),
+            ),
+            (
+                "child_order_added",
+                "a missing truncation flag",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("truncated");
+                }),
+            ),
+            (
+                "child_order_added",
+                "a published request",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "child_order_added",
+                "rows saved but not applied",
+                Box::new(|o| o["meta"]["persistence"] = json!("not_applicable")),
+            ),
+            (
+                "child_order_added",
+                "no snapshot",
+                Box::new(|o| o["meta"]["snapshot"] = Value::Null),
+            ),
+            (
+                "nothing_to_add",
+                "a failed write on a success",
+                Box::new(|o| o["meta"]["persistence"] = json!("failed")),
+            ),
+            (
+                "more_messages_and_keys_than_were_read",
+                "a warning of another command",
+                Box::new(|o| o["warnings"][0]["code"] = json!("trade_index_not_recorded")),
+            ),
+            (
+                "one_order_saved_and_one_not",
+                "a plain error status",
+                Box::new(|o| o["status"] = json!("error")),
+            ),
+            (
+                "one_order_saved_and_one_not",
+                "a code that is an error only",
+                Box::new(|o| o["error"]["code"] = json!("identity_missing")),
+            ),
+            (
+                "one_order_saved_and_one_not",
+                "persistence that did not fail",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "identity_missing",
+                "a node refusal",
+                Box::new(|o| o["error"]["code"] = json!("node_refused")),
+            ),
+            (
+                "read_timeout",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"adopted": []})),
+            ),
+        ];
+        let schema = read_json(SYNC_FIXTURE);
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = sync_example(case);
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
+
     // --- Invoice commands (spec 005) ---
 
     const INVOICE_EXAMPLES: &str = concat!(

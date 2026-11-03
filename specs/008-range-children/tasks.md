@@ -16,7 +16,7 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
 - [x] **3. Key and index in the steps.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`) The conditions of the spec, the index policy (reserved before, spent after), `next_trade_index`,
   `next_step` `sync_child_order`, the range warning only for inexact rows; operation and binary tests.
 - [x] **4. `order sync`.** (done 2026-11-02; evidence in `tests/TEST_SUMMARY.md`; the examples file is slice 5) Outcomes, schema, the operation against the scripted mailbox, the command, human output, fixtures, discovery.
-- [ ] **5. Failure matrix and examples.** Identity, configuration, store, relay, unwritable streams, sentinels; `contracts/examples.json`.
+- [x] **5. Failure matrix and examples.** (done 2026-11-03; evidence in `tests/TEST_SUMMARY.md`) Identity, configuration, store, relay, unwritable streams, sentinels; `contracts/examples.json`.
 - [ ] **6. Docs, boundaries, verification.** Architecture, command reference, README, requirement evidence, quickstart with the regtest probe
   procedure for a range order; the probe stays open until separately authorized.
 
