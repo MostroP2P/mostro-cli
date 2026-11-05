@@ -3837,6 +3837,8 @@ mod ci_wiring {
         assert!(macos.contains("runs-on: macos-latest"));
         assert!(macos.contains("--target aarch64-apple-darwin"));
         assert!(macos.contains("--target x86_64-apple-darwin"));
+        // The job runs third-party build scripts: they must not reach the checkout token.
+        assert!(macos.contains("persist-credentials: false"));
     }
 
     #[test]
