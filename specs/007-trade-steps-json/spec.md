@@ -51,7 +51,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
 - **FR-002**: Identity from the existing store, read-only; none means `identity_missing`. The trade key comes from the stored row; an unknown
   order or a row without a key is `order_unknown` and nothing is published.
 - **FR-003**: Confirmation as clarified above; the preview shows the command, the order id and the trade public key.
-- **FR-004**: Exactly one signed request is published, no retry. The trade index is never changed.
+- **FR-004**: Exactly one signed request is published, no retry. The trade index is never changed, except by the continuation of a range order (spec 008) (amended 2026-11-05 by spec 008).
 - **FR-005**: The reply is selected by node author, addressee (the trade key), allowed actions and the request id (the node echoes it to the
   sender in all three source paths, so there is no order-id fallback); the order the reply names is checked afterwards. Armed before publishing, bounded by a deadline, released on every
   exit, through `msg::exchange`. Allowed: `fiat-sent` -> `fiat-sent-ok`, `cant-do`; `release` -> `hold-invoice-payment-settled`, `released`
@@ -76,7 +76,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
 - **SC-001**: Against the scripted daemon, each accepted reply (including both cooperative-cancel steps) yields one valid document and one
   published request, with the local status updated; every refusal, silence and argument failure yields one document with its code and exit.
 - **SC-002**: Without `--yes`, JSON mode does nothing and never reads stdin.
-- **SC-003**: Every failure leaves the database byte-identical; the trade index never changes.
+- **SC-003**: Every failure leaves the database byte-identical; the trade index never changes (a range continuation, spec 008, reserves and may give back an index) (amended 2026-11-05 by spec 008).
 - **SC-004**: A reply for another addressee, another author or with another request id is ignored; a reply naming another order is `reply_malformed`.
 - **SC-005**: Human and JSON agree on every field; no secret sentinel appears in a diagnostic stream; Linux and the CI Windows runner pass.
 - **SC-006**: Nothing about a real daemon is claimed until a separately authorized regtest probe is recorded. The probe can walk a whole trade

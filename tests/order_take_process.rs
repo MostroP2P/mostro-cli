@@ -574,12 +574,10 @@ mod operation {
     }
 
     async fn take(taker: &Taker, input: &OrderTakeInput) -> TakeOutcome {
-        let trade = taker.store.next_trade().await.unwrap();
         order_take(
             input,
             &taker.config,
             &taker.identity,
-            &trade,
             &taker.store,
             WriteOptions {
                 pow: 0,
@@ -616,6 +614,15 @@ mod operation {
         (
             scalar(taker, "SELECT COUNT(*) FROM orders").await,
             scalar(taker, "SELECT COALESCE(last_trade_index, 0) FROM users").await,
+        )
+    }
+
+    /// The order rows and the raw recorded index (`None` when never set): what
+    /// a failure after the reservation, which gives the index back, leaves.
+    async fn raw_state(taker: &Taker) -> (i64, Option<i64>) {
+        (
+            scalar(taker, "SELECT COUNT(*) FROM orders").await,
+            scalar(taker, "SELECT last_trade_index FROM users").await,
         )
     }
 
@@ -938,7 +945,6 @@ mod operation {
     #[tokio::test]
     async fn work_the_node_expects_stops_the_take_before_anything_is_sent_or_written() {
         let taker = with_book(sell_book(), 0, false, 9).await;
-        let before = std::fs::read(taker.sandbox.mcli_dir().join("mcli.db")).unwrap();
 
         let outcome = take(&taker, &input(TakeSide::Sell, id(1), None, None)).await;
 
@@ -950,11 +956,9 @@ mod operation {
                    "persistence": "not_attempted", "snapshot": null})
         );
         assert!(taker.fake.received().is_empty());
-        assert_eq!(state(&taker).await, (0, 0));
-        assert_eq!(
-            std::fs::read(taker.sandbox.mcli_dir().join("mcli.db")).unwrap(),
-            before
-        );
+        // The index was reserved and given back: the values are restored
+        // exactly (NULL included), though the file was written.
+        assert_eq!(raw_state(&taker).await, (0, None));
     }
 
     // --- The binary (slice 4b) ------------------------------------------------
@@ -1217,7 +1221,7 @@ mod operation {
     #[tokio::test]
     async fn a_refusal_shows_its_reason_in_both_modes_and_spends_nothing() {
         let taker = with_book(sell_book(), 5, false, 0).await;
-        let before = snapshot(&taker);
+        let before = raw_state(&taker).await;
 
         let json = run(
             &taker,
@@ -1238,8 +1242,14 @@ mod operation {
             human.stderr_text(),
             "error: The node refused the request. (reason: invalid_trade_index)\n"
         );
-        assert_eq!(snapshot(&taker), before);
-        assert_eq!(taker.fake.received().len(), 2, "one request per run");
+        // The index of each run was reserved and given back.
+        assert_eq!(raw_state(&taker).await, before);
+        let seen = taker.fake.received();
+        assert_eq!(seen.len(), 2, "one request per run");
+        assert_eq!(
+            (seen[0].trade_index, seen[1].trade_index),
+            (Some(1), Some(1))
+        );
     }
 
     #[tokio::test]
@@ -1425,6 +1435,9 @@ mod operation {
         /// Global flags placed before the command.
         flags: &'static [&'static str],
         code: &'static str,
+        /// The failure comes after the trade was reserved (and given back):
+        /// the orders and the raw index are compared instead of the bytes.
+        reserved: bool,
     }
 
     impl Failing {
@@ -1436,6 +1449,15 @@ mod operation {
                 unset: &[],
                 flags: &[],
                 code,
+                reserved: false,
+            }
+        }
+
+        /// A failure inside the exchange, after the reservation.
+        const fn after_reservation(label: &'static str, code: &'static str) -> Self {
+            Self {
+                reserved: true,
+                ..Self::new(label, Tweak::None, code)
             }
         }
     }
@@ -1463,6 +1485,11 @@ mod operation {
     async fn check_failure(case: &Failing, taker: &Taker) {
         tweak(taker, case.tweak).await;
         let before = snapshot(taker);
+        let state_before = if case.reserved {
+            Some(raw_state(taker).await)
+        } else {
+            None
+        };
         let label = case.label;
         for command in ["take-sell", "take-buy"] {
             for mode in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
@@ -1521,7 +1548,9 @@ mod operation {
             taker.fake.received().is_empty(),
             "{label}: something was sent"
         );
-        if !matches!(case.tweak, Tweak::ReadOnly) {
+        if let Some(state) = state_before {
+            assert_eq!(raw_state(taker).await, state, "{label}: the store changed");
+        } else if !matches!(case.tweak, Tweak::ReadOnly) {
             assert_eq!(snapshot(taker), before, "{label}: the store changed");
         }
         assert!(
@@ -1601,7 +1630,7 @@ mod operation {
         let (respond, book) = take_daemon(Book::default(), false);
         let old = taker_with(respond, book, 1, 0, false).await;
         check_failure(
-            &Failing::new("protocol 1", Tweak::None, "protocol_unsupported"),
+            &Failing::after_reservation("protocol 1", "protocol_unsupported"),
             &old,
         )
         .await;
@@ -1609,7 +1638,7 @@ mod operation {
         let (respond, book) = take_daemon(Book::default(), false);
         let work = taker_with(respond, book, 2, 9, false).await;
         check_failure(
-            &Failing::new("more work expected", Tweak::None, "pow_required"),
+            &Failing::after_reservation("more work expected", "pow_required"),
             &work,
         )
         .await;
@@ -1640,11 +1669,11 @@ mod operation {
         let (respond, book) = take_daemon(Book::default(), false);
         let taker = taker_with(respond, book, 2, 0, true).await;
         check_failure(
-            &Failing::new("rejected", Tweak::None, "request_rejected"),
+            &Failing::after_reservation("rejected", "request_rejected"),
             &taker,
         )
         .await;
-        assert_eq!(state(&taker).await, (0, 0));
+        assert_eq!(raw_state(&taker).await, (0, None));
     }
 
     #[tokio::test]
@@ -1653,7 +1682,7 @@ mod operation {
         let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let dead = format!("ws://{}", free.local_addr().unwrap());
         drop(free);
-        let before = snapshot(&taker);
+        let before = raw_state(&taker).await;
 
         let run = run_env(
             &taker,
@@ -1669,7 +1698,7 @@ mod operation {
         assert_eq!(outcome["status"], "error");
         assert_eq!(outcome["meta"]["publication"], "not_attempted");
         assert!(!run.stderr_text().contains("127.0.0.1"));
-        assert_eq!(snapshot(&taker), before);
+        assert_eq!(raw_state(&taker).await, before, "the index was given back");
     }
 
     #[tokio::test]

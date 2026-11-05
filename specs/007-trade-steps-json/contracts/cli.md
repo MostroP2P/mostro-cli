@@ -21,7 +21,7 @@ public key and asks; the `release` preview says it cannot be undone.
 
 ## Outcomes
 
-See the [data model](../data-model.md). The trade index is advanced only for the key of a range order's maker step. `uncertain` means the node may have
+See the [data model](../data-model.md). The trade index is advanced only for the key of a range order's maker step, before publishing (amended 2026-11-05 by spec 008). `uncertain` means the node may have
 acted: the program does not retry; the caller checks `order info --order <id>` before sending again.
 
 ## Range orders
@@ -32,8 +32,9 @@ See [spec 008](../../008-range-children/spec.md). On a range order the user made
 
 ## Human output
 
-One block: a title for the result, the order id, the trade public key and a next-step sentence. The warnings `trade_index_not_recorded` and
-`local_status_stale` are fixed lines on stderr. `--verbose` prints one line `verbose: <command> <code or ok>`; diagnostics never include keys,
+One block: a title for the result, the order id, the trade public key and a next-step sentence. The warning `local_status_stale` is a fixed
+line on stderr (`trade_index_not_recorded` was removed: the index of a range continuation is recorded before publishing; amended 2026-11-05 by
+spec 008). `--verbose` prints one line `verbose: <command> <code or ok>`; diagnostics never include keys,
 relays or arguments.
 
 ## Stable errors

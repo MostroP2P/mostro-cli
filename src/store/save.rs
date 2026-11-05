@@ -4,6 +4,7 @@
 use mostro_core::order::SmallOrder;
 use sqlx::SqlitePool;
 
+use super::reserve::RAISE;
 use super::{Role, StoreError, Trade};
 
 /// What to do with a row that already exists.
@@ -71,7 +72,9 @@ pub(super) async fn save_in(
         .map_err(unwritable)?
         .rows_affected()
         > 0;
-    sqlx::query("UPDATE users SET last_trade_index = ?1 WHERE COALESCE(last_trade_index, 0) < ?1")
+    // A guard that changes nothing in practice: a published index was recorded
+    // when it was reserved, and `order sync` adopts only derived indexes.
+    sqlx::query(RAISE)
         .bind(trade.index)
         .execute(&mut *transaction)
         .await

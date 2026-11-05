@@ -319,6 +319,37 @@ pub async fn run_with_watchdog(mut command: Command, limit: Duration) -> io::Res
     })
 }
 
+/// Start `command`, poll `published` and kill the child as soon as it holds:
+/// a run that dies after its request left, as a crash, a kill or Ctrl-C
+/// leaves it. `true` when `published` held before the kill; `false` when the
+/// child ended first or `limit` elapsed. The child is reaped either way.
+pub async fn kill_once_published(
+    mut command: Command,
+    published: impl Fn() -> bool,
+    limit: Duration,
+) -> io::Result<bool> {
+    let mut child = command.spawn()?;
+    drop(child.stdin.take());
+    let seen = timeout(limit, async {
+        loop {
+            if published() {
+                return true;
+            }
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or(false);
+    if child.id().is_some() {
+        // `kill` waits for the exit, so the process is reaped here.
+        child.kill().await?;
+    }
+    Ok(seen)
+}
+
 pub fn read_all<R>(pipe: Option<R>) -> JoinHandle<io::Result<Vec<u8>>>
 where
     R: AsyncRead + Unpin + Send + 'static,

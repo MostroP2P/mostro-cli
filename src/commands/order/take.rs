@@ -2,36 +2,41 @@
 //!
 //! One signed take goes out through `msg::exchange`, signed by a fresh trade
 //! key under the identity seal, and the reply is mapped to what the node asked
-//! the taker to do next. The local state is written afterwards by the same
-//! rules as `order.new` (see [`super::write`]): the order and the trade index
-//! together when the node accepted, the index alone whenever the take was
-//! published and not refused. The take is never retried. The command prints
-//! nothing and never touches a client.
+//! the taker to do next. The index follows the same rules as `order.new` (see
+//! [`super::write`]): reserved, and so recorded as spent, right before
+//! publishing, given back when the take never left or was refused; the order
+//! row is written when the node accepted. The take is never retried. The
+//! command prints nothing and never touches a client.
 
 use mostro_core::prelude::{Action, Message, Payload};
 use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
 pub use super::new::UNCERTAIN_CODES;
-use super::write::{self, Sent};
+use super::write::{self, reserve_code, Sent};
 use super::WriteOptions;
 use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
 use crate::outcome::take::{OrderTakeData, OrderTakeInput, TakeSide, Taken};
 use crate::outcome::{Envelope, ErrorCode, Warnings};
-use crate::store::{Role, Store, Trade};
+use crate::store::{Role, Store};
 
 pub type TakeOutcome = Envelope<OrderTakeData, ()>;
 
-/// Take `input` from the node, signing with `trade` under `identity`.
+/// Take `input` from the node, signing with the next trade key under
+/// `identity`, reserved here right before publishing as for `order.new`.
 pub async fn order_take(
     input: &OrderTakeInput,
     config: &PublicReadConfig,
     identity: &Keys,
-    trade: &Trade,
     store: &Store,
     options: WriteOptions,
     limits: &ExchangeLimits,
 ) -> TakeOutcome {
+    let reservation = match store.reserve_trade().await {
+        Ok(reservation) => reservation,
+        Err(error) => return unsent(input.side(), reserve_code(error), Warnings::new()),
+    };
+    let trade = &reservation.trade;
     let request_id = Uuid::new_v4().as_u128() as u64;
     let request = Message::new_order(
         Some(input.order()),
@@ -60,7 +65,7 @@ pub async fn order_take(
     };
     let sent = Sent {
         command: input.side().command(),
-        trade,
+        reservation: &reservation,
         store,
         request_id,
         role: Role::Taker,
@@ -84,7 +89,7 @@ async fn answer(
 ) -> TakeOutcome {
     let kind = exchanged.reply().get_inner_message_kind();
     let taken = match (input.side(), &kind.action, &kind.payload) {
-        (_, Action::CantDo, payload) => return sent.refused(payload),
+        (_, Action::CantDo, payload) => return sent.refused(payload).await,
         (_, Action::PayBondInvoice, Some(Payload::PaymentRequest(Some(order), invoice, _))) => {
             Taken::PayBond(order.clone(), invoice.clone())
         }
@@ -99,17 +104,17 @@ async fn answer(
             Action::PayInvoice,
             Some(Payload::PaymentRequest(Some(order), invoice, _)),
         ) => Taken::PayInvoice(order.clone(), invoice.clone()),
-        _ => return sent.malformed().await,
+        _ => return sent.malformed(),
     };
     match OrderTakeData::from_taken(
         &config.mostro_pubkey(),
         input,
         &taken,
-        sent.trade.index,
-        &sent.trade.keys.public_key(),
+        sent.reservation.trade.index,
+        &sent.reservation.trade.keys.public_key(),
     ) {
         Some((data, order, warnings)) => sent.saved(&order, data, warnings).await,
-        None => sent.malformed().await,
+        None => sent.malformed(),
     }
 }
 

@@ -1527,8 +1527,174 @@ mod operation {
         assert!(holder.fake.received().is_empty());
     }
 
+    // --- The index is reserved before publishing (spec 008, slice 7) ---
+
+    /// The seller-maker of two range orders whose fiat was sent.
+    fn selling_two_ranges(me: PublicKey, other: PublicKey) -> Vec<Traded> {
+        [id(1), id(2)]
+            .map(|order| {
+                Traded::active(order, me, other)
+                    .ranged(10, 100, 40)
+                    .with_status(Status::FiatSent)
+            })
+            .to_vec()
+    }
+
+    /// The step daemon, except that the requester hears nothing: only the
+    /// child's announcement to its new key goes out. A `new-order` is answered
+    /// as the order daemon does.
+    fn unheard_steps_and_orders(steps: Respond) -> Respond {
+        let (orders, _) = fake_mostro::new_order_daemon(0, false);
+        Arc::new(move |request: &Received| {
+            if request.action == Action::NewOrder {
+                return orders(request);
+            }
+            steps(request)
+                .into_iter()
+                .filter(|out| out.message.get_inner_message_kind().action == Action::NewOrder)
+                .collect()
+        })
+    }
+
+    /// The orders `order sync` adopts (id, index, key), read until one comes or
+    /// a few seconds pass: the node's announcement may still be on its way.
+    async fn sync_until_adopted(holder: &Holder) -> Vec<(String, String, String)> {
+        use mostro_client::commands::order::sync::order_sync;
+        use mostro_client::msg::ReadLimits;
+        use mostro_client::outcome::sync::SyncInput;
+
+        let limits = ReadLimits {
+            connect: Duration::from_secs(2),
+            read: Duration::from_millis(1_500),
+            cleanup: Duration::from_millis(500),
+            ..ReadLimits::default()
+        };
+        let input = SyncInput::validate(None).unwrap();
+        for _ in 0..12 {
+            let outcome = order_sync(
+                &input,
+                &holder.config,
+                &holder.store,
+                &limits,
+                chrono::Utc::now(),
+            )
+            .await;
+            let adopted: Vec<_> = outcome.data().map_or_else(Vec::new, |data| {
+                data.adopted()
+                    .iter()
+                    .map(|order| {
+                        (
+                            order.order().id().to_string(),
+                            order.trade_index().to_string(),
+                            order.trade_pubkey().to_string(),
+                        )
+                    })
+                    .collect()
+            });
+            if !adopted.is_empty() {
+                return adopted;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        Vec::new()
+    }
+
     #[tokio::test]
-    async fn a_trade_index_that_cannot_be_recorded_is_a_warning_on_an_accepted_step() {
+    async fn a_continuation_killed_after_publishing_keeps_its_index_and_sync_adopts_the_child() {
+        // The node creates the child and announces it to the new key, but the
+        // run dies before it hears the answer (a crash, a kill, Ctrl-C).
+        let holder = holder(selling_range, 0, unheard_steps_and_orders).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let release = command(
+            &holder,
+            &step_args(&["--output", "json"], "release", &["--yes"]),
+        );
+
+        let killed =
+            harness::kill_once_published(release, || !holder.fake.received().is_empty(), WATCHDOG)
+                .await
+                .unwrap();
+
+        assert!(killed, "the release was published before the kill");
+        let (key, index) = sent_key(&holder).expect("a next trade key");
+        assert_eq!(i64::from(index), before + 1);
+        assert_eq!(
+            last_index(&holder).await,
+            before + 1,
+            "the index was recorded before publishing"
+        );
+        assert_eq!(
+            sync_until_adopted(&holder).await,
+            [(
+                child_id(id(1)).to_string(),
+                (before + 1).to_string(),
+                key.clone()
+            )],
+            "order sync derives the child's key and adopts it"
+        );
+        let new = run(
+            &holder,
+            &[
+                "--output",
+                "json",
+                "order",
+                "new",
+                "--side",
+                "sell",
+                "--currency",
+                "USD",
+                "--fiat-amount",
+                "100",
+                "--payment-method",
+                "bank transfer",
+                "--yes",
+            ],
+        )
+        .await;
+        assert_eq!(new.code(), Some(0), "{}", new.stderr_text());
+        let seen = holder.fake.received();
+        let order = seen.last().unwrap();
+        assert_eq!(order.action, Action::NewOrder);
+        assert_eq!(order.trade_index, Some(before + 2), "the next order");
+        assert_ne!(order.author.to_hex(), key, "never the child's key");
+        assert_eq!(last_index(&holder).await, before + 2);
+    }
+
+    #[tokio::test]
+    async fn two_continuations_at_once_never_share_an_index() {
+        let holder = holder(selling_two_ranges, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+
+        let (first, second) = tokio::join!(
+            take(&holder, StepKind::Release, id(1)),
+            take(&holder, StepKind::Release, id(2))
+        );
+
+        for outcome in [&first, &second] {
+            assert_eq!(
+                outcome.status(),
+                Outcome::Ok,
+                "{:?}",
+                serde_json::to_value(outcome)
+            );
+        }
+        let mut sent: Vec<(String, u32)> = holder
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.next_trade.clone().expect("a next trade key"))
+            .collect();
+        sent.sort_by_key(|(_, index)| *index);
+        let indexes: Vec<i64> = sent.iter().map(|(_, index)| i64::from(*index)).collect();
+        assert_eq!(indexes, [before + 1, before + 2], "two indexes, not one");
+        assert_ne!(sent[0].0, sent[1].0, "two keys");
+        assert_eq!(last_index(&holder).await, before + 2);
+    }
+
+    #[tokio::test]
+    async fn an_index_that_cannot_be_reserved_stops_the_step_before_anything_is_sent() {
         let holder = holder(selling_range, 0, |respond| respond).await;
         sql(&holder, RANGE).await;
         sql(
@@ -1537,16 +1703,20 @@ mod operation {
              BEGIN SELECT RAISE(ABORT, 'frozen'); END",
         )
         .await;
-        let before = last_index(&holder).await;
+        let before = database(&holder);
 
         let outcome = take(&holder, StepKind::Release, id(1)).await;
 
-        assert_eq!(outcome.status(), Outcome::Ok);
-        assert_eq!(stages(&outcome), meta("published", "accepted", "failed"));
-        assert_eq!(warnings(&outcome), ["trade_index_not_recorded"]);
-        assert_eq!(last_index(&holder).await, before, "nothing was recorded");
-        assert_eq!(status_of(&holder, id(1)).await, "settled-hold-invoice");
-        assert_eq!(holder.fake.received().len(), 1, "never retried");
+        assert_eq!(outcome.status(), Outcome::Error);
+        assert_eq!(code(&outcome), Some(ErrorCode::StoreUnwritable));
+        assert_eq!(
+            stages(&outcome),
+            meta("not_attempted", "unknown", "not_attempted")
+        );
+        assert!(warnings(&outcome).is_empty());
+        assert!(holder.fake.received().is_empty(), "nothing was sent");
+        assert_eq!(database(&holder), before, "nothing changed");
+        assert_eq!(status_of(&holder, id(1)).await, "fiat-sent");
     }
 
     // --- The binary (slice 4b) ---

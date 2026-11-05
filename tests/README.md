@@ -212,7 +212,7 @@ references: [discovery](../docs/schemas/discovery-v1.json) and [order new](../do
 | FR-001 options, validation, removed spellings | `order_new_grammar`, `outcome::new` unit tests, `invalid_input_is_an_argument_error_...` | Verified on Linux |
 | FR-002 existing identity only, nothing created | the identity cases of `failures_before_any_request_...` | Verified on Linux |
 | FR-003 `--yes` in JSON, prompt in human, declined is a stable outcome | `json_without_yes_...`, `the_prompt_accepts_y_and_blank_...` | Verified on Linux |
-| FR-004 one request, trade key, index reserved late | `an_accepted_order_is_returned_and_saved_...`, the exchange and store tests, refusal and local-failure cases that leave the index unspent | Verified on Linux |
+| FR-004 one request, trade key, index reserved late | `an_accepted_order_is_returned_and_saved_...`, the exchange and store tests, refusal and local-failure cases that leave the index unspent; amended 2026-11-05 by spec 008 (recorded before publishing): `a_run_killed_after_publishing_...`, `two_runs_at_once_...`, the reservation store tests | Verified on Linux |
 | FR-005 correlation, deadline, cleanup | the `exchange` tests incl. a reply addressed to the identity never heard | Verified on Linux |
 | FR-006 save with the index, `order_not_saved` | the store transaction tests, `an_order_that_cannot_be_saved_...` (twice, two failure shapes) | Verified on Linux |
 | FR-007, FR-008 statuses, stages, stable codes, timeout is `uncertain` | `outcome::new` schema tests, the binary scenarios, `failures_before_any_request_...` | Verified on Linux, except: no process-level `internal_error`; a relay that drops the wait is covered only at the `exchange` level |
@@ -242,7 +242,7 @@ public node; the daemon behavior the fake encodes is read from the v0.20.1 sourc
 | FR-001 options, validation, removed spellings | `order_take_grammar`, `outcome::take` unit tests, `invalid_input_is_an_argument_error_...` | Verified on Linux |
 | FR-002 existing identity only, nothing created | the identity cases of `failures_before_any_request_...` (both takes) | Verified on Linux |
 | FR-003 `--yes` in JSON, prompt in human, declined is a stable outcome | `json_without_yes_does_nothing_...`, `the_prompt_accepts_y_and_blank_...` | Verified on Linux |
-| FR-004 one request, trade key, index reserved late, no extra read | the operation tests, the refusal and local-failure cases that leave the index unspent, one request per run | Verified on Linux |
+| FR-004 one request, trade key, index reserved late, no extra read | the operation tests, the refusal and local-failure cases that leave the index unspent (given back since 2026-11-05, spec 008), one request per run | Verified on Linux |
 | FR-005 correlation, deadline, cleanup | the `exchange` tests of `order new` and the replies that do not fit the take | Verified on Linux |
 | FR-006 next step as data, hold invoice only in the result | the three success tests, `a_take_buy_returns_the_hold_invoice_...`, the stream sweeps | Verified on Linux |
 | FR-007 row and index saved together, minimal row, unsaved is `uncertain` | the operation tests, both unsaved-take tests | Verified on Linux |
@@ -348,7 +348,7 @@ and the duplicate-send risk of an `uncertain` run, which only the caller can che
 ## Range Children: Requirement Evidence
 
 Reconciliation of the [specification](../specs/008-range-children/spec.md) with the entries in
-[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-03. **Automated verification on Linux with loopback relays, a scripted node and a
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-7), as of 2026-11-05. **Automated verification on Linux with loopback relays, a scripted node and a
 scripted mailbox only**; CI (with the CI-hosted Windows runner) is checked after the push. Not run against any real daemon, regtest or public node; the
 daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
 [CLI](../specs/008-range-children/contracts/cli.md), [data model](../specs/008-range-children/data-model.md); generated references:
@@ -358,7 +358,7 @@ daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v
 | Requirement | Evidence | Status |
 | --- | --- | --- |
 | FR-001 exact maker marker, `range_has_room` needs the user's own | `the_maker_marker_is_exact_...`, `no_range_warning_for_the_taker_...` (before the warning was removed), the marker assertions in the `order new` and `order take-sell` process tests | Verified on Linux |
-| FR-002 key at the maker's own step, index reserved before and spent per the policy | `the_makers_own_step_...`, `no_key_for_...`, `the_index_is_spent_...`, `sends_key` unit tests | Verified on Linux |
+| FR-002 key at the maker's own step, index recorded before publishing and given back only after a refusal or a request that never left (slice 7) | `the_makers_own_step_...`, `no_key_for_...`, `the_index_is_spent_...`, `an_index_that_cannot_be_reserved_...`, `sends_key` unit tests | Verified on Linux |
 | FR-003 `next_trade_index`, `sync_child_order` | `outcome::step` unit tests, the binary tests, the examples | Verified on Linux |
 | FR-004 `order sync` adds unknown announced orders, idempotent, never replaces, publishes nothing | `tests/sync_process.rs` operation and binary tests | Verified on Linux; the confirmation rule was dropped by amendment |
 | FR-005 data fields, no secrets | the schema and example tests, `no_secret_reaches_a_stream_...` | Verified on Linux |
@@ -369,6 +369,7 @@ daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v
 | SC-003 `order sync` writes only new rows, idempotent, byte-identical on failure | `a_second_run_...`, `a_known_order_...`, the failure matrix | Verified on Linux |
 | SC-004 human and JSON agree, no secret, CI | the binary tests; CI after the push | Verified on Linux |
 | SC-005 no claim about a daemon | probe of 2026-11-03 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for a sell range order (key, child announcement, `order sync`, cancel); **open** for a buy range order and an exhausted slice |
+| SC-006 a killed run never reuses its key, concurrent runs never share an index, every writer only raises it (slice 7) | `a_continuation_killed_after_publishing_...`, `a_run_killed_after_publishing_...` (SIGKILL/TerminateProcess of the real binary after the node received the request), `two_continuations_at_once_...`, `two_runs_at_once_...`, `concurrent_reservations_...` (32), `a_reservation_that_cannot_commit_...`, `a_give_back_restores_...`, `last_trade_index_never_lowers_...`, the raise-only legacy save | Verified on Linux against the scripted node; not on a real node; the Windows runner is checked after the push |
 
 No scenario above is marked complete by documentation alone. Still open: the regtest probe of a buy range order and of an exhausted slice, and the accepted limits: the
 maker's local `fiat_amount` is the creation value, so the key may be sent when the taken slice leaves no room (one index is spent); rows saved before

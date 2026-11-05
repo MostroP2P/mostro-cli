@@ -36,13 +36,15 @@ ls -A "$T"                    # empty
 | Accepted order, JSON `--yes` | `ok`, one request, row and index saved together, document conforms to `order-new-v1.json`, no secret in any stream | `json_with_yes_creates_one_order_...` |
 | JSON without `--yes` | `invalid_arguments` exit 2, nothing sent, store untouched | `json_without_yes_does_nothing_at_all` |
 | Prompt | blank, `y`, `Y`+CRLF accept; `n`, other text, empty input and closed stdin decline with nothing sent | `the_prompt_accepts_y_and_blank_...` |
-| Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, nothing written | `a_refusal_shows_its_reason_...` |
+| Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, no row, the index given back (amended 2026-11-05 by spec 008) | `a_refusal_shows_its_reason_...` |
 | No reply | `uncertain` / `reply_timeout` after 15 s, one request, index spent, no order row | `a_silent_node_is_uncertain_...` |
 | Unusable reply | `uncertain` / `reply_malformed`, index spent | `silence_and_an_odd_reply_...` |
 | Bonded node | `ok` / `pay_bond_invoice`, bond invoice in `data.payment_request`, row and index saved | `a_bonded_node_returns_the_bond_invoice_...` |
-| Accepted but not saved | `uncertain` / `order_not_saved` with the node's order, index still spent | `an_order_that_cannot_be_saved_...`, `a_failed_order_save_still_spends_...` |
+| Accepted but not saved | `uncertain` / `order_not_saved` with the node's order, index spent before publishing | `an_order_that_cannot_be_saved_...`, `a_failed_order_save_still_spends_...` |
 | Range order | `min`/`max` on the wire with fiat amount 0, both bounds saved | `a_range_order_reaches_the_node_...` |
-| Local failures (identity, configuration, protocol, work, rejected relay, unreachable relay, unwritable store) | `error`, `not_attempted`, no request, store byte-identical, no sentinel | `failures_before_any_request_...` and the tests beside it |
+| Local failures before the reservation (identity, configuration, unwritable store) | `error`, `not_attempted`, no request, store byte-identical, no sentinel | `failures_before_any_request_...`, `a_store_that_cannot_be_written_...` |
+| Failures after the reservation that send nothing (protocol, work, rejected relay, unreachable relay) (amended 2026-11-05 by spec 008) | `error`, `not_attempted`, no request, orders and raw trade index unchanged (index given back), no sentinel | `a_node_that_cannot_be_served_...`, `a_relay_that_rejects_...`, `an_unreachable_relay_...` |
+| Killed after publishing; two runs at once (amended 2026-11-05 by spec 008) | the index is recorded before publishing: the next run uses a new key and `order sync` adopts the orphaned order; concurrent runs use two indexes | `a_run_killed_after_publishing_...`, `two_runs_at_once_...`, `concurrent_reservations_...` |
 | Invalid input | exit 2, resolved command `order.new` (`null` for `neworder`), nothing echoed | `invalid_input_is_an_argument_error_...` |
 | Unwritable streams | exit 1 with one fixed line; the document is unaffected by a closed stderr | the two stream tests |
 | Discovery and drift | `order.new` listed with generated schemas; fixtures current; boundaries and CI wiring green | `integration_tests` |

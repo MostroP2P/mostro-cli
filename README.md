@@ -559,7 +559,7 @@ Use this when the database is gone. It recovers your **identity**, not your loca
    mostro-cli getlasttradeindex
    ```
 
-   Trade keys are derived from an incrementing index, and the daemon rejects an index it has already seen. A freshly restored database starts back at index 1, so without this sync your next order is refused. The command asks Mostro for your real last index and writes it back to the local database.
+   Trade keys are derived from an incrementing index, and the daemon rejects an index it has already seen. A freshly restored database starts back at index 1, so without this sync your next order is refused. The command asks Mostro for your real last index and writes it back to the local database; it only ever raises the local index (the node does not count the keys of range children, so a lower answer is ignored).
 
 6. **Ask Mostro what you have open:**
 

@@ -1,11 +1,12 @@
 //! `order.new`: publish one order to the node and keep what it created.
 //!
 //! One signed `new-order` goes out through `msg::exchange`, signed by a fresh
-//! trade key under the identity seal. The reply is mapped to a typed outcome and
-//! the local state is written afterwards: the order row and the trade index
-//! together when the node created the order, the index alone whenever the
-//! request was published and the node did not provably refuse it, so the next
-//! order never reuses a key the node may have seen. The request is never
+//! trade key under the identity seal. The trade index is reserved first, and
+//! so recorded as spent before anything is published (see [`super::write`]):
+//! the next order never reuses a key the node may have seen, even when this
+//! run dies before the reply. The reply is mapped to a typed outcome and the
+//! order row is written afterwards when the node created the order; a request
+//! that never left and a refusal give the index back. The request is never
 //! retried. The command prints nothing and never touches a client.
 
 use chrono::Utc;
@@ -13,12 +14,12 @@ use mostro_core::prelude::{Action, Message, Payload};
 use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
-use super::write::{self, Sent};
+use super::write::{self, reserve_code, Sent};
 use super::WriteOptions;
 use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
 use crate::outcome::new::{OrderNewData, OrderNewInput};
 use crate::outcome::{Envelope, ErrorCode, Warnings};
-use crate::store::{Role, Store, Trade};
+use crate::store::{Role, Store};
 
 pub const COMMAND: &str = "order.new";
 
@@ -37,16 +38,24 @@ pub const UNCERTAIN_CODES: [ErrorCode; 6] = [
     ErrorCode::OrderNotSaved,
 ];
 
-/// Create `input` on the node, signing with `trade` under `identity`.
+/// Create `input` on the node, signing with the next trade key under
+/// `identity`. The trade is reserved here, after every local check and the
+/// confirmation, right before publishing; the outcome reports the index and
+/// key it got, which is the previewed one unless another command reserved one
+/// meanwhile.
 pub async fn order_new(
     input: &OrderNewInput,
     config: &PublicReadConfig,
     identity: &Keys,
-    trade: &Trade,
     store: &Store,
     options: NewOptions,
     limits: &ExchangeLimits,
 ) -> NewOutcome {
+    let reservation = match store.reserve_trade().await {
+        Ok(reservation) => reservation,
+        Err(error) => return unsent(reserve_code(error), Warnings::new()),
+    };
+    let trade = &reservation.trade;
     let request_id = Uuid::new_v4().as_u128() as u64;
     let request = Message::new_order(
         None,
@@ -69,7 +78,7 @@ pub async fn order_new(
     };
     let sent = Sent {
         command: COMMAND,
-        trade,
+        reservation: &reservation,
         store,
         request_id,
         role: Role::Maker,
@@ -92,11 +101,11 @@ async fn answer(sent: &Sent<'_>, config: &PublicReadConfig, exchanged: &Exchange
             match OrderNewData::from_created(
                 &config.mostro_pubkey(),
                 order,
-                sent.trade.index,
-                &sent.trade.keys.public_key(),
+                sent.reservation.trade.index,
+                &sent.reservation.trade.keys.public_key(),
             ) {
                 Some((data, warnings)) => sent.saved(order, data, warnings).await,
-                None => sent.malformed().await,
+                None => sent.malformed(),
             }
         }
         (Action::PayBondInvoice, Some(Payload::PaymentRequest(Some(order), invoice, _)))
@@ -106,15 +115,15 @@ async fn answer(sent: &Sent<'_>, config: &PublicReadConfig, exchanged: &Exchange
                 &config.mostro_pubkey(),
                 order,
                 invoice,
-                sent.trade.index,
-                &sent.trade.keys.public_key(),
+                sent.reservation.trade.index,
+                &sent.reservation.trade.keys.public_key(),
             ) {
                 Some((data, warnings)) => sent.saved(order, data, warnings).await,
-                None => sent.malformed().await,
+                None => sent.malformed(),
             }
         }
-        (Action::CantDo, payload) => sent.refused(payload),
-        _ => sent.malformed().await,
+        (Action::CantDo, payload) => sent.refused(payload).await,
+        _ => sent.malformed(),
     }
 }
 

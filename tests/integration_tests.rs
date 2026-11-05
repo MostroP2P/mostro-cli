@@ -2453,7 +2453,7 @@ mod schema_fixtures {
             (
                 "more_messages_and_keys_than_were_read",
                 "a warning of another command",
-                Box::new(|o| o["warnings"][0]["code"] = json!("trade_index_not_recorded")),
+                Box::new(|o| o["warnings"][0]["code"] = json!("local_status_stale")),
             ),
             (
                 "one_order_saved_and_one_not",
@@ -3649,6 +3649,39 @@ mod source_boundaries {
             checked >= 12,
             "only {checked} files matched the boundary list"
         );
+    }
+
+    /// Files that may reserve a trade index: the operations that publish a
+    /// request carrying a fresh trade key.
+    const RESERVERS: [&str; 3] = [
+        "commands/order/new.rs",
+        "commands/order/step.rs",
+        "commands/order/take.rs",
+    ];
+
+    #[test]
+    fn a_published_trade_index_is_always_reserved_never_peeked() {
+        // An operation that published a peeked index could reuse a key after a
+        // crash or share one with a concurrent run (spec 008, slice 7).
+        let mut reservers = Vec::new();
+        for source in sources() {
+            for (number, line) in source.code() {
+                if source.path.starts_with("commands/") {
+                    assert!(
+                        !line.contains(".next_trade("),
+                        "{}:{number}: an operation peeks the trade index: {}",
+                        source.path,
+                        line.trim()
+                    );
+                }
+                if line.contains("reserve_trade(") && !source.path.starts_with("store") {
+                    reservers.push(source.path.clone());
+                }
+            }
+        }
+        reservers.sort();
+        reservers.dedup();
+        assert_eq!(reservers, RESERVERS);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use mostro_core::order::Kind;
 
 use super::commands::NewArgs;
 use super::invocation::OutputMode;
-use super::write::{confirmed, finish, needs_yes, refuse, resolve};
+use super::write::{confirmed, finish, needs_yes, preview_trade, refuse, resolve_base};
 use super::Cli;
 use crate::commands::order::new::{order_new, NewOutcome, COMMAND};
 use crate::msg::ExchangeLimits;
@@ -32,15 +32,19 @@ async fn outcome(cli: &Cli, args: &NewArgs, output: OutputMode) -> NewOutcome {
     let Ok(input) = validate(args) else {
         return refuse(COMMAND, ErrorCode::InvalidArguments);
     };
-    let resolved = match resolve(cli).await {
-        Ok(resolved) => resolved,
+    let base = match resolve_base(cli, true).await {
+        Ok(base) => base,
         Err(code) => return refuse(COMMAND, code),
     };
     if !args.yes {
+        let trade = match preview_trade(&base.store).await {
+            Ok(trade) => trade,
+            Err(code) => return refuse(COMMAND, code),
+        };
         let preview = render_preview(
             &input,
-            &resolved.trade.index.to_string(),
-            &resolved.trade.keys.public_key().to_hex(),
+            &trade.index.to_string(),
+            &trade.keys.public_key().to_hex(),
         );
         if !confirmed(&preview, "Create this order?") {
             return refuse(COMMAND, ErrorCode::OrderDeclined);
@@ -48,11 +52,10 @@ async fn outcome(cli: &Cli, args: &NewArgs, output: OutputMode) -> NewOutcome {
     }
     order_new(
         &input,
-        &resolved.config,
-        &resolved.identity,
-        &resolved.trade,
-        &resolved.store,
-        resolved.options,
+        &base.config,
+        &base.identity,
+        &base.store,
+        base.options,
         &ExchangeLimits::default(),
     )
     .await

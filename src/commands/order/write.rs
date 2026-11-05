@@ -1,9 +1,10 @@
 //! The outcomes every command that publishes one request and writes locally
 //! shares: what to report, and what to record, for each way the exchange can
-//! end. The index policy lives here: the trade index is spent whenever the
-//! request was published and the node did not provably refuse it, so a key the
-//! node may have seen is never reused; a refusal and a request that never left
-//! spend nothing.
+//! end. The index policy lives here: the trade index is reserved, and so
+//! recorded as spent, right before publishing, so a key the node may have seen
+//! is never reused, even when the run dies before the reply. A request that
+//! never left and a refusal give it back, unless another command reserved one
+//! meanwhile (the index is then skipped, which is harmless).
 
 use mostro_core::order::SmallOrder;
 use mostro_core::prelude::{CantDoReason, Payload};
@@ -12,12 +13,13 @@ use crate::msg::ExchangeFailure;
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Warnings,
 };
-use crate::store::{Role, Store, Trade};
+use crate::store::{Reservation, Role, Store, StoreError};
 
 /// What a write command knows about the request it published.
 pub(super) struct Sent<'a> {
     pub command: &'static str,
-    pub trade: &'a Trade,
+    /// The trade the request carries, already recorded as spent.
+    pub reservation: &'a Reservation,
     pub store: &'a Store,
     pub request_id: u64,
     /// Whose order a saved row is.
@@ -25,24 +27,18 @@ pub(super) struct Sent<'a> {
 }
 
 impl Sent<'_> {
-    /// The index is spent: record it without an order. `Applied` or `Failed`.
-    pub async fn spend_index(&self) -> Persistence {
-        match self.store.advance(self.trade.index).await {
-            Ok(()) => Persistence::Applied,
-            Err(_) => Persistence::Failed,
-        }
-    }
-
-    /// No reply was obtained. Nothing published is a plain error; anything
-    /// else may have reached the node.
+    /// No reply was obtained. Nothing published is a plain error and gives the
+    /// index back; anything else may have reached the node, which may hold the
+    /// key, so the index stays spent.
     pub async fn failed<D>(&self, failure: &ExchangeFailure) -> Envelope<D, ()> {
         if failure.publication() == Publication::NotAttempted {
+            self.store.release(self.reservation).await;
             return unsent(self.command, failure.code(), failure.warnings().clone());
         }
         let meta = ExecutionMeta::write(
             failure.publication(),
             failure.daemon_acceptance(),
-            self.spend_index().await,
+            Persistence::Applied,
         );
         Envelope::uncertain(
             self.command,
@@ -53,12 +49,13 @@ impl Sent<'_> {
         )
     }
 
-    /// The node answered but not with a usable reply: it may hold the request.
-    pub async fn malformed<D>(&self) -> Envelope<D, ()> {
+    /// The node answered but not with a usable reply: it may hold the request,
+    /// so the index stays spent.
+    pub fn malformed<D>(&self) -> Envelope<D, ()> {
         let meta = ExecutionMeta::write(
             Publication::Published,
             DaemonAcceptance::Unknown,
-            self.spend_index().await,
+            Persistence::Applied,
         );
         Envelope::uncertain(
             self.command,
@@ -69,8 +66,10 @@ impl Sent<'_> {
         )
     }
 
-    /// The node refused: nothing is written.
-    pub fn refused<D>(&self, payload: &Option<Payload>) -> Envelope<D, ()> {
+    /// The node refused before acting: the index is given back and nothing
+    /// else is written.
+    pub async fn refused<D>(&self, payload: &Option<Payload>) -> Envelope<D, ()> {
+        self.store.release(self.reservation).await;
         let meta = ExecutionMeta::write(
             Publication::Published,
             DaemonAcceptance::Rejected,
@@ -79,7 +78,8 @@ impl Sent<'_> {
         Envelope::refused(Some(self.command), &reason(payload), Warnings::new(), meta)
     }
 
-    /// The node accepted: keep `order` with the index in one transaction.
+    /// The node accepted: keep `order` under the reserved trade. A failed save
+    /// leaves the index spent; only the row is missing.
     pub async fn saved<D>(
         &self,
         order: &SmallOrder,
@@ -95,22 +95,28 @@ impl Sent<'_> {
         };
         match self
             .store
-            .save_order_as(order, self.trade, self.request_id, self.role)
+            .save_order_as(order, &self.reservation.trade, self.request_id, self.role)
             .await
         {
             Ok(()) => Envelope::ok(self.command, data, warnings, accepted(Persistence::Applied)),
-            Err(_) => {
-                // The transaction left nothing behind; at least spend the index.
-                let _ = self.spend_index().await;
-                Envelope::uncertain(
-                    self.command,
-                    ErrorCode::OrderNotSaved,
-                    Some(data),
-                    warnings,
-                    accepted(Persistence::Failed),
-                )
-            }
+            Err(_) => Envelope::uncertain(
+                self.command,
+                ErrorCode::OrderNotSaved,
+                Some(data),
+                warnings,
+                accepted(Persistence::Failed),
+            ),
         }
+    }
+}
+
+/// The code of an unsent outcome when no trade could be reserved. The
+/// reservation never reports `Unreadable`; it is `store_unwritable` here too,
+/// a code both commands document.
+pub(super) fn reserve_code(error: StoreError) -> ErrorCode {
+    match error {
+        StoreError::Missing => ErrorCode::IdentityMissing,
+        StoreError::Unwritable | StoreError::Unreadable => ErrorCode::StoreUnwritable,
     }
 }
 

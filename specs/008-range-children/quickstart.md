@@ -10,6 +10,7 @@ From the CLI root:
 ```sh
 cargo test --locked --test sync_process                # order sync: operation, binary, failure matrix
 cargo test --locked --test step_process                # keys and indexes in the steps, children of the scripted node
+cargo test --locked --test order_new_process store::    # the reservation: recorded, given back, concurrent, blocked (slice 7)
 cargo test --locked --test cli_functions order_sync    # grammar and registry
 cargo test --locked --lib sync                         # input, data, schema rules
 cargo test --locked --test integration_tests sync      # fixture, 10 examples, invalid variants, drift
@@ -35,7 +36,7 @@ ls -A "$T"                                      # empty
 | --- | --- | --- |
 | Maker marker | `order new` saves the user's own order, `order take-*` does not; only the maker's range has room | `the_maker_marker_is_exact_...`, the take and new process tests |
 | Key and index in the steps | a seller's `release` and a buyer's `fiat-sent` on a range order carry a key at the next index; nothing for a taker, a fixed order, an exhausted range, the wrong step or a cancel | `the_makers_own_step_...`, `no_key_for_...` |
-| Index policy | kept on a refusal and when nothing left; spent on silence, an unusable reply and an accepted step; an unrecordable index is `trade_index_not_recorded` | `the_index_is_spent_...`, `a_trade_index_that_cannot_be_recorded_...` |
+| Index policy (amended 2026-11-05 by spec 008, slice 7) | recorded before publishing; given back on a refusal and when nothing left; kept on silence, an unusable reply and an accepted step; an unreservable index sends nothing (`store_unwritable`); a killed run never reuses its key; concurrent runs never share one | `the_index_is_spent_...`, `an_index_that_cannot_be_reserved_...`, `a_continuation_killed_after_publishing_...`, `two_continuations_at_once_...` |
 | The node creates children | a scripted range order creates its child for the key it was given, equal remainder fixed, below minimum none | `mod children` |
 | `order sync` adds an unknown announced order | a row with the key of its index, the user's own marker, usable at once | `an_announced_order_...`, `an_adopted_child_can_be_acted_on_at_once` |
 | Idempotent, never replaces | a second run saves nothing and changes no byte; a known order keeps its row | `a_second_run_...`, `a_known_order_is_never_replaced` |

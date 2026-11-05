@@ -14,7 +14,9 @@ the index policy from `order new`, `cli/write.rs`, the envelope and the schema g
 1. **Maker marker.** `save_order` takes whether the order is the user's (`order new` true, `order take-*` false); `range_has_room` requires it.
    Adjust the callers and tests; the scripted-daemon tests that seed rows state the marker.
 2. **Key and index.** `commands/order/step.rs`: when `kind`, the stored order's kind and `is_mine` call for it (new `Store::range_step_needs_key`),
-   take `store.next_trade()` before publishing, add the payload, and after the exchange spend the index like `Sent::spend_index`. `StepData` carries
+   take `store.next_trade()` before publishing, add the payload, and after the exchange spend the index like `Sent::spend_index` (amended
+   2026-11-05 by spec 008, slice 7: `store.reserve_trade()` records the index before publishing; a refusal or a request that never left gives it
+   back). `StepData` carries
    `next_trade_index` (already in the schema) and the new `next_step` value `sync_child_order`.
 3. **Adoption.** `commands/order/sync.rs`: resolve keys with `Store::trade_keys`, read the inbox, keep `new-order` messages whose order is unknown,
    save each with `Store::save_order` (a variant that takes the key by index). `outcome/sync.rs`, `cli/sync.rs`, `parse_human/sync.rs`.

@@ -1,12 +1,12 @@
-//! The one local write of a request that creates an order: the order row and
-//! the trade index.
+//! The local writes of the requests that create or continue an order: the
+//! trade index, reserved before publishing (`store/reserve.rs`), and the order row.
 //!
 //! Unlike [`crate::identity`], this module opens `mcli.db` for writing, but it
 //! never creates it, never changes permissions and never migrates. Every
 //! operation opens the existing file, does one thing and closes it, so a failed
 //! run leaves no connection or sidecar file behind. Errors carry no text from
 //! the store. The trade key and index come from the same derivation as the rest
-//! of the program ([`User::get_next_trade_keys`]).
+//! of the program ([`crate::identity::trade_keys_from_mnemonic`]).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -19,8 +19,12 @@ use uuid::Uuid;
 
 use crate::db::User;
 use crate::identity::{open_mode, resolve_dir, OpenMode};
+pub(crate) use reserve::raise_index_in;
+pub use reserve::Reservation;
+use reserve::{release_in, reserve_in};
 use save::{save_in, Existing};
 
+mod reserve;
 mod save;
 
 /// `is_mine`, `min_amount`, `max_amount`, `fiat_amount` and `kind` of a stored order.
@@ -197,8 +201,10 @@ impl Store {
         result
     }
 
-    /// The trade key and index the next order would use: the recorded index plus
-    /// one. Writes nothing.
+    /// The trade key and index the next reservation would get: the recorded
+    /// index plus one. Writes nothing. Only for the human preview: a request
+    /// publishes the trade of [`Store::reserve_trade`], which is this one unless
+    /// another command reserved one meanwhile.
     pub async fn next_trade(&self) -> Result<Trade, StoreError> {
         let pool = self.open().await?;
         let trade = User::get_next_trade_keys(&pool).await;
@@ -208,13 +214,26 @@ impl Store {
             .map_err(|_| StoreError::Unwritable)
     }
 
-    /// Record that `index` is spent without saving an order, so the next order
-    /// uses a fresh key. Never moves the recorded index backwards.
-    pub async fn advance(&self, index: i64) -> Result<(), StoreError> {
+    /// Reserve the next trade right before publishing: its index is recorded as
+    /// spent, and committed, before this returns. Call it after every local
+    /// check and the confirmation; never hold it across a prompt.
+    pub async fn reserve_trade(&self) -> Result<Reservation, StoreError> {
         let pool = self.open().await?;
-        let result = advance_in(&pool, index).await;
+        let reserved = reserve_in(&pool).await;
         pool.close().await;
-        result
+        reserved
+    }
+
+    /// Give `reservation` back once its request provably had no effect (it
+    /// never left, or the node refused it). Best effort: `false` leaves the
+    /// index spent, a harmless gap.
+    pub async fn release(&self, reservation: &Reservation) -> bool {
+        let Ok(pool) = self.open().await else {
+            return false;
+        };
+        let released = release_in(&pool, reservation).await;
+        pool.close().await;
+        released
     }
 
     /// The trade keys of the newest `newest` indexes up to the recorded last
@@ -365,27 +384,4 @@ async fn derive_trade_keys(pool: &SqlitePool, newest: usize) -> Result<TradeKeys
     }
     let not_read = usize::try_from(first - 1).unwrap_or(0);
     Ok(TradeKeys { keys, not_read })
-}
-
-async fn advance_in(pool: &SqlitePool, index: i64) -> Result<(), StoreError> {
-    let done = sqlx::query(
-        "UPDATE users SET last_trade_index = ?1 \
-         WHERE COALESCE(last_trade_index, 0) < ?1",
-    )
-    .bind(index)
-    .execute(pool)
-    .await
-    .map_err(|_| StoreError::Unwritable)?;
-    // Nothing changed is fine when the index was already recorded; a missing
-    // user row is not.
-    if done.rows_affected() == 0 {
-        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| StoreError::Unwritable)?;
-        if rows == 0 {
-            return Err(StoreError::Missing);
-        }
-    }
-    Ok(())
 }

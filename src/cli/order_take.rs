@@ -5,7 +5,7 @@
 
 use super::commands::{TakeBuyArgs, TakeSellArgs};
 use super::invocation::OutputMode;
-use super::write::{confirmed, finish, needs_yes, refuse, resolve};
+use super::write::{confirmed, finish, needs_yes, preview_trade, refuse, resolve_base};
 use super::Cli;
 use crate::commands::order::take::{order_take, TakeOutcome};
 use crate::msg::ExchangeLimits;
@@ -53,15 +53,19 @@ async fn outcome(cli: &Cli, request: TakeRequest, yes: bool, output: OutputMode)
     let Ok(input) = OrderTakeInput::validate(request) else {
         return refuse(command, ErrorCode::InvalidArguments);
     };
-    let resolved = match resolve(cli).await {
-        Ok(resolved) => resolved,
+    let base = match resolve_base(cli, true).await {
+        Ok(base) => base,
         Err(code) => return refuse(command, code),
     };
     if !yes {
+        let trade = match preview_trade(&base.store).await {
+            Ok(trade) => trade,
+            Err(code) => return refuse(command, code),
+        };
         let preview = render_take_preview(
             &input,
-            &resolved.trade.index.to_string(),
-            &resolved.trade.keys.public_key().to_hex(),
+            &trade.index.to_string(),
+            &trade.keys.public_key().to_hex(),
         );
         if !confirmed(&preview, "Take this order?") {
             return refuse(command, ErrorCode::OrderDeclined);
@@ -69,11 +73,10 @@ async fn outcome(cli: &Cli, request: TakeRequest, yes: bool, output: OutputMode)
     }
     order_take(
         &input,
-        &resolved.config,
-        &resolved.identity,
-        &resolved.trade,
-        &resolved.store,
-        resolved.options,
+        &base.config,
+        &base.identity,
+        &base.store,
+        base.options,
         &ExchangeLimits::default(),
     )
     .await

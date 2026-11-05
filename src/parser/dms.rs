@@ -10,13 +10,13 @@ use nostr_sdk::prelude::*;
 
 use crate::{
     cli::Context,
-    db::{is_row_not_found, Order, User},
+    db::{is_row_not_found, Order},
     parser::common::{
         format_timestamp, print_amount_info, print_fiat_code, print_order_count,
         print_payment_method, print_premium, print_required_amount, print_section_header,
         print_success_message, print_trade_index,
     },
-    util::{fetch_bond_claim_window_days, save_order},
+    util::{fetch_bond_claim_window_days, raise_trade_index, save_order},
 };
 #[cfg(test)]
 use rstest::rstest;
@@ -896,20 +896,17 @@ pub async fn print_commands_results(message: &MessageKind, ctx: &Context) -> Res
             }
         }
         Action::LastTradeIndex => {
-            let last_trade_index = message
+            let node = message
                 .trade_index
                 .ok_or_else(|| anyhow!("Mostro reply is missing the last trade index"))?;
-            let mut user = User::get(&ctx.pool).await.map_err(|error| {
-                anyhow!(error)
-                    .context("Failed to load the local user for trade-index synchronization")
-            })?;
-            user.set_last_trade_index(last_trade_index);
-            user.save(&ctx.pool).await.map_err(|error| {
-                anyhow!(error)
-                    .context("Mostro returned the trade index, but saving it locally failed")
+            let local = raise_trade_index(&ctx.pool, node).await.map_err(|error| {
+                error.context("Mostro returned the trade index, but saving it locally failed")
             })?;
             print_section_header("🔢 Last Trade Index Updated");
-            print_trade_index(last_trade_index as u64);
+            print_trade_index(local as u64);
+            if local > node {
+                println!("💡 The node reports {node}; the local index stays at {local}.");
+            }
             print_success_message("Trade index synchronized successfully!");
             Ok(())
         }
@@ -1217,6 +1214,7 @@ pub async fn print_direct_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::User;
     use sqlx::SqlitePool;
 
     #[test]
@@ -1466,15 +1464,40 @@ mod tests {
 
         if reject_update {
             let error = result.expect_err("a failed index update must not report success");
-            assert!(format!("{error:#}").contains("injected user update failure"));
+            let error = format!("{error:#}");
+            assert!(error.contains("saving it locally failed"), "{error}");
+            assert!(error.contains("could not record trade index 7"), "{error}");
             assert_eq!(User::get(&pool).await.unwrap().last_trade_index, Some(3));
         } else if !create_user {
             let error = result.expect_err("a missing local user must not report success");
-            assert!(error.to_string().contains("local user"));
+            assert!(format!("{error:#}").contains("local user"), "{error:#}");
         } else {
             result.unwrap();
             assert_eq!(User::get(&pool).await.unwrap().last_trade_index, Some(7));
         }
+    }
+
+    #[tokio::test]
+    async fn last_trade_index_never_lowers_the_local_index() {
+        // The node counts only the indexes of `new-order` and the takes, never
+        // the key of a range child, so a lower answer must not move ours back.
+        let mostro = Keys::generate();
+        let trade = Keys::generate();
+        let pool = memory_pool().await;
+        let ctx = test_ctx(pool.clone(), &mostro, &trade).await;
+        query(
+            "INSERT INTO users (i0_pubkey, mnemonic, last_trade_index, created_at)
+             VALUES (?, 'not-a-mnemonic-test-fixture', 7, 0)",
+        )
+        .bind(trade.public_key().to_hex())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let message = MessageKind::new(None, Some(1), Some(3), Action::LastTradeIndex, None);
+
+        print_commands_results(&message, &ctx).await.unwrap();
+
+        assert_eq!(User::get(&pool).await.unwrap().last_trade_index, Some(7));
     }
 
     #[tokio::test]

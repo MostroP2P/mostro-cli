@@ -31,7 +31,8 @@ amounts). A rejection by the daemon is `node_refused` with its reason.
 
 `persistence` says whether the local write the outcome calls for happened: `applied` (the order row and index, or only the index
 when there is no order to save), `failed`, or `not_attempted` when no write is called for (a refusal, a local failure). The trade
-index is advanced whenever the request was published and not provably rejected.
+index is recorded before the request is published and given back after a refusal or a request that never left, so it stays spent
+exactly when the request was published and not provably rejected (amended 2026-11-05 by spec 008).
 
 | Case | status | code | publication | daemon_acceptance | persistence |
 | --- | --- | --- | --- | --- | --- |

@@ -39,12 +39,13 @@ ls -A "$T"                                           # empty
 | Range take | the amount reaches the node, the document and the row | `the_amount_of_a_range_take_...` |
 | JSON without `--yes` | `invalid_arguments` exit 2, nothing sent, store untouched, both sides | `json_without_yes_does_nothing_...` |
 | Prompt | blank, `y`, `Y`+CRLF accept; `n`, other text, empty input and closed stdin decline with nothing sent | `the_prompt_accepts_y_and_blank_...` |
-| Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, nothing written | `a_refusal_shows_its_reason_...` |
+| Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, no row, the index given back (amended 2026-11-05 by spec 008) | `a_refusal_shows_its_reason_...` |
 | No reply | `uncertain` / `reply_timeout` after 15 s, one request, index spent, no row | `a_silent_node_is_uncertain_...` |
 | Unusable reply (another order, wrong action for the side) | `uncertain` / `reply_malformed`, index spent | `replies_that_do_not_fit_the_take_...` |
 | Bonded node | `ok` / `pay_bond_invoice`, bond invoice in `data.payment_request`, row and index saved | `a_bonded_node_returns_the_bond_invoice_...` |
-| Accepted but not saved | `uncertain` / `order_not_saved` with the data (hold invoice included), index still spent | `a_take_that_cannot_be_saved_...`, `an_accepted_take_that_cannot_be_saved_...` |
-| Local failures (identity, configuration, protocol, work, rejected and unreachable relay, unwritable store) on both takes | `error`, `not_attempted`, no request, store byte-identical, no sentinel, relay address or hold invoice | `failures_before_any_request_...` and the tests beside it |
+| Accepted but not saved | `uncertain` / `order_not_saved` with the data (hold invoice included), index spent before publishing | `a_take_that_cannot_be_saved_...`, `an_accepted_take_that_cannot_be_saved_...` |
+| Local failures before the reservation (identity, configuration, unwritable store) on both takes | `error`, `not_attempted`, no request, store byte-identical, no sentinel, relay address or hold invoice | `failures_before_any_request_...`, `a_store_that_cannot_be_written_...` |
+| Failures after the reservation that send nothing (protocol, work, rejected and unreachable relay) on both takes (amended 2026-11-05 by spec 008) | `error`, `not_attempted`, no request, orders and raw trade index unchanged (index given back), no sentinel, relay address or hold invoice | `a_node_that_cannot_be_served_...`, `a_relay_that_rejects_...`, `an_unreachable_relay_...` |
 | Invalid input | exit 2, resolved command (`null` for `takesell`/`takebuy`), nothing echoed | `invalid_input_is_an_argument_error_...` |
 | Unwritable streams | exit 1 with one fixed line; the document is unaffected by a closed stderr | the two stream tests |
 | Discovery and drift | both commands listed with generated schemas; fixtures current; boundaries and CI wiring green | `integration_tests` |

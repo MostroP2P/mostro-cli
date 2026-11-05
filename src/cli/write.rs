@@ -23,16 +23,8 @@ use crate::outcome::{
 use crate::parse_machine::emit;
 use crate::store::{Store, StoreError, Trade};
 
-/// Configuration, identity, store and the next trade, all checked.
-pub(super) struct Resolved {
-    pub config: PublicReadConfig,
-    pub options: WriteOptions,
-    pub identity: Keys,
-    pub store: Store,
-    pub trade: Trade,
-}
-
-/// Configuration, identity and store, all checked; no trade is reserved.
+/// Configuration, identity and store, all checked; no trade is reserved (the
+/// operation reserves its own, right before publishing).
 pub(super) struct Base {
     pub config: PublicReadConfig,
     pub options: WriteOptions,
@@ -88,18 +80,12 @@ pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, Erro
     })
 }
 
-/// [`resolve_base`] with a writable store, then the key and index of the next
-/// trade.
-pub(super) async fn resolve(cli: &Cli) -> Result<Resolved, ErrorCode> {
-    let base = resolve_base(cli, true).await?;
-    let trade = base.store.next_trade().await.map_err(store_code)?;
-    Ok(Resolved {
-        config: base.config,
-        options: base.options,
-        identity: base.identity,
-        store: base.store,
-        trade,
-    })
+/// The key and index the human preview shows: a peek that writes nothing,
+/// taken only when a question is asked. The request reserves its own trade
+/// after the answer; it is this one unless another command reserved one
+/// meanwhile, and the result reports the one actually used.
+pub(super) async fn preview_trade(store: &Store) -> Result<Trade, ErrorCode> {
+    store.next_trade().await.map_err(store_code)
 }
 
 fn store_code(error: StoreError) -> ErrorCode {

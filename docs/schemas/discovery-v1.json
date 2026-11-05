@@ -2562,8 +2562,7 @@
             "enum": [
               "invalid_event_timestamp",
               "cleanup_incomplete",
-              "local_status_stale",
-              "trade_index_not_recorded"
+              "local_status_stale"
             ],
             "type": "string"
           },
@@ -3191,8 +3190,7 @@
             "enum": [
               "invalid_event_timestamp",
               "cleanup_incomplete",
-              "local_status_stale",
-              "trade_index_not_recorded"
+              "local_status_stale"
             ],
             "type": "string"
           },
@@ -5711,8 +5709,7 @@
             "enum": [
               "invalid_event_timestamp",
               "cleanup_incomplete",
-              "local_status_stale",
-              "trade_index_not_recorded"
+              "local_status_stale"
             ],
             "type": "string"
           },

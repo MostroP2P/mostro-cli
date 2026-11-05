@@ -30,5 +30,6 @@ else (other actions, other authors, other recipients, mismatched ids, no order, 
 | `next_step` | `sync_child_order` after a `release` that sent a key; `wait_for_release` after a buyer's `fiat-sent`, whether or not it sent a key |
 
 The key is sent only for a range order the user made, with room left (`max - fiat_amount >= min` on the local row), at the maker's own step.
-The index is reserved before publishing and spent when the request was published and the node did not provably refuse it. If an accepted step's
-index cannot be recorded, the outcome is a success with the warning `trade_index_not_recorded`.
+The index is recorded in the store before publishing (the reservation is the spend). A request that never left, or that the node refused, gives
+it back unless another command reserved one meanwhile. An index that cannot be reserved stops the step with `store_unwritable` before anything is
+sent (amended 2026-11-05 by spec 008, slice 7; the warning `trade_index_not_recorded` is removed).

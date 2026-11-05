@@ -38,10 +38,14 @@ and `src/db.rs` of this repository, and the order-info exchange. Nothing here wa
 - The exchange must carry a **separate identity and trade key**: the request is wrapped with the identity as seal signer and
   the trade key as author and inner signer (`wrap_message_with(.., identity, trade, ..)`), the wait is armed for the **trade key**
   as recipient and decrypts with it. Order info passes the identity for both and keeps working.
-- The local index must advance when the request was published and not provably rejected, otherwise a successful or ambiguous
-  publication reuses the same key and index next time. Gaps are harmless (the node only needs `index > last`). A provably
-  rejected request (`CantDo` refusal, or not published) leaves the index alone. The save and the index update are one SQLite
-  transaction, so a half-saved state is impossible.
+- The local index is recorded before the request is published: the reservation is the spend, so a published or possibly
+  published request is never followed by reuse of its key, even when the process dies before the reply, and two runs at
+  once take turns on the store's write lock instead of sharing an index. Gaps are harmless (the node only needs
+  `index > last`). A request that provably never left, or that the node refused with `CantDo`, gives its index back with a
+  compare-and-swap (back to the exact previous value, `NULL` included, only while the recorded index is still the reserved
+  one); otherwise the index is skipped. The order row is saved after the reply; its transaction keeps a raise-only index
+  guard. Every writer of the index only raises it, the legacy `getlasttradeindex` and order save included, and a future
+  migrated `restore` must too: the node does not count the keys of range children (amended 2026-11-05 by spec 008).
 - A failed save after an accepted reply is `uncertain`. The recovery data is **public**: the order id, the trade index and the
   trade public key. The trade private key is derivable from the mnemonic and the index (`account trade-key`), so no key
   material is printed.
