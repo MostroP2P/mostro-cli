@@ -61,7 +61,7 @@ pub async fn load_identity_keys() -> Result<Keys, IdentityError> {
 
 /// How the store is opened so that SQLite creates and deletes no file beside it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OpenMode {
+pub(crate) enum OpenMode {
     /// An ordinary read-only open: a rollback-journal store without a `-wal`
     /// file, or a store whose `-wal` and `-shm` files both exist.
     ReadOnly,
@@ -80,7 +80,7 @@ enum OpenMode {
 /// How `path` can be read without a file appearing or disappearing beside it.
 /// `None` when it is too short to hold a database header: SQLite would delete
 /// the `-wal` file of an empty main file.
-fn open_mode(path: &Path) -> Option<OpenMode> {
+pub(crate) fn open_mode(path: &Path) -> Option<OpenMode> {
     let sidecar = |suffix: &str| {
         let mut name = path.as_os_str().to_owned();
         name.push(suffix);
