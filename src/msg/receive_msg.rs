@@ -203,7 +203,8 @@ impl<'a> Collection<'a> {
         if progress.done {
             return Ok(false);
         }
-        // Lagged notifications are dropped silently, so a full buffer is a failure.
+        // Lagged notifications are dropped silently, so reaching the capacity is
+        // a failure. The channel has headroom beyond it (see `CHANNEL_HEADROOM`).
         progress.notifications += 1;
         if progress.notifications >= self.limits.notification_capacity {
             return Err(ErrorCode::RelayReadFailed);
@@ -247,3 +248,6 @@ impl<'a> Collection<'a> {
         Ok(false)
     }
 }
+
+#[cfg(test)]
+mod tests;
