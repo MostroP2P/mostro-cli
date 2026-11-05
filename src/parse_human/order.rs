@@ -4,7 +4,7 @@ use std::fmt::Write;
 
 use crate::outcome::order::{ListData, PublicOrder};
 
-use super::table::{orders_table, OrderRow};
+use super::table::{escape_controls, orders_table, OrderRow};
 
 /// The filter summary, node key and order table of a listing.
 pub fn render_list(data: &ListData) -> String {
@@ -15,7 +15,7 @@ pub fn render_list(data: &ListData) -> String {
         let _ = writeln!(text, "📈 Order Type: {side} orders");
     }
     if let Some(currency) = filters.currency() {
-        let _ = writeln!(text, "💱 Currency Filter: {currency}");
+        let _ = writeln!(text, "💱 Currency Filter: {}", escape_controls(currency));
     }
     let _ = writeln!(text, "🎯 Mostro PubKey: {}\n", data.node_pubkey);
     text.push_str(&orders_table(data.orders.iter().map(row).collect()));
@@ -35,7 +35,11 @@ fn row(order: &PublicOrder) -> OrderRow {
         fiat_amount_max: order.fiat_amount_max.clone(),
         payment_method: order.payment_method.clone(),
         premium_percent: order.premium_percent.clone(),
-        created_at_unix: order.created_at_unix.parse().ok(),
+        // Invalid date exactly where the JSON `created_at` is null.
+        created_at_unix: order
+            .created_at
+            .as_ref()
+            .and_then(|_| order.created_at_unix.parse().ok()),
     }
 }
 

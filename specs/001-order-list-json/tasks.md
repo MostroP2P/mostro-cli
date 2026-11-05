@@ -12,7 +12,7 @@ description: "Dependency-ordered implementation tasks for the order-list JSON pi
 
 **Status**: Setup T001-T003 and baseline checkpoints T004-T010 are complete;
 the baseline gate is closed with recorded exceptions (Windows deferred to
-T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025 and the collector T026 are complete; T027-T055 remain pending. Checked
+T051-T052). Foundations T011-T019, US1 test tasks T020-T021 and DTO mapping T022-T024, public configuration T025, the collector T026, US1 T027-T033 and US2 T034-T038 and US3 test tasks T039-T040 are complete; T041-T055 remain pending. Checked
 tasks represent only their recorded scope, not pilot runtime verification.
 Earlier persistence fixes remain prior work, not new tasks to recreate.
 Pre-implementation analysis completed; its A1 and U1 clarifications are applied.
@@ -112,7 +112,7 @@ exit/status agreement, bounded completion and zero trade EVENT/DB effects.
 - [x] T030 [US1] Wire canonical order/list/side and root mostro-pubkey spelling in `src/cli/commands.rs`, `src/cli/args.rs` and `src/cli.rs`, first moving the capability registry out of `src/cli/commands.rs` (384 of 400 production lines at T018) into its own module; remove listorders/its kind and mostropubkey spellings without aliases, leave other legacy spellings unchanged, route both modes through public-only listing and select the pure renderer, advertising order.list JSON only once executable. Argument errors resolved to `order.list` use the read stages `not_applicable` (contract example `invalid_arguments`); legacy and unresolved rejections keep `not_attempted`/`unknown`/`not_attempted`. (depends on T029)
 - [x] T031 [US1] Add binary success, filtered-empty, EOSE-empty, CLOSED, timeout, partial-relay failure and existing/fresh/unusable identity-location cases in `tests/order_list_process.rs`; check complete Serde consumption, exit 0/1/2 consistency, metadata, zero trade EVENT versus allowed AUTH, no DB/key changes, closed stdin and child cleanup. (depends on T030)
 - [x] T032 [US1] Enforce allow-listed migrated-path diagnostics and verbose behavior in `src/cli.rs`, `src/msg/mod.rs` and `src/main.rs`, suppressing raw SDK/server/argv/URL logging; extend `tests/order_list_process.rs` with planted synthetic sentinels and stdout contamination checks and rerun the failing slice immediately. (depends on T031)
-- [ ] T033 [US1] Run the US1 focused matrix in `tests/parser_orders.rs`, `tests/integration_tests.rs` and `tests/order_list_process.rs`, then required gates; record selected-field, empty/error distinction, limits and no-effects evidence in `tests/TEST_SUMMARY.md`. This is an internal milestone, not full pilot/release acceptance. (depends on T032)
+- [x] T033 [US1] Run the US1 focused matrix in `tests/parser_orders.rs`, `tests/integration_tests.rs` and `tests/order_list_process.rs`, then required gates; record selected-field, empty/error distinction, limits and no-effects evidence in `tests/TEST_SUMMARY.md`. This is an internal milestone, not full pilot/release acceptance. (depends on T032)
 
 ## Phase 4: US2 - Keep Readable Human Results (P2)
 
@@ -125,14 +125,14 @@ Run default/explicit human with redirected stdout and closed stdin.
 
 ### US2 Tests First
 
-- [ ] T034 [P] [US2] Extend `tests/parser_orders.rs` with pure-renderer parity, headers/filters, empty-book wording, zero-market, nullable range endpoint, signed amount, UTC-minute/Invalid date and terminal-control text cases; compare business meaning instead of requiring JSON formatting in a human table. (depends on T033)
-- [ ] T035 [P] [US2] Extend `tests/order_list_process.rs` for default/explicit human under redirection, verbose and closed stdin, paired with JSON over identical snapshots and synthetic existing/fresh storage; verify identical selected business fields and zero identity/order/trade-index changes in both modes. (depends on T033)
+- [x] T034 [P] [US2] Extend `tests/parser_orders.rs` with pure-renderer parity, headers/filters, empty-book wording, zero-market, nullable range endpoint, signed amount, UTC-minute/Invalid date and terminal-control text cases; compare business meaning instead of requiring JSON formatting in a human table. (depends on T033)
+- [x] T035 [P] [US2] Extend `tests/order_list_process.rs` for default/explicit human under redirection, verbose and closed stdin, paired with JSON over identical snapshots and synthetic existing/fresh storage; verify identical selected business fields and zero identity/order/trade-index changes in both modes. (depends on T033)
 
 ### US2 Implementation And Acceptance
 
-- [ ] T036 [US2] Complete human presentation in `src/parse_human/order.rs` and `src/parse_human/table.rs`: familiar columns/headings/filter summaries/empty wording, zero as market, min-max/min-?/?-max, existing UTC-minute dates or Invalid date, and escaped terminal controls; pass T034 using only typed outcome data, without re-fetching or inventing active status for absent-status events. (depends on T034, T035)
-- [ ] T037 [US2] Test and finish output ownership/failure behavior in `src/main.rs` and `src/cli.rs`: mode never depends on TTY, serialization precedes a single stdout write path, injected serialization/writer failures exit nonzero without a second document, stderr stays safe, and pure renderers have no effects; rerun T035 and boundary unit tests. (depends on T036)
-- [ ] T038 [US2] Run US2 parity/no-effects/default-mode acceptance through `tests/parser_orders.rs` and `tests/order_list_process.rs`, plus required gates; record results in `tests/TEST_SUMMARY.md` without claiming schema discovery is finished. (depends on T037)
+- [x] T036 [US2] Complete human presentation in `src/parse_human/order.rs` and `src/parse_human/table.rs`: familiar columns/headings/filter summaries/empty wording, zero as market, min-max/min-?/?-max, existing UTC-minute dates or Invalid date, and escaped terminal controls; pass T034 using only typed outcome data, without re-fetching or inventing active status for absent-status events. (depends on T034, T035)
+- [x] T037 [US2] Test and finish output ownership/failure behavior in `src/main.rs` and `src/cli.rs`: mode never depends on TTY, serialization precedes a single stdout write path, injected serialization/writer failures exit nonzero without a second document, stderr stays safe, and pure renderers have no effects; rerun T035 and boundary unit tests. (depends on T036)
+- [x] T038 [US2] Run US2 parity/no-effects/default-mode acceptance through `tests/parser_orders.rs` and `tests/order_list_process.rs`, plus required gates; record results in `tests/TEST_SUMMARY.md` without claiming schema discovery is finished. (depends on T037)
 
 ## Phase 5: US3 - Discover Inputs And Handle Failures (P2)
 
@@ -145,8 +145,8 @@ failures return the documented codes/exits, never empty success or uncertain.
 
 ### US3 Tests First
 
-- [ ] T039 [P] [US3] Extend `tests/cli_functions.rs` with schema parsing, every canonical registry mapping, all side/status values, removed spellings, malformed legacy invocation versus valid unsupported invocation, nullable unresolved command and output/help/version edge cases; reuse the foundation's grammar matrix rather than create a second parser test suite. (depends on T038)
-- [ ] T040 [P] [US3] Extend `tests/order_list_process.rs` with offline schema in both modes, missing/invalid config, sentinel inputs, every legacy JSON capability rejection including RPC/secret paths, and the complete stable error table from `specs/001-order-list-json/contracts/cli.md`; assert no context/RPC/network/identity initialization where forbidden. (depends on T038)
+- [x] T039 [P] [US3] Extend `tests/cli_functions.rs` with schema parsing, every canonical registry mapping, all side/status values, removed spellings, malformed legacy invocation versus valid unsupported invocation, nullable unresolved command and output/help/version edge cases; reuse the foundation's grammar matrix rather than create a second parser test suite. (depends on T038)
+- [x] T040 [P] [US3] Extend `tests/order_list_process.rs` with offline schema in both modes, missing/invalid config, sentinel inputs, every legacy JSON capability rejection including RPC/secret paths, and the complete stable error table from `specs/001-order-list-json/contracts/cli.md`; assert no context/RPC/network/identity initialization where forbidden. (depends on T038)
 
 ### US3 Implementation And Acceptance
 
@@ -170,7 +170,7 @@ feature. No MCP migration, future write executor or release is included.
 - [ ] T052 Run all `specs/001-order-list-json/quickstart.md` acceptance rows on native Windows and Linux using `tests/order_list_process.rs` and the focused suites; record separate platform results and time/cap/cleanup/secret/no-effects evidence in `tests/TEST_SUMMARY.md`, leaving unavailable native runs explicitly blocked. (depends on T051)
 - [ ] T053 Run final fmt, locked all-target/all-feature Clippy with warnings denied, locked tests/build and separate `cargo +1.94.0 check --locked --all-targets --all-features` against `Cargo.toml` / `Cargo.lock`; record exact results and pre-existing failures in `tests/TEST_SUMMARY.md` without silently upgrading the minimum. (depends on T052)
 - [ ] T054 Reconcile every FR-001 through FR-009 and SC-001 through SC-005 with actual automated/manual evidence in `tests/README.md` and `tests/TEST_SUMMARY.md`, linking generated contracts and preserving unrelated historical evidence; no unchecked scenario can be relabeled complete by documentation alone. (depends on T053)
-- [ ] T055 Update feature status and roadmap progress in `specs/001-order-list-json/plan.md`, `specs/001-order-list-json/checklists/requirements.md` and `../mcp/plan-aiReadyMostroCli.prompt.md` only to the extent proven by T054; retain remaining refactor/MCP blockers and stop without staging, committing, publishing or implementing the next feature. (depends on T054)
+- [ ] T055 Update feature status and roadmap progress in `specs/001-order-list-json/plan.md`, `specs/001-order-list-json/checklists/requirements.md` and `../plan-aiReadyMostroCli.md` only to the extent proven by T054; retain remaining refactor/MCP blockers and stop without staging, committing, publishing or implementing the next feature. (depends on T054)
 
 ## Dependencies And Execution Order
 
@@ -240,5 +240,5 @@ foundation gates. A releasable complete pilot requires all three stories and
 T048-T055; no default human, discovery, safety or platform requirement is waived.
 
 **Task counts**: 55 total: setup 3, foundations 16, US1 14, US2 5, US3 9,
-cross-cutting 8. Ten `[P]` tasks form five two-task groups. Twenty-six tasks are
-checked; 29 remain pending.
+cross-cutting 8. Ten `[P]` tasks form five two-task groups. Forty tasks are
+checked; 15 remain pending.

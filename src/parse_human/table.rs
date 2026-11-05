@@ -94,16 +94,30 @@ fn order_row(order: OrderRow) -> Row {
         centered(order.id),
         apply_status_color(centered(&order.status), &order.status),
         centered(sats),
-        centered(order.fiat_currency),
+        centered(escape_controls(&order.fiat_currency)),
         centered(fiat_amount(
             order.fiat_amount,
             order.fiat_amount_min,
             order.fiat_amount_max,
         )),
-        centered(order.payment_method),
+        centered(escape_controls(&order.payment_method)),
         centered(order.premium_percent),
         centered(created),
     ])
+}
+
+/// Received text with every control character shown as a Rust escape, so
+/// public data cannot move the cursor, recolor or break table lines.
+pub fn escape_controls(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_control() {
+                c.escape_default().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 /// The fixed amount, or the range with `?` for a missing endpoint.

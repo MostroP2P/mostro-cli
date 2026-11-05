@@ -29,6 +29,7 @@ use hyper::service::service_fn;
 use hyper::upgrade::{self, OnUpgrade};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use mostro_client::cli::{JsonSupport, REGISTRY};
 use mostro_client::commands::order::list::{list_orders, COMMAND};
 use mostro_client::msg::{fetch_msg, FetchFailure, PublicReadConfig, ReadLimits};
 use mostro_client::outcome::order::Snapshot;
@@ -315,6 +316,8 @@ impl Captured {
 /// Run a child to completion, or kill and reap it once `limit` elapses.
 async fn run_with_watchdog(mut command: Command, limit: Duration) -> io::Result<Captured> {
     let mut child = command.spawn()?;
+    // A piped stdin is closed at once; the child must never wait for input.
+    drop(child.stdin.take());
     let stdout = read_all(child.stdout.take());
     let stderr = read_all(child.stderr.take());
     let status = match timeout(limit, child.wait()).await {
@@ -660,7 +663,11 @@ async fn watchdog_kills_and_reaps_a_hung_child() {
     assert!(run.status.is_none(), "child exited: {:?}", run.status);
     assert!(run.reaped);
     assert!(endpoint.connections() >= 1);
-    assert!(started.elapsed() < limit + Duration::from_secs(5));
+    assert!(
+        started.elapsed() < limit + Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test]
@@ -792,6 +799,36 @@ async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
         assert_no_effects(&sandbox, &label);
     }
     assert_eq!(endpoint.connections(), 0);
+}
+
+/// Run `args` with the stderr reader already gone, so every diagnostic write
+/// fails with a broken pipe, and return the status and stdout.
+async fn run_with_broken_stderr(args: &[&str]) -> (Option<i32>, String) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut child = sandbox.command(args).spawn().unwrap();
+    drop(child.stdin.take());
+    drop(child.stderr.take());
+    let stdout = read_all(child.stdout.take());
+    let status = timeout(WATCHDOG, child.wait()).await.unwrap().unwrap();
+    let stdout = stdout.await.unwrap().unwrap();
+    (status.code(), String::from_utf8_lossy(&stdout).into_owned())
+}
+
+#[tokio::test]
+async fn failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty() {
+    // Human mode reports through stderr only; an unwritable stderr must not
+    // turn the controlled exit into a panic (101) or change stdout.
+    let rows: [(&[&str], i32); 3] = [
+        (&["order", "list", "--side", "invalid"], 2),
+        (&["--output", "human", "order", "list", "--bogus"], 2),
+        // No node configuration in the sandbox: configuration_missing.
+        (&["order", "list"], 1),
+    ];
+    for (args, expected) in rows {
+        let (code, stdout) = run_with_broken_stderr(args).await;
+        assert_eq!(code, Some(expected), "{args:?}");
+        assert!(stdout.is_empty(), "{args:?}: {stdout}");
+    }
 }
 
 #[tokio::test]
@@ -1831,6 +1868,156 @@ async fn order_list_binary_ignores_existing_and_unusable_identity_locations() {
     }
 }
 
+// Human parity (T035): every human invocation shows the JSON business fields.
+
+/// A pending EUR order with explicit sats, fiat tag values and premium.
+fn priced_listing(
+    mostro: &Keys,
+    id: u128,
+    created_at: u64,
+    side: &str,
+    (sats, fiat, premium): (&str, &[&str], &str),
+) -> Event {
+    EventBuilder::new(Kind::Custom(NOSTR_ORDER_EVENT_KIND), "")
+        .tags([
+            Tag::custom("d", [Uuid::from_u128(id).to_string()]),
+            Tag::custom("k", [side]),
+            Tag::custom("s", ["pending"]),
+            Tag::custom("f", ["EUR"]),
+            Tag::custom("amt", [sats]),
+            Tag::custom("fa", fiat.iter().copied()),
+            Tag::custom("pm", ["sepa", "cash"]),
+            Tag::custom("premium", [premium]),
+            Tag::custom("z", ["order"]),
+        ])
+        .custom_created_at(Timestamp::from(created_at))
+        .finalize(mostro)
+        .unwrap()
+}
+
+/// Trimmed cells of each human table row, keyed by order id.
+fn human_rows(table: &str) -> BTreeMap<String, Vec<String>> {
+    table
+        .lines()
+        .filter_map(|line| {
+            let cells: Vec<String> = line
+                .split(['\u{2502}', '\u{2506}'])
+                .map(|cell| cell.trim().to_string())
+                .collect();
+            Uuid::parse_str(cells.get(2)?).ok()?;
+            Some((cells[2].clone(), cells))
+        })
+        .collect()
+}
+
+/// The human cells after id and status that the data model derives from one
+/// JSON order: market for zero sats, `?` for a missing range end, UTC minute.
+fn human_view_of(order: &Value) -> Vec<String> {
+    let text = |field: &str| order[field].as_str().unwrap().to_string();
+    let sats = match text("sats_amount") {
+        zero if zero == "0" => "market".to_string(),
+        sats => sats,
+    };
+    let fiat = match (
+        order["fiat_amount_min"].as_str(),
+        order["fiat_amount_max"].as_str(),
+    ) {
+        (None, None) => text("fiat_amount"),
+        (min, max) => format!("{}-{}", min.unwrap_or("?"), max.unwrap_or("?")),
+    };
+    let created = order["created_at"].as_str().map_or_else(
+        || "Invalid date".to_string(),
+        |at| at[..16].replace('T', " "),
+    );
+    vec![
+        sats,
+        text("fiat_currency"),
+        fiat,
+        text("payment_method"),
+        text("premium_percent"),
+        created,
+    ]
+}
+
+#[tokio::test]
+async fn order_list_human_and_json_describe_the_same_book() {
+    let mostro = Keys::generate();
+    let ago = |hours: u64| Timestamp::now().as_secs() - hours * HOUR;
+    let mut book = live_book(&mostro);
+    book.extend([
+        priced_listing(&mostro, 4, ago(4), "sell", ("21000", &["10", "20"], "-3")),
+        priced_listing(&mostro, 5, ago(5), "buy", ("-5", &["50"], "0")),
+    ]);
+    let relay = serve(LocalRelay::new(), &book).await;
+    let stored = stored_ids(&relay).await;
+    let verbose_line = format!(
+        "verbose: order.list ok; {} events from 1/1 relays\n",
+        stored.len()
+    );
+
+    let fresh = Sandbox::new().unwrap();
+    let existing = Sandbox::new().unwrap();
+    let database = existing.mcli_dir().join("mcli.db");
+    fs::write(&database, b"synthetic identity store").unwrap();
+
+    for sandbox in [&fresh, &existing] {
+        let json = ["--output", "json", "order", "list"];
+        let outcome = one_document(&run_listing(sandbox, &json, &mostro, &[&relay]).await);
+        assert_eq!(
+            row_ids(&outcome),
+            [1, 2, 4, 5].map(|id| Uuid::from_u128(id).to_string())
+        );
+
+        // Piped stdout throughout: the default never depends on a terminal.
+        let human: [(&[&str], &str); 3] = [
+            (&["order", "list"], ""),
+            (&["order", "list", "--output", "human"], ""),
+            (&["--verbose", "order", "list"], &verbose_line),
+        ];
+        let mut tables = Vec::new();
+        for (args, stderr) in human {
+            let run = run_listing(sandbox, args, &mostro, &[&relay]).await;
+            assert_eq!(run.code(), Some(0), "{args:?}: {}", run.stderr_text());
+            assert_eq!(run.stderr_text(), stderr, "{args:?}");
+            tables.push(run.stdout_text());
+        }
+        let mut closed_stdin = sandbox.command(["order", "list"]);
+        set_node_env(&mut closed_stdin, &mostro, &[&relay]);
+        closed_stdin.stdin(Stdio::piped());
+        let run = run_with_watchdog(closed_stdin, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        tables.push(run.stdout_text());
+
+        let table = &tables[0];
+        assert!(tables.iter().all(|other| other == table), "{tables:#?}");
+        assert!(!table.trim_start().starts_with('{'), "{table}");
+        let rows = human_rows(table);
+        let orders = outcome["data"]["orders"].as_array().unwrap();
+        assert_eq!(rows.len(), orders.len(), "{table}");
+        for order in orders {
+            let cells = &rows[order["id"].as_str().unwrap()];
+            assert!(
+                cells[1].contains(order["side"].as_str().unwrap()),
+                "{cells:?}"
+            );
+            assert!(
+                cells[3].contains(order["status"].as_str().unwrap()),
+                "{cells:?}"
+            );
+            assert_eq!(cells[4..10], human_view_of(order), "{table}");
+        }
+    }
+
+    assert_no_effects(&fresh, "fresh identity location");
+    assert_eq!(fs::read(&database).unwrap(), b"synthetic identity store");
+    assert_eq!(fs::read_dir(existing.mcli_dir()).unwrap().count(), 1);
+    for dir in [existing.home(), existing.cwd()] {
+        assert!(is_empty_dir(&dir), "{dir:?} was written");
+    }
+    assert_eq!(stored_ids(&relay).await, stored, "a listing published");
+}
+
 // Diagnostics (T032): verbose and `RUST_LOG=trace` must not leak raw SDK,
 // relay, URL or argument text on the migrated path.
 
@@ -1977,4 +2164,265 @@ async fn order_list_diagnostics_are_allow_listed_in_verbose_mode() {
             assert_no_effects(&sandbox, &label);
         }
     }
+}
+
+/// Minimal valid arguments for each legacy command, so the invocation parses
+/// and reaches the capability guard rather than failing argument validation.
+fn valid_legacy_args(canonical: &str, key: &str) -> Vec<String> {
+    let order = ["--orderid", ORDER_ID];
+    let peer = ["--pubkey", key];
+    let invoice = ["--invoice", "lnbc1synthetic"];
+    let rest: Vec<&str> = match canonical {
+        "order.new" => vec![
+            "--kind",
+            "sell",
+            "--fiatcode",
+            "USD",
+            "--fiatamount",
+            "10",
+            "--paymentmethod",
+            "x",
+        ],
+        "order.take-sell"
+        | "order.take-buy"
+        | "order.fiat-sent"
+        | "order.release"
+        | "order.cancel"
+        | "dispute.open"
+        | "admin.cancel"
+        | "admin.settle"
+        | "dispute.chat"
+        | "maintenance.cancel-pending" => order.to_vec(),
+        "order.add-invoice" | "bond.add-invoice" => [&order[..], &invoice[..]].concat(),
+        "chat.history" | "message.send" | "chat.send" => [&peer[..], &order[..]].concat(),
+        "order.rate" => [&order[..], &["--rating", "5"][..]].concat(),
+        "maintenance.set" => vec!["--enabled", "true"],
+        "admin.add-solver" => vec!["--npubkey", key],
+        "admin.take-dispute" => vec!["--disputeid", ORDER_ID],
+        "admin.message-send" | "account.conversation-key" => peer.to_vec(),
+        "admin.message-attach" => {
+            [&peer[..], &order[..], &["--file", "synthetic.bin"][..]].concat()
+        }
+        _ => Vec::new(),
+    };
+    rest.into_iter().map(str::to_owned).collect()
+}
+
+/// Every registered command without JSON support answers
+/// `output_not_supported` before RPC, context or environment work, including
+/// the gRPC and secret-export paths, and never connects or writes.
+#[tokio::test]
+async fn every_legacy_command_rejects_json_before_any_effect() {
+    let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
+        .await
+        .unwrap();
+    let key = Keys::generate().public_key().to_hex();
+    let legacy: Vec<_> = REGISTRY
+        .iter()
+        .filter(|entry| entry.json == JsonSupport::Unsupported)
+        .collect();
+    assert_eq!(
+        legacy.len(),
+        REGISTRY.len() - 1,
+        "only order.list is machine-capable"
+    );
+    for entry in legacy {
+        let mut args = vec!["--output".to_string(), "json".to_string()];
+        args.extend(entry.path.iter().map(|word| word.to_string()));
+        args.extend(valid_legacy_args(entry.canonical, &key));
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let label = format!("{}: {refs:?}", entry.canonical);
+        let (run, sandbox) = run_configured(&refs, &endpoint).await;
+        assert_eq!(run.code(), Some(2), "{label}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{label}: {}", run.stderr_text());
+        let stdout = run.stdout_text();
+        assert_eq!(stdout.lines().count(), 1, "{label}: {stdout}");
+        assert!(!stdout.contains(SENTINEL), "{label}: {stdout}");
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(outcome["command"], entry.canonical, "{label}");
+        assert_eq!(outcome["status"], "error", "{label}");
+        assert_eq!(outcome["data"], Value::Null, "{label}");
+        assert_eq!(outcome["error"]["code"], "output_not_supported", "{label}");
+        assert_eq!(
+            outcome["meta"],
+            json!({
+                "publication": "not_attempted",
+                "daemon_acceptance": "unknown",
+                "persistence": "not_attempted",
+                "snapshot": null,
+            }),
+            "{label}"
+        );
+        assert_no_effects(&sandbox, &label);
+    }
+    assert_eq!(endpoint.connections(), 0, "a legacy command ran");
+}
+
+/// Run `order list` with exactly the given node environment and arguments.
+async fn run_with_node_env(args: &[&str], env: &[(&str, &str)]) -> (Captured, Sandbox) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut command = sandbox.command(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped && run.status.is_some(), "{args:?}");
+    (run, sandbox)
+}
+
+/// Missing and invalid public configuration are exit 1 `order.list` errors
+/// with no snapshot, no connection and no raw value in any stream.
+#[tokio::test]
+async fn configuration_errors_are_stable_and_leak_nothing() {
+    let key = Keys::generate().public_key().to_hex();
+    let bad_key = format!("not-a-key-{SENTINEL}");
+    let bad_relay = format!("not a relay {SENTINEL}");
+    let json = ["--output", "json", "order", "list"];
+    let override_args = [
+        "--mostro-pubkey",
+        bad_key.as_str(),
+        "--output",
+        "json",
+        "order",
+        "list",
+    ];
+    type Row<'a> = (&'a [&'a str], Vec<(&'a str, &'a str)>, &'a str);
+    let rows: Vec<Row> = vec![
+        (&json, vec![], "configuration_missing"),
+        (
+            &json,
+            vec![("MOSTRO_PUBKEY", &key)],
+            "configuration_missing",
+        ),
+        (
+            &json,
+            vec![("RELAYS", "ws://127.0.0.1:1")],
+            "configuration_missing",
+        ),
+        (
+            &json,
+            vec![("MOSTRO_PUBKEY", &key), ("RELAYS", " , ,")],
+            "configuration_missing",
+        ),
+        (
+            &json,
+            vec![("MOSTRO_PUBKEY", &bad_key), ("RELAYS", "ws://127.0.0.1:1")],
+            "configuration_invalid",
+        ),
+        (
+            &json,
+            vec![("MOSTRO_PUBKEY", &key), ("RELAYS", &bad_relay)],
+            "configuration_invalid",
+        ),
+        // An invalid CLI override does not fall back to the valid environment.
+        (
+            &override_args,
+            vec![("MOSTRO_PUBKEY", &key), ("RELAYS", "ws://127.0.0.1:1")],
+            "configuration_invalid",
+        ),
+    ];
+    for (args, env, code) in rows {
+        let label = format!("{code}: {args:?} {env:?}");
+        let (run, sandbox) = run_with_node_env(args, &env).await;
+        assert_eq!(run.code(), Some(1), "{label}: {}", run.stderr_text());
+        let outcome = one_document(&run);
+        assert_eq!(outcome["command"], "order.list", "{label}");
+        assert_eq!(outcome["error"]["code"], code, "{label}: {outcome}");
+        assert_eq!(outcome["data"], Value::Null, "{label}");
+        assert_eq!(outcome["meta"]["snapshot"], Value::Null, "{label}");
+        assert!(!run.stdout_text().contains(SENTINEL), "{label}");
+        assert_no_effects(&sandbox, &label);
+    }
+
+    // Human mode: empty stdout and one fixed line, never the supplied value.
+    let (run, sandbox) = run_with_node_env(
+        &["order", "list"],
+        &[("MOSTRO_PUBKEY", &bad_key), ("RELAYS", "ws://127.0.0.1:1")],
+    )
+    .await;
+    assert_eq!(run.code(), Some(1));
+    assert!(run.stdout.is_empty(), "{}", run.stdout_text());
+    let stderr = run.stderr_text();
+    assert!(
+        stderr.starts_with("error: ") && stderr.lines().count() == 1,
+        "{stderr}"
+    );
+    assert!(!stderr.contains(SENTINEL), "{stderr}");
+    assert_no_effects(&sandbox, "human configuration error");
+}
+
+/// A relay that refuses the connection is `relay_connection_failed`.
+#[tokio::test]
+async fn an_unreachable_relay_is_a_connection_failure_in_the_binary() {
+    let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let relay = format!("ws://127.0.0.1:{port}");
+    let key = Keys::generate().public_key().to_hex();
+    let (run, sandbox) = run_with_node_env(
+        &["--output", "json", "order", "list"],
+        &[("MOSTRO_PUBKEY", &key), ("RELAYS", &relay)],
+    )
+    .await;
+    assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+    let outcome = one_document(&run);
+    assert_eq!(
+        outcome["error"]["code"], "relay_connection_failed",
+        "{outcome}"
+    );
+    assert_eq!(outcome["data"], Value::Null, "{outcome}");
+    assert_no_effects(&sandbox, "connection failure");
+}
+
+/// Offline discovery needs no node configuration, identity, connection or
+/// stdin: it succeeds with absent or invalid configuration and a reachable
+/// relay it must not contact, and writes nothing to the sandbox.
+#[tokio::test]
+#[ignore = "red until T043"]
+async fn schema_runs_offline_in_both_modes() {
+    let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
+        .await
+        .unwrap();
+    let bad_key = format!("not-a-key-{SENTINEL}");
+    let environments: [Vec<(&str, String)>; 2] = [
+        vec![],
+        vec![
+            ("MOSTRO_PUBKEY", bad_key),
+            ("RELAYS", endpoint.url.clone()),
+            ("MOSTRO_RPC_TOKEN", SENTINEL.to_string()),
+        ],
+    ];
+    for env in &environments {
+        let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let (human, sandbox) = run_with_node_env(&["schema"], &env).await;
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        assert!(human.stderr.is_empty(), "{}", human.stderr_text());
+        let raw: Value = serde_json::from_str(&human.stdout_text()).unwrap();
+        assert_eq!(raw["schema_version"], "1");
+        assert!(raw["commands"].as_array().is_some_and(|c| !c.is_empty()));
+        assert_no_effects(&sandbox, "schema human");
+
+        let (machine, sandbox) = run_with_node_env(&["--output", "json", "schema"], &env).await;
+        assert_eq!(machine.code(), Some(0), "{}", machine.stderr_text());
+        let stdout = machine.stdout_text();
+        assert!(machine.stderr.is_empty(), "{}", machine.stderr_text());
+        assert_eq!(stdout.lines().count(), 1, "{stdout}");
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(outcome["status"], "ok", "{outcome}");
+        assert_eq!(outcome["command"], "schema");
+        for stage in ["publication", "daemon_acceptance", "persistence"] {
+            assert_eq!(outcome["meta"][stage], "not_applicable", "{outcome}");
+        }
+        assert_eq!(
+            outcome["data"], raw,
+            "both modes carry the same discovery data"
+        );
+        assert!(!machine.stdout_text().contains(SENTINEL));
+        assert!(!human.stdout_text().contains(SENTINEL));
+        assert_no_effects(&sandbox, "schema json");
+    }
+    assert_eq!(endpoint.connections(), 0, "schema contacted the relay");
 }

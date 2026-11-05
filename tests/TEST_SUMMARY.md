@@ -1809,6 +1809,311 @@ the SDK print relay URLs. They are not on the migrated path.
 T001-T032 are complete. T033 (US1 focused matrix and internal milestone) is
 next.
 
+## T033 US1 Milestone (Internal): 2026-10-26
+
+Native Windows, rustc 1.97.0, on `develop` at `6c9a670` (T032; T031-T032
+commits not yet pushed). Linux was not rerun. No code changed in this task.
+This is the US1 internal milestone, not pilot or release acceptance: US2
+presentation parity, US3 discovery/schemas and the polish gates remain.
+
+### Coverage Map
+
+| US1 obligation | Automated evidence |
+| --- | --- |
+| Selected fields and encoding | `tests/parser_orders.rs` `list_contract` (98 tests in the file): canonical ids, side, every status, signed i64 money as decimal strings, zero-market sats, nullable range endpoints, received text as-is, UTC RFC3339 or null with one aggregated warning, proposed `examples.json` reproduced |
+| Selection rules | `parser_orders`: latest state before filters, same-time ties keep the lowest event id, unspecified cross-order ties, absent status never matches, malformed events skipped; binary `order_list_binary_selects_rows_in_both_modes` |
+| Empty versus error | Binary: filtered-empty and EOSE-empty are exit 0 with `orders: []`; CLOSED, partial-relay CLOSED and silent-relay timeout are exit 1 with data null and the snapshot kept (`order_list_binary_*`) |
+| Exit codes and envelope | Exit 0/1/2 agree with status; one fully consumed JSON document; read stages `not_applicable`; argument errors keep `order.list` (`order_list_json_uses_read_stages`) |
+| Limits | 7-day author/kind/`z` filter with per-relay limit 50 (`integration_tests` fixed-clock filter, snapshot fields); 10,000-event cap fails without truncation; notification capacity; production 15 s read budget (`order_list_binary_times_out_on_a_silent_relay`) |
+| No effects | No EVENT published (relay store unchanged); fresh HOME/MCLI_DIR/cwd stay empty; existing `mcli.db` byte-identical; unusable `MCLI_DIR` still lists; no relay connection on argument errors |
+| Diagnostics | Planted sentinels in relay URL, CLOSED reason and CLI/env config never reach stdout/stderr under `--verbose` and `RUST_LOG=trace`; exactly one allow-listed verbose line |
+
+### Migrated File Sizes
+
+Production lines before the first `#[cfg(test)]`, against the 400-line limit:
+
+| File | Production lines |
+| --- | --- |
+| `src/cli.rs` | 217 |
+| `src/cli/registry.rs` | 89 |
+| `src/cli/commands.rs` | 313 |
+| `src/commands/order/list.rs` | 83 |
+| `src/msg/mod.rs` | 160 |
+| `src/msg/orders.rs` | 82 |
+| `src/msg/receive_msg.rs` | 249 |
+| `src/outcome.rs` | 295 |
+| `src/outcome/order.rs` | 239 |
+| `src/parse_machine.rs` | 50 |
+| `src/parse_human/order.rs` | 41 |
+| `src/parse_human/table.rs` | 119 |
+| `src/parser/orders.rs` | 122 |
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --no-fail-fast --test parser_orders --test integration_tests --test order_list_process` | parser_orders 98 of 98, integration_tests 14 of 14, order_list_process 34 of 35: `watchdog_kills_and_reaps_a_hung_child` failed its timing bound (two focused runs) |
+| `cargo test --locked --test order_list_process` rerun | PASS: 35 of 35 in 15.9 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 97, cli_functions 61, integration 14, order_list_process 35, disputes 9, dms 19, parser_orders 98, util 15, doctests 0 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+### Open For Later Tasks
+
+- NIP-42 AUTH is not exercised; the loopback relays never request it.
+- Native Linux runs (T052) and CI wiring (T050-T051) are pending.
+- `watchdog_kills_and_reaps_a_hung_child` still fails on some Windows runs
+  (after relinking or under load); reruns pass. It needs a less timing-sensitive
+  bound.
+- Legacy commands still install `pretty_env_logger` under `--verbose`, which
+  can print relay URLs (seen in the T032 mutation).
+- Human mode does not show warnings; full human presentation is T034-T036.
+- `README.md` and `docs/commands.md` still show `listorders` and
+  `--mostropubkey` (T049).
+
+T001-T033 are complete. US2 starts with T034 (renderer parity tests) and T035
+(process parity tests).
+
+## T034-T036 US2 Human Presentation: 2026-10-26
+
+Native Windows, rustc 1.97.0, on `develop` after `98c6520`.
+
+### T034 Renderer Parity (`tests/parser_orders.rs`, `list_contract`)
+
+| Test | Evidence |
+| --- | --- |
+| `human_rows_carry_the_json_business_fields` | Six orders: every JSON row maps to one human row with the same id, side, status, sats (`0` as market, signed `-5`), currency, fixed or `min-max`/`min-?`/`?-max` fiat, payment, signed premium and UTC minute or Invalid date |
+| `human_heading_and_filter_summary_follow_the_typed_filters` | Default shows only status pending and node hex; explicit filters show side, uppercased currency and status; all nine column headings |
+| `human_empty_book_keeps_the_existing_wording` | "No Offers" wording with the filter summary and no order headings |
+| `human_dates_are_the_utc_minute_or_invalid_date_like_json` | 8 cases: four-digit years show the UTC minute; years outside 0000-9999 and i64 extremes show Invalid date, exactly where JSON `created_at` is null |
+| `human_text_escapes_terminal_controls` | ESC, BEL, CR, LF and C1 CSI in currency, payment and the currency filter render as Rust escapes; JSON keeps the raw text |
+
+Red before T036: 4 failures, all expected. Year 10000 rendered as
+`+10000-01-01 00:00`, year -1 as `-0001-12-31 23:59`, and the raw `\r` reached
+the currency cell. They were ignored with a T036 reason until the fix.
+
+### T035 Process Parity (`tests/order_list_process.rs`)
+
+`order_list_human_and_json_describe_the_same_book` serves one book (two priced
+EUR orders plus the live book) to fresh and existing (`mcli.db`) sandboxes. In each:
+JSON, default human, `--output human`, `--verbose` and a closed-stdin pipe all
+exit 0 with piped stdout. The four human tables are byte-identical. Verbose adds
+only the allow-listed summary. Each JSON row's business fields appear in its
+human row, and the row counts match. Neither sandbox is written, `mcli.db` stays
+byte-identical and the relay store is unchanged. `run_with_watchdog` now closes
+a piped stdin at spawn. This passed before T036 because the book has no control
+text or out-of-range dates.
+
+### T036 Implementation
+
+- `src/parse_human/table.rs`: `escape_controls` shows every `char::is_control`
+  character as `escape_default`; applied to currency and payment cells, so the
+  legacy table also benefits.
+- `src/parse_human/order.rs`: the currency filter line is escaped; the row
+  passes no event time when the typed `created_at` is null, so Invalid date
+  follows the outcome's single calendar rule.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders human_` before T036 | FAIL: 9 passed, 4 failed (expected red) |
+| `cargo test --locked --test order_list_process order_list_human` | PASS: 1 of 1 in 1.5 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass (lib 97, cli_functions 61, integration 14, disputes 9, dms 19, parser_orders 110, util 15) except `watchdog_kills_and_reaps_a_hung_child` (order_list_process 35 of 36) |
+| `cargo test --locked --test order_list_process` reruns | FAIL once (watchdog), then PASS: 36 of 36 in 15.9 s |
+| `cargo test --locked --test order_list_process watchdog` alone | PASS in 2.1 s |
+| `cargo test --locked --test order_list_process -- --skip order_list_human` | PASS: 35 of 35 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The first green run of `human_text_escapes_terminal_controls` failed only
+because its long escaped payment text wrapped onto a second table line; the
+fixture now uses short control strings. The watchdog test fails more often with
+the ten extra child processes of T035 running in parallel (Windows process
+start-up under load); it passes alone. Its assertion now reports the elapsed time.
+
+T001-T036 are complete. T037 (output ownership and failure behavior) is next.
+
+## T037 Output Ownership And Failure Behavior: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `de9235b`. Windows was not rerun.
+
+### Finding
+
+Mode already never depends on a TTY (no terminal detection in `src/`), and the
+JSON path already serialized fully before one write (`parse_machine::emit`,
+covered by its unit tests for an unserializable outcome and a failed write). The
+defect was in the human path and the argument-error path: they used `eprintln!`
+and `eprint!`, which panic when stderr cannot be written. With the stderr reader
+closed, `order list --side invalid` exited 101 instead of 2.
+
+### Red, then green
+
+`failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty`
+(`tests/order_list_process.rs`) drops the child's stderr reader and runs three
+human-mode failures: invalid side (2), unknown flag (2) and missing configuration (1).
+Before the change it failed with exit 101 (expected 2); after it passes.
+
+### Change
+
+- `src/cli.rs`: `print_list` takes the stdout and stderr writers, renders the
+  whole listing before the first byte and, on a failed write, exits 1 with one
+  fixed line and nothing appended. Diagnostics go through `diagnose`, and
+  argument errors through a plain `write_all`; neither panics on a broken pipe.
+- `src/main.rs`: the final error line is written the same way.
+- `src/cli.rs` unit tests: single write with the outcome's exit, failed stdout
+  write, error with empty stdout, and an unwritable stderr never changing the
+  result.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process failed_diagnostic` before the change | FAIL: exit 101, expected 2 |
+| same, after the change | PASS |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 62, integration 14, order_list_process 37 (15.1 s), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+`src/cli.rs` is 226 production lines. Legacy commands still print directly
+(`println!`), so whole-CLI output ownership is not migrated.
+
+## T038 US2 Acceptance: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `de9235b` plus the T037 working-tree
+change. Windows was not rerun. This closes US2 only: schema discovery is not
+implemented and nothing here claims it.
+
+| US2 obligation | Automated evidence |
+| --- | --- |
+| Human and JSON describe the same orders | `tests/parser_orders.rs` `human_*` (13 tests): every JSON row maps to one human row with the same id, side, status, sats, currency, fiat or range, payment, premium and date; invalid dates match JSON `created_at` null |
+| Headers, filters, empty wording | `human_heading_and_filter_summary_follow_the_typed_filters`, `human_empty_book_keeps_the_existing_wording` |
+| Terminal-control text escaped | `human_text_escapes_terminal_controls`; JSON keeps raw text |
+| Default mode independent of TTY and redirection | `order_list_human_and_json_describe_the_same_book`: default human, `--output human`, `--verbose` and closed stdin all exit 0 with piped stdout and byte-identical tables; no terminal detection exists in `src/` |
+| Zero identity, order and trade-index effects | same test: fresh sandbox stays empty, existing `mcli.db` byte-identical, relay store unchanged |
+| Single write path and failure behavior (T037) | `cli::tests` (4), `parse_machine::tests::failed_write_exits_1_and_appends_nothing`, `failed_diagnostic_write_keeps_the_exit_status_and_stdout_empty` |
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders human_` | PASS: 13 of 13 |
+| `cargo test --locked --test order_list_process order_list_human` | PASS: 1 of 1 |
+| `cargo test --locked --test order_list_process failed_diagnostic` | PASS: 1 of 1 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 62, integration 14, order_list_process 37, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+`watchdog_kills_and_reaps_a_hung_child` passed on this Linux run; its Windows
+timing flake (see T033) is still open. The human path does not show warnings.
+
+T001-T038 are complete. T039 (US3 parser and registry tests) is next.
+
+## T039 US3 Parser And Registry Tests: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `a7f8b9b`. Tests only; no
+production code changed. The grammar matrix from T014 is reused
+(`tests/cli_functions.rs`, `output_intent` and `registry`), not duplicated.
+
+### Already covered (verified, not rewritten)
+
+Every canonical registry mapping (`registry_matches_the_approved_mapping`,
+`every_subcommand_is_registered_exactly_once`), every side and status spelling in
+both cases, the removed spellings (`listorders`, `--kind`, `--mostropubkey`),
+and output/help/version precedence for `order list`.
+
+### Added
+
+| Test | Status | Covers |
+| --- | --- | --- |
+| `valid_unsupported_invocations_parse_and_malformed_ones_are_invalid_arguments` | passes now | Valid legacy invocations (`getlasttradeprivkey`, `getlasttradeindex`, `restore`, `admmaintenancestatus`, `takesell --orderid`) parse for JSON and resolve to an unsupported registry entry; malformed ones (`takesell` without id or with a bad id, an unknown flag on a registered command) are JSON `invalid_arguments` with the resolved command; `order nosuch` and `nosuch --bogus` give a null command; human mode gets stderr |
+| `schema_parses_with_output_at_every_depth` | ignored, red until T043 | `schema` in all six output positions, with root node options |
+| `schema_takes_no_arguments_and_keeps_json_intent_on_errors` | ignored, red until T043 | extra argument, unknown flag, `order list` flags, duplicate/missing output, `--` terminator |
+| `schema_help_and_version_stay_text` | ignored, red until T043 | `--help`, `help schema`, `--version` precedence with JSON selected |
+| `schema_is_a_registered_machine_command_with_a_non_dotted_name` | ignored, red until T043 | `schema` entry, canonical name `schema`, read-style stages, machine commands are exactly `order.list` and `schema` |
+
+Red: all four ignored tests fail on this checkout because there is no `schema`
+subcommand (`InvalidSubcommand`). Green: with a throwaway prototype (a `Schema`
+variant, a registry entry and an empty match arm) all four passed; the
+prototype was reverted and is not in the tree.
+
+### Handoff to T043
+
+- Remove the four ignores when `schema` lands.
+- Two existing registry tests will need updating then: `canonical_names_are_dotted_lowercase`
+  (the name `schema` has no dot) and `only_order_list_supports_json` (`schema`
+  is also machine-capable). `data-model.md` already names `schema` as the
+  discovery identifier.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` | PASS: 63 passed, 4 ignored |
+| `cargo test --locked --test cli_functions -- --ignored` | FAIL as intended: 4 of 4 |
+| prototype, same command | PASS: 4 of 4, then reverted |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 63 (4 ignored), integration 14, order_list_process 37, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T039 are complete. T040 (US3 process tests) is next.
+
+## T040 US3 Process Tests: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `445e944`. Tests only; no
+production code changed. All children use the T013 harness: allow-listed
+environment, sandboxed HOME/MCLI_DIR/cwd, closed stdin, watchdog and reaping.
+
+### Added (`tests/order_list_process.rs`)
+
+| Test | Status | Covers |
+| --- | --- | --- |
+| `every_legacy_command_rejects_json_before_any_effect` | passes now | All 32 registered legacy commands, each with minimal valid arguments and `--output json`, including the gRPC (`admsetmaintenance`, `admmaintenancestatus`, `admcancelpending`) and secret (`getlasttradeprivkey`, `conversationkey`) paths: exit 2, one document, canonical `command`, `output_not_supported`, stages `not_attempted`/`unknown`/`not_attempted`, empty stderr, sandbox untouched, zero connections to a configured relay/RPC endpoint |
+| `configuration_errors_are_stable_and_leak_nothing` | passes now | `configuration_missing` (no env, key only, relays only, blank relays) and `configuration_invalid` (bad key, bad relay, invalid CLI override despite valid env): exit 1, `order.list`, data and snapshot null, planted sentinel absent, sandbox untouched; human mode prints empty stdout and one fixed line |
+| `an_unreachable_relay_is_a_connection_failure_in_the_binary` | passes now | `relay_connection_failed` from a refused loopback port |
+| `schema_runs_offline_in_both_modes` | ignored, red until T043 | `schema` human (raw discovery) and JSON (`command` `schema`, same data) with absent and invalid configuration plus a reachable relay: exit 0, empty stderr, no sentinel, sandbox untouched, zero relay connections |
+
+Already covered elsewhere and not duplicated: `invalid_arguments` and
+`output_not_supported` rows (T018, T031), `relay_read_failed` and `read_timeout`
+in the binary (T031), and the output-selection fallbacks (T017/T018).
+`read_limit_exceeded` is covered only at the collector level
+(`exceeding_the_event_cap_fails_without_truncating`) because the production
+10,000-event cap is impractical to fill through a process; `internal_error` is
+covered by the `parse_machine` serialization tests. Both stay open for T046.
+
+### Red and green
+
+The ignored test fails on this checkout with exit 2 (`unrecognized subcommand`).
+A throwaway prototype (a `Schema` variant, a registry entry and a hard-coded
+discovery document) made it pass; the prototype was reverted and is not in the
+tree. The first prototype run exposed a test defect: `one_document` asserts the
+`order.list` command, so the schema test now checks the envelope itself.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process -- every_legacy configuration_errors unreachable_relay_is` | PASS: 3 of 3 in 0.2 s |
+| `cargo test --locked --test order_list_process -- --ignored schema_runs` | FAIL as intended; PASS against the prototype |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 102, cli_functions 63 (4 ignored), integration 14, order_list_process 40 (1 ignored), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T040 are complete. T041 (discovery DTOs) is next; T043 removes the five
+`red until T043` ignores.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

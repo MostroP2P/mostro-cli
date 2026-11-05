@@ -91,10 +91,12 @@ pub async fn run() -> Result<i32> {
         .await;
         let exit = match output {
             OutputMode::Json => emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock()),
-            OutputMode::Human => print_list(&outcome),
+            OutputMode::Human => {
+                print_list(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock())
+            }
         };
         if cli.verbose {
-            eprintln!("{}", verbose_summary(&outcome));
+            diagnose(&mut io::stderr().lock(), &verbose_summary(&outcome));
         }
         return Ok(exit);
     }
@@ -142,24 +144,29 @@ fn code_name(code: ErrorCode) -> String {
         .unwrap_or_else(|| "internal_error".to_string())
 }
 
-/// The human listing on stdout, or a fixed error line on stderr.
-fn print_list(outcome: &ListOutcome) -> i32 {
+/// One diagnostic line on stderr. A stderr that cannot be written is ignored:
+/// the exit status already carries the result and a panic would replace it.
+fn diagnose(err: &mut impl Write, line: &str) {
+    let _ = writeln!(err, "{line}");
+}
+
+/// The human listing on `out`, or a fixed error line on `err`. The listing is
+/// rendered completely before the first byte is written; a failed write exits
+/// 1 and appends nothing.
+fn print_list(outcome: &ListOutcome, out: &mut impl Write, err: &mut impl Write) -> i32 {
     let Some(data) = outcome.data() else {
         let message = outcome
             .error_code()
             .unwrap_or(ErrorCode::InternalError)
             .message();
-        eprintln!("error: {message}");
+        diagnose(err, &format!("error: {message}"));
         return outcome.exit_code();
     };
-    let mut out = io::stdout().lock();
-    match out
-        .write_all(render_list(data).as_bytes())
-        .and_then(|()| out.flush())
-    {
+    let text = render_list(data);
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
         Ok(()) => outcome.exit_code(),
         Err(_) => {
-            eprintln!("error: the order list could not be written");
+            diagnose(err, "error: the order list could not be written");
             RUNTIME_ERROR_EXIT
         }
     }
@@ -197,11 +204,12 @@ fn report(failure: &ArgumentFailure) -> i32 {
     }
     let bare = failure.kind == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
         && failure.output == OutputSelection::Mode(OutputMode::Human);
-    if bare {
-        eprint!("{}", Cli::command().render_help());
+    let text = if bare {
+        Cli::command().render_help().to_string()
     } else {
-        eprint!("{}", failure.diagnostic());
-    }
+        failure.diagnostic().to_string()
+    };
+    let _ = io::stderr().lock().write_all(text.as_bytes());
     ARGUMENT_ERROR_EXIT
 }
 
@@ -214,4 +222,84 @@ fn rejection(entry: Option<&CommandEntry>, code: ErrorCode) -> i32 {
         stages,
     );
     emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::outcome::order::{ListData, ListOrdersInput};
+    use nostr_sdk::prelude::Keys;
+    use std::io::{Error, ErrorKind};
+
+    /// A stream whose every write fails like a closed pipe.
+    struct Broken;
+
+    impl Write for Broken {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(Error::from(ErrorKind::BrokenPipe))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(Error::from(ErrorKind::BrokenPipe))
+        }
+    }
+
+    fn listed() -> ListOutcome {
+        let filters = ListOrdersInput::parse(None, None, None).unwrap();
+        let node = Keys::generate().public_key();
+        let (data, warnings) = ListData::from_selected(&node, filters, &[]).unwrap();
+        Envelope::ok(COMMAND, data, warnings, ExecutionMeta::read(None))
+    }
+
+    fn failed(code: ErrorCode) -> ListOutcome {
+        Envelope::error(
+            Some(COMMAND),
+            code,
+            Warnings::new(),
+            ExecutionMeta::read(None),
+        )
+    }
+
+    #[test]
+    fn human_listing_is_written_once_with_the_outcome_exit() {
+        let outcome = listed();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(print_list(&outcome, &mut out, &mut err), 0);
+        assert!(err.is_empty());
+        assert_eq!(out, render_list(outcome.data().unwrap()).into_bytes());
+    }
+
+    #[test]
+    fn failed_human_write_exits_1_with_one_fixed_line() {
+        let mut err = Vec::new();
+        assert_eq!(print_list(&listed(), &mut Broken, &mut err), 1);
+        assert_eq!(err, b"error: the order list could not be written\n");
+    }
+
+    #[test]
+    fn human_error_writes_nothing_to_stdout() {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = print_list(&failed(ErrorCode::ReadTimeout), &mut out, &mut err);
+        assert_eq!(code, 1);
+        assert!(out.is_empty());
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            format!("error: {}\n", ErrorCode::ReadTimeout.message())
+        );
+    }
+
+    #[test]
+    fn unwritable_stderr_never_changes_the_result() {
+        assert_eq!(
+            print_list(
+                &failed(ErrorCode::ReadTimeout),
+                &mut Vec::new(),
+                &mut Broken
+            ),
+            1
+        );
+        assert_eq!(print_list(&listed(), &mut Broken, &mut Broken), 1);
+        assert_eq!(print_list(&listed(), &mut Vec::new(), &mut Broken), 0);
+        diagnose(&mut Broken, "verbose: ignored");
+    }
 }
