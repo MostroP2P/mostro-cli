@@ -50,6 +50,10 @@ jobs:
         with: { cache-on-failure: true }
       - name: cargo test
         run: cargo test --locked
+      # Part of the run above, named so a stale docs/schemas file (for example
+      # after a version bump) is reported as such. It never rewrites the files.
+      - name: Schema drift checks
+        run: cargo test --locked --test integration_tests schema_fixtures
 
   # Prepare matrix of targets from archs file
   matrix:

@@ -3,14 +3,14 @@ use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use uuid::Uuid;
 
-const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
-
 use crate::{
     cli::Context,
     db::Order,
     parser::common::{print_info_line, print_key_value, print_section_header},
     util::{print_dm_events, send_dm, wait_for_dm},
 };
+
+const RATING_BOUNDARIES: [u8; 5] = [1, 2, 3, 4, 5];
 
 /// Build rating payload for the given score and order id.
 fn get_user_rate(rating: &u8, order_id: &Uuid) -> Result<Payload> {
