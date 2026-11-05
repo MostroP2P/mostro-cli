@@ -2,6 +2,7 @@
 //! the request this client sent.
 
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::Kind as EventKind;
 use nostr_sdk::prelude::*;
 use std::collections::BTreeSet;
 
@@ -15,7 +16,7 @@ fn is_mostro_reply(
     mostro_pubkey: PublicKey,
     sent_event_id: Option<EventId>,
 ) -> bool {
-    event.kind == nostr_sdk::prelude::Kind::PrivateDirectMessage
+    event.kind == EventKind::PrivateDirectMessage
         && event.pubkey == mostro_pubkey
         && event.tags.public_keys().any(|pk| pk == trade_pubkey)
         && Some(event.id) != sent_event_id
@@ -97,7 +98,7 @@ mod tests {
     }
 
     fn kind14_event_with(author: &Keys, tagged: PublicKey, content: &str) -> Event {
-        EventBuilder::new(nostr_sdk::prelude::Kind::PrivateDirectMessage, content)
+        EventBuilder::new(EventKind::PrivateDirectMessage, content)
             .tag(Tag::public_key(tagged))
             .finalize_unsigned(author.public_key())
             .finalize(author)
@@ -124,7 +125,7 @@ mod tests {
         let stranger = Keys::generate();
         let from_stranger = kind14_event(&stranger, me.public_key());
         let tagged_elsewhere = kind14_event(&mostro, stranger.public_key());
-        let wrong_kind = EventBuilder::new(nostr_sdk::prelude::Kind::TextNote, "x")
+        let wrong_kind = EventBuilder::new(EventKind::TextNote, "x")
             .tag(Tag::public_key(me.public_key()))
             .finalize_unsigned(mostro.public_key())
             .finalize(&mostro)
