@@ -9,7 +9,10 @@ Nothing here was checked against a running daemon (regtest pins v0.19.3).
 Both takes share the front of `order new`'s path: `check_trade_index` runs first (a known identity needs an index above its
 `last_trade_index` and a valid inner signature; an unknown identity may not use index 0), and the node sets the user's
 `last_trade_index` only after every check of the action passed. **A refused take therefore does not consume the index on the node**,
-as for a new order.
+as for a new order. (Amended 2026-11-05 by spec 008, review of slice 7, read in the v0.20.2 source: not always. The index is recorded
+before the take is applied, and a take that then loses the order to another taker or to the maker's cancel is refused with
+`not_allowed_by_status` after the index was recorded; the first take of an unknown identity records it too. The CLI gives such an index
+back, so the next request is refused once with `invalid_trade_index`, which keeps it.)
 
 `take_sell_action` (the taker buys sats):
 1. `PendingOrderExists` if the taker (by identity) already has a pending order as buyer; the order must be a sell order, `pending` (or

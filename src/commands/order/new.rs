@@ -6,8 +6,9 @@
 //! the next order never reuses a key the node may have seen, even when this
 //! run dies before the reply. The reply is mapped to a typed outcome and the
 //! order row is written afterwards when the node created the order; a request
-//! that never left and a refusal give the index back. The request is never
-//! retried. The command prints nothing and never touches a client.
+//! that never left and a refusal give the index back, except a refusal for a
+//! stale index. The request is never retried. The command prints nothing and
+//! never touches a client.
 
 use chrono::Utc;
 use mostro_core::prelude::{Action, Message, Payload};

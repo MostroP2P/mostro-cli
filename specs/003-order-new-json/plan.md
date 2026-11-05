@@ -47,5 +47,5 @@ below 400 production lines; imports at the top; tests before code; no live node,
 - **Daemon version**: v0.20.1 source vs regtest v0.19.3; the probe decides claims.
 - **Duplicate orders**: an `uncertain` run may have created an order; documented, not detectable by the CLI.
 - **MCP**: `create_order` stays broken until migrated.
-- **Index policy** (spend at reservation, before publishing; give back only a provable non-use) is a deliberate departure from legacy; it is tested at the process level with a forced save failure, a run killed after publishing and two runs at once (amended 2026-11-05 by spec 008).
+- **Index policy** (spend at reservation, before publishing; give back only after a request that never left or a refusal, never after a refusal for a stale index; (amended 2026-11-05 by spec 008, review of slice 7)) is a deliberate departure from legacy; it is tested at the process level with a forced save failure, a run killed after publishing and two runs at once (amended 2026-11-05 by spec 008).
 - **Bonded nodes**: the bond is not paid by this command; the outcome says so.

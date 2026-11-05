@@ -3,10 +3,11 @@
 //! published: the reservation is the spend. A run that dies after publishing
 //! therefore never lets a later run reuse the key the node may hold, `order
 //! sync` derives that key, and two runs at once take turns on SQLite's write
-//! lock instead of sharing an index. A request that provably had no effect
-//! gives its index back with a compare-and-swap, which succeeds only while no
-//! later reservation exists; otherwise the index is skipped, a harmless gap
-//! (the node only needs an index above its last one).
+//! lock instead of sharing an index. A request that never left, or that the
+//! node refused for any reason but a stale index, gives its index back with a
+//! compare-and-swap, which succeeds only while no later reservation exists;
+//! otherwise the index is skipped, a harmless gap (the node only needs an
+//! index above its last one).
 
 use std::fmt;
 

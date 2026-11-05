@@ -4,7 +4,8 @@
 //! recorded as spent, right before publishing, so a key the node may have seen
 //! is never reused, even when the run dies before the reply. A request that
 //! never left and a refusal give it back, unless another command reserved one
-//! meanwhile (the index is then skipped, which is harmless).
+//! meanwhile (the index is then skipped, which is harmless). A refusal for a
+//! stale index (`invalid_trade_index`) keeps it: the node is already past it.
 
 use mostro_core::order::SmallOrder;
 use mostro_core::prelude::{CantDoReason, Payload};
@@ -66,14 +67,26 @@ impl Sent<'_> {
         )
     }
 
-    /// The node refused before acting: the index is given back and nothing
-    /// else is written.
+    /// The node refused: the index is given back and nothing else is written,
+    /// unless the reason is `invalid_trade_index`. That reason means the
+    /// node's last index is already at or above this one, so a give-back would
+    /// only make the next request carry it again and be refused again; the
+    /// index stays spent (`persistence` `applied`) and the next request
+    /// carries the one after it. The node can record an index and still refuse
+    /// (a take that lost the order to another taker, the first request of an
+    /// identity it did not know): the next request is then refused once this
+    /// way, and the one after it goes through.
     pub async fn refused<D>(&self, payload: &Option<Payload>) -> Envelope<D, ()> {
-        self.store.release(self.reservation).await;
+        let persistence = if stale_index(payload) {
+            Persistence::Applied
+        } else {
+            self.store.release(self.reservation).await;
+            Persistence::NotAttempted
+        };
         let meta = ExecutionMeta::write(
             Publication::Published,
             DaemonAcceptance::Rejected,
-            Persistence::NotAttempted,
+            persistence,
         );
         Envelope::refused(Some(self.command), &reason(payload), Warnings::new(), meta)
     }
@@ -131,6 +144,15 @@ pub fn unsent<D>(command: &'static str, code: ErrorCode, warnings: Warnings) -> 
             DaemonAcceptance::Unknown,
             Persistence::NotAttempted,
         ),
+    )
+}
+
+/// Whether the node refused because the request's index is not above the last
+/// one it recorded for the identity.
+fn stale_index(payload: &Option<Payload>) -> bool {
+    matches!(
+        payload,
+        Some(Payload::CantDo(Some(CantDoReason::InvalidTradeIndex)))
     )
 }
 

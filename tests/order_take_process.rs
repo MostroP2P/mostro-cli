@@ -776,7 +776,28 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn refusals_carry_their_reason_and_write_nothing() {
+    async fn refusals_carry_their_reason_and_only_a_stale_index_stays_spent() {
+        let taker = with_book(sell_book(), 0, false, 0).await;
+        let wrong_side = take(&taker, &input(TakeSide::Buy, id(1), None, None)).await;
+        assert_eq!(wrong_side.status(), Outcome::Error);
+        assert_eq!(wrong_side.error_code(), Some(ErrorCode::NodeRefused));
+        assert_eq!(wrong_side.reason(), Some("invalid_order_kind"));
+        assert_eq!(
+            stages(&wrong_side),
+            json!({"publication": "published", "daemon_acceptance": "rejected",
+                   "persistence": "not_attempted", "snapshot": null})
+        );
+        let unknown = take(&taker, &input(TakeSide::Sell, id(9), None, None)).await;
+        assert_eq!(unknown.reason(), Some("not_found"));
+        // Each index was reserved and given back exactly (NULL included).
+        assert_eq!(
+            raw_state(&taker).await,
+            (0, None),
+            "a refusal spends no index"
+        );
+        assert_eq!(taker.book.lock().unwrap().last_trade_index, 0);
+
+        // The node is already past a stale index: it stays spent.
         let taker = with_book(sell_book(), 5, false, 0).await;
         let stale = take(&taker, &input(TakeSide::Sell, id(1), None, None)).await;
         assert_eq!(stale.status(), Outcome::Error);
@@ -785,17 +806,10 @@ mod operation {
         assert_eq!(
             stages(&stale),
             json!({"publication": "published", "daemon_acceptance": "rejected",
-                   "persistence": "not_attempted", "snapshot": null})
+                   "persistence": "applied", "snapshot": null})
         );
-        assert_eq!(state(&taker).await, (0, 0), "a refusal spends no index");
-
-        let taker = with_book(sell_book(), 0, false, 0).await;
-        let wrong_side = take(&taker, &input(TakeSide::Buy, id(1), None, None)).await;
-        assert_eq!(wrong_side.reason(), Some("invalid_order_kind"));
-        let unknown = take(&taker, &input(TakeSide::Sell, id(9), None, None)).await;
-        assert_eq!(unknown.reason(), Some("not_found"));
-        assert_eq!(state(&taker).await, (0, 0));
-        assert_eq!(taker.book.lock().unwrap().last_trade_index, 0);
+        assert_eq!(raw_state(&taker).await, (0, Some(1)));
+        assert_eq!(taker.book.lock().unwrap().last_trade_index, 5);
     }
 
     #[tokio::test]
@@ -1219,9 +1233,9 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_refusal_shows_its_reason_in_both_modes_and_spends_nothing() {
-        let taker = with_book(sell_book(), 5, false, 0).await;
-        let before = raw_state(&taker).await;
+    async fn a_stale_index_refusal_shows_its_reason_in_both_modes_and_is_not_sent_again() {
+        // The node is two indexes ahead of the local store.
+        let taker = with_book(sell_book(), 2, false, 0).await;
 
         let json = run(
             &taker,
@@ -1234,6 +1248,7 @@ mod operation {
         assert_eq!(outcome["error"]["code"], "node_refused");
         assert_eq!(outcome["error"]["reason"], "invalid_trade_index");
         assert_eq!(outcome["data"], serde_json::Value::Null);
+        assert_eq!(outcome["meta"]["persistence"], "applied", "the index kept");
 
         let human = run(&taker, &args(&[], "take-sell", &["--yes"])).await;
         assert_eq!(human.code(), Some(1));
@@ -1242,14 +1257,24 @@ mod operation {
             human.stderr_text(),
             "error: The node refused the request. (reason: invalid_trade_index)\n"
         );
-        // The index of each run was reserved and given back.
-        assert_eq!(raw_state(&taker).await, before);
-        let seen = taker.fake.received();
-        assert_eq!(seen.len(), 2, "one request per run");
-        assert_eq!(
-            (seen[0].trade_index, seen[1].trade_index),
-            (Some(1), Some(1))
-        );
+        // Each stale index stays spent, so the next run carries the one after
+        // it and catches up with the node.
+        assert_eq!(raw_state(&taker).await, (0, Some(2)));
+        let caught_up = run(
+            &taker,
+            &args(&["--output", "json"], "take-sell", &["--yes"]),
+        )
+        .await;
+        assert_eq!(caught_up.code(), Some(0), "{}", caught_up.stderr_text());
+        let seen: Vec<_> = taker
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.trade_index)
+            .collect();
+        assert_eq!(seen, [Some(1), Some(2), Some(3)], "one request per run");
+        assert_eq!(raw_state(&taker).await, (1, Some(3)));
+        assert_eq!(taker.book.lock().unwrap().last_trade_index, 3);
     }
 
     #[tokio::test]

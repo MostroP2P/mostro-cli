@@ -39,7 +39,8 @@ ls -A "$T"                                           # empty
 | Range take | the amount reaches the node, the document and the row | `the_amount_of_a_range_take_...` |
 | JSON without `--yes` | `invalid_arguments` exit 2, nothing sent, store untouched, both sides | `json_without_yes_does_nothing_...` |
 | Prompt | blank, `y`, `Y`+CRLF accept; `n`, other text, empty input and closed stdin decline with nothing sent | `the_prompt_accepts_y_and_blank_...` |
-| Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, no row, the index given back (amended 2026-11-05 by spec 008) | `a_refusal_shows_its_reason_...` |
+| Node refuses | `node_refused` with reason, `published/rejected/not_attempted`, no row, the index given back (amended 2026-11-05 by spec 008) | `refusals_carry_their_reason_...` |
+| Node refuses a stale index (amended 2026-11-05 by spec 008, review of slice 7) | `node_refused` / `invalid_trade_index`, `published/rejected/applied`, no row, the index kept: the next run carries the one after it | `a_stale_index_refusal_...`, `refusals_carry_their_reason_...` |
 | No reply | `uncertain` / `reply_timeout` after 15 s, one request, index spent, no row | `a_silent_node_is_uncertain_...` |
 | Unusable reply (another order, wrong action for the side) | `uncertain` / `reply_malformed`, index spent | `replies_that_do_not_fit_the_take_...` |
 | Bonded node | `ok` / `pay_bond_invoice`, bond invoice in `data.payment_request`, row and index saved | `a_bonded_node_returns_the_bond_invoice_...` |

@@ -16,6 +16,7 @@ pub enum Stages {
     /// One published request and a local write: persistence says whether the
     /// write the outcome calls for was `applied` or `failed`, and is
     /// `not_attempted` when no write is called for (a refusal, a local failure).
+    /// A refusal for a stale index keeps the index spent: `applied`.
     Write,
     /// One published request that updates a local row only afterwards:
     /// `applied`, or `failed` on success (the outcome then warns), and
@@ -178,10 +179,12 @@ impl<'a> OutcomeRules<'a> {
             },
             Stages::Write => Combos {
                 success: vec![["published", "accepted", "applied"]],
-                // Nothing sent, or refused.
+                // Nothing sent, or refused (the index given back, or kept on
+                // `invalid_trade_index`).
                 failure: vec![
                     ["not_attempted", "unknown", "not_attempted"],
                     ["published", "rejected", "not_attempted"],
+                    ["published", "rejected", "applied"],
                 ],
                 // The node may hold an order: unknown or accepted without a
                 // saved row, with the index recorded or not.

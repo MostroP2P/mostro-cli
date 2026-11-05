@@ -224,9 +224,9 @@ impl Store {
         reserved
     }
 
-    /// Give `reservation` back once its request provably had no effect (it
-    /// never left, or the node refused it). Best effort: `false` leaves the
-    /// index spent, a harmless gap.
+    /// Give `reservation` back once its request never left or the node
+    /// refused it (see `commands::order::write` for the refusal it keeps).
+    /// Best effort: `false` leaves the index spent, a harmless gap.
     pub async fn release(&self, reservation: &Reservation) -> bool {
         let Ok(pool) = self.open().await else {
             return false;

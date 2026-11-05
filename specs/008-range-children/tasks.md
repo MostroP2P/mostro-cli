@@ -28,6 +28,10 @@ slice for review. Tests before code, a real failure before a repair, mutation sp
   order save only raise the index. Failing process tests first (a continuation and an `order new` killed after publishing, two continuations and
   two `order new` runs at once), then store tests (32 concurrent reservations, a blocked commit, the give-back, a missing or frozen user row).
   Specs 003, 004, 007 and 008 amended ("amended 2026-11-05 by spec 008"); the external JSON interface book is a follow-up.
+  Review follow-up (2026-11-05): a refusal of `order new` or `order take-*` for a stale index (`invalid_trade_index`) keeps its index
+  (`published/rejected/applied`), since mostrod can record an index and still refuse (a take that lost the order, the first request of a new
+  identity) and a give-back then repeated the refusal on every later run; the concurrency store test runs 8 reservations, not 32, so a slow
+  disk cannot push its last waiter past the 5 s busy timeout.
 
 ## Requirement ownership
 

@@ -768,13 +768,20 @@ mod store {
         assert_eq!(reserved.trade.keys.public_key(), preview.keys.public_key());
     }
 
+    /// Reservations started together in `concurrent_reservations_...`. Enough
+    /// that a deferred transaction fails at once on the upgrade from its read
+    /// lock; few enough that the last waiter stays far inside the 5 s busy
+    /// timeout on a disk whose sync is slow (SQLite's busy handler polls about
+    /// every 100 ms, and 32 at once overran it with 25 ms per `fsync`).
+    const CONCURRENT_RESERVATIONS: i64 = 8;
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_reservations_never_share_an_index() {
-        // 32 runs at once take turns on the write lock: each waits under the
-        // busy timeout instead of failing at once, as a deferred transaction
-        // would on the upgrade from its read lock.
+        // Runs at once take turns on the write lock: each waits under the busy
+        // timeout instead of failing at once, as a deferred transaction would
+        // on the upgrade from its read lock.
         let (sandbox, _, _) = seeded().await;
-        let tasks: Vec<_> = (0..32)
+        let tasks: Vec<_> = (0..CONCURRENT_RESERVATIONS)
             .map(|_| {
                 let store = Store::in_dir(&sandbox.mcli_dir());
                 tokio::spawn(async move {
@@ -792,10 +799,10 @@ mod store {
 
         reserved.sort_by_key(|(index, _)| *index);
         let indexes: Vec<i64> = reserved.iter().map(|(index, _)| *index).collect();
-        assert_eq!(indexes, (1..=32).collect::<Vec<i64>>());
+        assert_eq!(indexes, (1..=CONCURRENT_RESERVATIONS).collect::<Vec<i64>>());
         let keys: std::collections::HashSet<_> = reserved.iter().map(|(_, key)| *key).collect();
-        assert_eq!(keys.len(), 32, "one key per index");
-        assert_eq!(raw_index(&sandbox).await, Some(32));
+        assert_eq!(keys.len(), indexes.len(), "one key per index");
+        assert_eq!(raw_index(&sandbox).await, Some(CONCURRENT_RESERVATIONS));
     }
 
     #[tokio::test]
@@ -943,11 +950,16 @@ mod store {
 
 mod operation {
     use super::*;
+    use fake_mostro::{order_created, refusal, Outgoing, Received};
     use mostro_client::commands::order::new::{order_new, NewOptions, NewOutcome};
+    use mostro_client::commands::order::take::order_take;
     use mostro_client::outcome::new::{NewStep, OrderNewInput, OrderRequest};
+    use mostro_client::outcome::take::{OrderTakeInput, TakeRequest, TakeSide};
     use mostro_client::outcome::{ErrorCode, Status};
     use mostro_client::store::Store;
     use serde_json::json;
+    use std::sync::Mutex;
+    use uuid::Uuid;
 
     struct Maker {
         relay: LoopbackRelay,
@@ -1088,20 +1100,113 @@ mod operation {
 
     #[tokio::test]
     async fn a_refusal_is_an_error_with_its_reason_and_writes_nothing() {
-        let (respond, _) = new_order_daemon(5, false);
+        let respond: Respond = Arc::new(|request: &Received| {
+            vec![Outgoing::to_requester(refusal(
+                request,
+                CantDoReason::OutOfRangeSatsAmount,
+            ))]
+        });
         let maker = maker(respond, 0).await;
 
         let outcome = create(&maker).await;
 
         assert_eq!(outcome.status(), Status::Error);
         assert_eq!(outcome.error_code(), Some(ErrorCode::NodeRefused));
-        assert_eq!(outcome.reason(), Some("invalid_trade_index"));
+        assert_eq!(outcome.reason(), Some("out_of_range_sats_amount"));
         assert_eq!(
             stages(&outcome),
             json!({"publication": "published", "daemon_acceptance": "rejected",
                    "persistence": "not_attempted", "snapshot": null})
         );
-        assert_eq!(state(&maker).await, (0, 0), "a refusal spends no index");
+        // The index was reserved and given back exactly (NULL included).
+        assert_eq!(
+            raw_state(&maker).await,
+            (0, None),
+            "a refusal spends no index"
+        );
+    }
+
+    /// A node that checks every index against the last one it recorded, and
+    /// that records a take's index and then loses the order to another taker,
+    /// as mostrod v0.20.2's `take_sell` does when its compare-and-swap misses
+    /// (`update_user_trade_index`, then `not_allowed_by_status`). New orders
+    /// are created.
+    fn node_losing_a_take_race() -> (Respond, Arc<Mutex<i64>>) {
+        let last = Arc::new(Mutex::new(0));
+        let state = Arc::clone(&last);
+        let respond: Respond = Arc::new(move |request: &Received| {
+            let mut last = state.lock().unwrap();
+            let index = request.trade_index.unwrap_or(0);
+            let reply = if index <= *last {
+                refusal(request, CantDoReason::InvalidTradeIndex)
+            } else {
+                *last = index;
+                match request.action {
+                    Action::TakeSell => refusal(request, CantDoReason::NotAllowedByStatus),
+                    _ => order_created(request, Uuid::new_v4()),
+                }
+            };
+            vec![Outgoing::to_requester(reply)]
+        });
+        (respond, last)
+    }
+
+    #[tokio::test]
+    async fn an_index_the_node_recorded_before_refusing_costs_one_stale_refusal_not_every_run() {
+        let (respond, last) = node_losing_a_take_race();
+        let maker = maker(respond, 0).await;
+        let lost_take = OrderTakeInput::validate(TakeRequest {
+            side: TakeSide::Sell,
+            order: Uuid::new_v4(),
+            amount: None,
+            invoice: None,
+        })
+        .unwrap();
+        let options = NewOptions {
+            pow: 0,
+            check_protocol: true,
+        };
+
+        // The node records index 1 and then refuses the take: the refusal
+        // gives the index back, so the local index falls behind the node's.
+        let lost = order_take(
+            &lost_take,
+            &maker.config,
+            &maker.identity,
+            &maker.store,
+            options,
+            &super::limits(),
+        )
+        .await;
+        assert_eq!(lost.reason(), Some("not_allowed_by_status"));
+        assert_eq!(raw_state(&maker).await, (0, None));
+
+        // The next order carries index 1 again and the node refuses it as
+        // stale. Giving it back would repeat this refusal on every later run,
+        // so the index stays spent.
+        let stale = create(&maker).await;
+        assert_eq!(stale.error_code(), Some(ErrorCode::NodeRefused));
+        assert_eq!(stale.reason(), Some("invalid_trade_index"));
+        assert_eq!(
+            stages(&stale),
+            json!({"publication": "published", "daemon_acceptance": "rejected",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(raw_state(&maker).await, (0, Some(1)));
+
+        // The run after it carries the next index, and the node creates it.
+        let created = create(&maker).await;
+        assert_eq!(created.status(), Status::Ok, "{:?}", wire(&created));
+        assert_eq!(created.data().unwrap().trade_index(), "2");
+        let sent: Vec<_> = maker
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.trade_index)
+            .collect();
+        assert_eq!(sent, [Some(1), Some(1), Some(2)]);
+        assert_eq!(raw_state(&maker).await, (1, Some(2)));
+        assert_eq!(*last.lock().unwrap(), 2);
     }
 
     #[tokio::test]
@@ -1473,10 +1578,10 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_refusal_shows_its_reason_in_both_modes_and_spends_nothing() {
-        let (respond, _) = new_order_daemon(5, false);
+    async fn a_stale_index_refusal_shows_its_reason_in_both_modes_and_is_not_sent_again() {
+        // The node is two indexes ahead of the local store.
+        let (respond, last) = new_order_daemon(2, false);
         let maker = maker(respond, 0).await;
-        let before = raw_state(&maker).await;
 
         let json = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
         assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
@@ -1486,6 +1591,7 @@ mod operation {
         assert_eq!(outcome["error"]["code"], "node_refused");
         assert_eq!(outcome["error"]["reason"], "invalid_trade_index");
         assert_eq!(outcome["data"], serde_json::Value::Null);
+        assert_eq!(outcome["meta"]["persistence"], "applied", "the index kept");
 
         let human = run(&maker, &args(&[], &["--yes"])).await;
         assert_eq!(human.code(), Some(1));
@@ -1494,14 +1600,20 @@ mod operation {
             human.stderr_text(),
             "error: The node refused the request. (reason: invalid_trade_index)\n"
         );
-        // The index of each run was reserved and given back.
-        assert_eq!(raw_state(&maker).await, before, "a refusal changes nothing");
-        let seen = maker.fake.received();
-        assert_eq!(seen.len(), 2, "one request per run");
-        assert_eq!(
-            (seen[0].trade_index, seen[1].trade_index),
-            (Some(1), Some(1))
-        );
+        // Each stale index stays spent, so the next run carries the one after
+        // it and catches up with the node.
+        assert_eq!(raw_state(&maker).await, (0, Some(2)));
+        let caught_up = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(caught_up.code(), Some(0), "{}", caught_up.stderr_text());
+        let seen: Vec<_> = maker
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.trade_index)
+            .collect();
+        assert_eq!(seen, [Some(1), Some(2), Some(3)], "one request per run");
+        assert_eq!(raw_state(&maker).await, (1, Some(3)));
+        assert_eq!(*last.lock().unwrap(), 3);
     }
 
     #[tokio::test]

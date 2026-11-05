@@ -4,9 +4,9 @@
 //! key under the identity seal, and the reply is mapped to what the node asked
 //! the taker to do next. The index follows the same rules as `order.new` (see
 //! [`super::write`]): reserved, and so recorded as spent, right before
-//! publishing, given back when the take never left or was refused; the order
-//! row is written when the node accepted. The take is never retried. The
-//! command prints nothing and never touches a client.
+//! publishing, given back when the take never left or was refused (except for
+//! a stale index); the order row is written when the node accepted. The take
+//! is never retried. The command prints nothing and never touches a client.
 
 use mostro_core::prelude::{Action, Message, Payload};
 use nostr_sdk::prelude::Keys;

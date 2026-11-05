@@ -5230,6 +5230,19 @@
                         "const": "published"
                       }
                     }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
                   }
                 ],
                 "properties": {
@@ -7312,6 +7325,19 @@
                         "const": "published"
                       }
                     }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "applied"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
                   }
                 ],
                 "properties": {
@@ -8032,6 +8058,19 @@
                       },
                       "persistence": {
                         "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "applied"
                       },
                       "publication": {
                         "const": "published"

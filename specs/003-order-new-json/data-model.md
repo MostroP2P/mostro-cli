@@ -32,7 +32,8 @@ amounts). A rejection by the daemon is `node_refused` with its reason.
 `persistence` says whether the local write the outcome calls for happened: `applied` (the order row and index, or only the index
 when there is no order to save), `failed`, or `not_attempted` when no write is called for (a refusal, a local failure). The trade
 index is recorded before the request is published and given back after a refusal or a request that never left, so it stays spent
-exactly when the request was published and not provably rejected (amended 2026-11-05 by spec 008).
+exactly when the request was published and not provably rejected (amended 2026-11-05 by spec 008). A refusal for a stale index
+(`invalid_trade_index`) keeps it, and `persistence` is then `applied`: the node is already at or past it (amended 2026-11-05 by spec 008, review of slice 7).
 
 | Case | status | code | publication | daemon_acceptance | persistence |
 | --- | --- | --- | --- | --- | --- |
@@ -40,6 +41,7 @@ exactly when the request was published and not provably rejected (amended 2026-1
 | local failure (arguments, identity, configuration, work, protocol, declined, store) | error | its code | not_attempted | unknown | not_attempted |
 | no relay accepted the event (proven) | error | `request_rejected` | not_attempted | unknown | not_attempted |
 | refused by the node (`CantDo`) | error | `node_refused` + reason | published | rejected | not_attempted |
+| refused for a stale index (`invalid_trade_index`) (amended 2026-11-05 by spec 008, review of slice 7) | error | `node_refused` + reason | published | rejected | applied (the index stays spent) |
 | bonded node asks for a maker bond (amended 2026-11-01) | ok, `next_step` `pay_bond_invoice` | | published | accepted | applied (parked order and bond invoice returned and saved) |
 | accepted, order row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
 | no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |

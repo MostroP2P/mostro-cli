@@ -1358,8 +1358,9 @@ mod schema_fixtures {
             ),
             (
                 "node_refused",
-                "a refusal that spent a write",
-                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+                // `applied` is allowed: a refusal for a stale index keeps it.
+                "a refusal whose write failed",
+                Box::new(|o| o["meta"]["persistence"] = json!("failed")),
             ),
             (
                 "node_refused",

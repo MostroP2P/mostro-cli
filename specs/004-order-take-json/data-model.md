@@ -39,6 +39,7 @@ called for). The data of an `order_not_saved` outcome is the same `OrderTakeData
 | local failure (arguments, identity, configuration, work, protocol, declined, store) | error | its code | not_attempted | unknown | not_attempted |
 | no relay accepted the event (proven) | error | `request_rejected` | not_attempted | unknown | not_attempted |
 | refused by the node (`CantDo`) | error | `node_refused` + reason | published | rejected | not_attempted |
+| refused for a stale index (`invalid_trade_index`) (amended 2026-11-05 by spec 008, review of slice 7) | error | `node_refused` + reason | published | rejected | applied (the index stays spent) |
 | bond asked first (amended 2026-11-01) | ok, `next_step` `pay_bond_invoice` | | published | accepted | applied (parked order and bond invoice returned and saved) |
 | accepted, row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
 | no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |
