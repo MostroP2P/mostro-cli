@@ -262,8 +262,9 @@ until a later command refreshes them, and the duplicate-take risk of an `uncerta
 
 Reconciliation of the [specification](../specs/005-invoice-json/spec.md) with the entries in
 [TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-01. **Automated verification on Linux with loopback relays and a
-scripted fake daemon only**; CI (with the CI-hosted Windows runner) was green through slice 4b when this was written. Not run against any real daemon, regtest or
-public node; the daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
+scripted fake daemon only**; CI (with the CI-hosted Windows runner) was green through slice 4b when this was written. `order add-invoice` was also probed on the maintainer's
+local regtest node on 2026-11-01 (accepted and three refusals, see SC-006 below); `bond add-invoice` was not run against any real node;
+the daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised. Contracts:
 [CLI](../specs/005-invoice-json/contracts/cli.md), [data model](../specs/005-invoice-json/data-model.md); generated references:
 [discovery](../docs/schemas/discovery-v1.json), [order add-invoice](../docs/schemas/order-add-invoice-v1.json) and
 [bond add-invoice](../docs/schemas/bond-add-invoice-v1.json).

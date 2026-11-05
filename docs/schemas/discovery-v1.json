@@ -171,11 +171,7 @@
           },
           "yes": {
             "description": "Send the invoice without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -261,6 +257,7 @@
               "request_rejected",
               "node_refused",
               "order_declined",
+              "store_unwritable",
               "order_unknown",
               "reply_timeout",
               "reply_malformed"
@@ -420,6 +417,7 @@
                       "request_rejected",
                       "node_refused",
                       "order_declined",
+                      "store_unwritable",
                       "order_unknown"
                     ]
                   },
@@ -1660,11 +1658,7 @@
           },
           "yes": {
             "description": "Send the invoice without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -2349,11 +2343,7 @@
           },
           "yes": {
             "description": "Send the request without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -2982,11 +2972,7 @@
           },
           "yes": {
             "description": "Send the request without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -3611,7 +3597,11 @@
         "properties": {
           "order": {
             "description": "Order id to ask about; repeat the option for several orders",
-            "type": "string"
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           }
         },
         "required": [
@@ -4801,11 +4791,7 @@
           },
           "yes": {
             "description": "Create the order without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -5506,11 +5492,7 @@
           },
           "yes": {
             "description": "Send the request without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -6864,11 +6846,7 @@
           },
           "yes": {
             "description": "Take the order without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -7593,11 +7571,7 @@
           },
           "yes": {
             "description": "Take the order without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [

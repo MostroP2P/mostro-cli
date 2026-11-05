@@ -18,7 +18,7 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::db::User;
-use crate::identity::resolve_dir;
+use crate::identity::{open_mode, resolve_dir, OpenMode};
 use save::{save_in, Existing};
 
 mod save;
@@ -146,6 +146,34 @@ impl Store {
             .map_err(|_| StoreError::Unwritable)
     }
 
+    /// Open the store for reading without creating or deleting a file beside
+    /// it, so a read works in a directory it may not write. A `-wal` file
+    /// without its `-shm` file is unreadable here: unlike the mnemonic, the
+    /// trade index changes, and the WAL may hold a newer one that only an
+    /// open creating the `-shm` file could see.
+    async fn open_read_only(&self) -> Result<SqlitePool, StoreError> {
+        match std::fs::metadata(&self.path) {
+            Ok(metadata) if metadata.is_file() => {}
+            Ok(_) => return Err(StoreError::Unreadable),
+            Err(_) => return Err(StoreError::Missing),
+        }
+        let immutable = match open_mode(&self.path) {
+            Some(OpenMode::ReadOnly) => false,
+            Some(OpenMode::Immutable) => true,
+            Some(OpenMode::MainFileOnly) | None => return Err(StoreError::Unreadable),
+        };
+        let options = SqliteConnectOptions::new()
+            .filename(&self.path)
+            .read_only(true)
+            .immutable(immutable)
+            .create_if_missing(false);
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .map_err(|_| StoreError::Unreadable)
+    }
+
     /// Fail now, before anything is published, if the store cannot be written:
     /// the file must accept a write (SQLite silently falls back to read-only on
     /// a file it may not write, so its own checks cannot say) and the write
@@ -194,7 +222,7 @@ impl Store {
     /// the identity's mnemonic, so a trade whose order was never saved has its
     /// key too. Writes nothing.
     pub async fn trade_keys(&self, newest: usize) -> Result<TradeKeys, StoreError> {
-        let pool = self.open().await?;
+        let pool = self.open_read_only().await?;
         let derived = derive_trade_keys(&pool, newest).await;
         pool.close().await;
         derived
@@ -204,7 +232,7 @@ impl Store {
     /// such order, it has no key or the key is unusable. Writes nothing. The
     /// secret never leaves this module except as the key itself.
     pub async fn order_keys(&self, id: Uuid) -> Result<Option<Keys>, StoreError> {
-        let pool = self.open().await?;
+        let pool = self.open_read_only().await?;
         let stored: Result<Option<Option<String>>, _> =
             sqlx::query_scalar("SELECT trade_keys FROM orders WHERE id = ?1")
                 .bind(id.to_string())

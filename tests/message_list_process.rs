@@ -384,7 +384,9 @@ mod legacy_getdm {
 mod store {
     use super::fake_mostro::{seed_identity, set_last_trade_index};
     use super::harness::Sandbox;
-    use mostro_client::store::{Store, StoreError};
+    use super::{id, order};
+    use mostro_client::store::{Store, StoreError, Trade};
+    use mostro_core::order::Status;
 
     async fn stored(last: i64) -> (Sandbox, Store) {
         let sandbox = Sandbox::new().unwrap();
@@ -474,6 +476,110 @@ mod store {
             assert!(!shown.contains(&keys.secret_key().to_secret_hex()));
             assert!(!shown.contains(&keys.public_key().to_hex()));
         }
+    }
+
+    /// The names of the files in the store's directory.
+    fn files(sandbox: &Sandbox) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(sandbox.mcli_dir())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Switch the store to WAL mode; closing the last connection removes its
+    /// `-wal` and `-shm` files.
+    async fn to_wal(sandbox: &Sandbox) {
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("PRAGMA journal_mode = WAL")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+    }
+
+    fn set_dir_read_only(sandbox: &Sandbox, read_only: bool) {
+        let dir = sandbox.mcli_dir();
+        let mut permissions = std::fs::metadata(&dir).unwrap().permissions();
+        permissions.set_readonly(read_only);
+        std::fs::set_permissions(&dir, permissions).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_wal_store_without_sidecars_is_read_in_a_read_only_directory() {
+        let (sandbox, store) = stored(3).await;
+        to_wal(&sandbox).await;
+        assert_eq!(files(&sandbox), ["mcli.db"], "no sidecar left");
+        let before = database(&sandbox);
+        set_dir_read_only(&sandbox, true);
+
+        let derived = store.trade_keys(200).await;
+
+        set_dir_read_only(&sandbox, false);
+        let indexes: Vec<i64> = derived
+            .unwrap()
+            .keys
+            .iter()
+            .map(|(index, _)| *index)
+            .collect();
+        assert_eq!(indexes, [3, 2, 1]);
+        assert_eq!(files(&sandbox), ["mcli.db"], "no file created");
+        assert_eq!(database(&sandbox), before, "no byte changed");
+    }
+
+    #[tokio::test]
+    async fn an_order_key_is_read_from_a_wal_store_in_a_read_only_directory() {
+        // `message list --order` looks the order's key up after the derivation.
+        let (sandbox, store) = stored(3).await;
+        let (index, keys) = store.trade_keys(200).await.unwrap().keys[0].clone();
+        store
+            .save_order(
+                &order(2, Status::WaitingPayment),
+                &Trade {
+                    index,
+                    keys: keys.clone(),
+                },
+                1,
+            )
+            .await
+            .unwrap();
+        to_wal(&sandbox).await;
+        assert_eq!(files(&sandbox), ["mcli.db"], "no sidecar left");
+        let before = database(&sandbox);
+        set_dir_read_only(&sandbox, true);
+
+        let found = store.order_keys(id(2)).await;
+
+        set_dir_read_only(&sandbox, false);
+        assert_eq!(
+            found.unwrap().map(|k| k.public_key()),
+            Some(keys.public_key())
+        );
+        assert_eq!(files(&sandbox), ["mcli.db"], "no file created");
+        assert_eq!(database(&sandbox), before, "no byte changed");
+    }
+
+    #[tokio::test]
+    async fn a_wal_file_without_its_shm_file_is_unreadable_and_left_alone() {
+        // The WAL may hold a newer trade index than the main file, and reading
+        // it would create the `-shm` file.
+        let (sandbox, store) = stored(3).await;
+        to_wal(&sandbox).await;
+        std::fs::write(sandbox.mcli_dir().join("mcli.db-wal"), b"").unwrap();
+        let before = database(&sandbox);
+
+        let error = store.trade_keys(200).await.unwrap_err();
+
+        assert_eq!(error, StoreError::Unreadable);
+        assert_eq!(
+            files(&sandbox),
+            ["mcli.db", "mcli.db-wal"],
+            "no file created"
+        );
+        assert_eq!(database(&sandbox), before, "no byte changed");
     }
 
     #[tokio::test]

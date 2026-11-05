@@ -537,6 +537,20 @@ mod tests {
     }
 
     #[test]
+    fn a_payment_request_keeps_an_invoice_longer_than_the_text_bound() {
+        let invoice = format!("lnbcrt1{}", "q".repeat(TEXT_BYTES));
+        let (record, _) = record(&message(
+            Action::PayInvoice,
+            Some(id(1)),
+            Some(Payload::PaymentRequest(None, invoice.clone(), None)),
+        ));
+        match record.payload() {
+            MessagePayload::PaymentRequest { invoice: kept, .. } => assert_eq!(kept, &invoice),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn text_from_the_node_is_bounded_on_a_character_boundary() {
         let long = "é".repeat(TEXT_BYTES);
         let (record, _) = record(&message(

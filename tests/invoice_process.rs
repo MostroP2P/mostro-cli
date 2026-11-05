@@ -1012,6 +1012,26 @@ mod operation {
                 }),
             ),
             (
+                "an update naming another order",
+                Arc::new(|request: &fake_mostro::Received| {
+                    vec![Outgoing::to_requester(reply_with(
+                        Action::InvoiceUpdated,
+                        Some(id(77)),
+                        request.request_id,
+                    ))]
+                }),
+            ),
+            (
+                "an update naming no order",
+                Arc::new(|request: &fake_mostro::Received| {
+                    vec![Outgoing::to_requester(reply_with(
+                        Action::InvoiceUpdated,
+                        None,
+                        request.request_id,
+                    ))]
+                }),
+            ),
+            (
                 "an accepted payment for another order",
                 Arc::new(|request: &fake_mostro::Received| {
                     let other =
@@ -1710,6 +1730,7 @@ mod operation {
         EmptyUsers,
         NoUsersTable,
         NullMnemonic,
+        NoOrdersTable,
         ReadOnly,
     }
 
@@ -1731,6 +1752,7 @@ mod operation {
             Tweak::EmptyUsers => sql("DELETE FROM users").await,
             Tweak::NoUsersTable => sql("DROP TABLE users").await,
             Tweak::NullMnemonic => sql("UPDATE users SET mnemonic = NULL").await,
+            Tweak::NoOrdersTable => sql("DROP TABLE orders").await,
             Tweak::ReadOnly => {
                 let mut permissions = std::fs::metadata(&path).unwrap().permissions();
                 permissions.set_readonly(true);
@@ -1907,6 +1929,33 @@ mod operation {
             let holder = plain().await;
             check_failure(case, &holder).await;
         }
+    }
+
+    #[tokio::test]
+    async fn an_unqueryable_orders_table_fails_both_commands_within_their_schemas() {
+        // The identity stays readable, but the order's key cannot be looked up.
+        let holder = plain().await;
+        check_failure(
+            &Failing::new("no orders table", Tweak::NoOrdersTable, "store_unwritable"),
+            &holder,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn the_human_preview_reports_a_broken_store_not_an_unknown_order() {
+        // Without --yes the order's key is looked up for the preview; a store
+        // that cannot be queried gives the same code as the send path.
+        let holder = plain().await;
+        tweak(&holder, Tweak::NoOrdersTable).await;
+
+        let run = run(&holder, &order_args(&[], &[])).await;
+
+        let stderr = run.stderr_text();
+        assert_eq!(run.code(), Some(1), "{stderr}");
+        assert!(stderr.contains("cannot be written"), "{stderr}");
+        assert!(!stderr.contains("No local order"), "{stderr}");
+        assert!(holder.fake.received().is_empty(), "nothing was sent");
     }
 
     #[tokio::test]
