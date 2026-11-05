@@ -1012,6 +1012,26 @@ mod operation {
                 }),
             ),
             (
+                "an update naming another order",
+                Arc::new(|request: &fake_mostro::Received| {
+                    vec![Outgoing::to_requester(reply_with(
+                        Action::InvoiceUpdated,
+                        Some(id(77)),
+                        request.request_id,
+                    ))]
+                }),
+            ),
+            (
+                "an update naming no order",
+                Arc::new(|request: &fake_mostro::Received| {
+                    vec![Outgoing::to_requester(reply_with(
+                        Action::InvoiceUpdated,
+                        None,
+                        request.request_id,
+                    ))]
+                }),
+            ),
+            (
                 "an accepted payment for another order",
                 Arc::new(|request: &fake_mostro::Received| {
                     let other =
