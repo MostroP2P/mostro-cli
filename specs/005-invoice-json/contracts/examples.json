@@ -1,0 +1,359 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "order_waiting_seller_payment",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": null,
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "waiting_seller_payment",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "order_payment_accepted",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": {
+            "buyer_trade_pubkey": null,
+            "created_at": "2026-10-16T00:00:00Z",
+            "created_at_unix": "1792108800",
+            "expires_at": "2026-10-17T00:00:00Z",
+            "expires_at_unix": "1792195200",
+            "fiat_amount": "15",
+            "fiat_amount_max": null,
+            "fiat_amount_min": null,
+            "fiat_currency": "USD",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "payment_method": "bank transfer",
+            "premium_percent": "1",
+            "sats_amount": "15000",
+            "seller_trade_pubkey": null,
+            "side": "sell",
+            "status": "active"
+          },
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "payment_accepted",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "order_invoice_updated",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": null,
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "invoice_updated",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "order_stale_status",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order": null,
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "waiting_seller_payment",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "failed",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": [
+          {
+            "code": "local_status_stale",
+            "message": "The node accepted the invoice but the local order status could not be updated."
+          }
+        ]
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_node_refused",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "invalid_peer"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_reply_timeout_uncertain",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_reply_malformed_uncertain",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "reply_malformed",
+          "message": "The reply from the node could not be used."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_unknown",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "order_unknown",
+          "message": "No local order has this id, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_declined",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "order_declined",
+          "message": "The order was not confirmed, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "order_yes_required",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "bond_invoice_accepted",
+      "stdout": {
+        "command": "bond.add-invoice",
+        "data": {
+          "counterparty_share_sats": "5000",
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "invoice_accepted",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "bond_node_refused",
+      "stdout": {
+        "command": "bond.add-invoice",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "invalid_invoice"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "bond_reply_timeout_uncertain",
+      "stdout": {
+        "command": "bond.add-invoice",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "bond_unknown",
+      "stdout": {
+        "command": "bond.add-invoice",
+        "data": null,
+        "error": {
+          "code": "order_unknown",
+          "message": "No local order has this id, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "removed_spelling",
+      "stdout": {
+        "command": null,
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

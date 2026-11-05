@@ -39,13 +39,13 @@ index is advanced whenever the request was published and not provably rejected.
 | local failure (arguments, identity, configuration, work, protocol, declined, store) | error | its code | not_attempted | unknown | not_attempted |
 | no relay accepted the event (proven) | error | `request_rejected` | not_attempted | unknown | not_attempted |
 | refused by the node (`CantDo`) | error | `node_refused` + reason | published | rejected | not_attempted |
-| bonded node asks for a bond | error | `bond_required` | published | accepted | applied or failed |
+| bonded node asks for a maker bond (amended 2026-11-01) | ok, `next_step` `pay_bond_invoice` | | published | accepted | applied (parked order and bond invoice returned and saved) |
 | accepted, order row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
 | no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |
 | unusable reply | uncertain | `reply_malformed` | published | unknown | applied or failed |
 | relays dropped the wait after publishing | uncertain | `relay_read_failed` | published | unknown | applied or failed |
 | relays answered ambiguously | uncertain | `request_rejected` | unknown | unknown | applied or failed |
 
-New codes (all exit 1, scoped to this command's schema): `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable`.
+New codes (all exit 1, scoped to this command's schema): `order_declined`, `order_not_saved`, `store_unwritable`.
 A JSON run without `--yes` is `invalid_arguments` (exit 2). Implemented in slice 3: `Envelope::uncertain`, `ExecutionMeta::write`,
 `OutcomeRules::write`; the registry entry and the generated fixtures follow in slice 4 with the command, as for order info.

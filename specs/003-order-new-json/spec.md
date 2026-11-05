@@ -15,6 +15,14 @@ Builds on [order info](../002-order-info-json/spec.md) (identity loader, `msg::e
 
 ## Clarifications
 
+### Amendment 2026-11-01: the maker bond is a next step, not an error
+
+- The first implementation reported a bonded node as the error `bond_required` and dropped the bond invoice, so a CLI user could not pay it. Found by
+  trying a take on a bonded node. Corrected: the `pay-bond-invoice` reply (parked order plus bond invoice) is accepted data. `order new` is `ok` with
+  `data.next_step` `pay_bond_invoice` (otherwise `wait_for_taker`) and the bond invoice in `data.payment_request`; the parked order and the trade index are saved
+  in one transaction. `bond_required` is removed. The command still pays nothing; the user pays the invoice with any Lightning wallet and the node then
+  publishes the order and sends its `new-order` acknowledgement as a later message.
+
 ### Session 2026-10-29
 
 - Q: With no local identity, should `order new` create one as the legacy `neworder` does? -> A: No (decided by the maintainer, 2026-10-29). It fails with `identity_missing` before any network access and creates nothing, as `order info` does. An agent never creates keys silently.

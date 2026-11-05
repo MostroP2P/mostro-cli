@@ -17,6 +17,14 @@ pub enum Stages {
     /// write the outcome calls for was `applied` or `failed`, and is
     /// `not_attempted` when no write is called for (a refusal, a local failure).
     Write,
+    /// One published request that updates a local row only afterwards:
+    /// `applied`, or `failed` on success (the outcome then warns), and
+    /// `not_attempted` when the reply called for no update or the outcome is
+    /// not a success.
+    Update,
+    /// One published request with no local write at all: persistence is always
+    /// `not_attempted`.
+    Delivery,
 }
 
 /// The stage combinations (publication, node acceptance, persistence) allowed
@@ -94,6 +102,21 @@ impl<'a> OutcomeRules<'a> {
         }
     }
 
+    /// Rules of `order.add-invoice` (`Stages::Update`) or `bond.add-invoice`
+    /// (`Stages::Delivery`): one published request, no trade index.
+    pub fn invoice(
+        command: &'static str,
+        stages: Stages,
+        errors: &'a [ErrorCode],
+        uncertain: &'a [ErrorCode],
+        warnings: &'a [WarningCode],
+    ) -> Self {
+        Self {
+            stages,
+            ..Self::write(command, errors, uncertain, warnings)
+        }
+    }
+
     /// Stage combinations allowed on success, failure and uncertainty of the
     /// resolved command.
     pub(super) fn combos(&self) -> Combos {
@@ -115,13 +138,10 @@ impl<'a> OutcomeRules<'a> {
             },
             Stages::Write => Combos {
                 success: vec![["published", "accepted", "applied"]],
-                // Nothing sent; refused; or accepted but not live (bond), with
-                // the index recorded or not.
+                // Nothing sent, or refused.
                 failure: vec![
                     ["not_attempted", "unknown", "not_attempted"],
                     ["published", "rejected", "not_attempted"],
-                    ["published", "accepted", "applied"],
-                    ["published", "accepted", "failed"],
                 ],
                 // The node may hold an order: unknown or accepted without a
                 // saved row, with the index recorded or not.
@@ -131,6 +151,27 @@ impl<'a> OutcomeRules<'a> {
                     ["unknown", "unknown", "applied"],
                     ["unknown", "unknown", "failed"],
                     ["published", "accepted", "failed"],
+                ],
+            },
+            Stages::Update | Stages::Delivery => Combos {
+                success: if self.stages == Stages::Update {
+                    vec![
+                        ["published", "accepted", "applied"],
+                        ["published", "accepted", "failed"],
+                        ["published", "accepted", "not_attempted"],
+                    ]
+                } else {
+                    vec![["published", "accepted", "not_attempted"]]
+                },
+                failure: vec![
+                    ["not_attempted", "unknown", "not_attempted"],
+                    ["published", "rejected", "not_attempted"],
+                ],
+                // The node may hold the invoice: no reply, an unusable reply
+                // or an unconfirmed publication.
+                uncertain: vec![
+                    ["published", "unknown", "not_attempted"],
+                    ["unknown", "unknown", "not_attempted"],
                 ],
             },
         }
@@ -144,7 +185,11 @@ pub(super) fn scoped_codes<T: serde::Serialize + PartialEq + Copy>(
     own: &[T],
 ) -> Value {
     let mut codes: Vec<T> = pilot.to_vec();
-    codes.extend(own.iter().filter(|code| !pilot.contains(code)));
+    for code in own {
+        if !codes.contains(code) {
+            codes.push(*code);
+        }
+    }
     Value::Array(codes.iter().map(value).collect())
 }
 

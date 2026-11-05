@@ -11,6 +11,7 @@ use std::time::Duration;
 use mostro_core::prelude::{Action, Message};
 use nostr_sdk::prelude::{Filter, Keys, Kind, PublicKey, Relay, SubscriptionId};
 use tokio::time::{timeout, Instant};
+use uuid::Uuid;
 
 use super::node_info::{probe, NodeInfo};
 use super::reply::{arm, Wait, Waited};
@@ -69,6 +70,9 @@ pub struct Outbound<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Expect {
     pub allowed_actions: Vec<Action>,
+    /// Acknowledgements the node sends without a request id, matched on the
+    /// order they name: `(order, actions)`.
+    pub by_order: Option<(Uuid, Vec<Action>)>,
 }
 
 /// The answer, and anything noteworthy that happened around it.
@@ -151,7 +155,10 @@ pub async fn exchange(
         .map_err(ExchangeFailure::unsent)?;
 
     let subscription = SubscriptionId::generate();
-    let expected = ExpectedReply::new(request_id, expect.allowed_actions.clone());
+    let mut expected = ExpectedReply::new(request_id, expect.allowed_actions.clone());
+    if let Some((order, actions)) = &expect.by_order {
+        expected = expected.or_by_order(*order, actions.clone());
+    }
     let result = run(
         &session,
         config,

@@ -5,6 +5,9 @@ use std::path::Path;
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
 use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
+use mostro_client::outcome::invoice::{
+    Answered, BondInvoiceData, InvoiceInput, InvoiceKind, InvoiceRequest, OrderInvoiceData,
+};
 use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
@@ -285,6 +288,9 @@ mod schema_fixtures {
         OrderNewInput, OrderRequest, OrderTakeData, OrderTakeInput, Persistence, PublicKey,
         Publication, TakeRequest, TakeSide, Taken, Value, Warnings,
     };
+    use super::{
+        Answered, BondInvoiceData, InvoiceInput, InvoiceKind, InvoiceRequest, OrderInvoiceData,
+    };
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
     const DISCOVERY_FIXTURE: &str = concat!(
@@ -311,6 +317,14 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-take-buy-v1.json"
     );
+    const ADD_INVOICE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-add-invoice-v1.json"
+    );
+    const BOND_INVOICE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/bond-add-invoice-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -320,8 +334,10 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new take-sell take-buy; do cargo run -q -- --output json schema | jq \".data.commands[] | \
-    select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done";
+    for NAME in list info new take-sell take-buy add-invoice; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done; \
+    cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
+    .output_schema\" > docs/schemas/bond-add-invoice-v1.json";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -397,6 +413,20 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn invoice_schema_fixtures_match_the_generated_schemas() {
+        for (name, fixture) in [
+            ("order.add-invoice", ADD_INVOICE_FIXTURE),
+            ("bond.add-invoice", BOND_INVOICE_FIXTURE),
+        ] {
+            assert_eq!(
+                generated_output_schema(name),
+                read_json(fixture),
+                "stale fixture of {name}; {REGENERATE}"
+            );
+        }
+    }
+
+    #[test]
     fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
         let fixture = read_json(DISCOVERY_FIXTURE);
         let keys: Vec<&str> = fixture
@@ -439,6 +469,8 @@ mod schema_fixtures {
         assert_eq!(
             machine,
             [
+                "bond.add-invoice",
+                "order.add-invoice",
                 "order.info",
                 "order.list",
                 "order.new",
@@ -1033,6 +1065,34 @@ mod schema_fixtures {
             .0
     }
 
+    /// The parked order of a node that asks the maker for a bond first.
+    fn bonded() -> OrderNewData {
+        let input = OrderNewInput::validate(OrderRequest {
+            side: OrderKind::Sell,
+            currency: "usd".to_string(),
+            fiat_amount: 100,
+            fiat_amount_max: None,
+            payment_method: "bank transfer".to_string(),
+            sats: 0,
+            premium: 2,
+            invoice: None,
+            expiration_days: 1,
+        })
+        .unwrap();
+        let mut order = input.small_order(1_792_108_800);
+        order.id = Some(id(7));
+        order.created_at = Some(1_792_108_800);
+        OrderNewData::from_bond(
+            &node(),
+            &order,
+            "lnbcrt1bondinvoice",
+            3,
+            &PublicKey::from_hex(TRADE).unwrap(),
+        )
+        .unwrap()
+        .0
+    }
+
     type NewEnvelope = Envelope<OrderNewData, ()>;
 
     fn write(
@@ -1082,11 +1142,7 @@ mod schema_fixtures {
                 .unwrap(),
                 1,
             ),
-            (
-                "bond_required",
-                to_value(error(ErrorCode::BondRequired, accepted())).unwrap(),
-                1,
-            ),
+            ("bond_to_pay", to_value(ok(bonded())).unwrap(), 0),
             (
                 "reply_timeout_uncertain",
                 to_value(uncertain(
@@ -1166,7 +1222,7 @@ mod schema_fixtures {
                 !outcome["data"].is_null(),
                 matches!(
                     name.as_str(),
-                    "created" | "range_created" | "order_not_saved_uncertain"
+                    "created" | "range_created" | "bond_to_pay" | "order_not_saved_uncertain"
                 ),
                 "{name}"
             );
@@ -1422,9 +1478,19 @@ mod schema_fixtures {
                 1,
             ),
             (
-                "sell_bond_required",
-                error(sell, ErrorCode::BondRequired, accepted()),
-                1,
+                "sell_pay_bond_invoice",
+                ok(
+                    sell,
+                    taken_data(
+                        TakeSide::Sell,
+                        &Taken::PayBond(
+                            pending_order(OrderStatus::Pending),
+                            "lnbcrt1bondinvoice".to_string(),
+                        ),
+                        None,
+                    ),
+                ),
+                0,
             ),
             (
                 "buy_reply_timeout_uncertain",
@@ -1513,6 +1579,7 @@ mod schema_fixtures {
                     "sell_add_invoice"
                         | "sell_waiting_for_the_seller"
                         | "buy_pay_hold_invoice"
+                        | "sell_pay_bond_invoice"
                         | "buy_order_not_saved_uncertain"
                 ),
                 "{name}"
@@ -1640,6 +1707,378 @@ mod schema_fixtures {
             } else {
                 schema
             };
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
+
+    // --- Invoice commands (spec 005) ---
+
+    const INVOICE_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/005-invoice-json/contracts/examples.json"
+    );
+
+    fn invoice_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(INVOICE_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn invoice_example(name: &str) -> (i32, Value) {
+        invoice_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn invoice_fixture(command: &str) -> Value {
+        match command {
+            "order.add-invoice" => read_json(ADD_INVOICE_FIXTURE),
+            "bond.add-invoice" => read_json(BOND_INVOICE_FIXTURE),
+            other => panic!("no fixture for {other}"),
+        }
+    }
+
+    fn invoice_input(kind: InvoiceKind) -> InvoiceInput {
+        InvoiceInput::validate(InvoiceRequest {
+            kind,
+            order: id(1),
+            invoice: "lnbcrt1buyerinvoice".to_string(),
+        })
+        .unwrap()
+    }
+
+    fn order_invoice_data(answered: &Answered) -> OrderInvoiceData {
+        OrderInvoiceData::from_answer(
+            &node(),
+            &invoice_input(InvoiceKind::Order),
+            answered,
+            &PublicKey::from_hex(TRADE).unwrap(),
+        )
+        .unwrap()
+        .0
+    }
+
+    fn bond_invoice_data() -> BondInvoiceData {
+        let mut share = pending_order(OrderStatus::Success);
+        share.amount = 5_000;
+        BondInvoiceData::from_ack(
+            &node(),
+            &invoice_input(InvoiceKind::Bond),
+            &share,
+            &PublicKey::from_hex(TRADE).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn invoice_cases() -> Vec<(&'static str, Value, i32)> {
+        let order = "order.add-invoice";
+        let bond = "bond.add-invoice";
+        let meta =
+            |publication, acceptance, persistence| write(publication, acceptance, persistence);
+        let accepted = |persistence| {
+            meta(
+                Publication::Published,
+                DaemonAcceptance::Accepted,
+                persistence,
+            )
+        };
+        let ok = |command, data: Value, warnings, meta| {
+            to_value(Envelope::<Value, ()>::ok(command, data, warnings, meta)).unwrap()
+        };
+        let refused = |command, reason| {
+            to_value(Envelope::<Value, ()>::refused(
+                Some(command),
+                reason,
+                Warnings::new(),
+                meta(
+                    Publication::Published,
+                    DaemonAcceptance::Rejected,
+                    Persistence::NotAttempted,
+                ),
+            ))
+            .unwrap()
+        };
+        let uncertain = |command, code| {
+            to_value(Envelope::<Value, ()>::uncertain(
+                command,
+                code,
+                None,
+                Warnings::new(),
+                meta(
+                    Publication::Published,
+                    DaemonAcceptance::Unknown,
+                    Persistence::NotAttempted,
+                ),
+            ))
+            .unwrap()
+        };
+        let error = |command, code| {
+            to_value(Envelope::<Value, ()>::error(
+                Some(command),
+                code,
+                Warnings::new(),
+                unsent_write(),
+            ))
+            .unwrap()
+        };
+        let data = |data: &OrderInvoiceData| to_value(data).unwrap();
+        let accepted_payment =
+            Answered::PaymentAccepted(Box::new(pending_order(OrderStatus::Active)));
+        let mut stale = Warnings::new();
+        stale.add(mostro_client::outcome::WarningCode::LocalStatusStale);
+        vec![
+            (
+                "order_waiting_seller_payment",
+                ok(
+                    order,
+                    data(&order_invoice_data(&Answered::WaitingSellerToPay)),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "order_payment_accepted",
+                ok(
+                    order,
+                    data(&order_invoice_data(&accepted_payment)),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "order_invoice_updated",
+                ok(
+                    order,
+                    data(&order_invoice_data(&Answered::InvoiceUpdated)),
+                    Warnings::new(),
+                    accepted(Persistence::NotAttempted),
+                ),
+                0,
+            ),
+            (
+                "order_stale_status",
+                ok(
+                    order,
+                    data(&order_invoice_data(&Answered::WaitingSellerToPay)),
+                    stale,
+                    accepted(Persistence::Failed),
+                ),
+                0,
+            ),
+            ("order_node_refused", refused(order, "invalid_peer"), 1),
+            (
+                "order_reply_timeout_uncertain",
+                uncertain(order, ErrorCode::ReplyTimeout),
+                1,
+            ),
+            (
+                "order_reply_malformed_uncertain",
+                uncertain(order, ErrorCode::ReplyMalformed),
+                1,
+            ),
+            ("order_unknown", error(order, ErrorCode::OrderUnknown), 1),
+            ("order_declined", error(order, ErrorCode::OrderDeclined), 1),
+            (
+                "order_yes_required",
+                error(order, ErrorCode::InvalidArguments),
+                2,
+            ),
+            (
+                "bond_invoice_accepted",
+                ok(
+                    bond,
+                    to_value(bond_invoice_data()).unwrap(),
+                    Warnings::new(),
+                    accepted(Persistence::NotAttempted),
+                ),
+                0,
+            ),
+            ("bond_node_refused", refused(bond, "invalid_invoice"), 1),
+            (
+                "bond_reply_timeout_uncertain",
+                uncertain(bond, ErrorCode::ReplyTimeout),
+                1,
+            ),
+            ("bond_unknown", error(bond, ErrorCode::OrderUnknown), 1),
+            (
+                "removed_spelling",
+                to_value(Envelope::<Value, ()>::error(
+                    None,
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    ExecutionMeta::not_executed(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_invoice_examples_conform_to_the_checked_in_schemas() {
+        let examples = invoice_examples();
+        assert_eq!(examples.len(), 15);
+        for (name, exit, outcome) in examples {
+            if outcome["command"].is_null() {
+                continue; // no command resolved: both schemas allow it
+            }
+            let schema = invoice_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                !outcome["data"].is_null(),
+                matches!(
+                    name.as_str(),
+                    "order_waiting_seller_payment"
+                        | "order_payment_accepted"
+                        | "order_invoice_updated"
+                        | "order_stale_status"
+                        | "bond_invoice_accepted"
+                ),
+                "{name}"
+            );
+        }
+        let (_, removed) = invoice_example("removed_spelling");
+        for command in ["order.add-invoice", "bond.add-invoice"] {
+            let schema = invoice_fixture(command);
+            assert!(schema_check::conforms(&schema, &schema, &removed));
+        }
+    }
+
+    #[test]
+    fn invoice_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = invoice_cases();
+        assert_eq!(cases.len(), invoice_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = invoice_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_invoice_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "order_waiting_seller_payment",
+                "an unknown result",
+                Box::new(|o| o["data"]["result"] = json!("paid")),
+            ),
+            (
+                "order_waiting_seller_payment",
+                "an uppercase trade key",
+                Box::new(|o| o["data"]["trade_pubkey"] = json!(TRADE.to_uppercase())),
+            ),
+            (
+                "order_waiting_seller_payment",
+                "a bad order id",
+                Box::new(|o| o["data"]["order_id"] = json!("not-a-uuid")),
+            ),
+            (
+                "order_waiting_seller_payment",
+                "a missing order key",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("order");
+                }),
+            ),
+            (
+                "order_waiting_seller_payment",
+                "a success that is uncertain",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "order_waiting_seller_payment",
+                "a rejected success",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("rejected")),
+            ),
+            (
+                "order_node_refused",
+                "an uppercase reason",
+                Box::new(|o| o["error"]["reason"] = json!("Invalid Peer")),
+            ),
+            (
+                "order_node_refused",
+                "an accepted refusal",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "order_node_refused",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"order_id": null})),
+            ),
+            (
+                "order_reply_timeout_uncertain",
+                "a plain error status",
+                Box::new(|o| o["status"] = json!("error")),
+            ),
+            (
+                "order_reply_timeout_uncertain",
+                "a code that is an error only",
+                Box::new(|o| o["error"]["code"] = json!("order_declined")),
+            ),
+            (
+                "order_reply_timeout_uncertain",
+                "nothing published",
+                Box::new(|o| o["meta"]["publication"] = json!("not_attempted")),
+            ),
+            (
+                "order_declined",
+                "a published declined invoice",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "bond_invoice_accepted",
+                "a local write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "bond_invoice_accepted",
+                "a numeric share",
+                Box::new(|o| o["data"]["counterparty_share_sats"] = json!(5000)),
+            ),
+            (
+                "bond_invoice_accepted",
+                "an unknown result",
+                Box::new(|o| o["data"]["result"] = json!("paid")),
+            ),
+            (
+                "bond_unknown",
+                "a save failure on a bond, which saves nothing",
+                Box::new(|o| o["error"]["code"] = json!("order_not_saved")),
+            ),
+        ];
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = invoice_example(case);
+            let schema = invoice_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
             assert!(
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label} on {case}"

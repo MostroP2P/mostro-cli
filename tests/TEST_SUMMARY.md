@@ -3837,3 +3837,197 @@ The tests are:
 - **Actionable** - Clear failure messages
 
 All tests follow the project's established patterns and integrate seamlessly with the existing test infrastructure.
+## Correction: Bond Invoices Are Returned, Not Dropped: 2026-11-01
+
+A user took an order on a bonded local node with `order take-sell --yes --output json` and got `bond_required` with no way to pay. The node's
+`pay-bond-invoice` carries the parked order and the bond invoice; slices 3 and 4 of `order new` and `order take` discarded both and reported an error.
+
+- **Fix**: `order take-*` returns `next_step` `pay_bond_invoice` with the bond invoice in `payment_request`; `order new` gains `next_step`
+  (`wait_for_taker` | `pay_bond_invoice`) and `payment_request`. Both are `ok`, and save the parked order with the trade index in one transaction. The error code
+  `bond_required` and the accepted-but-not-live stage combinations are removed from the schemas, discovery and rules. Human text shows the bond invoice alone on
+  its line and a maker or taker wording. Specs 003 and 004 carry an amendment; their examples, data models and quickstarts are updated.
+- **Tests (rewritten first, then green)**: bonded process and binary tests for `order new` and `order take-sell` now expect `ok`, the bond invoice, the order and
+  `(1 row, index 1)`; unit tests for `from_bond` and `Taken::PayBond`; schema fixtures regenerated; examples `bond_to_pay` and `sell_pay_bond_invoice` replace
+  `bond_required` and `sell_bond_required` and are reproduced by the constructors.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 602 passed and 0 failed (checked on the FAILED lines), build, MSRV 1.94.0.
+- **Open**: the real bonded local node was not probed yet (needs authorization); how a user continues after paying the bond (reading the node's next message) is
+  not migrated: `getdm` is legacy and human-only.
+
+## Add Invoice, Slice 1: Characterization And Fixtures: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `e828903` (pushed). One behavior-preserving extraction in production code (below); lean mode: the only
+evidence entry for the slice.
+
+- **Legacy `addinvoice`/`addbondinvoice` pinned**, removed with the commands in slice 4:
+  - **Payload** (4 unit tests, after extracting `invoice_payload` / `bond_payload` from the two `execute_*` functions without changing behavior):
+    `addinvoice` sends a Lightning address as given in a bare `PaymentRequest(None, invoice, None)`; anything that is neither an address nor a parseable,
+    unexpired BOLT-11 is refused locally with `Invalid invoice: ...`; `addbondinvoice` refuses a Lightning address and garbage. The accepted BOLT-11 path
+    (canonical re-serialization) is not unit-tested: no expiry-proof vector exists without a signing dependency; slice 3 covers it through the scripted daemon.
+  - **Grammar** (4 tests, `cli_functions::invoice_characterization`): `-o/--orderid` (the long flag is squashed, `--order-id` is unknown) and `-i/--invoice`,
+    both required, the order id a UUID in any case, the invoice unchecked by clap; both registered legacy with `order.add-invoice` / `bond.add-invoice`, no JSON.
+  - **Read from source, not tested**: `addbondinvoice` treats `WaitForDmTimeout` as success (the `Err(e) if e.downcast_ref::<WaitForDmTimeout>()` arm); only
+    `waiting-seller-to-pay` updated the local row (already pinned by the existing `print_commands_results` tests).
+- **Fixture** (`tests/common/fake_mostro.rs`, `tests/invoice_process.rs`): `invoice_daemon(ledger, acks)` applies the source's rules: the order found by id, only
+  the buyer's trade key may answer (`invalid_peer`), the invoice validated (`invalid_invoice`), then by status: `waiting-seller-to-pay` (no payload, request id
+  echoed, status to `waiting-payment`), `hold-invoice-payment-accepted` with the order (preimage stored), `invoice-updated` (settled order), else
+  `not_allowed_by_status`; for bonds: only the open bond's recipient, the invoice must be exactly the share, then `bond-invoice-accepted` with an order and
+  **no request id** (`acks`), or silence (older node). Neither request carries a trade index.
+- **Self-tests** (9): each reply and its addressing and state change, every refusal leaving the ledger untouched (unknown order, another key, no invoice, bad
+  invoice, wrong status; wrong amount, address, no bond, another key), a second bond invoice refused, the ack with no request id, silence on an older node, any
+  other action refused. Two mutation spot checks (ack echoing the request id; the buyer check removed) are caught by their tests.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 619 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 2: Store, Correlation And Outcomes: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `ea47000` (pushed). Lean mode: the only evidence entry for the slice. Registry and generated schemas are not
+touched until slice 4 (the legacy entries stay legacy, as in the earlier specs).
+
+- **Correlation by order id** (`util/reply.rs`, `msg/exchange.rs`): `ExpectedReply::or_by_order(order, actions)` / `Expect::by_order` also accept a message with **no
+  request id** that names the order and one of the given actions, because the node sends `bond-invoice-accepted` that way. A different request id, another
+  order, a missing order and an action outside the list are never accepted this way, and without the option an id-less message is never accepted. 3 unit
+  tests; the existing request-id tests are unchanged.
+- **Store** (`store.rs`): `order_keys(id)` reads the stored trade key (a missing order, a null key or an unusable key is `None`; a missing database is `Missing`;
+  it writes nothing and never creates the file) and `set_status(id, status)` updates one order and fails for an unknown one; neither touches the trade index.
+  6 tests in `tests/invoice_process.rs::store`, including byte-identical files after reads and after a failed update.
+- **Codes**: error `order_unknown` (exit 1) and warning `local_status_stale`, each scoped to the invoice commands; the contract tables of `outcome.rs` list them.
+- **Stage vocabularies** (`outcome/rules.rs`): `Stages::Update` (order: success `applied`, or `failed` with the warning; everything else `not_attempted`; uncertain
+  with `not_attempted`) and `Stages::Delivery` (bond: persistence is always `not_attempted`).
+- **Outcomes** (`outcome/invoice.rs`, 15 tests): `InvoiceInput::validate` (order: BOLT-11 or address; bond: BOLT-11 only; trimmed, bounded, no control or
+  whitespace; the error never echoes the value and `Debug` never shows the invoice), the payload (a bare payment request as given), `OrderInvoiceData::from_answer`
+  (result, the status to record, a reply about another order or without an id is unusable) and `BondInvoiceData::from_ack` (the share when the node gave one).
+  Generated schemas for both names conform for real outcomes (ok, stale, uncertain per code, refusal, `order_unknown`), the bond schema has no store code and
+  allows no local write, and contradictory outcomes do not conform.
+- **Mutation spot checks** (3): the order-id match without the order check, an address accepted for a bond, and a status update that ignores a missing order are each
+  caught.
+- **Gates**: fmt, clippy `-D warnings` (one `large_enum_variant` fixed by boxing the order), `cargo test --locked --no-fail-fast` 644 passed and 0 failed (no FAILED
+  line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 3: The Operations: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `fb66dbd` (pushed). Lean mode: the only evidence entry for the slice. No CLI wiring yet (slice 4).
+
+- **Code**: `commands/order/invoice.rs` has `order_add_invoice` and `bond_add_invoice` over one private `send`: look up the order's stored trade key (an unknown
+  order or a missing/unusable key is `order_unknown`, nothing sent), publish one signed reply with the order id and **no trade index**, wait through
+  `msg::exchange` (for the bond the allowed set adds the order-id match for `bond-invoice-accepted`), map the answer. After an accepted `order.add-invoice` the
+  local status follows the reply (`waiting-seller-to-pay` to `waiting-payment`, an accepted payment to the order's status, an update to nothing); a failed
+  update is the `local_status_stale` warning with persistence `failed`, not a failure. `Stages::Update` gained the success combination "published, accepted,
+  not_attempted" for a reply that calls for no update.
+- **Tests** (15, `tests/invoice_process.rs::operation`, against the scripted node and a real seeded store):
+  - `order.add-invoice`: the three accepted replies and their local effect (status, order returned, nothing changed for an update, the trade index unchanged,
+    one request without an index and with a valid signature); every refusal (`not_allowed_by_status`, `invalid_peer`, `not_found`) as `node_refused` with the
+    node's reason and a byte-identical database; silence as `uncertain` with no retry; five unusable replies as `reply_malformed`; decoys (stale request id,
+    another author, another addressee, no request id) ignored; a forced status-update failure (an `UPDATE` trigger) as `ok` with `local_status_stale`; an unknown
+    or keyless order sending nothing.
+  - `bond.add-invoice`: the ack with no request id accepted through the order-id match, with the share and no byte written; an older node's silence as `uncertain`
+    although the node did accept; refusals (`invalid_invoice`, `not_allowed_by_status`); decoy acks (wrong order, no order, stale request id) ignored, an
+    ack for another order alone ending in a timeout, an unusable ack as `reply_malformed`; an unknown order sending nothing.
+  - Work the node expects (`pow_required`) stops both commands before anything is sent or written.
+- **Mutation spot checks** (3): the bond without its order-id match, the stale-status warning removed, and `waiting-seller-to-pay` recording no status are each caught.
+- **Gates**: fmt, clippy `-D warnings` (a `type_complexity` in the new tests fixed with an alias), `cargo test --locked --no-fail-fast` 659 passed and 0 failed
+  (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 4a: The Commands: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `0070511` (pushed). Lean mode: the only evidence entry for 4a; the binary scenarios are 4b.
+
+- **Grammar**: `order add-invoice --order UUID --invoice INVOICE [--yes]` and a new `bond add-invoice --order UUID --invoice BOLT11 [--yes]` group
+  (`BondCommands`, `AddInvoiceArgs`, `AddBondInvoiceArgs`). `addinvoice`, `addbondinvoice`, `-o`, `--orderid`, `--order-id` and `-i` are gone with no alias;
+  `cli/add_invoice.rs` and `cli/add_bond_invoice.rs` (and their `execute_*` and unit tests) are removed. 4 grammar tests replace the 4 characterization tests
+  (options required, UUID in any case, old spellings rejected, legacy names unregistered, both registered as write commands with the approved names).
+- **Dispatch**: `cli/invoice.rs` (`prepare` shared by both: the `--yes` rule, validation, `resolve_base`, the order lookup for the preview and the question) over
+  `cli/write.rs`, whose `resolve` now builds on `resolve_base(cli, writable)`; the store is writable for the order invoice only. The preview shows the order and the
+  trade public key, never the invoice. `parse_human/invoice.rs` renders the preview and both results.
+- **Registry and discovery**: `order.add-invoice` and `bond.add-invoice` are `Write` entries at `["order","add-invoice"]` and `["bond","add-invoice"]` with generated
+  schemas (`OutcomeRules::invoice`) and the machine configuration names; fixtures `docs/schemas/order-add-invoice-v1.json`, `bond-add-invoice-v1.json` and the
+  regenerated discovery, with a drift test. The legacy samples in the output-intent and failure-matrix tests moved to `fiatsent`.
+- **Found and fixed on the way**: the generated `ErrorCode` enums of `order new` and both takes listed `pow_required` and `request_rejected` twice (an error list
+  merged with the uncertain list); `scoped_codes` now keeps each code once and those fixtures are regenerated.
+- **Hints**: the human hints that named `addinvoice` and `addbondinvoice` (take-sell's next step, the bond payout request) now name the new commands.
+- **Docs**: README, command reference and architecture describe the new commands and drop the old ones.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 656 passed and 0 failed (no FAILED line), build, MSRV 1.94.0. Mutation checks and the
+  binary scenarios follow in 4b.
+
+## Add Invoice, Slice 4b: Binary Scenarios: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `75bcc6a`. Lean mode: the only evidence entry for 4b. The real binary runs against the scripted node and a seeded
+sandbox store (`tests/invoice_process.rs::operation`, 9 scenarios).
+
+- **Accepted, JSON**: `order add-invoice` exits 0 with one document that conforms to the checked-in schema, `waiting_seller_payment`, stages published/accepted/applied,
+  the local status `waiting-payment`, the trade index unchanged, one request carrying the invoice, `--verbose` printing only `verbose: order.add-invoice ok`; the
+  trade key, the invoice and the relay address appear in no stream. `bond add-invoice` exits 0 with `invoice_accepted` and the share, persistence `not_attempted`,
+  and the sandbox directory byte-identical.
+- **Confirmation**: JSON without `--yes` is `invalid_arguments` (exit 2) for both commands, with nothing sent and nothing written; the human prompt accepts `y`,
+  blank and `Y\r\n` and declines `n`, `no`, anything else, empty input and a closed stdin (exit 1, `order_declined`, nothing sent); the preview names the order and
+  the trade key and never the invoice; the bond preview and result show the share.
+- **Unknown order**: fails before any question in both modes (`order_unknown`, fixed line on stderr, nothing sent, nothing written).
+- **Refusal**: `node_refused` with the reason in JSON and in the human line, exit 1, one request per run, nothing written.
+- **Silence**: a silent (older) node is `uncertain` / `reply_timeout` after the production reply budget, never retried; the human run prints the bond-specific
+  advice. (This also showed the older node *had* accepted: a second invoice to the same node is then refused, which is why a fresh node is used for the human run.)
+- **Stale local status**: a forced update failure is still exit 0 with persistence `failed` and the warning `local_status_stale`.
+- **Invalid input**: a malformed order invoice and an address for a bond are `invalid_arguments` before anything happens and are never echoed.
+- **Mutation spot checks** (2): the `--yes` rule removed and the bond share line removed are each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 665 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 5: Failure Matrix And Examples: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `05eb60b` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (`tests/invoice_process.rs::operation`, 8 tests, the real binary), each case run as JSON, human and `--verbose` on **both commands**, checking the
+  code and exit, that nothing was sent, that the sandbox is byte-identical and that no file appears elsewhere:
+  - **Before any request**: no store, no user, a file that is not a database, no `users` table, a null mnemonic, no node key, no relays, a bad node key, a bad relay,
+    a bad `--pow`, a bad `--transport`: each with its stable code, the pre-publication stages and no sentinel, relay address or invoice in any stream.
+  - **Store**: only `order add-invoice` needs a writable store (`store_unwritable` on a read-only file, before anything is sent); `bond add-invoice` still succeeds
+    on it because it writes nothing. (Skipped by the test when the process ignores file modes.)
+  - **Node that cannot be served**: protocol 1 and more required work stop both commands before publishing; an explicit `--transport` and enough `--pow` pass.
+  - **Relays**: a relay rejecting the write is `request_rejected` with nothing changed; a dead relay is `relay_connection_failed`, with no address shown.
+  - **Invalid input** (11 invocations): an oversized invoice, whitespace, `lnurl1...`, a bad UUID, a missing option, an address for a bond, text that is no invoice, the
+    removed `addinvoice`/`addbondinvoice` spellings and the hyphenated `--order-id`: exit 2, `invalid_arguments`, the command named when it resolved, nothing
+    echoed, nothing sent, store unchanged.
+  - **Streams**: an unwritable stdout after the invoice exits 1 with one fixed line per mode and for both commands (the invoice was sent and accepted all the
+    same); an unwritable stderr changes neither the exit nor the document.
+- **Examples** (`specs/005-invoice-json/contracts/examples.json`, 15 cases generated from the owned constructors, not written by hand): every accepted result,
+  the stale local status, a refusal, both uncertain endings, `order_unknown` for each command, the declined and `--yes` cases and the removed spelling. 4 tests in
+  `integration_tests.rs`: all conform to the checked-in schemas with the right exit code and data presence, the constructors reproduce them byte for byte, and
+  17 edited variants (unknown result, uppercase key, bad id, missing key, wrong status or stages, a store error on a bond, a numeric share, ...) do not conform.
+- **Mutation spot checks** (3): the order invoice not requiring a writable store, a bond requiring one, and a changed unwritable-stdout line are each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 676 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Add Invoice, Slice 6: Documentation, Boundaries, Verification: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `6c2020a` (pushed; CI was green through slice 4b with the Windows runner, slice 5 was running). Documentation only;
+no production change.
+
+- **Docs**: architecture (modules, `resolve_base`, the order-id match, the two stage vocabularies), command reference (both commands, the MCP `add_invoice` break and
+  the retired "timeout means success" reading), README (usage, the JSON command list), `AGENTS.md` and the resume prompt in `docs/ai-development.md`.
+- **Validation guide** (`specs/005-invoice-json/quickstart.md`): focused commands, an offline smoke check (run and confirmed: exit 2, 1, 2, 2 and an empty home), the
+  acceptance matrix mapped to tests, and the regtest probe procedure for `order add-invoice`.
+- **Requirement evidence** (`tests/README.md`, "Add Invoice: Requirement Evidence"): FR-001 to FR-010 and SC-001 to SC-005 verified on Linux against the scripted node;
+  SC-006 stays **open**.
+- **Open items**: the regtest probe of `order add-invoice` (needs authorization; `bond add-invoice` cannot be probed on regtest, which has no bonds, so the
+  acknowledgement with no request id remains an assumption from the v0.20.1 source); the MCP `add_invoice` migration; the status update on
+  `hold-invoice-payment-accepted`, which the legacy command never did; and, for the whole flow, a command that reads the node's messages.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 676 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Regtest Probe Of order add-invoice (And The Bond Invoice Of order take): 2026-11-01
+
+Authorized by the maintainer on 2026-11-01, including the use of **public relays** (`wss://mostro-p2p.tech`, `wss://relay.shadowbip.com`) because the maintainer's local regtest
+node, with a **taker bond**, is reachable only through them. Two fresh throwaway identities (a maker and a taker) in temporary directories of the session, the debug build of `develop` at
+`dbcf72d`; the maintainer's own store was never used. One test order (payment method `TEST-mostro-cli-probe`, 5 USD, market price) was created, then cancelled at the end; the throwaway
+stores were deleted. The node's version was not queried. The maintainer paid the bond and created the buyer invoice in Polar; no macaroon, certificate or key was shared or read.
+
+- **Why not the MCP regtest network**: `devenv.sh up` failed twice (the image build could not resolve Docker Hub from the build container) and, started from the cached image, its
+  containers were unreachable from the host (every Docker bridge address timed out, the published relay port included; `ufw` is active and the cause needs root). Left alone and stopped again.
+- **`order new`** (maker): `ok`, `wait_for_taker`, `published/accepted/applied`, the order `pending` with 0 sats (market price), trade index 1.
+- **`order take-sell`** (taker) on the bonded node: `ok`, **`pay_bond_invoice`**, the parked order `pending`, a 351-character bond invoice in `data.payment_request`, the row and index
+  saved. This is the first check of the bond fix against a real node: the old build would have reported an error and dropped the invoice. The amount in this reply was 1000 sats; the
+  `add-invoice` that followed the payment carried 6233 sats (the price applied after the bond), so the bond reply's amount is not the amount to invoice.
+- **After the bond was paid** (read with the legacy `getdm`, the only way until `message list` exists): `add-invoice` with the order (6233 sats, `waiting-buyer-invoice`), 2 minutes after the take.
+- **`order add-invoice`** with a 6233-sat invoice: `ok`, `waiting_seller_payment`, `published/accepted/applied`, the local status `waiting-payment`, the trade index unchanged (1). The reply was
+  matched by request id, so this node echoes it.
+- **Refusals**, all `node_refused`, `published/rejected/not_attempted`, local status unchanged: the same invoice again (`not_allowed_by_status`), the maker answering for the taker's order
+  (`invalid_peer`), an invoice the node cannot parse (`invalid_invoice`, answered at a status that would otherwise be `not_allowed_by_status`, which agrees with the source: the invoice is
+  validated before the status).
+- **Cleanup**: the maker's legacy `cancel` cancelled the order; `order info` showed `canceled` and the book held only the maintainer's own order again.
+- **Not verified**: `payment_accepted` (needs the seller to have paid first) and `invoice_updated` (needs a settled order); a valid invoice of the wrong amount; the node stopped during the request
+  (not done on someone else's node); and **all of `bond add-invoice`**, which needs a slashed bond. The acknowledgement without a request id therefore remains an assumption from the v0.20.1 source.
+- **Nothing in the CLI needed to change.**

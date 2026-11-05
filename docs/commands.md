@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell` and `order take-buy` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -44,7 +44,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell` and `order take-buy`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new` and the takes add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -87,7 +87,7 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--fiat-amount-max <M>`: makes a range order `N..M` at market price (`--sats` must then be 0).
     - `--sats <N>` (default 0, market price), `--premium <PERCENT>` (-100..100, default 0), `--invoice <BOLT11>`, `--expiration-days <N>` (0..365; 0 uses the node's default).
     - `--yes`: create without asking. Required with `--output json`, which never prompts or reads stdin.
-  - **Output**: the order preview and a prompt (blank or `y` accepts; `n`, anything else or closed stdin declines) in human mode; one JSON document with `--output json`. Statuses are `ok`, `error` and `uncertain`: `uncertain` means the node may hold the order (no reply, an unusable reply, or the order could not be saved locally); check `order list` before trying again. The trade index is advanced whenever the request was published and not refused, so a key is never reused.
+  - **Output**: the order preview and a prompt (blank or `y` accepts; `n`, anything else or closed stdin declines) in human mode; one JSON document with `--output json`. Statuses are `ok`, `error` and `uncertain`: `uncertain` means the node may hold the order (no reply, an unusable reply, or the order could not be saved locally); check `order list` before trying again. The trade index is advanced whenever the request was published and not refused, so a key is never reused. On a node that requires a maker bond the result is `ok` with `data.next_step` `pay_bond_invoice` and the bond invoice in `data.payment_request`: pay it with any Lightning wallet and the node then publishes the order.
   - **Migration**: `neworder`, its short flags, the squashed long flags (`--fiatcode`, `--paymentmethod`, `--expirationdays`), `--kind`, `--amount` and the `100-200` range syntax are gone with no alias; use `--side`, `--sats`, `--fiat-amount` with `--fiat-amount-max`. The Yadio currency check is gone: the node validates. The existing MCP server's `create_order` tool runs the old command and stops working until it is migrated.
   - **Handler**: `commands::order::new::order_new` through `msg::exchange` and `store`; dispatch and the prompt in `cli/order_new.rs`.
 
@@ -98,16 +98,25 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--amount <FIAT>`: the fiat amount, for a range order.
     - `--invoice <BOLT11|ADDRESS>`: take-sell only; without one the node asks for it next.
     - `--yes`: take without asking. Required with `--output json`, which never prompts or reads stdin.
-  - **Output**: a preview and a prompt in human mode (blank or `y` accepts; anything else and closed stdin decline); one JSON document with `--output json`. The data names the next step (`add_invoice`, `wait_for_seller_payment`, `pay_hold_invoice`) and carries the hold invoice to pay when there is one. Statuses are `ok`, `error` and `uncertain` as for `order new`: `uncertain` means the node may hold the take; check `order info --order <id>` before trying again.
+  - **Output**: a preview and a prompt in human mode (blank or `y` accepts; anything else and closed stdin decline); one JSON document with `--output json`. The data names the next step (`add_invoice`, `wait_for_seller_payment`, `pay_hold_invoice`, `pay_bond_invoice`) and carries the hold invoice or the taker bond invoice to pay when there is one; pay it with any Lightning wallet, the node continues afterwards. Statuses are `ok`, `error` and `uncertain` as for `order new`: `uncertain` means the node may hold the take; check `order info --order <id>` before trying again.
   - **Migration**: `takesell`, `takebuy`, `-o`, `--orderid`, `-i` and `-a` are gone with no alias; use `order take-sell|take-buy --order ... --invoice ... --amount ...`. An invalid invoice is now refused before anything is sent. The legacy read of the public book after a take-sell with an invoice is gone: the saved row is minimal (id, side, `waiting-payment`, trade key) until a later command refreshes it. The existing MCP server's `take_order` tool runs the old commands and stops working until it is migrated.
   - **Handler**: `commands::order::take::order_take` through `msg::exchange` and `store`; dispatch and the prompt in `cli/order_take.rs` (shared steps in `cli/write.rs`).
 
-- **`addinvoice`**
-  - **Description**: Buyer adds a new invoice to receive the payment.
+- **`order add-invoice`** (replaces `addinvoice`)
+  - **Description**: Send the invoice the node asked for on an order you hold (after `order take-sell` without an invoice, or when the node asks again). Needs an existing local identity (it never creates one) and the order in the local store; publishes exactly one signed request with that order's stored trade key and **spends no trade index**. After an accepted reply the local status follows the node's.
   - **Args**:
-    - `--order-id <UUID>`: Order identifier.
-    - `--invoice <STRING>`: Lightning invoice.
-  - **Handler**: `execute_add_invoice(order_id, invoice, ctx)` in `src/cli/add_invoice.rs`.
+    - `--order <UUID>`, `--invoice <BOLT11|ADDRESS>` (required).
+    - `--yes`: send without asking. Required with `--output json`, which never prompts or reads stdin.
+  - **Output**: a preview (never the invoice) and a prompt in human mode; one JSON document with `--output json`. `data.result` is `waiting_seller_payment`, `payment_accepted` (with the order) or `invoice_updated`. A failed local status update is the warning `local_status_stale`; the node refusing is `node_refused` with its reason; no or an unusable reply is `uncertain`. An order not in the local store is `order_unknown` and nothing is sent.
+  - **Migration**: `addinvoice`, `-o`, `--order-id` and `-i` are gone with no alias; use `order add-invoice --order ID --invoice INVOICE`. The existing MCP server's `add_invoice` tool runs the old command and will not work against this build until the MCP is migrated (a separate change with its own spec).
+  - **Handler**: `commands::order::invoice::order_add_invoice` through `msg::exchange` and `store`; dispatch and the prompt in `cli/invoice.rs`.
+
+- **`bond add-invoice`** (replaces `addbondinvoice`)
+  - **Description**: Reply to the node's bond payout request with a BOLT-11 invoice for exactly your share of a slashed bond. This is unrelated to `pay-bond-invoice`, the bond you pay when an order or a take asks for one. Writes nothing locally.
+  - **Args**: as `order add-invoice`, but the invoice must be BOLT-11 (an address is `invalid_arguments`).
+  - **Output**: `data.result` is `invoice_accepted` with the share the node reported. Nodes before v0.20.1 never confirm: silence is `uncertain` (`reply_timeout`), not success, because the program cannot tell it from a lost reply. The confirmation carries no request id and is matched on the order.
+  - **Migration**: `addbondinvoice` and its short flags are gone with no alias; use `bond add-invoice --order ID --invoice BOLT11`. The old "timeout means success" reading is gone. An MCP tool for the old command, if any, breaks the same way.
+  - **Handler**: `commands::order::invoice::bond_add_invoice`; dispatch in `cli/invoice.rs`.
 
 - **`fiatsent`**
   - **Description**: Send a "fiat sent" message to confirm payment to the counterparty.

@@ -477,6 +477,7 @@ fn limits() -> ExchangeLimits {
 fn expect_new() -> Expect {
     Expect {
         allowed_actions: vec![Action::NewOrder, Action::PayBondInvoice, Action::CantDo],
+        by_order: None,
     }
 }
 
@@ -782,7 +783,7 @@ mod store {
 mod operation {
     use super::*;
     use mostro_client::commands::order::new::{order_new, NewOptions, NewOutcome};
-    use mostro_client::outcome::new::{OrderNewInput, OrderRequest};
+    use mostro_client::outcome::new::{NewStep, OrderNewInput, OrderRequest};
     use mostro_client::outcome::{ErrorCode, Status};
     use mostro_client::store::Store;
     use serde_json::json;
@@ -979,20 +980,22 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_bonded_node_is_an_error_that_spends_the_index() {
+    async fn a_bonded_node_returns_the_bond_invoice_and_saves_the_parked_order() {
         let (respond, last) = new_order_daemon(0, true);
         let maker = maker(respond, 0).await;
 
         let outcome = create(&maker).await;
 
-        assert_eq!(outcome.status(), Status::Error);
-        assert_eq!(outcome.error_code(), Some(ErrorCode::BondRequired));
+        assert_eq!(outcome.status(), Status::Ok);
+        let data = outcome.data().expect("data");
+        assert_eq!(data.next_step(), NewStep::PayBondInvoice);
+        assert_eq!(data.payment_request(), Some("lnbcrt1bondinvoice"));
         assert_eq!(
             stages(&outcome),
             json!({"publication": "published", "daemon_acceptance": "accepted",
                    "persistence": "applied", "snapshot": null})
         );
-        assert_eq!(state(&maker).await, (0, 1));
+        assert_eq!(state(&maker).await, (1, 1), "row and index in one write");
         assert_eq!(*last.lock().unwrap(), 1);
     }
 
@@ -1342,18 +1345,19 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_bonded_node_is_an_error_and_the_index_is_spent() {
+    async fn a_bonded_node_gives_the_bond_invoice_to_pay() {
         let (respond, _) = new_order_daemon(0, true);
         let maker = maker(respond, 0).await;
 
         let run = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
 
-        assert_eq!(run.code(), Some(1));
+        assert_eq!(run.code(), Some(0));
         let outcome = document(&run);
         conforms_to_the_checked_in_schema(&outcome);
-        assert_eq!(outcome["status"], "error");
-        assert_eq!(outcome["error"]["code"], "bond_required");
-        assert_eq!(state(&maker).await, (0, 1));
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(outcome["data"]["next_step"], "pay_bond_invoice");
+        assert_eq!(outcome["data"]["payment_request"], "lnbcrt1bondinvoice");
+        assert_eq!(state(&maker).await, (1, 1));
     }
 
     #[tokio::test]

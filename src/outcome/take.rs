@@ -181,6 +181,9 @@ pub enum NextStep {
     WaitForSellerPayment,
     /// Pay the hold invoice in `payment_request`.
     PayHoldInvoice,
+    /// Pay the taker bond in `payment_request`; the node continues the take
+    /// once it is paid.
+    PayBondInvoice,
 }
 
 /// A reply of the node to a take, with the payload it must carry.
@@ -192,6 +195,8 @@ pub enum Taken {
     WaitingSellerToPay,
     /// `pay-invoice` with the order and the hold invoice.
     PayInvoice(SmallOrder, String),
+    /// `pay-bond-invoice` with the parked order and the bond invoice.
+    PayBond(SmallOrder, String),
 }
 
 /// `order.take-sell` / `order.take-buy` success data (and the data of an
@@ -207,7 +212,8 @@ pub struct OrderTakeData {
     next_step: NextStep,
     /// The node's order; null when the reply carried none.
     order: Option<OrderRecord>,
-    /// The hold invoice to pay; present only with `pay_hold_invoice`.
+    /// The hold invoice or the bond invoice to pay; present only with
+    /// `pay_hold_invoice` and `pay_bond_invoice`.
     payment_request: Option<String>,
     #[schemars(schema_with = "schema::decimal")]
     trade_index: String,
@@ -233,6 +239,9 @@ impl OrderTakeData {
             Taken::WaitingSellerToPay => (NextStep::WaitForSellerPayment, None, None),
             Taken::PayInvoice(order, invoice) => {
                 (NextStep::PayHoldInvoice, Some(order), Some(invoice.clone()))
+            }
+            Taken::PayBond(order, invoice) => {
+                (NextStep::PayBondInvoice, Some(order), Some(invoice.clone()))
             }
         };
         if node_order.is_some_and(|order| order.id != Some(input.order)) {
@@ -479,6 +488,19 @@ mod tests {
     }
 
     #[test]
+    fn a_bond_request_is_a_next_step_with_the_bond_invoice_and_the_parked_order() {
+        let (data, saved, _) = map(
+            TakeSide::Sell,
+            &Taken::PayBond(node_order(Status::Pending), "lnbc1bond".into()),
+        )
+        .unwrap();
+        assert_eq!(data.next_step(), NextStep::PayBondInvoice);
+        assert_eq!(data.payment_request(), Some("lnbc1bond"));
+        assert!(data.order().is_some());
+        assert_eq!(saved.id, Some(order_id()));
+    }
+
+    #[test]
     fn a_reply_about_another_order_or_without_an_id_cannot_be_used() {
         let mut other = node_order(Status::WaitingPayment);
         other.id = Some(Uuid::from_u128(10));
@@ -489,7 +511,7 @@ mod tests {
         assert!(map(TakeSide::Sell, &Taken::AddInvoice(none)).is_none());
     }
 
-    const ERRORS: [ErrorCode; 15] = [
+    const ERRORS: [ErrorCode; 14] = [
         ErrorCode::InvalidArguments,
         ErrorCode::ConfigurationMissing,
         ErrorCode::ConfigurationInvalid,
@@ -503,7 +525,6 @@ mod tests {
         ErrorCode::RequestRejected,
         ErrorCode::NodeRefused,
         ErrorCode::OrderDeclined,
-        ErrorCode::BondRequired,
         ErrorCode::StoreUnwritable,
     ];
     const UNCERTAIN: [ErrorCode; 6] = [
@@ -551,6 +572,7 @@ mod tests {
                 Taken::AddInvoice(node_order(Status::WaitingBuyerInvoice)),
                 Taken::WaitingSellerToPay,
                 Taken::PayInvoice(node_order(Status::WaitingPayment), "lnbc1hold".into()),
+                Taken::PayBond(node_order(Status::Pending), "lnbc1bond".into()),
             ] {
                 let outcome = ok(side, &taken, accepted());
                 assert!(conforms(&schema, &schema, &outcome), "{outcome}");

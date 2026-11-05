@@ -51,7 +51,7 @@ So the replies a taker can see are `add-invoice` (take-sell, no invoice), `waiti
   instead of being sent). `Amount(0)` for "no amount" is kept only where the node expects it (to be confirmed by the regtest probe; the plan
   keeps the legacy bytes and pins them in a characterization test).
 - The reply set is small and each member maps to one `next_step`: `add_invoice`, `wait_for_seller_payment`, `pay_hold_invoice`. A bond request is
-  `bond_required`; a refusal is `node_refused`; anything else (including a Cashu escrow request) is `reply_malformed`, `uncertain`.
+  `pay_bond_invoice` (amended 2026-11-01; first reported as the error `bond_required`); a refusal is `node_refused`; anything else (including a Cashu escrow request) is `reply_malformed`, `uncertain`.
 - The local row comes from the reply order when there is one (as the new-order save does, status taken from the node) and is minimal otherwise
   (decided in the spec), saved with the index by the existing `Store::save_order`. The trade key stored with the row is what the later commands
   (`addinvoice`, `fiatsent`, `release`) need.

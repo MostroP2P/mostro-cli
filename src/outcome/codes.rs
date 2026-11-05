@@ -31,9 +31,10 @@ pub enum ErrorCode {
     ReplyMalformed,
     // Added for `order.new`; scoped to that command's schema.
     OrderDeclined,
-    BondRequired,
     OrderNotSaved,
     StoreUnwritable,
+    // Added for `order.add-invoice` and `bond.add-invoice`.
+    OrderUnknown,
 }
 
 impl ErrorCode {
@@ -70,9 +71,9 @@ impl ErrorCode {
             | Self::NodeRefused
             | Self::ReplyMalformed
             | Self::OrderDeclined
-            | Self::BondRequired
             | Self::OrderNotSaved
-            | Self::StoreUnwritable => RUNTIME_ERROR_EXIT,
+            | Self::StoreUnwritable
+            | Self::OrderUnknown => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -98,9 +99,9 @@ impl ErrorCode {
             Self::NodeRefused => "The node refused the request.",
             Self::ReplyMalformed => "The reply from the node could not be used.",
             Self::OrderDeclined => "The order was not confirmed, so nothing was sent.",
-            Self::BondRequired => "The node asks for a bond before the order goes live.",
             Self::OrderNotSaved => "The node created the order but it could not be saved locally.",
             Self::StoreUnwritable => "The local store cannot be written, so nothing was sent.",
+            Self::OrderUnknown => "No local order has this id, so nothing was sent.",
         }
     }
 }
@@ -159,6 +160,8 @@ pub enum WarningCode {
     // Added for `order.info`; scoped to that command's schema.
     OrdersNotReturned,
     InvalidOrderTimestamp,
+    // Added for `order.add-invoice`.
+    LocalStatusStale,
 }
 
 impl WarningCode {
@@ -174,6 +177,9 @@ impl WarningCode {
             Self::OrdersNotReturned => "Some requested orders were not returned by the node.",
             Self::InvalidOrderTimestamp => {
                 "One or more order timestamps cannot be shown as a UTC date."
+            }
+            Self::LocalStatusStale => {
+                "The node accepted the invoice but the local order status could not be updated."
             }
         }
     }

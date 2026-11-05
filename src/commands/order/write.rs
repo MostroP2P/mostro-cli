@@ -67,21 +67,6 @@ impl Sent<'_> {
         )
     }
 
-    /// The node asked for a bond first: accepted, but not live.
-    pub async fn bond_required<D>(&self) -> Envelope<D, ()> {
-        let meta = ExecutionMeta::write(
-            Publication::Published,
-            DaemonAcceptance::Accepted,
-            self.spend_index().await,
-        );
-        Envelope::error(
-            Some(self.command),
-            ErrorCode::BondRequired,
-            Warnings::new(),
-            meta,
-        )
-    }
-
     /// The node refused: nothing is written.
     pub fn refused<D>(&self, payload: &Option<Payload>) -> Envelope<D, ()> {
         let meta = ExecutionMeta::write(
@@ -142,7 +127,7 @@ pub fn unsent<D>(command: &'static str, code: ErrorCode, warnings: Warnings) -> 
 }
 
 /// The node's refusal reason as its wire word, empty when it sent none.
-fn reason(payload: &Option<Payload>) -> String {
+pub(super) fn reason(payload: &Option<Payload>) -> String {
     match payload {
         Some(Payload::CantDo(Some(reason))) => serde_json::to_value::<&CantDoReason>(reason)
             .ok()

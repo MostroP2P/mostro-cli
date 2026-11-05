@@ -32,9 +32,17 @@ pub(super) struct Resolved {
     pub trade: Trade,
 }
 
+/// Configuration, identity and store, all checked; no trade is reserved.
+pub(super) struct Base {
+    pub config: PublicReadConfig,
+    pub options: WriteOptions,
+    pub identity: Keys,
+    pub store: Store,
+}
+
 /// Resolve configuration, then the existing identity (read-only), then the
-/// store (it must accept a write) and the key and index of the next trade.
-pub(super) async fn resolve(cli: &Cli) -> Result<Resolved, ErrorCode> {
+/// store, which must accept a write when `writable`.
+pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, ErrorCode> {
     let getenv = |name: &str| env::var(name).ok();
     let config =
         PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), getenv)?;
@@ -44,9 +52,10 @@ pub(super) async fn resolve(cli: &Cli) -> Result<Resolved, ErrorCode> {
         IdentityError::Unreadable => ErrorCode::IdentityUnreadable,
     })?;
     let store = Store::configured().map_err(store_code)?;
-    store.ensure_writable().await.map_err(store_code)?;
-    let trade = store.next_trade().await.map_err(store_code)?;
-    Ok(Resolved {
+    if writable {
+        store.ensure_writable().await.map_err(store_code)?;
+    }
+    Ok(Base {
         config,
         options: WriteOptions {
             pow: request.pow,
@@ -54,6 +63,19 @@ pub(super) async fn resolve(cli: &Cli) -> Result<Resolved, ErrorCode> {
         },
         identity,
         store,
+    })
+}
+
+/// [`resolve_base`] with a writable store, then the key and index of the next
+/// trade.
+pub(super) async fn resolve(cli: &Cli) -> Result<Resolved, ErrorCode> {
+    let base = resolve_base(cli, true).await?;
+    let trade = base.store.next_trade().await.map_err(store_code)?;
+    Ok(Resolved {
+        config: base.config,
+        options: base.options,
+        identity: base.identity,
+        store: base.store,
         trade,
     })
 }

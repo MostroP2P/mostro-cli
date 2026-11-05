@@ -56,6 +56,7 @@ pub async fn order_take(
             Action::PayBondInvoice,
             Action::CantDo,
         ],
+        by_order: None,
     };
     let sent = Sent {
         command: input.side().command(),
@@ -82,8 +83,10 @@ async fn answer(
 ) -> TakeOutcome {
     let kind = exchanged.reply().get_inner_message_kind();
     let taken = match (input.side(), &kind.action, &kind.payload) {
-        (_, Action::PayBondInvoice, _) => return sent.bond_required().await,
         (_, Action::CantDo, payload) => return sent.refused(payload),
+        (_, Action::PayBondInvoice, Some(Payload::PaymentRequest(Some(order), invoice, _))) => {
+            Taken::PayBond(order.clone(), invoice.clone())
+        }
         (TakeSide::Sell, Action::AddInvoice, Some(Payload::Order(order))) => {
             Taken::AddInvoice(order.clone())
         }

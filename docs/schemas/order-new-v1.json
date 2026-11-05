@@ -27,12 +27,9 @@
         "request_rejected",
         "node_refused",
         "order_declined",
-        "bond_required",
         "store_unwritable",
         "reply_timeout",
         "reply_malformed",
-        "request_rejected",
-        "pow_required",
         "order_not_saved"
       ],
       "type": "string"
@@ -76,15 +73,40 @@
       ],
       "type": "object"
     },
+    "NewStep": {
+      "description": "What the maker does next.",
+      "oneOf": [
+        {
+          "const": "wait_for_taker",
+          "description": "The order is on the book; wait for a taker.",
+          "type": "string"
+        },
+        {
+          "const": "pay_bond_invoice",
+          "description": "Pay the maker bond in `payment_request`; the node publishes the order\nonce it is paid.",
+          "type": "string"
+        }
+      ]
+    },
     "OrderNewData": {
       "description": "`order.new` success data (and the data of an `order_not_saved` outcome):\nthe order the node created and the key slot it was created under.",
       "properties": {
+        "next_step": {
+          "$ref": "#/$defs/NewStep"
+        },
         "node_pubkey": {
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
         "order": {
           "$ref": "#/$defs/OrderRecord"
+        },
+        "payment_request": {
+          "description": "The bond invoice to pay; present only with `pay_bond_invoice`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "trade_index": {
           "maxLength": 20,
@@ -100,6 +122,8 @@
       "required": [
         "node_pubkey",
         "order",
+        "next_step",
+        "payment_request",
         "trade_index",
         "trade_pubkey"
       ],
@@ -366,7 +390,6 @@
                 "request_rejected",
                 "node_refused",
                 "order_declined",
-                "bond_required",
                 "store_unwritable"
               ]
             },
@@ -400,32 +423,6 @@
                 },
                 "persistence": {
                   "const": "not_attempted"
-                },
-                "publication": {
-                  "const": "published"
-                }
-              }
-            },
-            {
-              "properties": {
-                "daemon_acceptance": {
-                  "const": "accepted"
-                },
-                "persistence": {
-                  "const": "applied"
-                },
-                "publication": {
-                  "const": "published"
-                }
-              }
-            },
-            {
-              "properties": {
-                "daemon_acceptance": {
-                  "const": "accepted"
-                },
-                "persistence": {
-                  "const": "failed"
                 },
                 "publication": {
                   "const": "published"

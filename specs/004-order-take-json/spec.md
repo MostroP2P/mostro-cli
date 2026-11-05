@@ -15,13 +15,21 @@ local save. Builds on [order new](../003-order-new-json/spec.md) (trade key and 
 
 ## Clarifications
 
+### Amendment 2026-11-01: the taker bond is a next step, not an error
+
+- The first implementation reported a bonded node as the error `bond_required` and dropped the bond invoice, so a CLI user could not pay it (found by taking an
+  order on a bonded local node). Corrected as for `order new`: `pay-bond-invoice` (parked order plus bond invoice) is accepted data; the take is `ok` with
+  `next_step` `pay_bond_invoice` and the bond invoice in `payment_request`; the order and the trade index are saved in one transaction. `bond_required` is removed.
+  The node continues the take once the bond is paid (take-sell then sends `add-invoice` or `waiting-seller-to-pay`, take-buy sends the hold invoice) as a later
+  message.
+
 ### Session 2026-10-30
 
 - Q: How are the commands spelled, given the approved canonical names `order.take-sell` and `order.take-buy` (contract v1)? -> A: Two subcommands, `order take-sell` and `order take-buy` (decided by the maintainer, 2026-10-30). Each path carries its own canonical name, so no registry or contract change is needed and an argument error can always name its command. The roadmap's single `order take --side` form is not used. As elsewhere, the side names the order taken: `take-sell` takes a sell order (the taker buys sats), `take-buy` takes a buy order (the taker sells sats).
 - Q: What confirmation rule applies? -> A: The rule of `order new` (decided 2026-10-30): JSON mode requires `--yes`, never prompts and never reads stdin, and without it fails with `invalid_arguments` (exit 2) doing nothing; human mode shows a preview and asks (blank or `y` accepts, anything else and closed stdin decline, `order_declined`). This adds a prompt that the legacy commands did not have.
 - Q: How is the local row saved when a take-sell carrying the buyer's invoice is answered by `waiting-seller-to-pay` with no order (#204)? -> A: A minimal row built from what the command knows (decided 2026-10-30): the order id, the side, the status `waiting-payment`, the fiat amount if one was given and the trade key, saved with the trade index in one transaction. There is no second network read; the command stays one request on one connection. Fields the node did not send stay empty until a later refresh.
 - Q: What about `order new`'s open conventions? -> A: They carry over unchanged: no identity means `identity_missing` and nothing is created; the trade index is advanced whenever the request was published and the node did not provably refuse it; a published request with an unknown result, or an accepted take whose local save failed, is `uncertain` and is never retried by the program.
-- Q: Is paying anything part of this command? -> A: No. A hold invoice that the node returns to a seller is returned as data for the caller to pay; the buyer's invoice for a take-sell is only submitted, never created. Taker bonds are not paid (`bond_required`, as for `order new`). The follow-up commands (`addinvoice`, `fiatsent`, `release`, ...) are later specs.
+- Q: Is paying anything part of this command? -> A: No. A hold invoice that the node returns to a seller is returned as data for the caller to pay; the buyer's invoice for a take-sell is only submitted, never created. Taker bonds are not paid by the command: a bond request is `ok` with `next_step` `pay_bond_invoice` and the bond invoice in `payment_request` for the caller to pay (see the amendment above). The follow-up commands (`addinvoice`, `fiatsent`, `release`, ...) are later specs.
 
 ## Scope
 
@@ -38,7 +46,7 @@ afterwards, any later step of the trade, range-order child orders, MCP.
 - **FR-005**: The reply is selected by correlation (request id, node author, addressed to the trade key, allowed actions), armed before publishing, bounded by a deadline, released on every exit, reusing `msg::exchange`. The allowed actions are those the daemon answers a take with: `add-invoice`, `waiting-seller-to-pay`, `pay-invoice`, `pay-bond-invoice` and `cant-do`.
 - **FR-006**: The outcome says what the node asked next and carries it as data: for a take-sell the order awaiting the buyer's invoice (`add-invoice`) or the confirmation that the invoice was accepted (`waiting-seller-to-pay`); for a take-buy the hold invoice the seller must pay (`pay-invoice`). The hold invoice is returned as given by the node and is never logged.
 - **FR-007**: On an accepted take the order and the trade index are saved in one transaction (the minimal row where the reply carries no order). If the save fails the outcome is `uncertain` with the order id and public trade data; the trade index is still spent when possible.
-- **FR-008**: Statuses and stages follow `order new`: `ok` only when the node accepted and the save succeeded; `error` when the take was provably not accepted or never published (including `node_refused` with the node's reason, `bond_required`); `uncertain` when published with an unknown result or accepted but not saved. A refusal spends no index.
+- **FR-008**: Statuses and stages follow `order new`: `ok` only when the node accepted and the save succeeded; `error` when the take was provably not accepted or never published (including `node_refused` with the node's reason); `uncertain` when published with an unknown result or accepted but not saved. A refusal spends no index.
 - **FR-009**: Failures have stable codes and exits, reusing the `order new` set; this command adds none beyond what the plan shows necessary. Cashu escrow requests, if the node sends them, are not supported and are reported as `reply_malformed` (uncertain) until a later spec.
 - **FR-010**: One versioned JSON outcome per command with canonical names `order.take-sell` and `order.take-buy`; data lists the order, the next step, the trade index and the trade public key; no private key, mnemonic or database record is serialized. Human and JSON describe the same data.
 - **FR-011**: Command-scoped schemas and fixtures per command, regenerated discovery, drift, boundary and CI checks as for the earlier commands; existing documents do not change.

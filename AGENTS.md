@@ -21,7 +21,9 @@ regtest node (mostrod v0.19.3, 2026-11-01; bonded and Cashu nodes not covered): 
 [order new](specs/003-order-new-json/spec.md)
 ([tasks.md](specs/003-order-new-json/tasks.md)) and
 [order take](specs/004-order-take-json/spec.md)
-([tasks.md](specs/004-order-take-json/tasks.md)). Continue from existing
+([tasks.md](specs/004-order-take-json/tasks.md)); the add-invoice commands
+([spec](specs/005-invoice-json/spec.md), [tasks.md](specs/005-invoice-json/tasks.md))
+are verified against the scripted node only and not yet probed. Continue from existing
 regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
@@ -31,4 +33,4 @@ Use [architecture](docs/architecture.md), [commands](docs/commands.md),
 The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
 clones and outside both repositories. Only the `order list`, `order info`, `order new`, the two
-`order take-*` and `schema` modules are migrated; the other planned modules are not yet implemented.
+`order take-*`, `order add-invoice`, `bond add-invoice` and `schema` modules are migrated; the other planned modules are not yet implemented.

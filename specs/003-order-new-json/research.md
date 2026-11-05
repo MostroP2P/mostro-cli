@@ -20,7 +20,7 @@ and `src/db.rs` of this repository, and the order-info exchange. Nothing here wa
    the identity key). Refusals (`CantDo`) are addressed to the trade key too.
 4. With a maker bond configured the order is parked `waiting-maker-bond` and the node sends a dedicated `pay-bond-invoice`
    message instead; the order is not on the book until the bond is paid. The order-info exchange allows only `orders` and
-   `cant-do`, so such a reply is `reply_malformed` today. This spec reports it as its own error (`bond_required`).
+   `cant-do`, so such a reply is `reply_malformed` today. This spec first reported it as an error (`bond_required`); amended 2026-11-01, see the spec.
 5. Publishing the order to the relays can fail after the ack was queued; that is the node's business and not visible to the client.
 
 ## What the legacy CLI does (and what is wrong for an agent)

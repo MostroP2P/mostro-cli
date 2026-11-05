@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
-use super::{offline_discovery, Cli, Commands, DiscoveryData, OrderCommands};
-use super::{order_new, order_take};
+use super::{invoice, order_new, order_take};
+use super::{offline_discovery, BondCommands, Cli, Commands, DiscoveryData, OrderCommands};
 use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::identity::{load_identity_keys, IdentityError};
@@ -98,6 +98,18 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         Some(Commands::Order {
             command: OrderCommands::TakeBuy(args),
         }) => return Some(order_take::buy(cli, args, output).await),
+        _ => {}
+    }
+
+    // Sending an invoice the node asked for: one signed request with the key of
+    // an order already held.
+    match &cli.command {
+        Some(Commands::Order {
+            command: OrderCommands::AddInvoice(args),
+        }) => return Some(invoice::order(cli, args, output).await),
+        Some(Commands::Bond {
+            command: BondCommands::AddInvoice(args),
+        }) => return Some(invoice::bond(cli, args, output).await),
         _ => {}
     }
 
