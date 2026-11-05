@@ -331,7 +331,11 @@
         "properties": {
           "order": {
             "description": "Order id to ask about; repeat the option for several orders",
-            "type": "string"
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           }
         },
         "required": [
@@ -1521,11 +1525,7 @@
           },
           "yes": {
             "description": "Create the order without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [

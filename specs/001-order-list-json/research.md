@@ -89,11 +89,16 @@ The adapter must follow these constraints, which refine the decision above:
 more constraints for T026, each pinned by an ignored contract test:
 
 - `Relay::notifications()` skips `broadcast` lag errors silently ("Skip errors
-  for now" in the SDK stream wrapper), so lag cannot be observed. A lagged
-  receiver still yields the newest `capacity` notifications, so the collector
-  fails a relay that produces `ReadLimits::notification_capacity`
-  notifications before its EOSE. The SDK default of 2,048 is far above the
-  roughly 2 x 50 + 1 a compliant relay sends.
+  for now" in the SDK stream wrapper), so lag cannot be observed. No public
+  SDK API reports it: the SDK's own `stream_events` also stops at a lag. A
+  lagged receiver yields only the newest notifications in its channel. The
+  collector fails a relay that produces `ReadLimits::notification_capacity`
+  notifications before its EOSE, and the channel holds twice that many, so a
+  lag is caught unless the relay also sends more than
+  `notification_capacity` notifications after its EOSE, before the collector
+  reads them. That needs a relay that ignores the filter limit and floods on
+  purpose; closing it needs a lag-aware SDK API. The default of 2,048 is far
+  above the roughly 2 x 50 + 1 a compliant relay sends.
 - The SDK verifies signatures before emitting `RelayMessage::Event`, so forged
   events never reach the collector. It does not check the subscription filter
   unless `verify_subscriptions` is on, so the collector matches each event

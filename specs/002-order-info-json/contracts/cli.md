@@ -70,11 +70,11 @@ possible for this command. Added for it, all exit 1:
 | Code | Condition |
 | --- | --- |
 | identity_missing | no data directory, `mcli.db` or user row |
-| identity_unreadable | the identity store exists but cannot be read or holds no valid mnemonic |
+| identity_unreadable | the identity store exists but cannot be read or holds no valid mnemonic, or its user row could only be read through an `mcli.db-wal` file that has no `mcli.db-shm` file beside it |
 | protocol_unsupported | the node advertises protocol version 1 |
 | pow_required | the node's advertised proof of work is above the configured work |
-| request_rejected | no relay confirmed accepting the request event |
-| reply_timeout | the request was published and no matching reply arrived within 15 seconds |
+| request_rejected | no relay confirmed accepting the request event and no matching reply arrived before the deadline |
+| reply_timeout | the request was published and no matching reply arrived within 15 seconds of publishing |
 | node_refused | the node refused the request; `error.reason` is its reason in snake case |
 | reply_malformed | a matching reply with an unusable action or payload |
 
@@ -85,8 +85,8 @@ checked-in fixtures, keep their pilot code sets.
 
 The reply is accepted only if it is a kind-14 message authored by the configured node, addressed to the identity key,
 not our own request, with the request's identifier and the action `orders` or `cant_do`. Anything else is ignored while
-waiting. Budgets: 10 seconds to connect, 3 seconds for the node-info probe (best effort), 15 seconds for the reply,
-1 second of cleanup. Nothing is retried and a request is never split or repeated.
+waiting. Budgets: 10 seconds to connect, 3 seconds for the node-info probe (best effort), 15 seconds from publishing to the reply,
+including the relays' acknowledgements, 1 second of cleanup. Nothing is retried and a request is never split or repeated.
 
 ## Discovery And Versioning
 
