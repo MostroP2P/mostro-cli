@@ -42,10 +42,10 @@ called for). The data of an `order_not_saved` outcome is the same `OrderTakeData
 | refused for a stale index (`invalid_trade_index`) (amended 2026-11-05 by spec 008, review of slice 7) | error | `node_refused` + reason | published | rejected | applied (the index stays spent) |
 | bond asked first (amended 2026-11-01) | ok, `next_step` `pay_bond_invoice` | | published | accepted | applied (parked order and bond invoice returned and saved) |
 | accepted, row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
-| no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |
-| unusable reply (wrong action or payload, Cashu escrow) | uncertain | `reply_malformed` | published | unknown | applied or failed |
-| relays dropped the wait after publishing | uncertain | `relay_read_failed` | published | unknown | applied or failed |
-| relays answered ambiguously | uncertain | `request_rejected` | unknown | unknown | applied or failed |
+| no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
+| unusable reply (wrong action or payload, Cashu escrow) | uncertain | `reply_malformed` | published | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
+| relays dropped the wait after publishing | uncertain | `relay_read_failed` | published | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
+| relays answered ambiguously | uncertain | `request_rejected` | unknown | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
 
 A JSON run without `--yes` is `invalid_arguments` (exit 2).
 

@@ -44,10 +44,10 @@ exactly when the request was published and not provably rejected (amended 2026-1
 | refused for a stale index (`invalid_trade_index`) (amended 2026-11-05 by spec 008, review of slice 7) | error | `node_refused` + reason | published | rejected | applied (the index stays spent) |
 | bonded node asks for a maker bond (amended 2026-11-01) | ok, `next_step` `pay_bond_invoice` | | published | accepted | applied (parked order and bond invoice returned and saved) |
 | accepted, order row not saved | uncertain | `order_not_saved` (data present) | published | accepted | failed |
-| no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied or failed |
-| unusable reply | uncertain | `reply_malformed` | published | unknown | applied or failed |
-| relays dropped the wait after publishing | uncertain | `relay_read_failed` | published | unknown | applied or failed |
-| relays answered ambiguously | uncertain | `request_rejected` | unknown | unknown | applied or failed |
+| no reply before the deadline | uncertain | `reply_timeout` | published | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
+| unusable reply | uncertain | `reply_malformed` | published | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
+| relays dropped the wait after publishing | uncertain | `relay_read_failed` | published | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
+| relays answered ambiguously | uncertain | `request_rejected` | unknown | unknown | applied (amended 2026-11-05 by spec 008: the index is reserved before publishing) |
 
 New codes (all exit 1, scoped to this command's schema): `order_declined`, `order_not_saved`, `store_unwritable`.
 A JSON run without `--yes` is `invalid_arguments` (exit 2). Implemented in slice 3: `Envelope::uncertain`, `ExecutionMeta::write`,
