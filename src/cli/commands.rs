@@ -1,9 +1,8 @@
 use clap::builder::PossibleValuesParser;
-use clap::{ArgAction, Subcommand};
+use clap::{ArgAction, Args, Subcommand};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use super::args::check_fiat_range;
 use crate::outcome::order::{SIDES, STATUSES};
 
 #[derive(Subcommand, Clone)]
@@ -18,38 +17,6 @@ pub enum Commands {
     /// Describe the machine interface offline: commands, inputs, results and
     /// errors. Needs no node, identity or network
     Schema,
-    /// Create a new buy/sell order on Mostro
-    NewOrder {
-        /// Choose an order kind
-        #[arg(short, long)]
-        kind: String,
-        /// Sats amount - leave empty for market price
-        #[arg(short, long)]
-        #[clap(default_value_t = 0)]
-        amount: i64,
-        /// Currency selected
-        #[arg(short = 'c', long)]
-        fiat_code: String,
-        /// Fiat amount
-        #[arg(short, long)]
-        #[clap(value_parser=check_fiat_range)]
-        fiat_amount: (i64, Option<i64>),
-        /// Payment method
-        #[arg(short = 'm', long)]
-        payment_method: String,
-        /// Premium on price
-        #[arg(short, long)]
-        #[clap(default_value_t = 0)]
-        #[clap(allow_hyphen_values = true)]
-        premium: i64,
-        /// Invoice string
-        #[arg(short, long)]
-        invoice: Option<String>,
-        /// Expiration time of a pending Order, in days
-        #[arg(short, long)]
-        #[clap(default_value_t = 0)]
-        expiration_days: i64,
-    },
     /// Take a sell order from a Mostro pubkey
     TakeSell {
         /// Order id
@@ -314,4 +281,42 @@ pub enum OrderCommands {
         #[arg(long = "order", required = true, value_name = "UUID")]
         orders: Vec<Uuid>,
     },
+    /// Create a new buy or sell order. Needs an existing local identity (it
+    /// never creates one), publishes one signed request and saves the order the
+    /// node creates. JSON output requires --yes
+    New(NewArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct NewArgs {
+    /// The order's side: buy or sell (case-insensitive)
+    #[arg(long, ignore_case = true, value_parser = PossibleValuesParser::new(SIDES))]
+    pub side: String,
+    /// Fiat currency code, such as USD
+    #[arg(long)]
+    pub currency: String,
+    /// Fiat amount; with --fiat-amount-max, the range minimum
+    #[arg(long)]
+    pub fiat_amount: i64,
+    /// Range maximum: makes a range order at market price
+    #[arg(long)]
+    pub fiat_amount_max: Option<i64>,
+    /// Payment method text
+    #[arg(long)]
+    pub payment_method: String,
+    /// Sats amount; 0 means the market price
+    #[arg(long, default_value_t = 0)]
+    pub sats: i64,
+    /// Premium on the price, in percent
+    #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+    pub premium: i64,
+    /// Lightning invoice, when the order needs one
+    #[arg(long)]
+    pub invoice: Option<String>,
+    /// Days until the pending order expires; 0 uses the node's default
+    #[arg(long, default_value_t = 0)]
+    pub expiration_days: i64,
+    /// Create the order without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
 }

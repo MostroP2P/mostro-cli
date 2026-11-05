@@ -29,6 +29,11 @@ pub enum ErrorCode {
     ReplyTimeout,
     NodeRefused,
     ReplyMalformed,
+    // Added for `order.new`; scoped to that command's schema.
+    OrderDeclined,
+    BondRequired,
+    OrderNotSaved,
+    StoreUnwritable,
 }
 
 impl ErrorCode {
@@ -63,7 +68,11 @@ impl ErrorCode {
             | Self::RequestRejected
             | Self::ReplyTimeout
             | Self::NodeRefused
-            | Self::ReplyMalformed => RUNTIME_ERROR_EXIT,
+            | Self::ReplyMalformed
+            | Self::OrderDeclined
+            | Self::BondRequired
+            | Self::OrderNotSaved
+            | Self::StoreUnwritable => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -88,6 +97,10 @@ impl ErrorCode {
             Self::ReplyTimeout => "The node did not answer before the deadline.",
             Self::NodeRefused => "The node refused the request.",
             Self::ReplyMalformed => "The reply from the node could not be used.",
+            Self::OrderDeclined => "The order was not confirmed, so nothing was sent.",
+            Self::BondRequired => "The node asks for a bond before the order goes live.",
+            Self::OrderNotSaved => "The node created the order but it could not be saved locally.",
+            Self::StoreUnwritable => "The local store cannot be written, so nothing was sent.",
         }
     }
 }

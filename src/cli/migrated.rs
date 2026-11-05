@@ -9,6 +9,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::invocation::OutputMode;
+use super::order_new;
 use super::schema::SCHEMA_COMMAND;
 use super::{offline_discovery, Cli, Commands, DiscoveryData, OrderCommands};
 use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
@@ -81,6 +82,14 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         return Some(exit);
     }
 
+    // Creating an order: one signed request, a read-write store, no legacy context.
+    if let Some(Commands::Order {
+        command: OrderCommands::New(args),
+    }) = &cli.command
+    {
+        return Some(order_new::run(cli, args, output).await);
+    }
+
     // The node's record of the user's own orders: one signed request, an
     // existing identity read-only, no environment mutation or legacy context.
     if let Some(Commands::Order {
@@ -149,7 +158,7 @@ fn unsent(code: ErrorCode) -> InfoOutcome {
 /// The work to mine and whether to check the node's protocol: `--pow` over
 /// `POW` (0-255, default 0) and `--transport` over `TRANSPORT`, of which only
 /// `nip44` exists. An explicit transport skips the protocol check.
-fn request_options(
+pub(super) fn request_options(
     pow: Option<&str>,
     transport: Option<&str>,
     getenv: impl Fn(&str) -> Option<String>,
@@ -233,7 +242,7 @@ fn verbose_summary(outcome: &ListOutcome) -> String {
 }
 
 /// The wire name of `code`, as serialized in the JSON outcome.
-fn code_name(code: ErrorCode) -> String {
+pub(super) fn code_name(code: ErrorCode) -> String {
     serde_json::to_value(code)
         .ok()
         .and_then(|name| name.as_str().map(str::to_owned))

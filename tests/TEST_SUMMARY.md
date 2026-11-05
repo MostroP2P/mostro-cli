@@ -3038,6 +3038,205 @@ only evidence entry for the slice.
 - **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), Windows evidence
   for slices 4-6 via CI, and the MCP `get_order` migration.
 
+## Order New, Slice 1: Characterization And Fixtures: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `2cec5e7` (pushed). No production change. Lean mode: the only evidence entry
+for the slice.
+
+- **Legacy `neworder` pinned** (`cli_functions::neworder_characterization`, removed with the command in slice 4): required
+  flags and defaults (amount 0, premium 0, expiration 0); long flags are squashed (`--fiatcode`, `--fiatamount`,
+  `--paymentmethod`, `--expirationdays`) and short ones exist; the kind text is not checked by the grammar; the `100-200`
+  range syntax and its failures (`200-100`, `100-100`, `1-2-3`, `100-`, `-100`, text, empty), zero accepted; the
+  confirmation (blank, `y`, trailing spaces accept, leading space, `n`, other text and EOF do not); the Yadio check.
+- **Wire facts** (`tests/order_new_process.rs`): the request is authored and signed by the trade key under the identity seal;
+  the inner signature verifies; the index rides in the message, the id is the node's; the payload of a fixed and of a range
+  order (`fiat_amount` 0 with `min`/`max`).
+- **Legacy local effects pinned**: computing the next key writes nothing; `save_order` writes the order row and the index
+  together, only when called after an accepted reply; saving the same order again replaces its row and advances the index; a
+  store that cannot be written fails the save and leaves the local index behind the node's (the `invalid_trade_index` trap
+  the new command avoids).
+- **Fixtures**: the scripted daemon records the trade index, the order and whether the inner signature verifies, and
+  `new_order_daemon(last, bonded)` applies the source's checks in its order (signature, index above the last or an identity used
+  as trade key, half-specified range, zero fiat amount) and remembers the index only after every check passes; replies go to
+  the trade key; `order_created` and `bond_requested` build the accepted and bonded answers; `set_last_trade_index` edits the
+  seeded store. Self-tests cover an acknowledgement and its trade-key addressing, each refusal, the index kept on refusal and
+  spent on success, the bonded answer and the seeded index.
+- **Check on the check**: letting the scripted node remember the index before its checks failed the refusal self-test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (520 tests: lib 146, `cli_functions` 76,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `order_new_process` 7, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. CI result for slice 6 of order info (`edeb118`)
+  not yet read.
+
+## Order New, Slice 2: Exchange And Store: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `2082c1a` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Exchange**: `Outbound` gains `identity` (the seal signer) next to `signer` (author, inner signer and the key replies are
+  addressed to); `order info` passes its identity for both and its 34 process tests are unchanged. Three new tests (red first:
+  the field did not exist): a request authored by a trade key under an identity seal is acknowledged and the reply addressed to
+  the trade key is heard; a bond request and a refusal are returned for the caller to judge when the caller allows those actions;
+  an acknowledgement addressed to the identity instead of the trade key is never heard (`reply_timeout`, published).
+- **Store** (`src/store.rs`, 5 tests in `tests/order_new_process.rs`): opens the existing `mcli.db` for writing, never creates it,
+  one operation per open so no connection or sidecar file is left behind. `next_trade` (recorded index plus one, same derivation
+  as the rest of the program, writes nothing; the directory is byte-identical afterwards; `Debug` shows no key), `advance` (moves
+  forward only), `save_order` (order row and index in one transaction; with no user row nothing is written and the error is
+  `Missing`). A missing store, a file that is not a database and a read-only file are reported as `Missing`/`Unwritable` with
+  nothing created and the garbled file unchanged.
+- **Checks on the checks**: removing the user-row check in `save_order`, letting `advance` move backwards (this one first
+  survived because the test only looked at the final value; the test now checks after the older index) and sealing with the
+  signer instead of the identity each failed exactly the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (528 tests: lib 146, `cli_functions` 76,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `order_new_process` 15, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+## Order New, Slice 3: Outcomes: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `94a2a94` (pushed). Lean mode: the only evidence entry for the slice. The
+registry move, discovery and the generated `order-new-v1.json` need the grammar and land in slice 4 (as for order info).
+
+- **Extraction first** (behavior-preserving): the stage and rules types of `outcome/schema.rs` moved to `outcome/rules.rs`
+  (the file was 355 of 400 production lines); the pilot and info schemas and fixtures are unchanged.
+- **Envelope**: `Envelope::uncertain` (the only constructor of the status, never exit 0, data only when the node answered),
+  `ExecutionMeta::write` (publication, acceptance, persistence), `OutcomeRules::write` with `Stages::Write` and per-status stage
+  combinations (success `published/accepted/applied`; failures, uncertain outcomes and their stages as in the data model); a
+  command with no uncertain codes still generates two statuses and three branches.
+- **Codes**: `order_declined`, `bond_required`, `order_not_saved`, `store_unwritable` (exit 1, fixed prose, scoped to this
+  command; the pilot sets are still frozen).
+- **Input and data** (`outcome/new.rs`): `OrderNewInput::validate` (currency 3-6 alphanumerics uppercased, positive fiat amount, a
+  range needs a larger maximum and a zero sats amount, payment method and invoice bounded without control characters, premium
+  -100..=100, expiration 0..=365 days) naming only the option, never its value; `small_order(now)` builds the legacy shape (pending,
+  no id, fixed amount or `min`/`max` with fiat amount 0, absolute expiry); `OrderNewData::from_created` maps the node's order to
+  explicit fields with the trade index and public key, and needs an id.
+- **Schema tests** (7 unit tests): every kind of outcome conforms (ok, each local failure, proven rejection, refusal with reason,
+  bond with the index recorded or not, `order_not_saved` with data, timeout, malformed, lost wait and ambiguous publication as
+  uncertain, unresolved command); contradictions do not (wrong stages for a status, codes under the wrong status, request-only
+  stages, malformed index and key, `uncertain` without the schema allowing it).
+- **Checks on the checks**: letting uncertain outcomes use the failure codes, dropping one allowed uncertain stage combination,
+  dropping the sats rule for ranges and allowing an unknown acceptance on success each failed the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (536 tests: lib 154, `cli_functions` 76,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `order_new_process` 15, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+## Order New, Slice 4a: The Command: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `559d2f0` (pushed). `mostro-cli order new` exists; the legacy `neworder` (command,
+handler `cli/new_order.rs`, the Yadio call, the preflight and characterization tests) is removed with no alias. Lean mode: this
+and the 4b entry are the evidence for the slice; 4b adds the binary scenarios.
+
+- **Pieces**: `OrderCommands::New(NewArgs)` (`--side --currency --fiat-amount [--fiat-amount-max] --payment-method [--sats]
+  [--premium] [--invoice] [--expiration-days] [--yes]`), registry `order.new` at `order new` with the new `JsonSupport::Write`
+  (rejected-before-run stages `not_attempted/unknown/not_attempted`), `commands/order/new.rs` (the operation), `cli/order_new.rs`
+  (validation, then configuration, identity and store checks in order of cost, preview and prompt in human mode only, JSON without
+  `--yes` refused with `invalid_arguments` and nothing done, `--verbose` printing one code-only line), `parse_human/order_new.rs`
+  (preview and result), `Store::ensure_writable`, the generated schema and `docs/schemas/order-new-v1.json`, regenerated
+  `discovery-v1.json` (only the `order.new` descriptor changed).
+- **Operation tests** (7 in `tests/order_new_process.rs`, the real `order_new` against the scripted daemon and a seeded store):
+  an accepted order is returned and saved with its index; a refusal is `node_refused` with its reason and writes nothing; silence
+  and an unusable reply are `uncertain`, never retried, with the index spent and no order; a bonded node is `bond_required` with
+  the index spent; an order that cannot be saved is `uncertain` (`order_not_saved`) with what the node made, both when the whole
+  store is gone and when only the orders table is (the index is still spent); needed work stops the command before anything is
+  sent or written and leaves `mcli.db` byte-identical.
+- **Grammar tests** (5, `cli_functions::order_new_grammar`): required options and defaults, every option with a negative premium,
+  the side checked and text amounts rejected, every legacy spelling gone, the registry entry. The registry, discovery and
+  boundary tests were updated to the new fact (four machine commands).
+- **Real binary check**: `order new --help`; `neworder` is an unrecognized subcommand; JSON without `--yes` is `invalid_arguments`
+  exit 2; with `--yes` and no configuration `configuration_missing` exit 1; nothing created.
+- **Checks on the checks**: not spending the index after silence, spending it on a refusal, treating an unsent request as uncertain
+  and skipping the index spend after a failed save each failed exactly the test that guards it (the last one first survived because
+  the failure test also broke the index write; a second test now drops only the orders table); restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (533 tests: lib 155, `cli_functions` 64,
+  `integration_tests` 38, `order_info_process` 34, `order_list_process` 46, `order_new_process` 22, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6; fewer than before because the legacy preflight and
+  characterization tests went with the command), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
+  --all-features`: all pass.
+
+## Order New, Slice 4b: Binary Scenarios: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `ba8ae91` (pushed). The real binary against the scripted daemon, a seeded identity
+store and a sandboxed home; stdin is a closed descriptor or a file the test wrote, never a pipe it has to feed. Lean mode: with 4a,
+the evidence for the slice.
+
+- **Success in JSON** (`--yes`): exit 0, one document that conforms to the checked-in `order-new-v1.json`, nothing on stderr,
+  stages `published/accepted/applied`, one request at the daemon, the order row and index 1 in the store, the id in the row equal
+  to the id shown; neither the trade private key (read from the store), the mnemonic nor a relay address appears in any stream.
+- **Confirmation**: JSON without `--yes` is `invalid_arguments` exit 2 with the document conforming, no request and the data
+  directory byte-identical. Human with `--yes` prints the created order and no preview or prompt. Through the prompt `y`, blank
+  and `Y` + CRLF accept (preview on stdout, the question on stderr); `n`, `no`, `maybe`, an empty input and a closed stdin decline
+  with exit 1, the fixed `order_declined` line, no request and an untouched store.
+- **Refusal** (node's index ahead): JSON `node_refused` with reason `invalid_trade_index`, data null; human one fixed line with the
+  reason; the store byte-identical; one request per run.
+- **Silence**: after the production 15 s budget `uncertain` / `reply_timeout`, `published/unknown/applied`, nothing on stderr,
+  exactly one request, index 1 spent and no order row.
+- **Bonded node**: `bond_required` as an error with the index spent. **Unsaved order** (orders table dropped): JSON `uncertain` /
+  `order_not_saved` with the order the node made and persistence `failed`; human prints the order and the error plus the line
+  telling the caller to check `order list`; each attempt spent its own index. **Range order**: `min`/`max` reach the node with fiat
+  amount 0, and the row and document carry both bounds. **`--verbose`**: exactly `verbose: order.new ok`.
+- **Checks on the checks**: dropping the `--yes` rule for JSON, accepting end of input at the prompt and skipping the prompt each
+  failed the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (543 tests: lib 155, `cli_functions` 64,
+  `integration_tests` 38, `order_info_process` 34, `order_list_process` 46, `order_new_process` 32, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+- Still open for slice 5: the failure matrix at binary level (identity, configuration, protocol and work, rejected relay, ambiguous
+  publication, unwritable store, many bad inputs, secret sentinels, unwritable streams), `contracts/examples.json` and its validation.
+
+## Order New, Slice 5: Failure Matrix And Examples: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `b90c145` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (binary, `tests/order_new_process.rs`; each case runs as JSON, human and `--verbose`, all with `--yes`, a planted
+  sentinel where an input carries text): no store and an empty `users` table (`identity_missing`); a file that is not a database, no
+  `users` table and a null mnemonic (`identity_unreadable`); missing node key or relays (`configuration_missing`); a bad node key,
+  relay, `--pow` or `--transport` (`configuration_invalid`); protocol 1 (`protocol_unsupported`); more work expected than configured
+  (`pow_required`); a relay rejecting every write (`request_rejected`, index unspent); an unreachable relay
+  (`relay_connection_failed`); a read-only store file (`store_unwritable`). For each: exit 1, `order.new`, status `error`,
+  stages `not_attempted/unknown/not_attempted`, a document that conforms to `order-new-v1.json`, nothing on stderr in JSON mode and
+  one `error:` line on stderr only in the others, no sentinel and no relay address in any stream, no request at the daemon, the data
+  directory byte-identical and nothing created elsewhere. An explicit `--transport nip44` with enough `--pow` succeeds on a node
+  advertising protocol 1.
+- **A defect found and repaired**: the first run of the read-only case showed the command *published* the order and then failed to save
+  it (`uncertain`): SQLite silently opens a file it may not write read-only, so `BEGIN IMMEDIATE` passed. `Store::ensure_writable` now
+  also requires the file to accept a write; the store test compares the check with an actual open for writing. (The check is skipped
+  when the process may write a read-only file, as root.)
+- **Argument errors**: twelve cases exit 2 with `invalid_arguments`, nothing sent or written, nothing echoed, nothing on stderr: bad
+  currency, zero fiat amount, a payment method with a control character, a range maximum not above the minimum, a range with sats,
+  premium and expiration out of range, an invoice with whitespace, a bad side, a text amount, missing required options (all keeping the
+  resolved command `order.new`) and the removed `neworder` (command `null`).
+- **Unwritable streams**: a closed stdout after the order was created exits 1 with one fixed line per mode (the order was made and saved
+  all the same, one per run); a closed stderr changes neither the exit nor the JSON document.
+- **Examples** (`contracts/examples.json`, ten outcomes: created, range created, refusal, bond, timeout and unsaved order as
+  `uncertain`, declined, identity missing, `--yes` required, removed spelling): each conforms to the checked-in schema, is reproduced by the
+  owned constructors, carries data only when it should, and 18 invalid variants do not conform.
+- **Checks on the checks**: the missing writability check (above), mapping an unreadable store to missing, and dropping the currency
+  character rule each failed a test; the last one first survived because the case used a two-letter currency that the length rule
+  also rejects, so the case now uses `U$D`; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (554 tests: lib 155, `cli_functions` 64,
+  `integration_tests` 41, `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `parser_orders` 123,
+  `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+## Order New, Slice 6: Docs And Verification: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `24c2dd2` (pushed). CI is green for every `order new` push up to slice 5, including
+the Windows job. Documentation only; no production change. Lean mode: the only evidence entry for the slice.
+
+- **Docs**: `docs/architecture.md` (the order-new flow replaces the legacy one, the `store.rs`, `commands/order/new.rs`,
+  `cli/order_new.rs` and `outcome/new.rs` entries, the removed `new_order.rs`), `docs/pow_error_handling.md` (the manual PoW check
+  now uses `order new` and `pow_required`), the requirement evidence in `tests/README.md`, `specs/003-order-new-json/quickstart.md`
+  (focused commands, offline smoke check, acceptance matrix, the regtest probe procedure), and the status lines of the spec, plan,
+  `AGENTS.md`, `docs/ai-development.md` and the roadmap (Amendment 11). The README and command reference were migrated in slice 4a; the
+  boundary counts and CI wiring needed no change (the transport owners are still `msg`).
+- **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order new` without `--yes` in JSON is
+  `invalid_arguments` exit 2; with `--yes` and no configuration `configuration_missing` exit 1; `neworder` is an unrecognized
+  subcommand; nothing is created.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked` (554 tests), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass (no source changed since slice 5).
+- **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), MCP `create_order`, and
+  `order take`.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

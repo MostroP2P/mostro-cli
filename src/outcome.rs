@@ -12,7 +12,9 @@ pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings};
 
 mod codes;
 pub mod info;
+pub mod new;
 pub mod order;
+mod rules;
 pub mod schema;
 
 /// Contract version, independent of the executable version.
@@ -27,7 +29,9 @@ pub const RUNTIME_ERROR_EXIT: i32 = 1;
 pub enum Status {
     Ok,
     Error,
-    /// Reserved for future write commands; no pilot constructor emits it.
+    /// The request may have reached the node, or the node accepted it and the
+    /// local write failed. Never `ok`. Only commands that publish a write emit
+    /// it, through [`Envelope::uncertain`].
     Uncertain,
 }
 
@@ -90,6 +94,21 @@ impl<S> ExecutionMeta<S> {
         }
     }
 
+    /// A command that publishes one request and writes locally: `persistence`
+    /// says whether the write the outcome calls for was applied or failed.
+    pub fn write(
+        publication: Publication,
+        daemon_acceptance: DaemonAcceptance,
+        persistence: Persistence,
+    ) -> Self {
+        Self {
+            publication,
+            daemon_acceptance,
+            persistence,
+            snapshot: None,
+        }
+    }
+
     /// A legacy command rejected before execution, or an invocation whose
     /// command could not be resolved.
     pub fn not_executed() -> Self {
@@ -141,6 +160,27 @@ impl<D, S> Envelope<D, S> {
             command,
             status: Status::Error,
             data: None,
+            error: Some(ErrorInfo::new(code)),
+            warnings,
+            meta,
+        }
+    }
+
+    /// The request may have reached the node (or the node accepted it and the
+    /// local write failed): never `ok`, never retried by the program. `data`
+    /// is what the node answered, when it did.
+    pub fn uncertain(
+        command: &'static str,
+        code: ErrorCode,
+        data: Option<D>,
+        warnings: Warnings,
+        meta: ExecutionMeta<S>,
+    ) -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            command: Some(command),
+            status: Status::Uncertain,
+            data,
             error: Some(ErrorInfo::new(code)),
             warnings,
             meta,
@@ -250,7 +290,7 @@ mod tests {
         WarningCode::CleanupIncomplete,
     ];
     /// Codes added for `order.info`; they belong to that command's schema only.
-    const NEW_ERROR_CODES: [ErrorCode; 8] = [
+    const NEW_ERROR_CODES: [ErrorCode; 12] = [
         ErrorCode::IdentityMissing,
         ErrorCode::IdentityUnreadable,
         ErrorCode::ProtocolUnsupported,
@@ -259,6 +299,11 @@ mod tests {
         ErrorCode::ReplyTimeout,
         ErrorCode::NodeRefused,
         ErrorCode::ReplyMalformed,
+        // And for `order.new`.
+        ErrorCode::OrderDeclined,
+        ErrorCode::BondRequired,
+        ErrorCode::OrderNotSaved,
+        ErrorCode::StoreUnwritable,
     ];
     const NEW_WARNING_CODES: [WarningCode; 2] = [
         WarningCode::OrdersNotReturned,
@@ -315,6 +360,10 @@ mod tests {
             ErrorCode::ReplyTimeout => ("reply_timeout", 1),
             ErrorCode::NodeRefused => ("node_refused", 1),
             ErrorCode::ReplyMalformed => ("reply_malformed", 1),
+            ErrorCode::OrderDeclined => ("order_declined", 1),
+            ErrorCode::BondRequired => ("bond_required", 1),
+            ErrorCode::OrderNotSaved => ("order_not_saved", 1),
+            ErrorCode::StoreUnwritable => ("store_unwritable", 1),
         }
     }
 
@@ -692,7 +741,30 @@ mod tests {
     }
 
     #[test]
-    fn no_constructor_emits_uncertain() {
+    fn only_the_uncertain_constructor_emits_uncertain_and_never_exits_zero() {
+        let uncertain = Json::uncertain(
+            "order.new",
+            ErrorCode::ReplyTimeout,
+            None,
+            Warnings::new(),
+            ExecutionMeta::write(
+                Publication::Published,
+                DaemonAcceptance::Unknown,
+                Persistence::Applied,
+            ),
+        );
+        assert_eq!(uncertain.status(), Status::Uncertain);
+        assert_eq!(uncertain.exit_code(), 1);
+        assert_eq!(uncertain.error_code(), Some(ErrorCode::ReplyTimeout));
+        assert!(uncertain.data().is_none());
+        let wire = serde_json::to_value(&uncertain).unwrap();
+        assert_eq!(wire["status"], "uncertain");
+        assert_eq!(wire["meta"]["persistence"], "applied");
+        assert_eq!(wire["meta"]["snapshot"], Value::Null);
+    }
+
+    #[test]
+    fn no_other_constructor_emits_uncertain() {
         let all = ERROR_CODES.iter().chain(&NEW_ERROR_CODES);
         for code in all {
             let failure = Json::error(

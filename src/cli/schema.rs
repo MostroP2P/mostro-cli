@@ -12,7 +12,9 @@ use super::registry::{CommandEntry, JsonSupport, REGISTRY};
 use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
+use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
 use crate::outcome::info::OrderInfoData;
+use crate::outcome::new::OrderNewData;
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules};
 use crate::outcome::{ErrorCode, WarningCode};
@@ -112,7 +114,7 @@ fn descriptor(entry: &CommandEntry, schemas: Option<CommandSchemas>) -> CommandD
 /// modeled, so they are `None` rather than an empty list.
 fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
-        "order.list" | ORDER_INFO => Some(LISTING_CONFIGURATION.to_vec()),
+        "order.list" | ORDER_INFO | ORDER_NEW => Some(LISTING_CONFIGURATION.to_vec()),
         SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
@@ -159,6 +161,30 @@ const INFO_ERRORS: [ErrorCode; 14] = [
     ErrorCode::ReplyMalformed,
 ];
 
+/// Codes that can fail `order.new` with a plain error (nothing sent, a
+/// refusal, a bond request). The ones that leave it `uncertain` are
+/// [`UNCERTAIN_CODES`].
+const NEW_ERRORS: [ErrorCode; 15] = [
+    ErrorCode::InvalidArguments,
+    ErrorCode::ConfigurationMissing,
+    ErrorCode::ConfigurationInvalid,
+    ErrorCode::RelayConnectionFailed,
+    ErrorCode::RelayReadFailed,
+    ErrorCode::InternalError,
+    ErrorCode::IdentityMissing,
+    ErrorCode::IdentityUnreadable,
+    ErrorCode::ProtocolUnsupported,
+    ErrorCode::PowRequired,
+    ErrorCode::RequestRejected,
+    ErrorCode::NodeRefused,
+    ErrorCode::OrderDeclined,
+    ErrorCode::BondRequired,
+    ErrorCode::StoreUnwritable,
+];
+
+/// Warnings of `order.new` beyond the pilot pair.
+const NEW_WARNINGS: [WarningCode; 1] = [WarningCode::InvalidOrderTimestamp];
+
 /// Warnings of `order.info` beyond the pilot pair.
 const INFO_WARNINGS: [WarningCode; 2] = [
     WarningCode::OrdersNotReturned,
@@ -185,6 +211,12 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             ORDER_INFO,
             &INFO_ERRORS,
             &INFO_WARNINGS,
+        )),
+        ORDER_NEW => output_schema::<OrderNewData, ()>(&OutcomeRules::write(
+            ORDER_NEW,
+            &NEW_ERRORS,
+            &UNCERTAIN_CODES,
+            &NEW_WARNINGS,
         )),
         SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
             SCHEMA_COMMAND,
@@ -240,18 +272,23 @@ fn is_input(arg: &Arg) -> bool {
 
 fn property(arg: &Arg) -> Value {
     let mut value = Map::new();
-    value.insert("type".into(), json!("string"));
-    let values: Vec<String> = arg
-        .get_possible_values()
-        .iter()
-        .filter(|value| !value.is_hide_set())
-        .map(|value| value.get_name().to_string())
-        .collect();
-    if !values.is_empty() {
-        value.insert("enum".into(), json!(values));
-    }
-    if arg.is_ignore_case_set() {
-        value.insert("x-case-insensitive".into(), json!(true));
+    if is_flag(arg) {
+        // A flag takes no value: present means true.
+        value.insert("type".into(), json!("boolean"));
+    } else {
+        value.insert("type".into(), json!("string"));
+        let values: Vec<String> = arg
+            .get_possible_values()
+            .iter()
+            .filter(|value| !value.is_hide_set())
+            .map(|value| value.get_name().to_string())
+            .collect();
+        if !values.is_empty() {
+            value.insert("enum".into(), json!(values));
+        }
+        if arg.is_ignore_case_set() {
+            value.insert("x-case-insensitive".into(), json!(true));
+        }
     }
     // A repeatable option takes a list: each occurrence is one item.
     let mut property = if is_repeatable(arg) {
@@ -269,6 +306,11 @@ fn property(arg: &Arg) -> Value {
         property.insert("description".into(), json!(help.to_string()));
     }
     Value::Object(property)
+}
+
+/// Whether the option is a switch without a value, such as `--yes`.
+fn is_flag(arg: &Arg) -> bool {
+    matches!(arg.get_action(), ArgAction::SetTrue | ArgAction::SetFalse)
 }
 
 /// Whether the option collects several values, by repeating it or in one go.
@@ -392,13 +434,13 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|command| command["name"] == "order.new")
+            .find(|command| command["name"] == "order.take-sell")
             .unwrap();
         assert_eq!(
             legacy,
             &json!({
-                "name": "order.new",
-                "cli_path": ["neworder"],
+                "name": "order.take-sell",
+                "cli_path": ["takesell"],
                 "output_modes": ["human"],
                 "input_schema": null,
                 "output_schema": null,
@@ -415,6 +457,14 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect()
+    }
+
+    #[test]
+    fn a_flag_is_a_boolean() {
+        let input = input_schema(&Cli::command(), &["order", "new"]).unwrap();
+        let yes = &input["properties"]["yes"];
+        assert_eq!(yes["type"], "boolean");
+        assert!(yes.get("enum").is_none(), "{yes}");
     }
 
     #[test]
@@ -459,12 +509,14 @@ mod tests {
 
     #[test]
     fn required_arguments_follow_clap() {
-        let input = input_schema(&Cli::command(), &["neworder"]).unwrap();
+        let input = input_schema(&Cli::command(), &["order", "new"]).unwrap();
         let required = strings(&input["required"]);
-        for name in ["kind", "fiatcode", "fiatamount", "paymentmethod"] {
+        for name in ["side", "currency", "fiat-amount", "payment-method"] {
             assert!(required.contains(&name), "{name}");
         }
-        assert!(!required.contains(&"premium"));
+        for name in ["premium", "sats", "fiat-amount-max", "invoice", "yes"] {
+            assert!(!required.contains(&name), "{name}");
+        }
         assert_eq!(input_schema(&Cli::command(), &["nosuch"]), None);
         assert_eq!(input_schema(&Cli::command(), &["order", "nosuch"]), None);
     }
@@ -493,7 +545,7 @@ mod tests {
         assert_eq!(output["title"], "order.list outcome");
         assert!(output.contains_key("$defs") && output.contains_key("oneOf"));
         assert!(listing.input_schema.is_some());
-        let legacy = by_name(&data, "order.new");
+        let legacy = by_name(&data, "order.take-sell");
         assert_eq!(
             (&legacy.input_schema, &legacy.output_schema),
             (&None, &None)

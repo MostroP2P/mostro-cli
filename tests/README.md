@@ -197,3 +197,32 @@ yet run on a Windows host. Contracts: [CLI](../specs/002-order-info-json/contrac
 No scenario above is marked complete by documentation alone. Open: the regtest probe
 ([quickstart](../specs/002-order-info-json/quickstart.md)), which needs separate authorization; Windows evidence for
 slices 4-5; MCP `get_order`, which breaks until migrated.
+
+## Order New: Requirement Evidence
+
+Reconciliation of the [specification](../specs/003-order-new-json/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-10-30. **Automated verification on Linux with loopback relays and a
+scripted fake daemon only**, plus the CI-hosted Windows runner for slices 1-5. Not run against any real daemon, regtest or public
+node; the daemon behavior the fake encodes is read from the v0.20.1 source (regtest pins v0.19.3). NIP-42 AUTH is never exercised.
+Contracts: [CLI](../specs/003-order-new-json/contracts/cli.md), [data model](../specs/003-order-new-json/data-model.md); generated
+references: [discovery](../docs/schemas/discovery-v1.json) and [order new](../docs/schemas/order-new-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 options, validation, removed spellings | `order_new_grammar`, `outcome::new` unit tests, `invalid_input_is_an_argument_error_...` | Verified on Linux |
+| FR-002 existing identity only, nothing created | the identity cases of `failures_before_any_request_...` | Verified on Linux |
+| FR-003 `--yes` in JSON, prompt in human, declined is a stable outcome | `json_without_yes_...`, `the_prompt_accepts_y_and_blank_...` | Verified on Linux |
+| FR-004 one request, trade key, index reserved late | `an_accepted_order_is_returned_and_saved_...`, the exchange and store tests, refusal and local-failure cases that leave the index unspent | Verified on Linux |
+| FR-005 correlation, deadline, cleanup | the `exchange` tests incl. a reply addressed to the identity never heard | Verified on Linux |
+| FR-006 save with the index, `order_not_saved` | the store transaction tests, `an_order_that_cannot_be_saved_...` (twice, two failure shapes) | Verified on Linux |
+| FR-007, FR-008 statuses, stages, stable codes, timeout is `uncertain` | `outcome::new` schema tests, the binary scenarios, `failures_before_any_request_...` | Verified on Linux, except: no process-level `internal_error`; a relay that drops the wait is covered only at the `exchange` level |
+| FR-009 one document, human parity, no secret | `json_with_yes_...` (trade key and mnemonic read from the store and searched for), the human tests | Verified on Linux |
+| FR-010 schemas, fixtures, drift | `integration_tests` (fixture, examples, invalid variants) | Verified on Linux |
+| FR-011 shared transport boundary, untrusted text | `source_boundaries`, escape and sentinel tests | Verified on Linux |
+| FR-012 `neworder` removed | `the_legacy_spellings_are_gone`, the removed-spelling cases | Verified on Linux |
+| SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted daemon |
+| SC-006 no claim about a daemon | not run | Open: needs the authorized regtest probe |
+
+No scenario above is marked complete by documentation alone. Open: the regtest probe
+([quickstart](../specs/003-order-new-json/quickstart.md)), the MCP `create_order` migration (it stays broken until then), and the
+duplicate-order risk of an `uncertain` run, which only the caller can check with `order list`.

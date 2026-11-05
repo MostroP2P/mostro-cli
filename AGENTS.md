@@ -14,10 +14,12 @@ The active feature is [order-list JSON](specs/001-order-list-json/spec.md).
 It is implemented and verified on Linux with loopback relays and, in CI, on a
 GitHub-hosted native Windows runner: all of T001-T055 are checked in the
 [task list](specs/001-order-list-json/tasks.md). Live relays and nodes are not
-tested. A follow-on feature is in progress,
-[order info](specs/002-order-info-json/spec.md) (implemented and verified on Linux
-against a scripted fake daemon; regtest probe open; tracked only in its
-[tasks.md](specs/002-order-info-json/tasks.md)); `order new` and `order take` are later specs. Continue from existing
+tested. Two follow-on features are implemented and verified on Linux and the
+CI-hosted Windows runner against a scripted fake daemon, with their regtest probes
+open: [order info](specs/002-order-info-json/spec.md)
+([tasks.md](specs/002-order-info-json/tasks.md)) and
+[order new](specs/003-order-new-json/spec.md)
+([tasks.md](specs/003-order-new-json/tasks.md)); `order take` is a later spec. Continue from existing
 regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
@@ -26,5 +28,5 @@ Use [architecture](docs/architecture.md), [commands](docs/commands.md),
 [database](docs/database.md), and [tests](tests/README.md) for current code.
 The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
-clones and outside both repositories. Only the `order list`, `order info` and `schema`
-modules are migrated; the other planned modules are not yet implemented.
+clones and outside both repositories. Only the `order list`, `order info`, `order new` and
+`schema` modules are migrated; the other planned modules are not yet implemented.

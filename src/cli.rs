@@ -10,7 +10,6 @@ pub mod invocation;
 pub mod last_trade_index;
 pub mod list_disputes;
 pub mod maintenance;
-pub mod new_order;
 pub mod rate_user;
 pub mod restore;
 pub mod send_admin_dm_attach;
@@ -25,11 +24,12 @@ mod commands;
 mod context;
 mod legacy;
 mod migrated;
+mod order_new;
 mod registry;
 mod schema;
 
 pub use args::Cli;
-pub use commands::{Commands, OrderCommands};
+pub use commands::{Commands, NewArgs, OrderCommands};
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
 pub use schema::{

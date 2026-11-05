@@ -11,4 +11,5 @@ pub mod parse_human;
 pub mod parse_machine;
 pub mod parser;
 pub mod rpc;
+pub mod store;
 pub mod util;

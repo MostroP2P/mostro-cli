@@ -119,7 +119,6 @@ production lines, and removed `cli/orders_info.rs`; `cli.rs` shrank to 189. The 
 | cli/legacy.rs | 193 | 0 | 193 |
 | cli/list_disputes.rs | 21 | 0 | 21 |
 | cli/maintenance.rs | 268 | 70 | 198 |
-| cli/new_order.rs | 198 | 0 | 198 |
 | cli/orders_info.rs | 74 | 0 | 74 |
 | cli/rate_user.rs | 80 | 0 | 80 |
 | cli/registry.rs | 94 | 0 | 94 |
@@ -206,7 +205,7 @@ violation.
   - Very thin; most logic starts in `src/cli.rs`.
 
 - **`src/cli.rs`** (facade and dispatcher)
-  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `new_order`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
+  - Declares one submodule per legacy command (`add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `maintenance`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`) plus the shared `invocation`, `args`, `commands`, `context`, `legacy`, `registry` and `schema` modules.
   - Re-exports `Cli`, `Commands`, `OrderCommands`, `Context`, the registry (`lookup`, `REGISTRY`, `JsonSupport`) and the discovery types, so callers keep using `crate::cli::{...}`.
   - `run()`:
     - Parses `args_os()` through `parse_invocation`: help and version print text and exit 0; a rejected invocation exits 2 (a JSON error outcome only when JSON was clearly selected).
@@ -292,6 +291,7 @@ violation.
 - **`src/outcome.rs`**, **`src/outcome/order.rs`**, **`src/outcome/schema.rs`**: the machine-readable envelope (contract v1), the `order.list` DTOs and the generated output schemas. `Envelope::ok` and `Envelope::error` are the only constructors, so status, data and error agree; error and warning codes carry fixed messages and exit statuses; `ExecutionMeta` holds the write-stage fields and optional snapshot. `PublicOrder` maps explicit public fields only, with money and times as decimal strings; no core or database record is serialized wholesale.
 - **`src/commands/order/list.rs`**: `list_orders`, the typed `order.list` operation (validate, resolve public configuration, `fetch_msg`, select and map). It never prints, exits, writes storage or touches a client.
 - **`src/identity.rs`**, **`src/msg/exchange.rs`** (with `send_msg.rs`, `reply.rs`, `node_info.rs`), **`src/commands/order/info.rs`**, **`src/cli/migrated.rs`**: the read-only identity loader, the correlated request and reply, the typed `order.info` operation, and the extracted dispatch of the migrated commands (discovery, listing, info).
+- **`src/store.rs`**, **`src/commands/order/new.rs`**, **`src/cli/order_new.rs`**, **`src/outcome/new.rs`**: the first migrated write. `Store` opens the existing `mcli.db` for writing (never creates it; one operation per open) to read the next trade key and index, advance the index and save the order with the index in one transaction. `order_new` is the typed `order.new` operation, `cli/order_new.rs` its dispatch (validation, `--yes`, preview and prompt) and `outcome/new.rs` the validated input and the data. `Envelope::uncertain` is the only constructor of the `uncertain` status.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text.
@@ -311,22 +311,20 @@ violation.
 
 Each file in `src/cli/` encapsulates the logic of a specific feature or a group of related commands:
 
-- Order-related: `add_invoice.rs`, `new_order.rs`, `take_order.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
+- Order-related: `add_invoice.rs`, `take_order.rs`, `rate_user.rs`, `restore.rs`, `last_trade_index.rs`, `user_info.rs` (`getuserinfo`: reputation for the local identity key; trade-key send + identity proof; `ensure_first_contact_pow` then `wait_for_dm_matching` on `request_id` + `UserInfo`/`CantDo`).
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs` and `cli/schema.rs`.
+Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs` and `cli/schema.rs`.
 
 ### Typical flow: creating a new order
 
-1. User runs `mostro-cli neworder ...`.
-2. `clap` parses CLI arguments into `Cli` and `Commands::NewOrder { ... }`.
-3. `cli::run()` calls `init_context()` to build `Context` (DB, keys, Nostr client, Mostro pubkey).
-4. `Commands::run` matches `Commands::NewOrder` and calls `execute_new_order(...)`.
-5. The handler:
-   - Uses `mostro_core` types to construct an order message.
-   - Sends it to the Mostro backend over Nostr via `util::connect_nostr`/messaging helpers.
-   - Persists or updates the local representation via `util::save_order` and `db::Order`.
+1. User runs `mostro-cli order new --side ... --yes` (JSON mode requires `--yes`).
+2. `clap` parses `OrderCommands::New(NewArgs)`; `cli::migrated::run` hands it to `cli/order_new.rs`, with no legacy `Context`.
+3. `OrderNewInput::validate` checks the values, then configuration, the read-only identity (`identity.rs`) and the store (`Store::ensure_writable`, then `next_trade`) are resolved, all before anything is published.
+4. Human mode shows the preview and asks; JSON never prompts.
+5. `commands::order::new::order_new` sends one `new-order` through `msg::exchange`, signed by the trade key under the identity seal, and maps the reply: the order and the trade index are saved in one transaction (`store.rs`); a refusal writes nothing; a bond request, silence, an unusable reply or a failed save spend the index and, when the node may hold an order, end `uncertain`.
+6. The typed outcome is rendered by `parse_human::order_new` or `parse_machine::emit`.
 
 ### Extension guidelines
 
