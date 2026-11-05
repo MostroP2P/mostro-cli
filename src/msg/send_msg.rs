@@ -1,8 +1,12 @@
 //! Wrapping and publishing one request. Private to `msg`: the wrapper only
 //! ever sees the result of an exchange.
 
+use std::future::IntoFuture;
+
+use futures::stream::{FuturesUnordered, StreamExt};
 use mostro_core::prelude::{wrap_message_with, Transport, WrapOptions};
 use nostr_sdk::prelude::{Client, Event, MachineReadablePrefix};
+use tokio::time::{timeout_at, Instant};
 
 use super::exchange::Outbound;
 
@@ -53,12 +57,28 @@ pub(super) fn classify<'a>(failures: impl IntoIterator<Item = &'a str>) -> Uncon
     }
 }
 
-/// Publish `event` once. `Ok` when at least one relay accepted it.
-pub(super) async fn publish(client: &Client, event: &Event) -> Result<(), Unconfirmed> {
-    match client.send_event(event).await {
-        Ok(output) if !output.success.is_empty() => Ok(()),
-        Ok(output) => Err(classify(output.failed.values().map(String::as_str))),
-        Err(_) => Err(Unconfirmed::Ambiguous),
+/// Publish `event` once to every relay. `Ok` as soon as one relay accepts it;
+/// a relay that has not answered by `deadline` counts as ambiguous.
+pub(super) async fn publish(
+    client: &Client,
+    event: &Event,
+    deadline: Instant,
+) -> Result<(), Unconfirmed> {
+    // Per relay, so the first acceptance is seen even while another relay
+    // still owes its acknowledgement.
+    let relays = client.relays().await;
+    let mut sends: FuturesUnordered<_> = relays
+        .values()
+        .map(|relay| relay.send_event(event).into_future())
+        .collect();
+    let mut failures = Vec::new();
+    loop {
+        match timeout_at(deadline, sends.next()).await {
+            Ok(Some(Ok(_))) => return Ok(()),
+            Ok(Some(Err(error))) => failures.push(error.to_string()),
+            Ok(None) => return Err(classify(failures.iter().map(String::as_str))),
+            Err(_) => return Err(Unconfirmed::Ambiguous),
+        }
     }
 }
 

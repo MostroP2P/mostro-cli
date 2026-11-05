@@ -757,3 +757,195 @@ async fn a_request_without_an_identifier_fails_before_any_connection() {
     assert_eq!(failed.code(), ErrorCode::InternalError);
     assert!(world.fake.received().is_empty());
 }
+
+// --- Publication spends the reply budget -------------------------------------
+
+/// Refuses requests sent straight to it, with a machine-readable reason.
+#[derive(Debug)]
+struct RefuseRequests {
+    node: nostr_sdk::prelude::PublicKey,
+}
+
+impl WritePolicy for RefuseRequests {
+    fn admit_event<'a>(
+        &'a self,
+        event: &'a Event,
+        _addr: &'a std::net::SocketAddr,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = WritePolicyResult> + Send + 'a>> {
+        let refuse = event.kind == Kind::PrivateDirectMessage && event.pubkey != self.node;
+        Box::pin(async move {
+            if refuse {
+                WritePolicyResult::reject(MachineReadablePrefix::Blocked, "not here")
+            } else {
+                WritePolicyResult::Accept
+            }
+        })
+    }
+}
+
+/// Hands every event to `to`, where the node reads, and never acknowledges it.
+/// The hand-over waits a moment so that `to` has taken the requester's
+/// subscription first, as it would when the request travels through it.
+#[derive(Debug)]
+struct ForwardWithoutAck {
+    to: LocalRelay,
+}
+
+impl WritePolicy for ForwardWithoutAck {
+    fn admit_event<'a>(
+        &'a self,
+        event: &'a Event,
+        _addr: &'a std::net::SocketAddr,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = WritePolicyResult> + Send + 'a>> {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let _ = self.to.add_event(event.clone()).await;
+            std::future::pending::<WritePolicyResult>().await
+        })
+    }
+}
+
+/// Relay A refuses requests and hosts the node; relay B passes each request
+/// to A and never sends OK. The node answers with `respond`.
+async fn unacknowledged(
+    respond: Respond,
+) -> (LoopbackRelay, LoopbackRelay, FakeMostro, PublicReadConfig) {
+    let node = Keys::generate();
+    let a = LocalRelay::builder()
+        .write_policy(RefuseRequests {
+            node: node.public_key(),
+        })
+        .build();
+    a.add_event(info_event(&node, Some(2), Some(0), None, None))
+        .await
+        .unwrap();
+    let b = LocalRelay::builder()
+        .write_policy(ForwardWithoutAck { to: a.clone() })
+        .build();
+    let a = LoopbackRelay::start(Backend::Relay(Box::new(a)))
+        .await
+        .unwrap();
+    let b = LoopbackRelay::start(Backend::Relay(Box::new(b)))
+        .await
+        .unwrap();
+    let fake = FakeMostro::start(&a.url, node.clone(), respond).await;
+    let config = PublicReadConfig::new(node.public_key(), &format!("{},{}", a.url, b.url)).unwrap();
+    (a, b, fake, config)
+}
+
+fn plain_outbound<'a>(identity: &'a Keys, node: nostr_sdk::prelude::PublicKey) -> Outbound<'a> {
+    Outbound {
+        signer: identity,
+        recipient: node,
+        message: Message::new_order(
+            None,
+            Some(REQUEST_ID),
+            None,
+            Action::Orders,
+            Some(Payload::Ids(vec![Uuid::new_v4()])),
+        ),
+        pow: 0,
+        check_protocol: true,
+    }
+}
+
+/// The longest a well-behaved exchange may take with `limits()`: probe, reply
+/// budget, the late probe and cleanup, plus scheduling slack.
+fn exchange_bound() -> Duration {
+    let limits = limits();
+    limits.probe * 2 + limits.reply + limits.cleanup + Duration::from_secs(2)
+}
+
+#[tokio::test]
+async fn a_relay_that_never_acknowledges_cannot_stretch_the_reply_budget() {
+    // The node answers after twice the reply budget, and a second relay never
+    // sends OK. Publication spends the reply budget, so the answer is late.
+    let late = limits().reply * 2;
+    let world = world(
+        plain_info,
+        Arc::new(move |request: &Received| {
+            vec![Outgoing::to_requester(orders_reply(request, Vec::new())).after(late)]
+        }),
+    )
+    .await;
+    let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let relays = format!("{},{}", world.relay.url, silent.url);
+    let config = PublicReadConfig::new(world.config.mostro_pubkey(), &relays).unwrap();
+
+    let started = std::time::Instant::now();
+    let result = exchange(
+        &config,
+        outbound(&world, vec![Uuid::new_v4()]),
+        &expect_orders(),
+        &limits(),
+    )
+    .await;
+    let elapsed = started.elapsed();
+
+    let failed = failure(result);
+    assert_eq!(failed.code(), ErrorCode::ReplyTimeout);
+    assert_eq!(
+        (failed.publication(), failed.daemon_acceptance()),
+        (Publication::Published, DaemonAcceptance::Unknown)
+    );
+    assert!(elapsed < exchange_bound(), "{elapsed:?}");
+}
+
+#[tokio::test]
+async fn a_reply_already_received_wins_over_a_missing_acknowledgement() {
+    let (_a, _b, fake, config) = unacknowledged(always_orders(Vec::new())).await;
+    let identity = Keys::generate();
+
+    let started = std::time::Instant::now();
+    let result = exchange(
+        &config,
+        plain_outbound(&identity, config.mostro_pubkey()),
+        &expect_orders(),
+        &limits(),
+    )
+    .await;
+    let elapsed = started.elapsed();
+
+    let exchanged = result.unwrap_or_else(|failed| {
+        panic!(
+            "expected the queued reply, got {:?} after {elapsed:?}",
+            (failed.code(), failed.publication())
+        )
+    });
+    assert_eq!(
+        exchanged.reply().get_inner_message_kind().action,
+        Action::Orders
+    );
+    assert_eq!(
+        fake.received().len(),
+        1,
+        "the request reached the node once"
+    );
+    assert!(elapsed < exchange_bound(), "{elapsed:?}");
+}
+
+#[tokio::test]
+async fn a_missing_acknowledgement_without_a_reply_stays_unknown_within_the_budget() {
+    let (_a, _b, fake, config) = unacknowledged(silent()).await;
+    let identity = Keys::generate();
+
+    let started = std::time::Instant::now();
+    let failed = failure(
+        exchange(
+            &config,
+            plain_outbound(&identity, config.mostro_pubkey()),
+            &expect_orders(),
+            &limits(),
+        )
+        .await,
+    );
+    let elapsed = started.elapsed();
+
+    assert_eq!(failed.code(), ErrorCode::RequestRejected);
+    assert_eq!(
+        (failed.publication(), failed.daemon_acceptance()),
+        (Publication::Unknown, DaemonAcceptance::Unknown)
+    );
+    assert_eq!(fake.received().len(), 1);
+    assert!(elapsed < exchange_bound(), "{elapsed:?}");
+}
