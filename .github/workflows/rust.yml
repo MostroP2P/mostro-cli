@@ -55,7 +55,8 @@ jobs:
       - name: Schema drift checks
         run: cargo test --locked --test integration_tests schema_fixtures
 
-  # Prepare matrix of targets from archs file
+  # Prepare matrix of targets from archs file. cross cannot target Apple (it
+  # needs the macOS SDK), so the -apple-darwin targets build on a macOS runner.
   matrix:
     runs-on: ubuntu-latest
     needs: test
@@ -70,17 +71,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          targets=$(grep -v '^\s*$' archs | jq -R -s -c 'split("\n") | map(select(length>0))')
+          targets=$(grep -v '^\s*$' archs | jq -R -s -c 'split("\n") | map(select(length>0))
+            | map({target: ., os: (if endswith("-apple-darwin") then "macos-latest" else "ubuntu-latest" end)})')
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
 
-  # Build binaries for all targets using cross
+  # Build binaries for all targets: cross on Linux, native cargo for Windows
+  # (mingw) and macOS
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: matrix
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(needs.matrix.outputs.targets) }}
+        include: ${{ fromJSON(needs.matrix.outputs.targets) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,16 +104,22 @@ jobs:
           sudo apt-get install -y gcc-mingw-w64-x86-64
           rustup target add x86_64-pc-windows-gnu
 
+      # The macOS runner is Apple silicon; Xcode's clang also builds x86_64.
+      # The target goes to the toolchain that rust-toolchain.toml pins.
+      - name: Add the Apple target (macOS targets only)
+        if: endsWith(matrix.target, '-apple-darwin')
+        run: rustup target add ${{ matrix.target }}
+
       - name: Cache cross binary
         id: cache-cross
-        if: matrix.target != 'x86_64-pc-windows-gnu'
+        if: matrix.target != 'x86_64-pc-windows-gnu' && !endsWith(matrix.target, '-apple-darwin')
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/cross
           key: cross-${{ runner.os }}-0.2.5
 
       - name: Install cross ( pinned version for reproducibility )
-        if: matrix.target != 'x86_64-pc-windows-gnu' && steps.cache-cross.outputs.cache-hit != 'true'
+        if: matrix.target != 'x86_64-pc-windows-gnu' && !endsWith(matrix.target, '-apple-darwin') && steps.cache-cross.outputs.cache-hit != 'true'
         run: cargo install cross --version 0.2.5
 
       - name: Build release
@@ -121,6 +130,8 @@ jobs:
           set -euo pipefail
           if [[ "$TARGET" == "x86_64-pc-windows-gnu" ]]; then
             export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+            cargo build --release --locked --target "$TARGET"
+          elif [[ "$TARGET" == *-apple-darwin ]]; then
             cargo build --release --locked --target "$TARGET"
           else
             cross build --release --locked --target "$TARGET"

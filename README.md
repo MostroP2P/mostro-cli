@@ -62,7 +62,15 @@ cargo install mostro-cli
 
 This drops a `mostro-cli` binary into `~/.cargo/bin` (make sure that's on your `$PATH`).
 
-### Option B — build from source
+### Option B — a prebuilt binary
+
+Each [release](https://github.com/MostroP2P/mostro-cli/releases) carries binaries for Linux (x86_64 and aarch64 musl, ARM), FreeBSD,
+Windows and macOS (`aarch64-apple-darwin` for Apple silicon, `x86_64-apple-darwin` for Intel), with their SHA-256 sums in `manifest.txt`.
+The macOS binaries are not signed: after downloading, run
+`chmod +x mostro-cli-aarch64-apple-darwin && xattr -d com.apple.quarantine mostro-cli-aarch64-apple-darwin`
+(or the `x86_64` name) so Gatekeeper lets it run.
+
+### Option C — build from source
 
 ```bash
 git clone https://github.com/MostroP2P/mostro-cli.git
