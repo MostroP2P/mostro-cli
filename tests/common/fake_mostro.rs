@@ -616,7 +616,10 @@ pub struct FakeMostro {
 impl FakeMostro {
     /// Connect to `relay_url` as the node and start answering.
     pub async fn start(relay_url: &str, keys: Keys, respond: Respond) -> Self {
-        let client = Client::default();
+        // Answers NIP-42 challenges as the node, for relays that require it.
+        let client = Client::builder()
+            .authenticator(nostr_sdk::prelude::SignerAuthenticator::new(keys.clone()))
+            .build();
         client.add_relay(relay_url).await.unwrap();
         let connected = client.try_connect().timeout(Duration::from_secs(5)).await;
         assert!(connected.failed.is_empty(), "{:?}", connected.failed);

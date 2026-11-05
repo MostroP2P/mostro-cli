@@ -88,7 +88,8 @@ storage, so tests inject generated keys. Failures map to `identity_missing` or `
 
 `msg::exchange` connects once, probes the node info, applies the transport and work rules, arms a subscription (kind 14, tagged to the
 identity key, authored by the node, limit 0), publishes with `send_msg`, waits with `reply` using the existing correlation, and cleans up in
-bounded time. A relay accepting the event counts as published; no relay accepting is `request_rejected`. A post-timeout probe turns a work shortfall into
+bounded time. A relay accepting the event counts as published; no relay accepting and no reply before the deadline is `request_rejected`.
+The relays' acknowledgements and the reply share one deadline, and the first acceptance starts the wait. A post-timeout probe turns a work shortfall into
 `pow_required`. The decoded reply is returned to the wrapper, which maps `Orders`, `CantDo(not_found)` (empty success), other `CantDo`
 (`node_refused` with the reason) and anything else (`reply_malformed`). Local effects: none.
 

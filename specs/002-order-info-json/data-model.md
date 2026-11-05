@@ -59,12 +59,12 @@ All exit 1 unless noted; `data` is null on every error; messages are fixed prose
 | `invalid_arguments` (2) | missing, malformed or unknown arguments, removed spelling | not_attempted / unknown / not_applicable |
 | `configuration_missing`, `configuration_invalid` | node key, relays, `--pow`, `--transport` | same |
 | `identity_missing` | no data directory, `mcli.db` or user row | same |
-| `identity_unreadable` | the store exists but cannot be read or holds no valid mnemonic | same |
+| `identity_unreadable` | the store exists but cannot be read or holds no valid mnemonic, or its user row could only be read through an `mcli.db-wal` without its `mcli.db-shm` | same |
 | `relay_connection_failed` | a configured relay could not be connected in time | same |
 | `protocol_unsupported` | the node advertises protocol 1 | same |
 | `pow_required` | advertised work is above the configured work, found before publishing | not_attempted / unknown / not_applicable |
 | `pow_required` | same, found after a timeout | published / unknown / not_applicable |
-| `request_rejected` | no relay confirmed accepting the request event | not_attempted or unknown / unknown / not_applicable (see below) |
+| `request_rejected` | no relay confirmed accepting the request event and no matching reply arrived | not_attempted or unknown / unknown / not_applicable (see below) |
 | `reply_timeout` | published, no matching reply before the deadline | published / unknown / not_applicable |
 | `relay_read_failed` | a relay failed or closed the subscription while waiting | published / unknown / not_applicable |
 | `node_refused` | `CantDo` other than `not_found`; `error.reason` is the node's reason in snake case, for example `too_many_requests` or `invalid_parameters` | published / rejected / not_applicable |
@@ -74,7 +74,9 @@ All exit 1 unless noted; `data` is null on every error; messages are fixed prose
 `request_rejected` means no relay confirmed accepting the request event. Its publication stage is
 `not_attempted` when every relay answered with an explicit rejection, and `unknown` when at least one
 relay failed ambiguously (for example a timeout or a dropped connection after the send), because that relay
-may still have the event. A read is safe to repeat, so no outcome here is `uncertain`.
+may still have the event. A matching reply before the deadline proves the request arrived, so it is
+decided by that reply even when no relay acknowledged the event. A read is safe to repeat, so no
+outcome here is `uncertain`.
 
 `error.reason` appears only on `node_refused`: `{ "code": "node_refused", "message": "...",
 "reason": "too_many_requests" }`. Messages never include the reason's free text.
@@ -94,7 +96,8 @@ may still have the event. A read is safe to repeat, so no outcome here is `uncer
 
 validated (arguments) -> configured (node key, relays, work, transport) -> identity read (read-only) ->
 connected (10 s) -> node info probed (3 s, best effort) -> pre-checks (protocol, work) -> subscription
-armed -> request published (exactly once) -> awaiting a correlated reply (15 s) -> replied | timed out |
+armed -> request published (exactly once) -> awaiting a correlated reply (one 15 s deadline from
+publishing, shared with the relays' acknowledgements) -> replied | timed out |
 failed -> cleanup (1 s) -> rendered -> written. Each relay accepts or rejects the request event; the
 outcome is published if at least one accepted. Unrelated, duplicate, own-echo, wrong-author and
 wrong-request messages are ignored while waiting. Cancellation releases resources but cannot
