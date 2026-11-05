@@ -67,22 +67,31 @@ This drops a `mostro-cli` binary into `~/.cargo/bin` (make sure that's on your `
 Each [release](https://github.com/MostroP2P/mostro-cli/releases) carries binaries for Linux (x86_64 and aarch64 musl, ARM), FreeBSD,
 Windows and macOS (`aarch64-apple-darwin` for Apple silicon, `x86_64-apple-darwin` for Intel), with their SHA-256 sums in `manifest.txt`.
 Each file is named `mostro-cli-<target>` (with `.exe` on Windows). Download the one for your system, check its sum,
-and install it as `mostro-cli` in a directory on your `PATH`:
+and install it as `mostro-cli` in a directory on your `PATH`. The install step runs only when the sum matches:
 
 ```bash
 target=x86_64-unknown-linux-musl   # your target, e.g. aarch64-apple-darwin or x86_64-apple-darwin
 base=https://github.com/MostroP2P/mostro-cli/releases/latest/download
 curl -fL -O "$base/mostro-cli-$target" -O "$base/manifest.txt"
-sum=$(grep "/mostro-cli-$target\$" manifest.txt | cut -d' ' -f1)
-echo "$sum  mostro-cli-$target" | sha256sum -c   # on macOS: shasum -a 256 -c
-chmod +x "mostro-cli-$target"
-sudo mv "mostro-cli-$target" /usr/local/bin/mostro-cli   # or any directory on your PATH
+line="$(grep "/mostro-cli-$target\$" manifest.txt | cut -d' ' -f1)  mostro-cli-$target"
+if [ "$(uname -s)" = Darwin ]; then echo "$line" | shasum -a 256 -c; else echo "$line" | sha256sum -c; fi &&
+  sudo install -m 0755 "mostro-cli-$target" /usr/local/bin/mostro-cli   # or any directory on your PATH
 ```
 
-On Windows, rename `mostro-cli-x86_64-pc-windows-gnu.exe` to `mostro-cli.exe` and move it to a folder on your `PATH`.
+On Windows, in PowerShell:
 
-The macOS binaries are not signed. A file downloaded with a browser is quarantined, and Gatekeeper blocks it;
-clear the flag with `xattr -d com.apple.quarantine /usr/local/bin/mostro-cli`. A `curl` download is not quarantined.
+```powershell
+$base = "https://github.com/MostroP2P/mostro-cli/releases/latest/download"
+Invoke-WebRequest "$base/mostro-cli-x86_64-pc-windows-gnu.exe" -OutFile mostro-cli.exe -UseBasicParsing
+Invoke-WebRequest "$base/manifest.txt" -OutFile manifest.txt -UseBasicParsing
+$want = ((Select-String "windows-gnu\.exe$" manifest.txt).Line -split " ")[0]
+if ((Get-FileHash mostro-cli.exe -Algorithm SHA256).Hash -eq $want) { "checksum OK" } else { throw "checksum mismatch" }
+```
+
+If it prints `checksum OK`, move `mostro-cli.exe` to a folder on your `PATH`.
+
+The macOS binaries are not signed. A file downloaded with a browser instead of `curl` is quarantined, and Gatekeeper
+blocks it: run `xattr -d com.apple.quarantine mostro-cli-<target>` before the install step.
 
 ### Option C — build from source
 
