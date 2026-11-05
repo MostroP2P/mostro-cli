@@ -31,6 +31,7 @@ Both commands return the standard envelope (v1) with `meta.publication`, `meta.d
 | unusable or wrong-shaped reply | `uncertain` | `reply_malformed` | published / unknown / not_attempted |
 | relay read failure after publish | `uncertain` | `relay_read_failed` | published / unknown / not_attempted |
 | unknown order or no key | `error` | `order_unknown` (new) | not_published / not_attempted / not_attempted |
+| the store cannot be queried for the order's key (both commands) | `error` | `store_unwritable` | not_published / not_attempted / not_attempted |
 | declined at the prompt | `error` | `order_declined` | not_published |
 | argument, configuration, identity, protocol, relay, work failures | `error` | as `order take` | not_published |
 
