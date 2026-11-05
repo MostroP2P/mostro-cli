@@ -384,7 +384,9 @@ mod legacy_getdm {
 mod store {
     use super::fake_mostro::{seed_identity, set_last_trade_index};
     use super::harness::Sandbox;
-    use mostro_client::store::{Store, StoreError};
+    use super::{id, order};
+    use mostro_client::store::{Store, StoreError, Trade};
+    use mostro_core::order::Status;
 
     async fn stored(last: i64) -> (Sandbox, Store) {
         let sandbox = Sandbox::new().unwrap();
@@ -524,6 +526,38 @@ mod store {
             .map(|(index, _)| *index)
             .collect();
         assert_eq!(indexes, [3, 2, 1]);
+        assert_eq!(files(&sandbox), ["mcli.db"], "no file created");
+        assert_eq!(database(&sandbox), before, "no byte changed");
+    }
+
+    #[tokio::test]
+    async fn an_order_key_is_read_from_a_wal_store_in_a_read_only_directory() {
+        // `message list --order` looks the order's key up after the derivation.
+        let (sandbox, store) = stored(3).await;
+        let (index, keys) = store.trade_keys(200).await.unwrap().keys[0].clone();
+        store
+            .save_order(
+                &order(2, Status::WaitingPayment),
+                &Trade {
+                    index,
+                    keys: keys.clone(),
+                },
+                1,
+            )
+            .await
+            .unwrap();
+        to_wal(&sandbox).await;
+        assert_eq!(files(&sandbox), ["mcli.db"], "no sidecar left");
+        let before = database(&sandbox);
+        set_dir_read_only(&sandbox, true);
+
+        let found = store.order_keys(id(2)).await;
+
+        set_dir_read_only(&sandbox, false);
+        assert_eq!(
+            found.unwrap().map(|k| k.public_key()),
+            Some(keys.public_key())
+        );
         assert_eq!(files(&sandbox), ["mcli.db"], "no file created");
         assert_eq!(database(&sandbox), before, "no byte changed");
     }
