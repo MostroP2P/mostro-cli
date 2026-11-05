@@ -15,10 +15,28 @@
 //! use mostro_client::msg::orders::reduce_orders;
 //! ```
 //!
+//! So are the doors of the request and reply exchange: publishing, waiting for the
+//! reply and reading the node's information happen only inside `exchange`.
+//!
+//! ```compile_fail,E0603
+//! use mostro_client::msg::send_msg::publish;
+//! ```
+//!
+//! ```compile_fail,E0603
+//! use mostro_client::msg::reply::arm;
+//! ```
+//!
+//! ```compile_fail,E0603
+//! use mostro_client::msg::node_info::probe;
+//! ```
+//!
 //! The exported surface itself is stable:
 //!
 //! ```
-//! use mostro_client::msg::{fetch_msg, FetchFailure, Fetched, PublicReadConfig, ReadLimits};
+//! use mostro_client::msg::{
+//!     exchange, fetch_msg, ExchangeFailure, ExchangeLimits, Exchanged, Expect, FetchFailure,
+//!     Fetched, Outbound, PublicReadConfig, ReadLimits,
+//! };
 //! ```
 
 use std::str::FromStr;
@@ -29,9 +47,14 @@ use nostr_sdk::prelude::{Client, Keys, PublicKey, RelayUrl, SignerAuthenticator}
 use crate::outcome::ErrorCode;
 use crate::util::net::install_rustls_crypto_provider;
 
+pub mod exchange;
+mod node_info;
 mod orders;
 pub mod receive_msg;
+mod reply;
+mod send_msg;
 
+pub use exchange::{exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Outbound};
 pub(crate) use orders::{reduce_orders, seven_day_filter};
 pub use receive_msg::{fetch_msg, FetchFailure, Fetched};
 

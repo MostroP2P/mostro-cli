@@ -640,6 +640,7 @@ mod source_boundaries {
             &[
                 ("cli/dm_to_user.rs", 1),
                 ("cli/send_admin_dm_attach.rs", 1),
+                ("msg/send_msg.rs", 1),
                 ("util/messaging.rs", 2),
             ],
         ),
@@ -648,12 +649,17 @@ mod source_boundaries {
             &[
                 ("cli/get_dm_user.rs", 1),
                 ("cli/send_msg.rs", 1),
+                ("msg/node_info.rs", 1),
                 ("util/events.rs", 8),
             ],
         ),
         (
             ".subscribe(",
-            &[("msg/receive_msg.rs", 1), ("util/messaging.rs", 1)],
+            &[
+                ("msg/exchange.rs", 1),
+                ("msg/receive_msg.rs", 1),
+                ("util/messaging.rs", 1),
+            ],
         ),
         (".add_relay(", &[("msg/mod.rs", 1), ("util/net.rs", 1)]),
     ];

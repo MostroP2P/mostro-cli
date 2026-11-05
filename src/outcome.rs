@@ -8,6 +8,10 @@
 use schemars::JsonSchema;
 use serde::Serialize;
 
+pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings};
+
+mod codes;
+pub mod info;
 pub mod order;
 pub mod schema;
 
@@ -25,128 +29,6 @@ pub enum Status {
     Error,
     /// Reserved for future write commands; no pilot constructor emits it.
     Uncertain,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorCode {
-    InvalidArguments,
-    OutputNotSupported,
-    ConfigurationMissing,
-    ConfigurationInvalid,
-    RelayConnectionFailed,
-    RelayReadFailed,
-    ReadTimeout,
-    ReadLimitExceeded,
-    InternalError,
-}
-
-impl ErrorCode {
-    pub fn exit_code(self) -> i32 {
-        match self {
-            Self::InvalidArguments | Self::OutputNotSupported => ARGUMENT_ERROR_EXIT,
-            Self::ConfigurationMissing
-            | Self::ConfigurationInvalid
-            | Self::RelayConnectionFailed
-            | Self::RelayReadFailed
-            | Self::ReadTimeout
-            | Self::ReadLimitExceeded
-            | Self::InternalError => RUNTIME_ERROR_EXIT,
-        }
-    }
-
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::InvalidArguments => "The command arguments are invalid.",
-            Self::OutputNotSupported => "This command does not support JSON output.",
-            Self::ConfigurationMissing => "Required node configuration is missing.",
-            Self::ConfigurationInvalid => "The node configuration is invalid.",
-            Self::RelayConnectionFailed => "A configured relay could not be connected.",
-            Self::RelayReadFailed => "A configured relay failed during the public order read.",
-            Self::ReadTimeout => "The public order read did not complete before its deadline.",
-            Self::ReadLimitExceeded => "The public order read exceeded its event limit.",
-            Self::InternalError => "An internal error occurred.",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-pub struct ErrorInfo {
-    code: ErrorCode,
-    message: &'static str,
-}
-
-impl ErrorInfo {
-    pub fn new(code: ErrorCode) -> Self {
-        Self {
-            code,
-            message: code.message(),
-        }
-    }
-
-    pub fn code(&self) -> ErrorCode {
-        self.code
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum WarningCode {
-    InvalidEventTimestamp,
-    CleanupIncomplete,
-}
-
-impl WarningCode {
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::InvalidEventTimestamp => {
-                "One or more event timestamps cannot be shown as a UTC date."
-            }
-            Self::CleanupIncomplete => "Relay cleanup did not finish within its time budget.",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-pub struct Warning {
-    code: WarningCode,
-    message: &'static str,
-}
-
-/// Warnings of one outcome, at most one per code.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(transparent)]
-pub struct Warnings(Vec<Warning>);
-
-impl Warnings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Record `code`; repeated occurrences aggregate into one warning.
-    pub fn add(&mut self, code: WarningCode) {
-        if !self.contains(code) {
-            self.0.push(Warning {
-                code,
-                message: code.message(),
-            });
-        }
-    }
-
-    pub fn contains(&self, code: WarningCode) -> bool {
-        self.0.iter().any(|warning| warning.code == code)
-    }
-
-    /// Record every warning of `other`, still one per code.
-    pub fn merge(&mut self, other: &Warnings) {
-        for warning in &other.0 {
-            self.add(warning.code);
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -194,6 +76,17 @@ impl<S> ExecutionMeta<S> {
             daemon_acceptance: DaemonAcceptance::NotApplicable,
             persistence: Persistence::NotApplicable,
             snapshot,
+        }
+    }
+
+    /// A command that publishes one request and writes nothing locally: the
+    /// given publication and node-acceptance stages, persistence not applicable.
+    pub fn request(publication: Publication, daemon_acceptance: DaemonAcceptance) -> Self {
+        Self {
+            publication,
+            daemon_acceptance,
+            persistence: Persistence::NotApplicable,
+            snapshot: None,
         }
     }
 
@@ -254,6 +147,19 @@ impl<D, S> Envelope<D, S> {
         }
     }
 
+    /// A refusal by the node: `node_refused` with its reason when that is a
+    /// snake-case word. Data is null, as for every error.
+    pub fn refused(
+        command: Option<&'static str>,
+        reason: &str,
+        warnings: Warnings,
+        meta: ExecutionMeta<S>,
+    ) -> Self {
+        let mut envelope = Self::error(command, ErrorCode::NodeRefused, warnings, meta);
+        envelope.error = envelope.error.take().map(|error| error.with_reason(reason));
+        envelope
+    }
+
     pub fn status(&self) -> Status {
         self.status
     }
@@ -271,7 +177,7 @@ impl<D, S> Envelope<D, S> {
     }
 
     pub fn error_code(&self) -> Option<ErrorCode> {
-        self.error.map(|error| error.code)
+        self.error.as_ref().map(ErrorInfo::code)
     }
 
     /// An `internal_error` outcome for the same command, stages and warnings,
@@ -291,7 +197,9 @@ impl<D, S> Envelope<D, S> {
     }
 
     pub fn exit_code(&self) -> i32 {
-        self.error.map_or(0, |error| error.code.exit_code())
+        self.error
+            .as_ref()
+            .map_or(0, |error| error.code().exit_code())
     }
 }
 
@@ -330,6 +238,21 @@ mod tests {
     const WARNING_CODES: [WarningCode; 2] = [
         WarningCode::InvalidEventTimestamp,
         WarningCode::CleanupIncomplete,
+    ];
+    /// Codes added for `order.info`; they belong to that command's schema only.
+    const NEW_ERROR_CODES: [ErrorCode; 8] = [
+        ErrorCode::IdentityMissing,
+        ErrorCode::IdentityUnreadable,
+        ErrorCode::ProtocolUnsupported,
+        ErrorCode::PowRequired,
+        ErrorCode::RequestRejected,
+        ErrorCode::ReplyTimeout,
+        ErrorCode::NodeRefused,
+        ErrorCode::ReplyMalformed,
+    ];
+    const NEW_WARNING_CODES: [WarningCode; 2] = [
+        WarningCode::OrdersNotReturned,
+        WarningCode::InvalidOrderTimestamp,
     ];
 
     type Json = Envelope<Value, Value>;
@@ -374,6 +297,14 @@ mod tests {
             ErrorCode::ReadTimeout => ("read_timeout", 1),
             ErrorCode::ReadLimitExceeded => ("read_limit_exceeded", 1),
             ErrorCode::InternalError => ("internal_error", 1),
+            ErrorCode::IdentityMissing => ("identity_missing", 1),
+            ErrorCode::IdentityUnreadable => ("identity_unreadable", 1),
+            ErrorCode::ProtocolUnsupported => ("protocol_unsupported", 1),
+            ErrorCode::PowRequired => ("pow_required", 1),
+            ErrorCode::RequestRejected => ("request_rejected", 1),
+            ErrorCode::ReplyTimeout => ("reply_timeout", 1),
+            ErrorCode::NodeRefused => ("node_refused", 1),
+            ErrorCode::ReplyMalformed => ("reply_malformed", 1),
         }
     }
 
@@ -381,6 +312,8 @@ mod tests {
         match code {
             WarningCode::InvalidEventTimestamp => "invalid_event_timestamp",
             WarningCode::CleanupIncomplete => "cleanup_incomplete",
+            WarningCode::OrdersNotReturned => "orders_not_returned",
+            WarningCode::InvalidOrderTimestamp => "invalid_order_timestamp",
         }
     }
 
@@ -643,5 +576,129 @@ mod tests {
         ] {
             assert_eq!(wire(&stage), json!(persistence(stage)));
         }
+    }
+
+    #[test]
+    fn the_pilot_code_sets_are_frozen() {
+        assert_eq!(ErrorCode::PILOT, ERROR_CODES);
+        assert_eq!(WarningCode::PILOT, WARNING_CODES);
+    }
+
+    #[test]
+    fn added_codes_follow_the_contract_and_stay_out_of_the_pilot_set() {
+        let mut messages: Vec<&str> = ERROR_CODES
+            .iter()
+            .chain(&NEW_ERROR_CODES)
+            .map(|code| code.message())
+            .collect();
+        for code in NEW_ERROR_CODES {
+            let (name, exit) = error_contract(code);
+            assert_eq!(wire(&code), json!(name));
+            assert_eq!((code.exit_code(), exit), (1, 1), "{name}");
+            assert_safe_message(code.message());
+            assert!(!ErrorCode::PILOT.contains(&code), "{name}");
+        }
+        for code in NEW_WARNING_CODES {
+            assert_eq!(wire(&code), json!(warning_contract(code)));
+            assert_safe_message(code.message());
+            assert!(!WarningCode::PILOT.contains(&code));
+        }
+        messages.sort_unstable();
+        messages.dedup();
+        assert_eq!(messages.len(), ERROR_CODES.len() + NEW_ERROR_CODES.len());
+    }
+
+    #[test]
+    fn only_a_node_refusal_carries_a_reason_and_it_is_snake_case() {
+        let refused = Envelope::<Value, Value>::refused(
+            Some("order.info"),
+            "too_many_requests",
+            Warnings::new(),
+            ExecutionMeta::request(Publication::Published, DaemonAcceptance::Rejected),
+        );
+        let value = wire(&refused);
+        assert_eq!(keys(&value["error"]), ["code", "message", "reason"]);
+        assert_eq!(value["error"]["code"], json!("node_refused"));
+        assert_eq!(value["error"]["reason"], json!("too_many_requests"));
+        assert_eq!(refused.exit_code(), 1);
+        assert_eq!(refused.error_code(), Some(ErrorCode::NodeRefused));
+
+        // A reason that is not a snake-case word is dropped, never echoed.
+        for bad in ["", "Too Many", "x\ny", "http://evil", "has-dash", "9lives"] {
+            let refused = Envelope::<Value, Value>::refused(
+                Some("order.info"),
+                bad,
+                Warnings::new(),
+                ExecutionMeta::request(Publication::Published, DaemonAcceptance::Rejected),
+            );
+            let value = wire(&refused);
+            assert_eq!(keys(&value["error"]), ["code", "message"], "{bad:?}");
+            assert!(
+                !value.to_string().contains(bad) || bad.is_empty(),
+                "{bad:?}"
+            );
+        }
+
+        // Every other error is without a reason.
+        for code in ERROR_CODES.iter().chain(&NEW_ERROR_CODES) {
+            assert_eq!(keys(&wire(&ErrorInfo::new(*code))), ["code", "message"]);
+        }
+    }
+
+    #[test]
+    fn request_stages_use_the_existing_enums_and_never_claim_a_local_write() {
+        let cases = [
+            (
+                ExecutionMeta::<Value>::request(
+                    Publication::NotAttempted,
+                    DaemonAcceptance::Unknown,
+                ),
+                ["not_attempted", "unknown"],
+            ),
+            (
+                ExecutionMeta::request(Publication::Published, DaemonAcceptance::Accepted),
+                ["published", "accepted"],
+            ),
+            (
+                ExecutionMeta::request(Publication::Published, DaemonAcceptance::Rejected),
+                ["published", "rejected"],
+            ),
+            (
+                ExecutionMeta::request(Publication::Published, DaemonAcceptance::Unknown),
+                ["published", "unknown"],
+            ),
+            (
+                ExecutionMeta::request(Publication::Unknown, DaemonAcceptance::Unknown),
+                ["unknown", "unknown"],
+            ),
+        ];
+        for (meta, [publication, daemon]) in cases {
+            let value = wire(&meta);
+            assert_eq!(value["publication"], json!(publication));
+            assert_eq!(value["daemon_acceptance"], json!(daemon));
+            assert_eq!(value["persistence"], json!("not_applicable"));
+            assert_eq!(value["snapshot"], Value::Null);
+        }
+    }
+
+    #[test]
+    fn no_constructor_emits_uncertain() {
+        let all = ERROR_CODES.iter().chain(&NEW_ERROR_CODES);
+        for code in all {
+            let failure = Json::error(
+                Some("order.info"),
+                *code,
+                Warnings::new(),
+                ExecutionMeta::request(Publication::Published, DaemonAcceptance::Unknown),
+            );
+            assert_eq!(failure.status(), Status::Error);
+        }
+        let ok = Json::ok(
+            "order.info",
+            json!({}),
+            Warnings::new(),
+            ExecutionMeta::request(Publication::Published, DaemonAcceptance::Accepted),
+        );
+        assert_eq!(ok.status(), Status::Ok);
     }
 }

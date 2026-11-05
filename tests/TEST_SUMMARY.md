@@ -2832,6 +2832,123 @@ result exists.
 
 
 
+
+## Order Info, Slice 1: Characterization And Fixtures: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `264a8eb`. Tests and fixtures only; no production
+change. Lean mode: this is the only evidence entry for the slice (see
+[tasks.md](../specs/002-order-info-json/tasks.md)).
+
+- **Legacy `ordersinfo` pinned** (`cli_functions::ordersinfo_characterization`, removed with the command in slice 4):
+  repeated ids through `-o` or `--orderids`, any letter case; duplicates are kept and no id is accepted at parse
+  time (the handler rejects an empty list later, after the context exists); a bad UUID fails; the registry already
+  names it `order.info` and human-only. Already known from the code: it signs and receives with the identity key,
+  creates the identity on first use and waits for the first message from the node.
+- **Wire facts** (`parser_orders::info_contract`, 3 tests, pinned `mostro-core` 0.17.3): the `orders` request with
+  `Ids` keeps its request id and proves the signing identity; the `Orders` reply keeps request id, orders and trade
+  keys and has no buyer invoice; `not_found`, `too_many_requests` and `invalid_parameters` travel as `CantDo` with
+  snake-case reasons. No divergence found.
+- **Shared harness**: the process harness moved from `tests/order_list_process.rs` to `tests/common/harness.rs`
+  (`Sandbox`, `LoopbackRelay`, `Backend`, `Captured`, `run_with_watchdog`, `set_node_env`, `assert_no_effects`,
+  `closed_pipe`, `run_with_node_env`, `SENTINEL`). The 46 existing process tests pass unchanged.
+- **Scripted fake daemon and identity seeding** (`tests/common/fake_mostro.rs`, self-tested in
+  `tests/order_info_process.rs`, 3 tests): the daemon decrypts and records requests (author, identity, request id,
+  action, ids) and replies by script (orders, refusals, malformed reply, noise, wrong signer or recipient, delay,
+  silence); `info_event` builds the kind-38385 event with any subset of its tags; `seed_identity` creates a real
+  `mcli.db` through the production `User` code. Mutation: changing the reply's request id failed two of the three
+  tests; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (437 tests: lib 124, cli_functions 70,
+  integration 33, order_info_process 3, order_list_process 46, parser_orders 113, others unchanged, doctests 3),
+  `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. Windows not run.
+
+Nothing here claims any `order info` behavior: the command does not exist yet.
+
+
+## Order Info, Slice 2: Identity And Outcome Pieces: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `1d0bf47`. No command exists yet; this slice adds the
+pieces it needs. Lean mode: this is the only evidence entry for the slice.
+
+- **Windows CI finding (before the slice).** The first native Windows run (CI job `Pilot tests (native
+  Windows)`) failed three `ci_wiring` tests: a Windows checkout converts line endings and the test parsed
+  `\n`. Fixed in `1d0bf47` (tests normalize `\r\n`; checked locally by converting both workflow files to CRLF);
+  the Windows job now uses `--no-fail-fast`. Every other test binary that ran there passed: lib 123,
+  `cli_functions` 69, and 30 of 33 `integration_tests`. Because `cargo test` stopped at the failing binary, the
+  Windows process suite has not run yet.
+- **`src/identity.rs`** (8 tests): read-only loader; `db.rs` now delegates its key derivation to it. A missing
+  directory or file, or an empty `users` table, is `Missing`; garbage, no `users` table, a NULL or invalid mnemonic
+  is `Unreadable`; the valid store yields the production key. Nothing is created and every file in the directory is
+  unchanged (name, size, hash). Finding while testing: a read-only open of a **WAL-mode** store makes SQLite create
+  `mcli.db-wal` and `mcli.db-shm`; the loader opens such a store as `immutable` when no sidecars exist (the mnemonic
+  never changes), and a store in use by a writer is read without adding or removing a file. The CLI's own databases
+  are rollback-journal mode, so this guards stores from other builds.
+- **`src/outcome/codes.rs`, `outcome.rs`**: eight new error codes, two warnings, `ErrorCode::PILOT` and
+  `WarningCode::PILOT` (frozen), optional `error.reason` (a snake-case word, otherwise dropped; omitted from the derived
+  schema), `ErrorInfo` no longer `Copy`, `Envelope::refused`, `ExecutionMeta::request`. The code types moved out of
+  `outcome.rs` (394 of 400 lines) into `codes.rs`; now 205 and 205.
+- **`src/outcome/info.rs`** (10 tests in `parser_orders::info_contract`): `OrderInfoInput` (distinct ids in order, at
+  least one, no cap) and `OrderInfoData::from_reply`: request order, each id once, unrequested and repeated orders
+  dropped, every id returned or not returned exactly once (all 64 subsets of six ids), the empty reply as the
+  not-found success, one warning per kind, canonical decimal strings, trade keys as lowercase hex or null, times as
+  UTC text plus the exact integer, the buyer invoice never present.
+- **`src/outcome/schema.rs`**: `OutcomeRules::{read, request}`; shared `$defs` for the code and warning enums list the
+  frozen pilot set plus the command's own; the `reason` property exists only for commands that declare it; request
+  stage combinations are checked per branch. The checked-in `docs/schemas/*.json` still equal the generated output
+  (`schema_fixtures` pass), so the pilot documents did not change. New tests conform nine real request outcomes and
+  reject seventeen contradictory ones.
+- **`src/cli/registry.rs`**: `JsonSupport::Request` and its pre-execution stages (not attempted, node unknown, no local write).
+- **Checks on the checks**: widening `is_reason` failed the reason test; dropping the ambiguous-publication stage
+  combination failed the conformance test; removing the `immutable` choice failed the WAL test; the shared `$defs`
+  failure was seen before the generator fix. All restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (459 tests: lib 141, `cli_functions` 70,
+  `integration_tests` 33, `order_info_process` 3, `order_list_process` 46, `parser_orders` 123, others unchanged,
+  doctests 3), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+  Native Windows not rerun.
+
+
+## Order Info, Slice 3: The Exchange: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `3a4145e`. The exchange exists and is tested against the
+scripted daemon; no command uses it yet. Lean mode: this is the only evidence entry for the slice.
+
+- **`msg::exchange`** (public) with the private doors `send_msg.rs` (wrap and publish; a failure counts as an explicit
+  rejection only if every relay's text carries a machine-readable prefix such as `blocked:`, otherwise it is ambiguous),
+  `reply.rs` (merged relay streams armed before subscribing; the existing correlation rule decides; a relay that closes
+  the subscription or goes away only fails the wait when every relay has), `node_info.rs` (best-effort kind-38385 read:
+  protocol version and expected work). Types: `ExchangeLimits`, `Outbound`, `Expect`, `Exchanged`, `ExchangeFailure`
+  (code, publication and node-acceptance stages, warnings). The client stays private; five `compile_fail` doctests prove
+  `Session`, `orders`, `send_msg`, `reply` and `node_info` cannot be imported.
+- **Contract tests** (12 new, `tests/order_info_process.rs`, against the fake daemon on a loopback relay that also counts
+  request EVENTs): one signed request reaches the node and the relay once; 20 instant replies in a row are never missed;
+  an other-request reply, a wrong action, a wrong signer, a reply addressed to someone else and a duplicate never decide
+  the result; traffic that is not the answer ends in a timeout with one request and no retry; refusals and odd payloads
+  are returned to the caller; silence is `reply_timeout` (published, node unknown) within budget with bounded cleanup
+  and our connection gone; protocol 1 and too little configured work fail before anything is published (and an explicit
+  transport choice or enough work proceeds); a missing info event is not an error; advertised first-contact work explains
+  a silent node as `pow_required` (published); a relay rejecting writes gives `request_rejected` (not attempted); an
+  unreachable relay gives `relay_connection_failed` and a relay answering every REQ with CLOSED gives `relay_read_failed`
+  (published); a request without an identifier fails before connecting.
+- **Checks on the checks**: disabling correlation, the early work check or the arm-before-publish order failed tests;
+  publishing the request twice was **not** caught at first because the relay deduplicates the same event, so the relay now
+  counts EVENT messages before deduplication and the mutation fails two tests. All restored.
+- **Boundary tests** updated deliberately: `.send_event(` gains `msg/send_msg.rs`, `.fetch_events(` gains
+  `msg/node_info.rs`, `.subscribe(` gains `msg/exchange.rs`; no legacy count changed. `util::events::read_info_tag_from_event`
+  became `pub(crate)` for reuse.
+- Gates: fmt, Clippy `-D warnings` (two findings fixed: a large enum variant, an unneeded copy), `cargo test --locked
+  --no-fail-fast` (484 tests: lib 146, `cli_functions` 70, `integration_tests` 33, `order_info_process` 15,
+  `order_list_process` 46, `parser_orders` 123, others unchanged, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+### CI result for the previous push (`3a4145e`): native Windows passed
+
+The GitHub run `40934312083` was green in every job, including `Pilot tests (native Windows)` on `windows-latest`
+(MSVC), which ran every test binary with `--no-fail-fast`: lib 140, `cli_functions` 69, `integration_tests` 33,
+`order_info_process` 3, `order_list_process` 46 (32 s), `parser_disputes` 9, `parser_dms` 19, `parser_orders` 123,
+`util_misc` 15 and 3 doctests, none failed. The counts are one below Linux in lib and `cli_functions`, and two below in
+`util_misc`, which are Unix-only tests. This is the first Windows evidence for the order-list pilot (its commands, process
+tests with planted secret sentinels, streams and exit codes); it is a hosted runner, not a developer workstation. The
+slice-3 changes have not run on Windows yet.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

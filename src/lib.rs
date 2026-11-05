@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod db;
 pub mod error;
+pub mod identity;
 pub mod lightning;
 pub mod msg;
 pub mod nip33;

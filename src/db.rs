@@ -1,3 +1,4 @@
+use crate::identity::identity_keys_from_mnemonic;
 use crate::util::get_mcli_path;
 use anyhow::Result;
 use bip39::{Mnemonic, WordCount};
@@ -302,11 +303,7 @@ impl User {
 
     pub async fn get_identity_keys(pool: &SqlitePool) -> Result<Keys> {
         let user = User::get(pool).await?;
-        let account = NOSTR_ORDER_EVENT_KIND as u32;
-        let keys =
-            Keys::from_mnemonic_advanced(&user.mnemonic, None, Some(account), Some(0), Some(0))?;
-
-        Ok(keys)
+        Ok(identity_keys_from_mnemonic(&user.mnemonic)?)
     }
 
     pub async fn get_next_trade_keys(pool: &SqlitePool) -> Result<(Keys, i64)> {
