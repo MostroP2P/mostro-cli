@@ -1525,11 +1525,7 @@
           },
           "yes": {
             "description": "Create the order without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
