@@ -3245,6 +3245,8 @@ mod source_boundaries {
         pub path: String,
         lines: Vec<String>,
         production: usize,
+        /// Declared only under `#[cfg(test)]`; see [`is_test_only`].
+        test_only: bool,
     }
 
     impl Source {
@@ -3276,25 +3278,49 @@ mod source_boundaries {
         }
         let mut paths = Vec::new();
         walk(Path::new(SRC), &mut paths);
-        paths.sort();
-        paths
+        let texts: BTreeMap<String, Vec<String>> = paths
             .into_iter()
             .map(|path| {
                 let text = read_to_string(&path).unwrap();
-                let lines: Vec<String> = text.lines().map(str::to_string).collect();
                 let relative = path
                     .strip_prefix(SRC)
                     .unwrap()
                     .to_string_lossy()
                     .replace('\\', "/");
-                let production = production_len(&relative, &lines);
-                Source {
-                    path: relative,
-                    lines,
-                    production,
-                }
+                (relative, text.lines().map(str::to_string).collect())
+            })
+            .collect();
+        texts
+            .iter()
+            .map(|(path, lines)| Source {
+                path: path.clone(),
+                lines: lines.clone(),
+                production: production_len(path, lines),
+                test_only: is_test_only(path, &texts),
             })
             .collect()
+    }
+
+    /// Whether `path` is a test-only file: its parent module declares it with
+    /// `#[cfg(test)]` directly above `mod name;`, so it is never compiled into
+    /// the binary. The constitution excludes such files from the size limit;
+    /// the import, transport and no-I/O checks still read every line of them.
+    fn is_test_only(path: &str, texts: &BTreeMap<String, Vec<String>>) -> bool {
+        let Some((dir, name)) = path
+            .strip_suffix(".rs")
+            .and_then(|stem| stem.rsplit_once('/'))
+        else {
+            return false;
+        };
+        let declaration = format!("mod {name};");
+        [format!("{dir}.rs"), format!("{dir}/mod.rs")]
+            .iter()
+            .filter_map(|parent| texts.get(parent))
+            .any(|lines| {
+                lines
+                    .windows(2)
+                    .any(|pair| pair[0].trim() == "#[cfg(test)]" && pair[1].trim() == declaration)
+            })
     }
 
     /// Whether `line` starts a `mod name {` item.
@@ -3398,6 +3424,30 @@ mod source_boundaries {
         assert_eq!(production_len("tests", &with_tests), 1);
         let with_import = text("use a;\n#[cfg(test)]\nuse b;\nfn a() {}\n");
         assert_eq!(production_len("import", &with_import), 2);
+
+        let tree: BTreeMap<String, Vec<String>> = [
+            ("a.rs", "#[cfg(test)]\nmod tests;\nmod b;\n"),
+            ("a/b.rs", "fn b() {}\n"),
+            ("a/tests.rs", "fn t() {}\n"),
+            ("c/mod.rs", "#[cfg(test)]\nmod tests;\n"),
+            ("c/tests.rs", "fn t() {}\n"),
+            ("d.rs", "#[cfg(test)]\nuse x;\nmod tests;\n"),
+            ("d/tests.rs", "fn t() {}\n"),
+        ]
+        .into_iter()
+        .map(|(path, body)| (path.to_string(), text(body)))
+        .collect();
+        assert!(
+            is_test_only("a/tests.rs", &tree),
+            "declared under cfg(test)"
+        );
+        assert!(is_test_only("c/tests.rs", &tree), "declared from a mod.rs");
+        assert!(!is_test_only("a/b.rs", &tree), "an unguarded module");
+        assert!(!is_test_only("a.rs", &tree), "a top-level file");
+        assert!(
+            !is_test_only("d/tests.rs", &tree),
+            "cfg(test) guards the import"
+        );
     }
 
     #[test]
@@ -3414,7 +3464,7 @@ mod source_boundaries {
     fn production_files_respect_the_size_limit_and_the_frozen_exceptions() {
         let frozen: BTreeMap<_, _> = LEGACY_OVERSIZED.into_iter().collect();
         let mut seen = 0;
-        for source in sources() {
+        for source in sources().into_iter().filter(|source| !source.test_only) {
             let size = source.production().len();
             match frozen.get(source.path.as_str()) {
                 Some(&cap) => {
