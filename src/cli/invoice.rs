@@ -106,7 +106,9 @@ async fn prepare<D>(
         let trade = match base.store.order_keys(input.order()).await {
             Ok(Some(keys)) => keys.public_key().to_hex(),
             // The same codes as the send path: a broken store is not an unknown order.
-            Err(StoreError::Unwritable) => return Err(refuse(command, ErrorCode::StoreUnwritable)),
+            Err(StoreError::Unwritable | StoreError::Unreadable) => {
+                return Err(refuse(command, ErrorCode::StoreUnwritable))
+            }
             _ => return Err(refuse(command, ErrorCode::OrderUnknown)),
         };
         let preview = render_invoice_preview(&input, &trade);

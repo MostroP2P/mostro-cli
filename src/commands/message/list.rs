@@ -1,0 +1,118 @@
+//! `message.list`: read the messages the node sent to the user's trade keys.
+//!
+//! A pure read: the keys come from the identity in the store (opened without
+//! writing), one bounded relay read follows, and each message the node signed
+//! becomes a typed record. Nothing is written, printed or retried, and a repeated
+//! call returns the same messages.
+
+use chrono::{DateTime, Utc};
+use nostr_sdk::prelude::Timestamp;
+
+use crate::msg::inbox::{read_inbox, Mail};
+use crate::msg::{PublicReadConfig, ReadLimits};
+use crate::outcome::messages::{MessageListData, MessageListInput, MessageRecord, MAX_KEYS};
+use crate::outcome::order::Snapshot;
+use crate::outcome::{Envelope, ErrorCode, ExecutionMeta, WarningCode, Warnings};
+use crate::store::{Store, StoreError};
+
+pub const COMMAND: &str = "message.list";
+
+pub type ListOutcome = Envelope<MessageListData, Snapshot>;
+
+/// Read the node's messages for `input`.
+pub async fn message_list(
+    input: &MessageListInput,
+    config: &PublicReadConfig,
+    store: &Store,
+    limits: &ReadLimits,
+    now: DateTime<Utc>,
+) -> ListOutcome {
+    let mut warnings = Warnings::new();
+    let (keys, keys_not_read) = match keys_for(input, store).await {
+        Ok(found) => found,
+        Err(code) => return failed(code, warnings, None),
+    };
+    if keys_not_read > 0 {
+        warnings.add(WarningCode::TradeKeysLimited);
+    }
+    let seconds = u64::try_from(now.timestamp()).unwrap_or(0);
+    let since = Timestamp::from(seconds.saturating_sub(input.since_minutes() as u64 * 60));
+    let inbox = match read_inbox(config, &keys, since, Timestamp::from(seconds), limits).await {
+        Ok(inbox) => inbox,
+        Err(failure) => {
+            warnings.merge(failure.warnings());
+            return failed(failure.code(), warnings, failure.snapshot().cloned());
+        }
+    };
+    warnings.merge(&inbox.warnings);
+    let node = config.mostro_pubkey();
+    let messages: Vec<MessageRecord> = inbox
+        .mail
+        .iter()
+        .map(|mail| record(mail, &mut warnings))
+        .collect();
+    let data = MessageListData::new(
+        &node,
+        input,
+        messages,
+        inbox.truncated,
+        (keys.len(), keys_not_read),
+    );
+    Envelope::ok(
+        COMMAND,
+        data,
+        warnings,
+        ExecutionMeta::read(Some(inbox.snapshot)),
+    )
+}
+
+fn record(mail: &Mail, warnings: &mut Warnings) -> MessageRecord {
+    MessageRecord::from_message(
+        &mail.event,
+        mail.created_at,
+        &mail.message,
+        mail.index,
+        &mail.key,
+        warnings,
+    )
+}
+
+/// The keys to ask about and how many older ones are left out: the newest
+/// [`MAX_KEYS`], or only the key stored for the order when one is given.
+async fn keys_for(
+    input: &MessageListInput,
+    store: &Store,
+) -> Result<(Vec<(Option<i64>, nostr_sdk::prelude::Keys)>, usize), ErrorCode> {
+    let derived = store.trade_keys(MAX_KEYS).await.map_err(store_code)?;
+    let Some(order) = input.order() else {
+        let not_read = derived.not_read;
+        let keys = derived
+            .keys
+            .into_iter()
+            .map(|(index, key)| (Some(index), key))
+            .collect();
+        return Ok((keys, not_read));
+    };
+    let stored = match store.order_keys(order).await {
+        Ok(Some(keys)) => keys,
+        Ok(None) => return Err(ErrorCode::OrderUnknown),
+        Err(error) => return Err(store_code(error)),
+    };
+    let index = derived
+        .keys
+        .iter()
+        .find(|(_, key)| key.public_key() == stored.public_key())
+        .map(|(index, _)| *index);
+    Ok((vec![(index, stored)], 0))
+}
+
+fn store_code(error: StoreError) -> ErrorCode {
+    match error {
+        StoreError::Missing => ErrorCode::IdentityMissing,
+        StoreError::Unwritable | StoreError::Unreadable => ErrorCode::StoreUnreadable,
+    }
+}
+
+fn failed(code: ErrorCode, warnings: Warnings, snapshot: Option<Snapshot>) -> ListOutcome {
+    Envelope::error(Some(COMMAND), code, warnings, ExecutionMeta::read(snapshot))
+}

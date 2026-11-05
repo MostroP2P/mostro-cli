@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -44,7 +44,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -158,12 +158,13 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
 
 ### Direct messages (user)
 
-- **`getdm`**
-  - **Description**: Get the latest direct messages.
+- **`message list`** (replaces `getdm`)
+  - **Description**: What the node sent to your trade keys, oldest first: the next step of each trade (`next_step`) and any invoice to pay as data. Read-only: it writes nothing, saves no counterparty or solver key, and needs an existing identity (it never creates one). Supports `--output json` (`message.list`).
   - **Args**:
-    - `--since <i64>`: Minutes back from now to query (default: 30).
-    - `--from-user`: If true, get messages from the counterparty instead of Mostro.
-  - **Handler**: `execute_get_dm(since, false, from_user, ctx)` in `src/cli/get_dm.rs`.
+    - `--since <minutes>`: 1 to 10080 (default 30); anything else is `invalid_arguments`.
+    - `--order <UUID>`: read only the messages of that order (`order_unknown` if the database has no key for it).
+  - **Handler**: `message_list` in `src/commands/message/list.rs`; dispatch in `src/cli/message.rs`; contract in [specs/006-message-list-json](../specs/006-message-list-json/contracts/cli.md).
+  - **Migration**: `getdm`, `-s` and `--from-user` are gone with no alias. Peer chat is `getdmuser`; the solver's key is read from the `peer` payload of `admin-took-dispute`. The existing MCP server's DM tools run the old command and will not work against this build until the MCP is migrated.
 
 - **`getdmuser`**
   - **Description**: Read both sides of the kind-14 chat for an order. The pubkey is the counterparty the conversation is derived from.

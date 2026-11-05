@@ -80,7 +80,7 @@ pub fn render_taken(data: &OrderTakeData) -> String {
             );
             let _ = writeln!(
                 out,
-                "💡 Then read the node's next message to continue (`getdm`)."
+                "💡 Then read the node's next message to continue (`message list`)."
             );
         }
         NextStep::PayHoldInvoice => {

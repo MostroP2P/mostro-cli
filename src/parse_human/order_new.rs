@@ -104,7 +104,7 @@ pub fn render_new(data: &OrderNewData) -> String {
         );
         let _ = writeln!(
             out,
-            "💡 Then read the node's next message to continue (`getdm`)."
+            "💡 Then read the node's next message to continue (`message list`)."
         );
     }
     out

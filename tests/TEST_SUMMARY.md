@@ -4031,3 +4031,153 @@ stores were deleted. The node's version was not queried. The maintainer paid the
 - **Not verified**: `payment_accepted` (needs the seller to have paid first) and `invoice_updated` (needs a settled order); a valid invoice of the wrong amount; the node stopped during the request
   (not done on someone else's node); and **all of `bond add-invoice`**, which needs a slashed bond. The acknowledgement without a request id therefore remains an assumption from the v0.20.1 source.
 - **Nothing in the CLI needed to change.**
+
+## Message List, Slice 1: Characterization And Fixtures: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `22588e0` (pushed). No production change. Lean mode: the only evidence entry for the slice.
+
+- **Legacy `getdm` pinned**, removed with the command in slice 4:
+  - **Parser** (7 tests, `message_list_process::legacy_getdm`, over the public `parse_dm_events`): messages come back oldest first whatever the order of the events; `--since` is minutes
+    before now (200, 20 and 5 minutes old against windows of 300, 30 and 10), and a negative window is a cutoff in the future that drops everything; an event the key cannot open is
+    skipped silently; the time and the sender of each message are reported; a body that is not Mostro JSON and any kind other than 14 are skipped. **The author is not checked by
+    the parser**: an event signed by another key but addressed to the trade key is opened, so today only the relay filter (`author = node`) keeps impostors out. The new command must
+    check the author itself.
+  - **Grammar** (4 tests, `cli_functions::getdm_characterization`): `-s/--since` (default 30, any integer, zero and negative included) and `-f` with the long flag **squashed to
+    `--fromuser`** (`--from-user` is unknown); registered legacy as `message.list` with no JSON.
+  - **Read from source, not tested**: the key loop (one fetch per index from 1 to the context's trade index, a seven-day window and a 15 s timeout each, so N keys are N sequential
+    reads), `--from-user` decrypting peer chat, and the saves of the counterparty and solver pubkeys (already covered by the existing `persist_*` tests in `parser/dms.rs`).
+- **Mailbox fixture** (`tests/common/fake_mostro.rs`): `node_event(node, to, message, at)` builds the event a real node would leave on a relay (authored by the node, encrypted for the
+  trade key, tagged with it, **created at a chosen time**, re-signed), and `mail_*` constructors for the messages of the flow: `pay-bond-invoice`, `add-invoice`, `pay-invoice`,
+  `waiting-seller-to-pay`, `cant-do`, the bond payout request and a free-text message. The scripted node answers requests; this is for what a node volunteers.
+- **Self-tests** (5, `message_list_process::mailbox`): a node event opens with the addressed key and with no other, is authored by the node, verifies and keeps its time; every
+  constructor round-trips with the right action and order; the bond payload arrives intact; **one filter with several `p` keys returns exactly those keys' messages from the node and
+  nothing from an impostor or another key**, and its `since` drops older messages (the filter the new command will use, against the relay the tests use).
+- **Mutation spot checks** (2): the fixture ignoring the given time, and dropping the recipient tag, are each caught by two tests.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 692 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Message List, Slice 2: Keys, Records And Outcomes: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `8f45144` (pushed). Lean mode: the only evidence entry for the slice. No command wiring yet (slice 4).
+
+- **Store** (`store.rs`): `Store::trade_keys(newest)` derives the keys of the newest indexes up to the recorded last index (newest first) and counts the older ones; a trade whose order
+  was never saved still has a key. Read-only, never creates, and its `Debug` shows indexes only. New `StoreError::Unreadable` (a store that opens but cannot be used) with the code
+  `store_unreadable`. 6 tests in `message_list_process::store`: all indexes newest first and distinct, the derivation equals the one `next_trade` uses, the caps (3 of 10 leaves 7, more than
+  there are, zero), no trade yet, a byte-identical file and no secret in `Debug`, and missing store, missing user, a file that is not a database and an unusable mnemonic.
+- **Codes and schema helpers**: error `store_unreadable` (exit 1) and warning `trade_keys_limited`, scoped to `message.list`; `schema::nullable_uuid`.
+- **Records** (`outcome/messages.rs` and `outcome/messages/payload.rs`, 12 tests): `MessageListInput::validate` (1 to 10080 minutes, default 30, zero, negative and over-range refused without echoing),
+  `NextStep` (only the four actions that ask something), `MessageRecord::from_message` (event id, RFC 3339 and Unix time, order id, request id, wire action, trade index and key, payload) and the
+  payload summary: order, payment request (the bond or hold invoice is data), bond payout request with the slash time, refusal reason, counterparty pubkey, bounded text, amount, and any other
+  variant by name only; an order without an id anywhere is not shown as an order; a time outside four-digit years is the aggregate warning and a null field.
+- **Schema**: generated with `OutcomeRules::read` (snapshot on success, read stages only, no uncertain status, no store-write code); real outcomes with every payload kind conform; 12 contradictory
+  edits (bad event id, uppercase key, numeric index or count, unknown next step or payload kind, uppercase action, missing flag, a write stage, no snapshot, another command) do not.
+- **Found by the gates**: the boundary test refused `messages.rs` at 431 production lines; the payload summary moved to `outcome/messages/payload.rs`. (The first run after the fix compiled a test
+  module that was missing imports and printed 0 failures with no passes: the compile errors are now counted as well.)
+- **Mutation spot checks** (3): the key window off by one, a zero-minute window allowed, and unbounded text each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 709 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
+## Message List, Slice 3: The Read And The Operation: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `e64119e` (pushed). Lean mode: the only evidence entry for the slice. No CLI wiring yet (slice 4).
+
+- **Code**: `msg/inbox.rs` (`read_inbox`: one filter of kind 14, the node as author, every key as recipient, the window and the 50-per-relay limit, through `fetch_msg`; `open_events`: each event
+  is opened with the key it names after the author, kind, time and recipient are checked **here**, not left to the relay; oldest first, the newest 200 kept; nothing asked when there are no keys,
+  because a filter without a recipient would read everyone's mail) and `commands/message/list.rs` (`message_list`: the keys from the store, or the one stored for `--order` with its index when it
+  is among the newest 200 and `null` otherwise; the records, `truncated`, `keys_read`/`keys_not_read`, the `trade_keys_limited` warning; failures with the evidence they have).
+- **Tests** (15 operation tests against the mailbox, 2 unit tests of the opening):
+  - the whole flow in order: seven messages of every kind oldest first with the right `next_step` and trade index, the bond and hold invoices and the payout request as data, read stages,
+    snapshot 1/1 and 7 events, no warning, **the store byte-identical**, and the same answer when read twice;
+  - what must not appear: a message signed by someone else, for another key, older than the window, or not Mostro JSON; the window deciding 1, 2, 2 and 3 messages for 10, 30, default and 300 minutes;
+    the same event from two relays once, with 2/2 completed;
+  - `--order`: only that key's messages with their index; an unknown order asks nothing (no relay connection); an order whose key is beyond the cap is read with an unknown index;
+  - the limits: 250 trades read the newest 200 keys (the message for key 50 is out of reach), reported as `200`/`50` with `trade_keys_limited`; 60 messages in one relay come back as the newest 50
+    with `truncated`; five relays of 50 give 250 and the newest 200 are kept; no trade yet is an empty success with no relay contact and 0 relays completed; an empty window is a success;
+  - failures: a silent relay is `read_timeout` with a snapshot, a dead one `relay_connection_failed` with none, a missing store `identity_missing`, a damaged one `store_unreadable`, nothing written.
+- **Mutation spot checks** (6): the local time bound, the empty-key guard and the record cap are each caught; the explicit author check and the sender check each survive alone because they
+  back each other up (opening with a key already shows the sender) and **fail together**, which is the intended redundancy.
+- **Found by the gates**: one test compared two reads including the snapshot's `since`, which moves with the clock; it now ignores `since` and `observed_at` (a test defect, not a product one).
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 726 passed and 0 failed (no FAILED line), build, MSRV 1.94.0.
+
+## Message List, Slice 4a: The Command: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `e9ea42b` (pushed). Lean mode: the only evidence entry for the slice. Binary scenarios are slice 4b.
+
+- **Code**: `Commands::Message` / `MessageCommands::List(--since, --order)` replace `getdm` (removed with no alias, `-s` and `--from-user` with it); registry `["message","list"]` as `Read`
+  with the existing canonical name; `cli/message.rs` (validate, `resolve_base` read-only, `message_list`, human or JSON, `--verbose` one code line); `parse_human/message.rs`
+  (header with window and keys read, one block per message, each invoice alone on its line, the next step in words with the command that continues it, node text escaped, limits stated);
+  generated schema (`OutcomeRules::read`, the `trade_keys_limited` warning) and the new fixtures `docs/schemas/message-list-v1.json` and regenerated `discovery-v1.json`.
+  `getadmindm` keeps `execute_get_dm`. The hints of `order new` / `order take-*` now say `message list`.
+- **Tests**: 5 grammar tests replace the 5 `getdm` characterization tests (defaults unset, long options only, range left to the operation, the old names and `--from-user` rejected, registered as a
+  read); 6 renderer tests; the registry, legacy-JSON and discovery tests count `message.list` as machine-capable; the schema fixture and the discovery fixture match the generated documents.
+- **Behavior changed on purpose**: `getdm` stored the counterparty and solver keys it saw; `message list` is read-only and returns them as data. `disputechat` reads the solver from the store, so
+  the solver's key (the `peer` payload of `admin-took-dispute`) is now passed to `getdmuser` / `dmtouser`; the README and the `disputechat` hint say so.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 734 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0 (see the commit).
+
+## Message List, Slice 4b: The Binary Scenarios: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `eaff4da` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Tests** (7 process tests that run the real `mostro-cli` against the mailbox on a loopback relay):
+  - JSON: the whole flow as exactly one line, exit 0, `--verbose` prints only `verbose: message.list ok`, the document conforms to the **checked-in** schema, 7 messages with the bond invoice
+    as data and `next_step: pay_bond_invoice`, read stages with a snapshot, **the database byte-identical**, no trade secret, relay address in either stream; no `--yes` and a stdin that fails
+    when read change nothing;
+  - human: stderr empty, each invoice alone on its line, the next step in words with the command that continues, the refusal reason, oldest first;
+  - `--since 9` and `--order` narrow the result; the store is unchanged;
+  - bad arguments (`0`, `10081`, `-3`, `soon`) exit 2 with `invalid_arguments` in JSON and one `error:` line in human mode, and **no relay was contacted**;
+  - an unknown order is `order_unknown` (exit 1, no relay contact); no identity is `identity_missing` and **no database is created**;
+  - `getdm` is rejected as an unknown subcommand (exit 2) in both modes, no relay contacted;
+  - a read-only store (unix) is read without complaint.
+- **Mutation spot checks** (3): the store opened for writing, the human error line removed, and an invalid window silently defaulted are each caught.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast`, build, MSRV 1.94.0 742 passed and 0 failed (no FAILED line, no compile error).
+
+## Message List, Slice 5: Failure Matrix And Examples: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `e385ec6` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (the real binary, each case as JSON, human and `--verbose`): no store and no user (`identity_missing`); a file that is not a database, no `users` table and a null
+  mnemonic (`identity_unreadable`); no node key and no relays (`configuration_missing`); a bad node key and a bad relay (`configuration_invalid`). For every case: exit 1, the same code in each mode,
+  the JSON document conforms to the checked-in schema with read stages and no snapshot, stdout empty and one `error:` line in human mode, no sentinel, relay address or invoice in either stream, **no
+  relay contacted**, the store byte-identical and nothing created in the home or working directory.
+- **Relays**: a relay nobody listens on is `relay_connection_failed` with no snapshot; one that never answers is `read_timeout` with a snapshot; neither echoes the address; the store is unchanged.
+- **Streams**: a stdout that cannot be written exits 1 with nothing on stdout and no invoice on stderr, in both modes; a stderr that cannot be written changes neither the error exit (2) nor a
+  successful read (0) with `--verbose`.
+- **Terminal safety**: node text carrying escape and bell characters is shown with them neutralized.
+- **Examples**: `contracts/examples.json` (10 cases: a trade's messages, an empty window, the limits with the `trade_keys_limited` warning, the six error codes and the removed `getdm`) conforms to
+  the checked-in schema, is reproduced **exactly** by the owned constructors, and 12 contradictory edits (unknown next step or payload kind, numeric index or count, uppercase action, missing flag,
+  a write stage, no snapshot, an uncertain read, another command's warning, a store-write code, data on an error) are rejected.
+- **Mutation spot checks** (3): a write failure ignored, node text not escaped and a relay address echoed in an error are each caught.
+- **Not changed, noted**: a bad `--pow`/`--transport` (or `POW`/`TRANSPORT`) still fails `message list` as `configuration_invalid` because the read shares the write commands' configuration step,
+  although it sends nothing; the matrix does not pin that.
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 749 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
+## Message List, Slice 6: Docs, Boundaries, Verification: 2026-11-02
+
+Native Linux, rustc 1.97.0, on `develop` after `f5db27c` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **The small fix** (asked for with this slice): a read sends nothing, so `message list` no longer looks at `--pow`, `--transport`, `POW` or `TRANSPORT`. `cli/write.rs` gained `resolve_reader`
+  (configuration, identity, store); `resolve_base` is that plus the request settings, with the same order of checks as before for the write commands. A new process test (a bad value of each
+  setting, as a flag and as a variable, still reads) failed first with `configuration_invalid`, exit 1, and passes now; the 47 + 46 + 40 + 35 process tests of the other commands are unchanged.
+  Recorded as FR-011 in the spec.
+- **Docs**: spec and plan statuses, `quickstart.md` (focused commands, an offline smoke check that was run and matches, the acceptance matrix, the probe procedure), architecture (the message-list
+  paragraph, `get_dm` marked admin-only), README and AGENTS lists, `docs/ai-development.md`, and the requirement evidence table in `tests/README.md` (FR-001 to FR-011, SC-001 to SC-006).
+- **Boundaries**: every new file is under the 400-line limit with imports at the top (the source-boundary test passes); the transport boundary test still finds no new direct fetch.
+- **Open, by design**: SC-006 (no claim about a real node: whether real relays honor one filter with many recipient keys, and their per-relay limit), the MCP DM tools, a cursor for slow flows, peer
+  chat as a command of its own, and a smoother solver-key flow for disputes (`getdm` used to save the solver's key; `message list` returns it as data).
+- **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 750 passed and 0 failed (no FAILED line, no compile error), build, MSRV 1.94.0.
+
+## Real-Node Probe Of message list: 2026-11-02
+
+Authorized by the maintainer on 2026-11-02 ("my local node is running you can use it for testing"), with the same two **public relays** as the earlier probe (`wss://mostro-p2p.tech`, `wss://relay.shadowbip.com`),
+the only route to the maintainer's local regtest node with a **taker bond**. Two fresh throwaway identities (a maker and a taker) in session temporary directories, the debug build of `develop` at
+`c6215d5`; the maintainer's own store was never used; both stores were deleted. The node's version was not queried. The maintainer paid the bond in Polar; no macaroon, certificate or key was shared or read.
+
+- **Two keys in one filter**: the maker created two orders (trade indexes 1 and 2); one `message list --since 10` returned both `new-order` messages, each with its own order id and trade index,
+  `keys_read` 2, `keys_not_read` 0, `truncated` false, 2 of 2 relays completed, 2 events. No batching was needed at this size.
+- **The point of the spec**: a taker took order 1: `order take-sell` answered `pay_bond_invoice`, and `message list` showed the same message (`pay-bond-invoice`, the parked order `pending`, 1000 sats) with the
+  bond invoice as data, so a JSON user can pay it without the legacy command. That bond invoice expired unpaid; a second take (order 2, index 2) gave a fresh one.
+- **After the bond was paid**: `message list` showed, in order, `pay-bond-invoice` and `add-invoice` (`next_step: add_invoice`, status `waiting-buyer-invoice`, **6224 sats**, 14 seconds later), the amount to
+  invoice (the bond message's 1000 sats is not it, as in the earlier probe). The human output carried the same, with the continuing command in words and the invoice on its own line.
+- **The maker's view**: after the take, the maker's `message list` showed the node's `waiting-buyer-invoice` for that order and trade index 2.
+- **Cleanup**: both orders were cancelled by the maker (legacy `cancel`); `order info` showed `canceled` for both, and the taker's `message list` then showed a `canceled` message (no `next_step`).
+- **Not verified**: many keys (up to the 200 cap) against a real relay, the limit a real relay applies per filter, whether a message can arrive later than the relay's `since` bound (clock skew; none was
+  seen in a window of 2 to 10 minutes), and everything the node sends in the later steps of a trade (hold invoice to pay, `fiat-sent`, release).
+- **Nothing in the CLI needed to change.**

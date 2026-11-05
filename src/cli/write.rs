@@ -40,13 +40,20 @@ pub(super) struct Base {
     pub store: Store,
 }
 
+/// Configuration, identity and store of a command that sends nothing.
+pub(super) struct Reader {
+    pub config: PublicReadConfig,
+    pub identity: Keys,
+    pub store: Store,
+}
+
 /// Resolve configuration, then the existing identity (read-only), then the
-/// store, which must accept a write when `writable`.
-pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, ErrorCode> {
+/// store, which must accept a write when `writable`. The work and transport
+/// settings concern only what is sent, so a read does not look at them.
+pub(super) async fn resolve_reader(cli: &Cli, writable: bool) -> Result<Reader, ErrorCode> {
     let getenv = |name: &str| env::var(name).ok();
     let config =
         PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), getenv)?;
-    let request = request_options(cli.pow.as_deref(), cli.transport.as_deref(), getenv)?;
     let identity = load_identity_keys().await.map_err(|error| match error {
         IdentityError::Missing => ErrorCode::IdentityMissing,
         IdentityError::Unreadable => ErrorCode::IdentityUnreadable,
@@ -55,14 +62,29 @@ pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, Erro
     if writable {
         store.ensure_writable().await.map_err(store_code)?;
     }
-    Ok(Base {
+    Ok(Reader {
         config,
+        identity,
+        store,
+    })
+}
+
+/// [`resolve_reader`] and then the work and transport settings, which a
+/// request needs. The order of the checks is that of a request: configuration
+/// first, then the settings, then identity and store.
+pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, ErrorCode> {
+    let getenv = |name: &str| env::var(name).ok();
+    PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), getenv)?;
+    let request = request_options(cli.pow.as_deref(), cli.transport.as_deref(), getenv)?;
+    let reader = resolve_reader(cli, writable).await?;
+    Ok(Base {
+        config: reader.config,
         options: WriteOptions {
             pow: request.pow,
             check_protocol: request.check_protocol,
         },
-        identity,
-        store,
+        identity: reader.identity,
+        store: reader.store,
     })
 }
 
@@ -84,6 +106,7 @@ fn store_code(error: StoreError) -> ErrorCode {
     match error {
         StoreError::Missing => ErrorCode::IdentityMissing,
         StoreError::Unwritable => ErrorCode::StoreUnwritable,
+        StoreError::Unreadable => ErrorCode::StoreUnreadable,
     }
 }
 

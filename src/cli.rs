@@ -21,6 +21,7 @@ mod commands;
 mod context;
 mod invoice;
 mod legacy;
+mod message;
 mod migrated;
 mod order_new;
 mod order_take;
@@ -30,8 +31,8 @@ mod write;
 
 pub use args::Cli;
 pub use commands::{
-    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, NewArgs, OrderCommands,
-    TakeBuyArgs, TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, ListMessagesArgs, MessageCommands,
+    NewArgs, OrderCommands, TakeBuyArgs, TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
@@ -201,7 +202,7 @@ mod tests {
     fn unbindable_arguments_are_an_internal_error_in_the_selected_mode() {
         let matches = |args: &[&str]| Cli::command().get_matches_from(args);
         let listing = matches(&["mostro-cli", "order", "list"]);
-        let legacy = matches(&["mostro-cli", "getdm"]);
+        let legacy = matches(&["mostro-cli", "getadmindm"]);
 
         let (mut out, mut err) = (Vec::new(), Vec::new());
         assert_eq!(unbound(&listing, OutputMode::Json, &mut out, &mut err), 1);
@@ -216,7 +217,7 @@ mod tests {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         assert_eq!(unbound(&legacy, OutputMode::Json, &mut out, &mut err), 1);
         let document: serde_json::Value = serde_json::from_slice(&out).unwrap();
-        assert_eq!(document["command"], "message.list");
+        assert_eq!(document["command"], "admin.message-list");
         assert_eq!(document["meta"]["publication"], "not_attempted");
 
         let (mut out, mut err) = (Vec::new(), Vec::new());

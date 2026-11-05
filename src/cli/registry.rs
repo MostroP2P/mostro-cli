@@ -66,7 +66,11 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "schema",
         json: JsonSupport::Read,
     },
-    legacy(&["getdm"], "message.list"),
+    CommandEntry {
+        path: &["message", "list"],
+        canonical: "message.list",
+        json: JsonSupport::Read,
+    },
     legacy(&["getdmuser"], "chat.history"),
     legacy(&["disputechat"], "dispute.chat"),
     legacy(&["getadmindm"], "admin.message-list"),

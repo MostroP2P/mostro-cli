@@ -129,7 +129,7 @@ async fn send<D>(
         Ok(None) | Err(StoreError::Missing) => {
             return Err(unsent(command, ErrorCode::OrderUnknown, Warnings::new()))
         }
-        Err(StoreError::Unwritable) => {
+        Err(StoreError::Unwritable | StoreError::Unreadable) => {
             return Err(unsent(command, ErrorCode::StoreUnwritable, Warnings::new()))
         }
     };

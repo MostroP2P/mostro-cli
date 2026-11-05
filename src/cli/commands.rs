@@ -23,15 +23,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: BondCommands,
     },
-    /// Get the latest direct messages
-    GetDm {
-        /// Since time of the messages in minutes
-        #[arg(short, long)]
-        #[clap(default_value_t = 30)]
-        since: i64,
-        /// If true, get messages from counterparty, otherwise from Mostro
-        #[arg(short, long)]
-        from_user: bool,
+    /// Messages the node sent you
+    #[command(arg_required_else_help = true)]
+    Message {
+        #[command(subcommand)]
+        command: MessageCommands,
     },
     /// Read both sides of the kind-14 chat for an order
     GetDmUser {
@@ -267,6 +263,25 @@ pub enum OrderCommands {
     /// request and updates the order's local status. JSON output requires --yes
     #[command(name = "add-invoice")]
     AddInvoice(AddInvoiceArgs),
+}
+
+#[derive(Subcommand, Clone)]
+#[clap(rename_all = "lower")]
+pub enum MessageCommands {
+    /// Read what the node sent to your trade keys: the next step of each
+    /// trade, with any invoice to pay as data. Read-only; needs an existing
+    /// local identity (it never creates one)
+    List(ListMessagesArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct ListMessagesArgs {
+    /// How far back to read, in minutes (1 to 10080, default 30)
+    #[arg(long, value_name = "MINUTES")]
+    pub since: Option<i64>,
+    /// Read only the messages of this order
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Option<Uuid>,
 }
 
 #[derive(Subcommand, Clone)]

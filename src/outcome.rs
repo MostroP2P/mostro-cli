@@ -13,6 +13,7 @@ pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings};
 mod codes;
 pub mod info;
 pub mod invoice;
+pub mod messages;
 pub mod new;
 pub mod order;
 mod rules;
@@ -292,7 +293,7 @@ mod tests {
         WarningCode::CleanupIncomplete,
     ];
     /// Codes added for `order.info`; they belong to that command's schema only.
-    const NEW_ERROR_CODES: [ErrorCode; 12] = [
+    const NEW_ERROR_CODES: [ErrorCode; 13] = [
         ErrorCode::IdentityMissing,
         ErrorCode::IdentityUnreadable,
         ErrorCode::ProtocolUnsupported,
@@ -307,11 +308,14 @@ mod tests {
         ErrorCode::StoreUnwritable,
         // And for the invoice commands.
         ErrorCode::OrderUnknown,
+        // And for `message.list`.
+        ErrorCode::StoreUnreadable,
     ];
-    const NEW_WARNING_CODES: [WarningCode; 3] = [
+    const NEW_WARNING_CODES: [WarningCode; 4] = [
         WarningCode::OrdersNotReturned,
         WarningCode::InvalidOrderTimestamp,
         WarningCode::LocalStatusStale,
+        WarningCode::TradeKeysLimited,
     ];
 
     type Json = Envelope<Value, Value>;
@@ -368,6 +372,7 @@ mod tests {
             ErrorCode::OrderNotSaved => ("order_not_saved", 1),
             ErrorCode::StoreUnwritable => ("store_unwritable", 1),
             ErrorCode::OrderUnknown => ("order_unknown", 1),
+            ErrorCode::StoreUnreadable => ("store_unreadable", 1),
         }
     }
 
@@ -378,6 +383,7 @@ mod tests {
             WarningCode::OrdersNotReturned => "orders_not_returned",
             WarningCode::InvalidOrderTimestamp => "invalid_order_timestamp",
             WarningCode::LocalStatusStale => "local_status_stale",
+            WarningCode::TradeKeysLimited => "trade_keys_limited",
         }
     }
 

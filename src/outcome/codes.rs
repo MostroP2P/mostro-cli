@@ -35,6 +35,8 @@ pub enum ErrorCode {
     StoreUnwritable,
     // Added for `order.add-invoice` and `bond.add-invoice`.
     OrderUnknown,
+    // Added for `message.list`.
+    StoreUnreadable,
 }
 
 impl ErrorCode {
@@ -73,7 +75,8 @@ impl ErrorCode {
             | Self::OrderDeclined
             | Self::OrderNotSaved
             | Self::StoreUnwritable
-            | Self::OrderUnknown => RUNTIME_ERROR_EXIT,
+            | Self::OrderUnknown
+            | Self::StoreUnreadable => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -102,6 +105,7 @@ impl ErrorCode {
             Self::OrderNotSaved => "The node created the order but it could not be saved locally.",
             Self::StoreUnwritable => "The local store cannot be written, so nothing was sent.",
             Self::OrderUnknown => "No local order has this id, so nothing was sent.",
+            Self::StoreUnreadable => "The local store cannot be read.",
         }
     }
 }
@@ -162,6 +166,8 @@ pub enum WarningCode {
     InvalidOrderTimestamp,
     // Added for `order.add-invoice`.
     LocalStatusStale,
+    // Added for `message.list`.
+    TradeKeysLimited,
 }
 
 impl WarningCode {
@@ -178,6 +184,7 @@ impl WarningCode {
             Self::InvalidOrderTimestamp => {
                 "One or more order timestamps cannot be shown as a UTC date."
             }
+            Self::TradeKeysLimited => "Trade keys older than the newest 200 were not read.",
             Self::LocalStatusStale => {
                 "The node accepted the invoice but the local order status could not be updated."
             }

@@ -116,7 +116,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ### What this means in practice
 
-- **Your first identity-using command (e.g. `getdm`; `order info` and `order new` need an existing one) creates your user** — no separate "init" step needed. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
+- **Your first identity-using command (e.g. `getadmindm`; `order info`, `order new`, `message list` and the other migrated commands need an existing one) creates your user** — no separate "init" step needed. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
 - **You can derive the same keys on another machine** by restoring the mnemonic (see [Backup, recovery and multi-device](#backup-recovery-and-multi-device)).
 - **An `nsec` alone is not enough** to regenerate the trade keys: you need the full mnemonic, because BIP32 needs the chain code that a leaf `nsec` doesn't carry.
 
@@ -225,7 +225,7 @@ mostro-cli order new --side sell --currency ARS --fiat-amount 1000 --fiat-amount
 mostro-cli order take-sell --order <order-id> --amount 500     # optional fiat amount for range orders
 
 # 6. After the trade, fetch new DMs from Mostro
-mostro-cli getdm --since 60
+mostro-cli message list --since 60
 ```
 
 On the very first run you will see something like:
@@ -241,10 +241,11 @@ Write down or back up the mnemonic before doing anything else — see [Backup, r
 
 This is the biggest difference from a mobile Mostro client. Each `mostro-cli` invocation connects to the relays, sends (or reads) what you asked for, prints the result and exits. It does **not** keep running to notify you when your counterpart acts.
 
-So a trade is driven by you re-running `getdm`:
+So a trade is driven by you re-running `message list`:
 
 ```bash
-mostro-cli getdm --since 60     # everything Mostro sent you in the last 60 minutes
+mostro-cli message list --since 60     # everything Mostro sent you in the last 60 minutes
+mostro-cli --output json message list --since 60   # the same for a script: read `next_step` and `payload`
 ```
 
 Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
@@ -276,12 +277,12 @@ This is the seller flow when you create the order (maker, sell).
 3. **Wait for a buyer to take the order.** Check messages:
 
    ```bash
-   mostro-cli getdm --since 60          # last 60 minutes
+   mostro-cli message list --since 60     # last 60 minutes
    ```
 
 4. **Buyer adds an invoice (if they didn't include one when taking)** — Mostro forwards their invoice.
 
-5. **Buyer marks fiat as sent.** You'll see a `fiat-sent` message via `getdm`. **Confirm you actually received the fiat** outside the CLI before releasing.
+5. **Buyer marks fiat as sent.** You'll see a `fiat-sent` message via `message list`. **Confirm you actually received the fiat** outside the CLI before releasing.
 
 6. **Release the hold invoice** so the buyer gets the sats:
 
@@ -332,7 +333,7 @@ Buyer-as-taker flow against an existing sell order:
    mostro-cli fiatsent -o <order-id>
    ```
 
-6. **Wait for the seller to release.** Check `getdm`. When they release, Mostro pays your invoice.
+6. **Wait for the seller to release.** Check `message list`. When they release, Mostro pays your invoice.
 
 7. **Rate the seller:**
 
@@ -354,9 +355,9 @@ Every order has a counterparty pubkey. You can chat over kind-14 envelopes:
 # Get the conversation key for a counterpart (informational)
 mostro-cli conversationkey -p <their-pubkey>
 
-# Read DMs from Mostro (default) or directly from the counterpart
-mostro-cli getdm --since 30
-mostro-cli getdm --since 30 --from-user
+# Read what Mostro sent you (read-only; `--order` limits it to one order)
+mostro-cli message list --since 30
+mostro-cli message list --order <order-id>
 
 # Read both sides of the kind-14 chat for an order
 mostro-cli getdmuser -p <their-pubkey> -o <order-id> --since 120
@@ -381,7 +382,7 @@ mostro-cli dispute -o <order-id>
 This puts the order in dispute. A solver will be assigned and contacts you over
 the **dispute chat**, a channel of its own: it is derived from your trade key and
 the solver's pubkey, the same way the peer chat is derived from the two trade
-keys. `getdm` will not show it, because that command filters on events tagged
+keys. `message list` will not show it, because that command filters on events tagged
 with your own pubkey while this conversation is tagged to its conversation key.
 
 Read it, and answer, with:
@@ -391,8 +392,9 @@ mostro-cli disputechat -o <order-id>
 mostro-cli disputechat -o <order-id> -m "here is the bank statement"
 ```
 
-The solver's pubkey arrives in the `admin-took-dispute` message, so run `getdm`
-once after opening the dispute to let the client store it.
+The solver's pubkey arrives in the `admin-took-dispute` message, so read it with `message list`
+after opening the dispute (the `peer` payload carries the solver's pubkey; `message list` stores nothing) and use it with
+`getdmuser --pubkey <solver> --order-id <id>` and `dmtouser`.
 
 Be honest, provide evidence, and respect that the solver decides.
 
@@ -520,7 +522,7 @@ Store the 12 words offline (paper, metal, encrypted vault). Do **not** commit th
 
 Use this when the database is gone. It recovers your **identity**, not your local order history — read the limitation at the end of this section before relying on it mid-trade.
 
-> **Let the CLI create the database — do not hand-craft it.** `mostro-cli` only creates its tables when `~/.mcli/mcli.db` does not yet exist. If you pre-create that file yourself with just a `users` table, the `orders` table is never created, a read-only command such as `getdm` still appears to work, and the first command that touches an order fails with `no such table: orders`. Always run the CLI once first, then overwrite the mnemonic.
+> **Let the CLI create the database — do not hand-craft it.** `mostro-cli` only creates its tables when `~/.mcli/mcli.db` does not yet exist. If you pre-create that file yourself with just a `users` table, the `orders` table is never created, a read-only command such as `getadmindm` still appears to work, and the first command that touches an order fails with `no such table: orders`. Always run the CLI once first, then overwrite the mnemonic.
 
 1. Install `mostro-cli` on the new machine.
 
@@ -534,7 +536,7 @@ Use this when the database is gone. It recovers your **identity**, not your loca
 3. **Run any command once** so the CLI builds a complete, correctly-permissioned database. It will generate a throwaway mnemonic that you are about to replace:
 
    ```bash
-   mostro-cli getdm   # read-only on the network; any command that needs your identity creates the database
+   mostro-cli getadmindm   # read-only on the network; any command that needs your identity creates the database
    ```
 
 4. **Overwrite the mnemonic** with your backed-up 12 words and clear the trade index that belonged to the throwaway user.
@@ -603,7 +605,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `bond add-invoice --order <id> --invoice <bolt11> [--yes]` — reply to a bond payout request with an invoice for your share of a slashed bond (supports `--output json`, which requires `--yes`; BOLT-11 only). Replaces `addbondinvoice`; without a confirmation from the node the result is `uncertain`, not success.
 
 ### Messaging
-- `getdm [--since <min>] [--from-user]` — fetch recent DMs.
+- `message list [--since <min>] [--order <id>]` — what Mostro sent you; read-only (replaces `getdm`; peer chat is `getdmuser`).
 - `getdmuser -p <pubkey> -o <id> [--since <min>]` — both sides of that order's kind-14 chat.
 - `senddm -p <pubkey> -o <id> -m <message>` — DM your counterpart.
 - `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat.
@@ -641,7 +643,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -655,7 +657,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Eight commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` (the last five need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Nine commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice` and `bond add-invoice` (the last five need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr
@@ -736,7 +738,7 @@ Run with `-v` (before the subcommand) for relay-level logs.
 
 **Mostro rejects my order after restoring on a new machine** — You very likely skipped the trade-index sync. Run `mostro-cli getlasttradeindex`; see [Restoring from the mnemonic alone](#restoring-from-the-mnemonic-alone).
 
-**Nothing happens / I'm waiting for my counterpart** — The CLI does not stay connected. Re-run `mostro-cli getdm --since <minutes>` to pull new messages; see [The CLI does not stay connected — you poll](#the-cli-does-not-stay-connected--you-poll).
+**Nothing happens / I'm waiting for my counterpart** — The CLI does not stay connected. Re-run `mostro-cli message list --since <minutes>` to pull new messages; see [The CLI does not stay connected — you poll](#the-cli-does-not-stay-connected--you-poll).
 
 **Lost the database / changed machine** — See [Backup, recovery and multi-device](#backup-recovery-and-multi-device). Without the mnemonic you cannot recover anything; with the mnemonic you recover your identity but not in-flight trades (see below).
 
