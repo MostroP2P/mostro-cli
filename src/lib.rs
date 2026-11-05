@@ -3,6 +3,8 @@ pub mod db;
 pub mod error;
 pub mod lightning;
 pub mod nip33;
+pub mod outcome;
+pub mod parse_machine;
 pub mod parser;
 pub mod rpc;
 pub mod util;

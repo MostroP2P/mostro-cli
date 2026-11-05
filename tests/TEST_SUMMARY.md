@@ -581,6 +581,536 @@ legacy files still exceed 400 production lines (`db.rs`, `parser/dms.rs`,
 T001-T011 are complete. T012 (Serde/schemars dependencies) is next. The JSON
 pilot is still unimplemented.
 
+## T012 Dependencies: 2026-10-20
+
+Manifest changes only; no Rust source uses the new crates yet. Native Linux,
+rustc 1.97.0, base `3a53e90`.
+
+| Change | Why |
+| --- | --- |
+| `serde` gains explicit `derive` | Derive previously arrived only through feature unification |
+| `schemars = 1.2.3`, defaults off, `derive` + `std` | Generate JSON Schemas from DTOs (research section 6) |
+| Dev-only `nostr-sdk` feature `local-relay` | In-process `LocalRelay`/`MockRelay` for T013-T015: empty relay (EOSE), rejecting `QueryPolicy` (CLOSED), `unresponsive_connection` (silent), `shutdown` (disconnect) |
+
+`Cargo.lock` was updated by a plain `cargo check`, not `cargo update`. It adds
+exactly 8 packages and changes or removes none: btreecap 0.1.0, dyn-clone
+1.0.20, nostr-memory 0.45.2, ref-cast 1.0.27, ref-cast-impl 1.0.27, schemars
+1.2.3, schemars_derive 1.2.3, serde_derive_internals 0.30.0. Their highest
+declared minimum Rust is 1.85 (nostr-memory), below the project's 1.94.
+
+| Check | Result |
+| --- | --- |
+| `cargo tree -e normal,build -i nostr-memory` | Nothing: the fixture crate is absent from the shipped graph |
+| Production nostr-sdk features | `default`, `ring`, `rustls-tls-webpki-roots` (unchanged) |
+| Dev nostr-sdk features | Same plus `local-relay` |
+| schemars features | `derive`, `std` only |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests, 0 failed (unchanged) |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS (compiles the dev fixture graph) |
+
+The fixtures are compiled but not yet exercised; T013 builds the harness and
+T015 proves each notification case.
+
+T001-T012 are complete. T013 (portable process harness) is next. The JSON pilot
+is still unimplemented.
+
+## T013 Process Harness: 2026-10-21
+
+New target `tests/order_list_process.rs`. Native Linux, rustc 1.97.0, base
+`7bd66d7`. Windows is not run (deferred to T051-T052).
+
+| Requirement | How the harness meets it |
+| --- | --- |
+| Generated keys | `Keys::generate()` for the Mostro pubkey and seeded events |
+| Loopback, OS-assigned port | Harness binds `127.0.0.1:0` itself and keeps the listener |
+| Readiness signal | The listener is bound when `LoopbackRelay::start` returns; no sleep or polling |
+| SDK fixtures, no handwritten framing | hyper WebSocket upgrade, tungstenite `derive_accept_key`, then `LocalRelay::take_connection` |
+| Allow-listed environment | `env_clear()`, then only `SYSTEMROOT` (when present) plus sandbox variables and the test's node config |
+| Isolated HOME/USERPROFILE/MCLI_DIR/cwd | Per-test directory under the system temp dir, created fresh and removed on drop, including on panic |
+| Closed stdin, captured streams | `Stdio::null()` stdin; stdout and stderr piped and read concurrently |
+| 40-second watchdog, guaranteed reap | `timeout` around `wait()`; on expiry `kill()` (which also waits); `kill_on_drop` as a fallback |
+| Relay cleanup | Dropping `LoopbackRelay` aborts its accept task and all sessions and shuts the relay down |
+
+**Design decision (user, 2026-10-21)**: nostr-sdk's `LocalRelay` picks its own
+port by probing a random port, dropping the probe and binding again, which is the
+guessed-port race the quickstart forbids. Its test option for an unresponsive
+relay is crate-private. The harness therefore owns the listener and adds
+dev-only hyper 1.8.1 (`server`, `http1`), hyper-util 0.1.20 (`tokio`) and
+tungstenite 0.28.0 (`handshake`). All three were already locked; `Cargo.lock`
+gains only three entries in mostro-cli's own dependency list, with no package
+added or changed. Production-graph features of all three crates are identical
+before and after. A `Silent` backend (upgrade completed, never answered) stands
+in for the private unresponsive option.
+
+| Test | Proves |
+| --- | --- |
+| `child_environment_is_allow_listed_and_sandboxed` | Child variables are only the allow list; sandbox paths and cwd are inside the sandbox |
+| `sandbox_is_removed_on_drop` | Sandbox directories and their files are deleted |
+| `parent_config_does_not_leak_into_the_child` | Exit 1 `MOSTRO_PUBKEY not set`, empty stdout, no files in home/mcli/cwd |
+| `loopback_relay_serves_sdk_clients_on_an_os_assigned_port` | Nonzero loopback port; an SDK client fetches exactly the seeded event over one connection |
+| `child_reaches_the_loopback_relay_with_sandboxed_storage` | `listorders` exits 0 against the loopback relay; HOME untouched |
+| `watchdog_kills_and_reaps_a_hung_child` | Against a silent relay, a 2-second limit kills the child and leaves no running process |
+
+Checks that the tests are not vacuous:
+- With `MOSTRO_PUBKEY`, `RELAYS`, `MOSTRO_RPC_TOKEN` and `ADMIN_NSEC` planted in
+  the parent, the leak test still passes.
+- With `env_clear()` removed (temporary mutation, reverted), the same test fails:
+  the child used the parent's config instead of failing on missing config.
+- 10 consecutive runs of the target: 10/10 pass, about 2 s each. No
+  `mcli-process-*` directory remained in the temp dir.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process` | PASS: 6 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 223 tests (217 + 6), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- `child_reaches_the_loopback_relay_with_sandboxed_storage` runs today's
+  `listorders`, which still creates a database in the sandbox `MCLI_DIR`. The
+  test asserts only that HOME stays untouched, so it keeps passing when the pilot
+  removes that side effect.
+- On Windows, `dirs::home_dir` uses the known-folder API rather than
+  `USERPROFILE`, so `MCLI_DIR` is the variable that actually isolates storage
+  there. Native Windows runs remain T051-T052.
+- EOSE-empty, CLOSED, disconnect and silent-relay observability belongs to
+  T015. This harness only provides the fixtures.
+
+T001-T013 are complete. T014 (adversarial output-intent tests) is next. The
+JSON pilot is still unimplemented.
+
+## T014 Output-Intent Recovery: 2026-10-21
+
+New module `src/cli/invocation.rs` (236 lines) and the `output_intent` module
+in `tests/cli_functions.rs`. Native Linux, rustc 1.97.0, Clap 4.6.7, base
+`216cb95`, code commit `95b6633`.
+
+`parse_invocation(command, argv)` lets Clap parse first. Clap decides help and
+version (`DisplayHelp`/`DisplayVersion` become `Text`); every other result is
+either `Parsed` with the bound output mode or `Rejected` with a recovered
+`ArgumentFailure { output, command }`. Recovery walks argv using only Clap
+metadata: long names and aliases, shorts, `get_num_args`,
+`allow_hyphen_values`, `allow_negative_numbers` and subcommand names. It never
+strips tokens, never runs a command, and treats option values as values. The
+helper is not wired into `run()`; T017 integrates it.
+
+The tests run against `Cli::command()` plus a fixture: a global `--output`
+(`human|json`) and an `order list` subcommand with `--side`, `--currency` and
+`--status`. The real pilot grammar arrives in T017.
+
+| Test | Proves |
+| --- | --- |
+| `contract_decision_table_rows` | All 12 malformed-argv rows of [the CLI contract](../specs/001-order-list-json/contracts/cli.md#streams-and-exit-codes): output selection, `invalid_arguments`/exit 2, resolved or null command |
+| `output_is_selected_at_every_depth_and_defaults_to_human` | Root, intermediate, leaf and `=` forms; no declaration means human |
+| `values_resembling_flags_or_commands_are_not_declarations` | `-m=--output=json`, `--message=--output=json` and variadic `senddm -m order list` stay values; root `-m order` hides `list`; `-m --output=json` is a declaration |
+| `arities_and_hyphen_values_follow_clap` | Hyphen-allowed `--premium` takes `-5` and swallows `--output`; missing values at root (`--pow`) and leaf (`--currency`, `--side`) leave the declaration standing |
+| `short_clusters_and_colliding_shorts_follow_scope` | `-vs`, `-vm <key>`, `-vm--output=json`, `-m=--output=json`, unknown `-vx`; leaf `-m` (message) is not root `-m` (pubkey) |
+| `duplicate_and_missing_declarations_are_invalid` | Identical same-level, `=` form and root plus intermediate duplicates; missing, empty and flag-followed values |
+| `terminator_ends_option_parsing` | `--output json` after `--` is not a declaration |
+| `clap_decides_help_and_version_precedence` | `--help` anywhere is text with exit 0; `--output bogus --help` is an argument error because Clap says so |
+| `non_unicode_values_keep_json_intent` (Unix) | Invalid UTF-8 values are rejected without losing JSON intent |
+| `failures_carry_no_argument_text` | Failures carry only the mode and command names, never argument values |
+
+Clap 4.6.7 behaviour found by direct probes before writing the tests:
+- `--output` at two levels parses in Clap, but same-level duplicates fail with
+  `ArgumentConflict`. The helper rejects both, because the contract forbids any
+  duplicate declaration.
+- `--message=a b` ends the occurrence at the attached value. `-m=hello` and
+  `-mhello` both bind `hello`.
+- A missing value is `InvalidValue`; a flag-looking next token is not consumed,
+  except by `allow_hyphen_values` options such as `--premium`, which take
+  `--output` as their value.
+- A variadic option takes command-looking words but stops at flags.
+- `--output json order` gives `DisplayHelpOnMissingArgumentOrSubcommand`, which
+  is an argument error here, not the help exception.
+- `-c -5` is `UnknownArgument` (negative numbers are not allowed there).
+
+Checks that the tests are not vacuous:
+- Red run with a stub that always returned human and no command: 9 of 10
+  failed (`failures_carry_no_argument_text` passed trivially).
+- Three temporary mutations, each reverted: ignoring `allow_hyphen_values`
+  failed 1 test; continuing past `--` failed 2; accepting the first of several
+  declarations failed 2.
+- For every `Parsed` case the test compares the helper's mode with the value
+  Clap actually bound.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions output_intent` | PASS: 10 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 233 tests (223 + 10), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- Recovery is checked against a fixture grammar; T017 must rerun these tests
+  against the real `order list` and global `--output`.
+- Exit codes and stream content are asserted at the helper level
+  (`ARGUMENT_ERROR_EXIT`, `json_error_code`); process-level streams are covered
+  when T017 wires the helper and later process tests use the T013 harness.
+
+T001-T014 are complete. T015 (SDK notification observability) is next. The
+JSON pilot is still unimplemented.
+
+## T015 Notification Observability: 2026-10-21
+
+Three tests added to `tests/order_list_process.rs` (9 in total). Native
+Linux, rustc 1.97.0, nostr-sdk 0.45.4, base `3bdb671`, test commit `828dbdb`.
+The result and its design constraints are recorded in
+[research §2](../specs/001-order-list-json/research.md#2-empty-results-and-completion).
+No production code changed.
+
+| Fixture | How it is built |
+| --- | --- |
+| EOSE-empty | Default `LocalRelay` with no events |
+| CLOSED | `LocalRelay` whose `QueryPolicy` rejects every REQ with prefix `restricted` and message `queries disabled` |
+| Silent | `Backend::Silent`: WebSocket accepted, never answered |
+| Disconnect | `LocalRelay` whose `QueryPolicy` signals the REQ and never answers; the test then drops the endpoint and its connections |
+
+| Test | Proves |
+| --- | --- |
+| `convenience_fetch_reports_success_for_every_failure` | `fetch_events` returns `Ok` with no events for all four fixtures |
+| `explicit_subscription_distinguishes_completion_per_relay` | One explicit subscription over two seeded relays (same event), EOSE-empty, CLOSED and silent relays: EOSE with the event from both seeded relays, EOSE empty, CLOSED with its message, no signal; `Output::success` lists all five |
+| `disconnect_before_eose_is_observed_per_relay` | The relay's own stream reports the disconnect before any EOSE |
+
+Measured `fetch_events` times with a 2-second timeout (temporary probe,
+reverted): EOSE-empty 0.7 ms, CLOSED 0.5 ms, disconnect 0.5 ms, silent 2.0 s.
+All four returned `Ok(0 events)`.
+
+Checks that the tests are not vacuous:
+- Each failure fixture is the same in both tests, and the subscription test
+  shows each one produces a different signal, so the fetch result hides a
+  real difference.
+- The disconnect test cannot pass unless the relay actually received the
+  REQ: the endpoint is dropped only on that signal, and the test would hang
+  otherwise.
+- Counting events from `RelayNotification::Event` instead of raw
+  `RelayMessage::Event` (temporary mutation, reverted) made one seeded relay
+  report EOSE with no events.
+- 10 consecutive runs of the target: 10/10 pass, about 2 s each. No sandbox
+  directory remained.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process` | PASS: 9 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 236 tests (233 + 3), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- SDK-level only. No production collection exists yet; the CLI child is not
+  exercised against these fixtures until the pilot adapter is built.
+- Reconnect and resubscription behaviour after a disconnect was not tested.
+- Windows runs remain T051-T052.
+
+T001-T015 are complete. T016 is next. The JSON pilot is still unimplemented.
+
+## T016 Outcome Envelope: 2026-10-21
+
+New module `src/outcome.rs` (254 production lines, plus its `#[cfg(test)]`
+module). Native Linux, rustc 1.97.0, base `186978d`, code commit `c94f1fb`.
+Nothing calls it yet; T018 wires it to the output boundary.
+
+Design:
+- `Envelope<D, S>` has private fields. `Envelope::ok(command, data, ...)` and
+  `Envelope::error(command_or_null, code, ...)` are the only constructors, so
+  status, data and error cannot conflict, and neither emits `uncertain`.
+  `D` and `S` stay generic until ListData, Snapshot and DiscoveryData land
+  (T022, T026, T042).
+- No field is skipped when empty; null keys and the `[]` warnings array are
+  always serialized.
+- `ErrorInfo` and `Warning` take their message from the code, so no
+  caller-provided text, raw error chain, argument or URL can reach the wire.
+  `ErrorCode::exit_code` maps argument codes to 2 and all others to 1.
+- `Warnings::add` keeps one warning per code, which aggregates repeated
+  invalid timestamps.
+- `ExecutionMeta::read` sets all three stages to `not_applicable`;
+  `ExecutionMeta::not_executed` sets `not_attempted`/`unknown`/`not_attempted`
+  with a null snapshot. The full roadmap stage enums and `Status::Uncertain`
+  exist for schema reservation only.
+
+| Test | Proves |
+| --- | --- |
+| `success_examples_are_reproduced` | `large_amount_success` and `empty_success` from [examples.json](../specs/001-order-list-json/contracts/examples.json) serialize identically, exit 0 |
+| `error_examples_are_reproduced` | `partial_relay_timeout`, `invalid_arguments` and `unsupported_secret_command` serialize identically with their exits |
+| `every_key_is_present_and_null_when_empty` | All 7 envelope keys and 4 meta keys present; null command, data, error and snapshot; `schema_version` is the string `"1"` |
+| `status_data_and_error_always_agree` | Every error code yields status `error`, data null, a `{code, message}` object and the contract exit |
+| `error_codes_and_messages_follow_the_contract` | The 9 codes serialize to the contract names; messages are distinct, ASCII, sentence-shaped and free of URLs, braces and secret markers |
+| `warnings_aggregate_by_code_and_never_serialize_as_null` | Empty warnings serialize as `[]`; repeated codes aggregate; a cleanup warning keeps the original error |
+| `stages_follow_the_data_model` | Read and not-executed stage combinations |
+| `reserved_stage_sets_match_the_roadmap` | Every publication, daemon-acceptance and persistence value serializes to its roadmap name |
+
+The contract-name tests use exhaustive `match` tables, so a new code or stage
+fails to compile until its contract name is added.
+
+Checks that the tests are not vacuous:
+- Red run with `todo!()` constructors: 7 of 8 failed.
+  `reserved_stage_sets_match_the_roadmap` passed, since it checks only derived
+  serde names.
+- Two temporary mutations, each reverted: omitting a null snapshot failed 3
+  tests; removing warning aggregation failed 1.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib outcome` | PASS: 8 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 244 tests (236 + 8), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Limitations:
+- `src/cli/invocation.rs` still defines its own `ARGUMENT_ERROR_EXIT` and
+  `invalid_arguments` string; T017 should reuse the outcome constants when it
+  integrates the helper.
+- Canonical command names are not validated here; the T018 registry supplies
+  them.
+- Messages for codes without a contract example are proposed prose. Only the
+  codes are stable for matching.
+
+T001-T016 are complete. T017 (fallible parsing and output selection) is next.
+The JSON pilot is still unimplemented.
+
+## T017 Fallible Parsing And Output Selection: 2026-10-21
+
+Changed `src/cli/args.rs`, `src/cli/invocation.rs` and `src/cli.rs`; tests in
+`tests/cli_functions.rs` and `tests/order_list_process.rs`. Native Linux,
+rustc 1.97.0, base `04b319f`, code commit `bdf0685`.
+
+Behaviour of the real binary:
+- `Cli` declares `--output <human|json>`: global, long only (no colliding
+  short), case-sensitive, default human. Every subcommand accepts it.
+- `run()` parses `env::args_os()` through T014's `parse_invocation` instead of
+  `Cli::parse()`, before the crypto provider, RPC routing or `init_context`.
+- Clap's own help/version result prints text and exits 0, also with
+  `--output json`. A bare `mostro-cli` still prints help on stderr with exit 2.
+- Argument errors exit 2 with fixed stderr: `error: <Clap's fixed kind
+  description>` plus a `--help` hint. Clap's message, which echoes tokens such
+  as an unknown flag, is never printed.
+- A missing, invalid or repeated `--output` exits 2 with empty stdout and
+  `error: --output takes `human` or `json` and may be given only once`.
+- `--output json` is rejected with exit 2 before any effect, both for valid
+  legacy invocations and for argument errors. T018 replaces these stderr
+  rejections with `output_not_supported`/`invalid_arguments` envelopes once the
+  canonical-name registry exists.
+- `invocation.rs` now takes exit and error codes from `outcome`
+  (`json_error_code` returns `ErrorCode`), as T016 noted.
+
+| Test | Proves |
+| --- | --- |
+| `real_cli_declares_a_global_case_sensitive_output` (unit) | The real `Cli` declares `--output` globally with values human/json, no short, no ignore-case; every subcommand except Clap's generated `help` accepts it; root and leaf positions bind; `JSON` is invalid |
+| `rejections_keep_the_clap_kind_and_a_safe_diagnostic` (unit) | Unknown flag, unknown subcommand, invalid and duplicate `--output` keep Clap's kind; diagnostics start with `error: `, name the problem and omit the sentinel |
+| `argument_errors_exit_2_with_safe_stderr_before_any_effect` | Five human-mode and invalid-selection cases: exit 2, empty stdout, sentinel-free stderr, no files, zero relay connections |
+| `json_intent_never_runs_a_legacy_command` | `--output json listorders`, `listorders --output=json` and JSON with an unknown command exit 2 with no files and zero connections |
+| `help_and_version_stay_text_on_stdout` | Five help/version forms, including with `--output json`: exit 0, text on stdout, empty stderr |
+| `bare_invocation_still_prints_help_on_stderr` | No arguments: exit 2, help on stderr, as before T017 |
+
+The T014 fixture no longer adds its own `--output`; all 10 T014 tests pass
+against the real global argument.
+
+Checks that the tests are not vacuous:
+- Red run against a stub (an empty `diagnostic()`, no `--output` in `Cli`):
+  2 of 12 unit tests and 2 of 13 process tests failed.
+  `json_intent_never_runs_a_legacy_command` and
+  `bare_invocation_still_prints_help_on_stderr` passed, because the old binary
+  rejected the unknown `--output` and already printed help; they guard
+  behaviour that the new parser could break.
+- Mutation (reverted): binding a `--output json` invocation and running it as
+  human made `json_intent_never_runs_a_legacy_command` fail, so the test does
+  catch a JSON request reaching a legacy command.
+- 5 consecutive runs of `order_list_process`: 5/5 pass.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions output_intent` | PASS: 12 tests |
+| `cargo test --locked --test order_list_process` | PASS: 13 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 250 tests (244 + 6), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `src/cli.rs` 89, `src/cli/args.rs` 80,
+`src/cli/invocation.rs` 257.
+
+Limitations:
+- Human-mode argument errors lose Clap's detailed text (for example the name
+  of the unknown flag and "did you mean" hints), because the contract forbids
+  raw argument values in diagnostics.
+- JSON error envelopes are not printed yet (T018).
+- `order list` and the `--mostro-pubkey` rename are not implemented; `order list`
+  is still a test fixture grammar.
+
+T001-T017 are complete. T018 (registry, capability guard and output boundary)
+is next. The JSON pilot is still unimplemented.
+
+## T018 Registry, JSON Guard And Output Boundary: 2026-10-22
+
+Changed `src/cli/commands.rs`, `src/cli.rs`, `src/main.rs`, `src/outcome.rs`;
+new `src/parse_machine.rs`. Native Linux, rustc 1.97.0, base `298f2cc`, code
+commit `a68b697`.
+
+Behaviour:
+- `REGISTRY` lists all 33 subcommands with the canonical names approved on
+  2026-10-22 (recorded in
+  [the CLI contract](../specs/001-order-list-json/contracts/cli.md#canonical-command-names)),
+  all `JsonSupport::Unsupported`. `lookup` resolves a one-word command path.
+- With `--output json`, before RPC routing, environment access or
+  `init_context`:
+  - a valid legacy invocation prints an `output_not_supported` envelope;
+  - an argument error prints an `invalid_arguments` envelope;
+  - root options with no command (`mostro-cli --output json`) print
+    `invalid_arguments` with command null.
+
+  All exit 2, with the canonical name or null and stages
+  `not_attempted`/`unknown`/`not_attempted`.
+- `parse_machine::emit` serializes the whole outcome before writing one line.
+  An unserializable outcome is replaced by an `internal_error` envelope for the
+  same command and stages (exit 1). A failed write exits 1 with a fixed stderr
+  line and appends nothing.
+- `run()` returns the exit status and `main` calls `process::exit` once; the
+  library no longer exits from inside. Help/version use `clap::Error::print`
+  and its exit code.
+
+| Test | Proves |
+| --- | --- |
+| `registry_matches_the_approved_mapping` | The 33 (CLI name, canonical name) pairs equal the approved table, in order |
+| `every_subcommand_is_registered_exactly_once` | Registry and Clap subcommands are the same set; canonical names are unique |
+| `canonical_names_are_dotted_lowercase` | `noun.verb` with lowercase words and kebab-case verbs |
+| `no_command_supports_json_yet` | Every entry is human-only with not-executed stages |
+| `lookup_resolves_only_registered_leaves` | Known one-word paths resolve; empty, unknown, `help` and `order list` do not |
+| `writes_one_json_line_and_returns_the_outcome_exit` (unit) | Exactly one newline-terminated document; exit 0 or 2 from the outcome |
+| `unserializable_outcome_becomes_one_internal_error` (unit) | One `internal_error` document for the same command and stages, exit 1, no serializer text |
+| `failed_write_exits_1_and_appends_nothing` (unit) | A pipe closing after 10 bytes leaves only those bytes; fixed stderr line; exit 1 |
+| `json_intent_gets_one_error_envelope_before_any_effect` (process) | Six JSON invocations, including `getlasttradeprivkey` and an unknown command: exit 2, one exact envelope, empty stderr, no sentinel, no files, zero relay connections |
+
+The process test replaces T017's `json_intent_never_runs_a_legacy_command`,
+which checked only exit 2 and absence of effects.
+
+Checks that the tests are not vacuous:
+- Red run against stubs (empty registry, `lookup` returning `None`, `emit`
+  writing nothing): 7 of 9 new tests failed. `canonical_names_are_dotted_lowercase`
+  and `no_command_supports_json_yet` passed over the empty registry and check
+  real entries now.
+- Two temporary mutations, each reverted: removing the `internal_error`
+  fallback failed 1 unit test; making `lookup` never resolve failed the
+  process test.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib parse_machine` | PASS: 3 tests |
+| `cargo test --locked --test cli_functions` | PASS: 61 tests |
+| `cargo test --locked --test order_list_process` | PASS: 13 tests |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 258 tests (250 + 8), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `src/cli.rs` 118, `src/cli/commands.rs` 384,
+`src/parse_machine.rs` 50, `src/outcome.rs` 274, `src/main.rs` 14.
+
+Limitations:
+- `src/cli/commands.rs` is close to the 400-line limit; T030 adds `order list`
+  there and will likely need to move the registry into its own module.
+- Configuration and read errors are not emitted as JSON yet; no command runs in
+  JSON mode until T030.
+- Human-mode runtime errors still print `main`'s `eprintln!` text, unchanged
+  legacy behaviour.
+
+T001-T018 are complete. T019 (foundation gate) is next. The JSON pilot is still
+unimplemented.
+
+## T019 Foundation Gate: 2026-10-22
+
+Native Linux, rustc 1.97.0. Base `778063f`; test commit `05bc385`. No
+production code changed.
+
+Before closing the gate, every foundation row of the
+[quickstart acceptance matrix](../specs/001-order-list-json/quickstart.md#acceptance-matrix)
+was matched to a test. One row was only partially proven: "registered legacy
+JSON, including RPC and secret-export paths" had a secret-export case
+(`getlasttradeprivkey`) but no daemon-RPC case. Commit `05bc385` closes it:
+- Rejection runs now also point `MOSTRO_RPC_URL` at the loopback listener and
+  set `MOSTRO_RPC_TOKEN` to the sentinel.
+- `json_intent_gets_one_error_envelope_before_any_effect` gained
+  `admmaintenancestatus` and `admcancelpending` rows (now 8 rows).
+- The new positive control `human_rpc_command_reaches_the_configured_daemon`
+  shows the same configuration does connect in human mode, so zero connections
+  in JSON mode is evidence rather than an unused address.
+
+The `admcancelpending` row first used `--order-id` and got `invalid_arguments`
+instead of `output_not_supported`. The real flag is `--orderid` (`rename_all =
+"lower"` also renames arguments), so the envelope was correct and the test was
+fixed.
+
+Proof obligations passed before user stories:
+
+| Quickstart row | Evidence |
+| --- | --- |
+| Output flag at root/intermediate/leaf and equals form | `output_is_selected_at_every_depth_and_defaults_to_human`, `real_cli_declares_a_global_case_sensitive_output`; process rows with `--output=json` |
+| Missing/invalid args with JSON intent, including unknown command names | `json_intent_gets_one_error_envelope_before_any_effect` (unknown flag, sentinel as command, root without command) |
+| Values, hyphen values, short clusters, variadic values, `--` | `arities_and_hyphen_values_follow_clap`, `short_clusters_and_colliding_shorts_follow_scope`, `terminator_ends_option_parsing` |
+| Invalid/missing/duplicate output | `duplicate_and_missing_declarations_are_invalid`, `argument_errors_exit_2_with_safe_stderr_before_any_effect` |
+| Help/version with output json | `help_and_version_stay_text_on_stdout`, `bare_invocation_still_prints_help_on_stderr` |
+| Registered legacy JSON, including RPC and secret-export | `json_intent_gets_one_error_envelope_before_any_effect`, `human_rpc_command_reaches_the_configured_daemon`, `no_command_supports_json_yet` |
+| Planted secret sentinels in invalid args | Sentinel rows in both process tests (stdout and stderr) |
+| Serialization and failing output writer | `unserializable_outcome_becomes_one_internal_error`, `failed_write_exits_1_and_appends_nothing` |
+| Envelope shape, codes and examples | The 8 `outcome` unit tests, including the `examples.json` reproductions |
+| SDK observability of EOSE, CLOSED, silence and disconnect | `convenience_fetch_reports_success_for_every_failure`, `explicit_subscription_distinguishes_completion_per_relay`, `disconnect_before_eose_is_observed_per_relay` |
+| Harness isolation and watchdog | `child_reaches_the_loopback_relay_with_sandboxed_storage`, `watchdog_kills_and_reaps_a_hung_child` |
+
+Not covered yet; these belong to user stories and nothing here claims them:
+- configuration errors as JSON (T026, T030);
+- listing success, empty, partial and failure outcomes, and the collector
+  (US1, T020-T030);
+- human/JSON field parity and verbose or identity-location streams (US2);
+- removed `listorders`/`--mostropubkey` spellings (US1);
+- offline schema, discovery and generated-schema drift (US3).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` | PASS: 61 tests |
+| `cargo test --locked --test order_list_process` | PASS: 14 tests |
+| `cargo test --locked --lib outcome` | PASS: 10 tests (8 envelope plus 2 matching the filter) |
+| `cargo test --locked --lib parse_machine` | PASS: 3 tests |
+| `order_list_process` 10 consecutive runs | PASS: 10 of 10, no leftover sandbox directories |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 259 tests (258 + 1), 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+File-size finding: four legacy files still exceed 400 production lines,
+counted with the T002 rule at the inventory commit `07f2595` and at HEAD:
+
+| File | At `07f2595` | At HEAD |
+| --- | ---: | ---: |
+| `src/parser/dms.rs` | 1210 | 1210 |
+| `src/db.rs` | 704 | 704 |
+| `src/util/messaging.rs` | 600 | 639 |
+| `src/cli/take_dispute.rs` | 403 | 403 |
+
+- `util/messaging.rs` grew by 39 production lines in `0f2b644` (T007's
+  `select_reply_event` extraction). That breaks the constitution's "do not grow
+  legacy production sections" rule and was not reported in T007.
+- The T002 table in `docs/architecture.md` lists 487, 695 and 1198 for
+  `messaging.rs`, `db.rs` and `dms.rs`. Those numbers do not match the files at
+  `07f2595`, which did not change `messaging.rs`.
+
+Both are open. No file touched by T011-T019 exceeds the limit.
+
+T001-T019 are complete. US1 starts at T020. The JSON pilot is still
+unimplemented: no command runs in JSON mode yet.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

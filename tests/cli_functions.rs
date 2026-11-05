@@ -610,3 +610,692 @@ mod maintenance_commands {
         );
     }
 }
+
+// ── output-intent recovery on malformed argv (contracts/cli.md) ────────────
+mod output_intent {
+    use clap::builder::PossibleValuesParser;
+    use clap::error::ErrorKind;
+    use clap::{Arg, ArgMatches, Command, CommandFactory};
+    use mostro_client::cli::invocation::{
+        parse_invocation, ArgumentFailure, Invocation, OutputMode, OutputSelection, OUTPUT_LONG,
+    };
+    use mostro_client::cli::Cli;
+    use mostro_client::outcome::ErrorCode;
+    use std::ffi::OsString;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStringExt;
+
+    const STATUSES: [&str; 17] = [
+        "active",
+        "canceled",
+        "canceled-by-admin",
+        "settled-by-admin",
+        "completed-by-admin",
+        "dispute",
+        "expired",
+        "fiat-sent",
+        "settled-hold-invoice",
+        "pending",
+        "success",
+        "waiting-buyer-invoice",
+        "waiting-payment",
+        "waiting-taker-bond",
+        "waiting-maker-bond",
+        "cooperatively-canceled",
+        "in-progress",
+    ];
+    const PUBKEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
+    const ORDER: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+
+    /// Expected handling of one rejected invocation.
+    #[derive(Debug)]
+    enum Expect {
+        /// JSON invalid_arguments envelope naming this leaf, or command null.
+        Json(Option<&'static [&'static str]>),
+        /// Human-mode error on stderr.
+        Human,
+        /// Missing, invalid or duplicate output: empty stdout, safe stderr.
+        InvalidSelection,
+    }
+
+    /// The real `Cli`, with its global `--output`, plus the `order list`
+    /// grammar the pilot adds.
+    fn pilot_grammar() -> Command {
+        let list = Command::new("list")
+            .arg(
+                Arg::new("side")
+                    .long("side")
+                    .ignore_case(true)
+                    .value_parser(PossibleValuesParser::new(["buy", "sell"])),
+            )
+            .arg(Arg::new("currency").long("currency"))
+            .arg(
+                Arg::new("status")
+                    .long("status")
+                    .ignore_case(true)
+                    .value_parser(PossibleValuesParser::new(STATUSES)),
+            );
+        Cli::command().subcommand(
+            Command::new("order")
+                .subcommand_required(true)
+                .arg_required_else_help(true)
+                .subcommand(list),
+        )
+    }
+
+    fn invoke_os(suffix: Vec<OsString>) -> Invocation {
+        let argv = std::iter::once(OsString::from("mostro-cli")).chain(suffix);
+        parse_invocation(pilot_grammar(), argv)
+    }
+
+    fn invoke(suffix: &[&str]) -> Invocation {
+        invoke_os(suffix.iter().map(OsString::from).collect())
+    }
+
+    fn assert_rejected(invocation: Invocation, expect: &Expect, label: &str) {
+        let Invocation::Rejected(failure) = invocation else {
+            panic!("{label}: expected an argument error, got {invocation:?}");
+        };
+        let expected_output = match expect {
+            Expect::Json(_) => OutputSelection::Mode(OutputMode::Json),
+            Expect::Human => OutputSelection::Mode(OutputMode::Human),
+            Expect::InvalidSelection => OutputSelection::Invalid,
+        };
+        assert_eq!(failure.output, expected_output, "{label}");
+        match expect {
+            Expect::Json(command) => {
+                let command = command.map(|path| path.iter().map(|s| s.to_string()).collect());
+                assert_eq!(failure.command, command, "{label}");
+                assert_eq!(
+                    failure.json_error_code(),
+                    Some(ErrorCode::InvalidArguments),
+                    "{label}"
+                );
+            }
+            Expect::Human | Expect::InvalidSelection => {
+                assert_eq!(failure.json_error_code(), None, "{label}");
+            }
+        }
+    }
+
+    fn check(rows: &[(&[&str], Expect)]) {
+        for (suffix, expect) in rows {
+            assert_rejected(invoke(suffix), expect, &format!("{suffix:?}"));
+        }
+    }
+
+    /// The output mode Clap itself bound, searching the root and every
+    /// subcommand level, plus the subcommand path.
+    fn clap_view(matches: &ArgMatches) -> (Option<OutputMode>, Vec<String>) {
+        let mut output = matches.get_one::<OutputMode>(OUTPUT_LONG).copied();
+        let mut path = Vec::new();
+        let mut level = matches;
+        while let Some((name, sub)) = level.subcommand() {
+            path.push(name.to_string());
+            level = sub;
+            output = output.or(level.get_one::<OutputMode>(OUTPUT_LONG).copied());
+        }
+        (output, path)
+    }
+
+    /// A successful parse: the recovered mode must equal Clap's own value.
+    fn parsed(suffix: &[&str]) -> (OutputMode, Vec<String>) {
+        match invoke(suffix) {
+            Invocation::Parsed { matches, output } => {
+                let (bound, path) = clap_view(&matches);
+                assert_eq!(output, bound.unwrap_or(OutputMode::Human), "{suffix:?}");
+                (output, path)
+            }
+            other => panic!("{suffix:?}: expected a successful parse, got {other:?}"),
+        }
+    }
+
+    fn text_kind(suffix: &[&str]) -> ErrorKind {
+        match invoke(suffix) {
+            Invocation::Text(error) => error.kind(),
+            other => panic!("{suffix:?}: expected help/version text, got {other:?}"),
+        }
+    }
+
+    const ORDER_LIST: Option<&[&str]> = Some(&["order", "list"]);
+
+    #[test]
+    fn contract_decision_table_rows() {
+        check(&[
+            (
+                &["--output", "json", "order", "list", "--side", "invalid"],
+                Expect::Json(ORDER_LIST),
+            ),
+            (
+                &["order", "--output=json", "list", "--status", "invalid"],
+                Expect::Json(ORDER_LIST),
+            ),
+            (
+                &["order", "list", "--output", "json", "--unknown"],
+                Expect::Json(ORDER_LIST),
+            ),
+            (&["--output", "json", "unknown"], Expect::Json(None)),
+            (
+                &["order", "list", "--output", "unknown"],
+                Expect::InvalidSelection,
+            ),
+            (&["order", "list", "--output"], Expect::InvalidSelection),
+            (
+                &["--output", "json", "order", "list", "--output=json"],
+                Expect::InvalidSelection,
+            ),
+            (
+                &["--output", "json", "order", "list", "--output", "human"],
+                Expect::InvalidSelection,
+            ),
+            (
+                &[
+                    "order",
+                    "list",
+                    "--currency=--output=json",
+                    "--side",
+                    "invalid",
+                ],
+                Expect::Human,
+            ),
+            (&["order", "list", "--", "--output", "json"], Expect::Human),
+            (
+                &[
+                    "--output", "json", "order", "list", "--", "--output", "human",
+                ],
+                Expect::Json(ORDER_LIST),
+            ),
+        ]);
+        assert_eq!(
+            text_kind(&["--output", "json", "--help"]),
+            ErrorKind::DisplayHelp
+        );
+    }
+
+    #[test]
+    fn output_is_selected_at_every_depth_and_defaults_to_human() {
+        let order_list = vec!["order".to_string(), "list".to_string()];
+        for suffix in [
+            &["--output", "json", "order", "list"][..],
+            &["order", "--output=json", "list"],
+            &["order", "list", "--output", "json"],
+            &["order", "list", "--output=json"],
+        ] {
+            assert_eq!(parsed(suffix), (OutputMode::Json, order_list.clone()));
+        }
+        assert_eq!(
+            parsed(&["order", "list"]),
+            (OutputMode::Human, order_list.clone())
+        );
+        assert_eq!(
+            parsed(&["order", "list", "--output", "human"]),
+            (OutputMode::Human, order_list)
+        );
+        let legacy = vec!["listorders".to_string()];
+        assert_eq!(parsed(&["listorders"]), (OutputMode::Human, legacy.clone()));
+        assert_eq!(
+            parsed(&["--output", "json", "listorders"]),
+            (OutputMode::Json, legacy)
+        );
+        // Case-sensitive: only the lowercase spellings select a mode.
+        check(&[(
+            &["--output", "JSON", "order", "list"],
+            Expect::InvalidSelection,
+        )]);
+    }
+
+    #[test]
+    fn values_resembling_flags_or_commands_are_not_declarations() {
+        let senddm = vec!["senddm".to_string()];
+        let base = ["senddm", "-p", PUBKEY, "-o", ORDER];
+        let with = |tail: &[&'static str]| -> Vec<&'static str> {
+            base.iter().copied().chain(tail.iter().copied()).collect()
+        };
+        assert_eq!(
+            parsed(&with(&["-m=--output=json"])),
+            (OutputMode::Human, senddm.clone())
+        );
+        assert_eq!(
+            parsed(&with(&["--message=--output=json"])),
+            (OutputMode::Human, senddm.clone())
+        );
+        assert_eq!(
+            parsed(&with(&["-m", "order", "list"])),
+            (OutputMode::Human, senddm.clone())
+        );
+        assert_eq!(
+            parsed(&with(&["-m", "order", "list", "--output", "json"])),
+            (OutputMode::Json, senddm)
+        );
+        check(&[
+            // The root `-m` consumes `order`, so `list` is not a command.
+            (
+                &["--output", "json", "-m", "order", "list"],
+                Expect::Json(None),
+            ),
+            (
+                &["--output", "json", "--relays=order", "list"],
+                Expect::Json(None),
+            ),
+            // A flag-looking token is not a value, so this is a declaration.
+            (
+                &with(&["-m", "--output=json"]),
+                Expect::Json(Some(&["senddm"])),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn arities_and_hyphen_values_follow_clap() {
+        let neworder = [
+            "neworder", "-k", "sell", "-c", "USD", "-f", "100", "-m", "SEPA",
+        ];
+        let with = |tail: &[&'static str]| -> Vec<&'static str> {
+            neworder
+                .iter()
+                .copied()
+                .chain(tail.iter().copied())
+                .collect()
+        };
+        assert_eq!(
+            parsed(&with(&["-p", "-5", "--output", "json"])),
+            (OutputMode::Json, vec!["neworder".to_string()])
+        );
+        check(&[
+            // `--premium` accepts hyphen values, so it swallows `--output`.
+            (&with(&["-p", "--output", "json"]), Expect::Human),
+            // `--currency` does not, so its value is missing and the
+            // declaration stands.
+            (
+                &["order", "list", "--currency", "--output", "json"],
+                Expect::Json(ORDER_LIST),
+            ),
+            // Root `--pow` is missing its value; the later declaration stands.
+            (
+                &["-p", "--output", "json", "order", "list"],
+                Expect::Json(ORDER_LIST),
+            ),
+            (
+                &["--output", "json", "order", "list", "--side"],
+                Expect::Json(ORDER_LIST),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn short_clusters_and_colliding_shorts_follow_scope() {
+        let order_list = vec!["order".to_string(), "list".to_string()];
+        assert_eq!(
+            parsed(&["-vs", "--output", "json", "order", "list"]),
+            (OutputMode::Json, order_list.clone())
+        );
+        assert_eq!(
+            parsed(&["-vm", PUBKEY, "order", "list", "--output", "json"]),
+            (OutputMode::Json, order_list.clone())
+        );
+        // `-m` takes the rest of the cluster as its value.
+        assert_eq!(
+            parsed(&["-vm--output=json", "order", "list"]),
+            (OutputMode::Human, order_list.clone())
+        );
+        assert_eq!(
+            parsed(&["-m=--output=json", "order", "list"]),
+            (OutputMode::Human, order_list)
+        );
+        // Leaf `-m` is the message, not the root pubkey.
+        assert_eq!(
+            parsed(&["senddm", "-p", PUBKEY, "-o", ORDER, "-mhello", "--output", "json"]),
+            (OutputMode::Json, vec!["senddm".to_string()])
+        );
+        check(&[(
+            &["-vx", "--output", "json", "order", "list"],
+            Expect::Json(ORDER_LIST),
+        )]);
+    }
+
+    #[test]
+    fn duplicate_and_missing_declarations_are_invalid() {
+        check(&[
+            (
+                &["--output", "json", "--output", "json", "order", "list"],
+                Expect::InvalidSelection,
+            ),
+            (
+                &["order", "list", "--output=human", "--output=human"],
+                Expect::InvalidSelection,
+            ),
+            (
+                &["--output", "json", "order", "--output", "json", "list"],
+                Expect::InvalidSelection,
+            ),
+            (&["--output"], Expect::InvalidSelection),
+            (&["order", "list", "--output="], Expect::InvalidSelection),
+            (
+                &["order", "list", "--output", "--side", "buy"],
+                Expect::InvalidSelection,
+            ),
+            (
+                &["order", "list", "--output", "--", "json"],
+                Expect::InvalidSelection,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn terminator_ends_option_parsing() {
+        check(&[
+            (
+                &[
+                    "senddm", "-p", PUBKEY, "-o", ORDER, "-m", "a", "--", "--output", "json",
+                ],
+                Expect::Human,
+            ),
+            (
+                &["--output", "json", "--", "order", "list"],
+                Expect::Json(None),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn clap_decides_help_and_version_precedence() {
+        assert_eq!(
+            text_kind(&["--output", "json", "--help"]),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            text_kind(&["order", "list", "--output", "json", "--help"]),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            text_kind(&["order", "list", "--help", "--output", "json"]),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            text_kind(&["help", "order", "list"]),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(
+            text_kind(&["--output", "json", "--version"]),
+            ErrorKind::DisplayVersion
+        );
+        check(&[
+            // Clap reports the invalid value before it reaches `--help`.
+            (&["--output", "bogus", "--help"], Expect::InvalidSelection),
+            // A missing subcommand shows help as an error, not as a request.
+            (&["--output", "json", "order"], Expect::Json(None)),
+        ]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unicode_values_keep_json_intent() {
+        let invalid = || OsString::from_vec(vec![b'U', 0xff, b'D']);
+        let args = |items: &[&str]| -> Vec<OsString> { items.iter().map(OsString::from).collect() };
+
+        let mut suffix = args(&["order", "list", "--currency"]);
+        suffix.push(invalid());
+        suffix.extend(args(&["--output", "json"]));
+        assert_rejected(
+            invoke_os(suffix),
+            &Expect::Json(ORDER_LIST),
+            "--currency <bytes>",
+        );
+
+        let mut attached = OsString::from("--currency=");
+        attached.push(invalid());
+        let mut suffix = args(&["--output", "json", "order", "list"]);
+        suffix.push(attached);
+        assert_rejected(
+            invoke_os(suffix),
+            &Expect::Json(ORDER_LIST),
+            "--currency=<bytes>",
+        );
+
+        let mut cluster = OsString::from("-m");
+        cluster.push(invalid());
+        let mut suffix = vec![cluster];
+        suffix.extend(args(&["--output", "json", "order", "list"]));
+        assert_rejected(invoke_os(suffix), &Expect::Json(ORDER_LIST), "-m<bytes>");
+
+        let mut suffix = args(&["order", "list", "--output"]);
+        suffix.push(invalid());
+        assert_rejected(
+            invoke_os(suffix),
+            &Expect::InvalidSelection,
+            "--output <bytes>",
+        );
+    }
+
+    #[test]
+    fn failures_carry_no_argument_text() {
+        let failure = ArgumentFailure {
+            output: OutputSelection::Mode(OutputMode::Json),
+            command: None,
+            kind: ErrorKind::InvalidValue,
+        };
+        assert_eq!(failure.json_error_code(), Some(ErrorCode::InvalidArguments));
+        let Invocation::Rejected(failure) = invoke(&[
+            "--output",
+            "json",
+            "order",
+            "list",
+            "--currency",
+            "--side",
+            "secret-sentinel",
+        ]) else {
+            panic!("expected an argument error");
+        };
+        assert!(!format!("{failure:?}").contains("secret-sentinel"));
+    }
+
+    fn invoke_real(suffix: &[&str]) -> Invocation {
+        let argv = std::iter::once("mostro-cli").chain(suffix.iter().copied());
+        parse_invocation(Cli::command(), argv)
+    }
+
+    #[test]
+    fn real_cli_declares_a_global_case_sensitive_output() {
+        let mut command = Cli::command();
+        command.build();
+        let output = command
+            .get_arguments()
+            .find(|arg| arg.get_id() == OUTPUT_LONG)
+            .expect("--output is declared");
+        assert_eq!(output.get_long(), Some(OUTPUT_LONG));
+        assert_eq!(output.get_short(), None);
+        assert!(output.is_global_set());
+        assert!(!output.is_ignore_case_set());
+        let values: Vec<String> = output
+            .get_possible_values()
+            .iter()
+            .map(|value| value.get_name().to_string())
+            .collect();
+        assert_eq!(values, ["human", "json"]);
+        // Clap's generated `help` subcommand takes command names only.
+        for subcommand in command
+            .get_subcommands()
+            .filter(|sub| sub.get_name() != "help")
+        {
+            assert!(
+                subcommand
+                    .get_arguments()
+                    .any(|arg| arg.get_id() == OUTPUT_LONG),
+                "{} lacks --output",
+                subcommand.get_name()
+            );
+        }
+
+        let rows: [(&[&str], OutputMode); 4] = [
+            (&["listorders"], OutputMode::Human),
+            (&["listorders", "--output", "json"], OutputMode::Json),
+            (&["--output=json", "listorders"], OutputMode::Json),
+            (&["--output", "human", "listorders"], OutputMode::Human),
+        ];
+        for (suffix, mode) in rows {
+            let Invocation::Parsed { matches, output } = invoke_real(suffix) else {
+                panic!("{suffix:?} did not parse");
+            };
+            assert_eq!(output, mode, "{suffix:?}");
+            assert_eq!(clap_view(&matches).0.unwrap_or(OutputMode::Human), mode);
+        }
+        let Invocation::Rejected(failure) = invoke_real(&["--output", "JSON", "listorders"]) else {
+            panic!("--output is case-sensitive");
+        };
+        assert_eq!(failure.output, OutputSelection::Invalid);
+    }
+
+    #[test]
+    fn rejections_keep_the_clap_kind_and_a_safe_diagnostic() {
+        let rows: [(&[&str], ErrorKind, &str); 4] = [
+            (
+                &["listorders", "--secret-sentinel"],
+                ErrorKind::UnknownArgument,
+                "unexpected argument found",
+            ),
+            (
+                &["secret-sentinel"],
+                ErrorKind::InvalidSubcommand,
+                "unrecognized subcommand",
+            ),
+            (
+                &["--output", "secret-sentinel", "listorders"],
+                ErrorKind::InvalidValue,
+                "--output",
+            ),
+            (
+                &["--output", "json", "--output", "json", "listorders"],
+                ErrorKind::ArgumentConflict,
+                "--output",
+            ),
+        ];
+        for (suffix, kind, mentions) in rows {
+            let Invocation::Rejected(failure) = invoke_real(suffix) else {
+                panic!("{suffix:?} was accepted");
+            };
+            assert_eq!(failure.kind, kind, "{suffix:?}");
+            let text = failure.diagnostic();
+            assert!(text.starts_with("error: "), "{suffix:?}: {text:?}");
+            assert!(text.contains(mentions), "{suffix:?}: {text:?}");
+            assert!(!text.contains("secret-sentinel"), "{suffix:?}: {text:?}");
+        }
+        let Invocation::Rejected(bare) = invoke_real(&[]) else {
+            panic!("a bare invocation is an argument error");
+        };
+        assert_eq!(
+            bare.kind,
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+    }
+}
+
+mod registry {
+    use clap::CommandFactory;
+    use mostro_client::cli::{lookup, Cli, JsonSupport, REGISTRY};
+    use mostro_client::outcome::ExecutionMeta;
+    use std::collections::BTreeSet;
+
+    /// Canonical names approved on 2026-10-22, in subcommand order.
+    const APPROVED: [(&str, &str); 33] = [
+        ("listorders", "order.list"),
+        ("neworder", "order.new"),
+        ("takesell", "order.take-sell"),
+        ("takebuy", "order.take-buy"),
+        ("addinvoice", "order.add-invoice"),
+        ("addbondinvoice", "bond.add-invoice"),
+        ("getdm", "message.list"),
+        ("getdmuser", "chat.history"),
+        ("disputechat", "dispute.chat"),
+        ("getadmindm", "admin.message-list"),
+        ("senddm", "message.send"),
+        ("dmtouser", "chat.send"),
+        ("fiatsent", "order.fiat-sent"),
+        ("release", "order.release"),
+        ("cancel", "order.cancel"),
+        ("rate", "order.rate"),
+        ("restore", "account.restore"),
+        ("dispute", "dispute.open"),
+        ("admcancel", "admin.cancel"),
+        ("admsettle", "admin.settle"),
+        ("listdisputes", "dispute.list"),
+        ("admsetmaintenance", "maintenance.set"),
+        ("admmaintenancestatus", "maintenance.status"),
+        ("admcancelpending", "maintenance.cancel-pending"),
+        ("admaddsolver", "admin.add-solver"),
+        ("admtakedispute", "admin.take-dispute"),
+        ("admsenddm", "admin.message-send"),
+        ("sendadmindmattach", "admin.message-attach"),
+        ("conversationkey", "account.conversation-key"),
+        ("getlasttradeindex", "account.trade-index"),
+        ("getlasttradeprivkey", "account.trade-key"),
+        ("getuserinfo", "account.info"),
+        ("ordersinfo", "order.info"),
+    ];
+
+    fn path(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn registry_matches_the_approved_mapping() {
+        let actual: Vec<(&str, &str)> = REGISTRY
+            .iter()
+            .map(|entry| (entry.cli_name, entry.canonical))
+            .collect();
+        assert_eq!(actual, APPROVED);
+    }
+
+    #[test]
+    fn every_subcommand_is_registered_exactly_once() {
+        let subcommands: BTreeSet<String> = Cli::command()
+            .get_subcommands()
+            .map(|sub| sub.get_name().to_string())
+            .collect();
+        let registered: BTreeSet<String> = REGISTRY
+            .iter()
+            .map(|entry| entry.cli_name.to_string())
+            .collect();
+        assert_eq!(registered, subcommands);
+        assert_eq!(registered.len(), REGISTRY.len());
+        let canonical: BTreeSet<&str> = REGISTRY.iter().map(|entry| entry.canonical).collect();
+        assert_eq!(
+            canonical.len(),
+            REGISTRY.len(),
+            "canonical names must be unique"
+        );
+    }
+
+    #[test]
+    fn canonical_names_are_dotted_lowercase() {
+        let lowercase =
+            |word: &str| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase());
+        for entry in REGISTRY {
+            let (noun, verb) = entry.canonical.split_once('.').expect("one dot");
+            assert!(lowercase(noun), "{}", entry.canonical);
+            assert!(verb.split('-').all(lowercase), "{}", entry.canonical);
+        }
+    }
+
+    #[test]
+    fn no_command_supports_json_yet() {
+        for entry in REGISTRY {
+            assert_eq!(entry.json, JsonSupport::Unsupported, "{}", entry.cli_name);
+            assert_eq!(entry.stages::<()>(), ExecutionMeta::not_executed());
+        }
+    }
+
+    #[test]
+    fn lookup_resolves_only_registered_leaves() {
+        assert_eq!(
+            lookup(&path(&["neworder"])).map(|e| e.canonical),
+            Some("order.new")
+        );
+        assert_eq!(
+            lookup(&path(&["getlasttradeprivkey"])).map(|e| e.canonical),
+            Some("account.trade-key")
+        );
+        for unresolved in [&[][..], &["nosuch"], &["help"], &["order", "list"]] {
+            assert_eq!(lookup(&path(unresolved)), None, "{unresolved:?}");
+        }
+    }
+}

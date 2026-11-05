@@ -22,6 +22,11 @@ Totals: **8,854 physical lines, 1,411 test-only lines, 7,443 production lines**.
 Five files exceed 400 production lines. No oversized production section was
 grown by T003; its touched command/query files remain below the limit.
 
+T019 recount: at `07f2595` this rule gives 600 production lines for
+`util/messaging.rs`, 704 for `db.rs` and 1210 for `parser/dms.rs`, not the
+values below. T007 (`0f2b644`) then grew `util/messaging.rs` to 639. See the
+[T019 evidence](../tests/TEST_SUMMARY.md#t019-foundation-gate-2026-10-22).
+
 | Source under src/ | Physical | Test-only | Production |
 | --- | ---: | ---: | ---: |
 | cli.rs | 873 | 63 | 810 |
@@ -141,6 +146,7 @@ the complete refactor must eliminate every legacy violation.
 - **`src/cli/commands.rs`**: the `Commands` enum containing all subcommands and their structured arguments.
 - **`src/cli/legacy.rs`**: `Commands::run_rpc` and `Commands::run`, the temporary dispatch that maps each variant to its `execute_*` handler.
 - **`src/cli/context.rs`**: `Context` (Nostr client, keys, trade index, DB pool, optional admin context keys, and Mostro pubkey) and its initialization.
+- **`src/cli/invocation.rs`**: `parse_invocation`, which lets Clap parse argv and, on argument errors, recovers the `--output` declaration and resolved command path from Clap metadata. `run()` calls it on `args_os()` before any effect; rejected invocations exit 2 with its fixed `diagnostic()` text.
   - `init_context()`:
     - Sets environment variables from CLI flags (e.g. `MOSTRO_PUBKEY`, `RELAYS`, `POW`, `SECRET`).
     - Connects to SQLite via `db::connect()`.
@@ -207,6 +213,12 @@ the complete refactor must eliminate every legacy violation.
     - `dms.rs`: parsing direct messages.
     - `common.rs`: shared parsing helpers.
     - `mod.rs`: module glue.
+
+- **`src/outcome.rs`**: the machine-readable outcome envelope (contract v1). `Envelope::ok` and `Envelope::error` are the only constructors, so status, data and error agree; error and warning codes carry fixed messages and exit statuses; `ExecutionMeta` holds the write-stage fields and optional snapshot. Used for JSON rejections; no command produces a success yet.
+
+- **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line to stdout, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
+
+- **Command registry** (`REGISTRY` and `lookup` in `src/cli/commands.rs`): every subcommand's canonical name and JSON support. `run()` uses it to name the command in JSON rejections before RPC routing or context initialization.
 
 - **Peer / solver chat** (`src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
   - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`.
