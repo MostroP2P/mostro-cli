@@ -23,7 +23,7 @@ The CLI is heavily inspired by the Mostro backend documentation (`mostro/docs` i
 ### Core modules (top-level)
 
 - **`src/main.rs`**: entrypoint; wires `mostro-cli` to the `cli::run()` async function.
-- **`src/cli.rs`**: defines the `Cli` struct, the `Commands` enum (all subcommands), context initialization, and the main dispatch logic for commands.
+- **`src/cli.rs`**: facade over `src/cli/args.rs` (the `Cli` struct), `src/cli/commands.rs` (the `Commands` enum with all subcommands), `src/cli/context.rs` (context initialization) and `src/cli/legacy.rs` (the main dispatch logic for commands).
 - **`src/db.rs`**: database connection and schema management, plus `User` and `Order` models and helpers.
 - **`src/util/*`**: shared utilities for events, Nostr networking, messaging, storage helpers, and type wrappers.
 - **`src/parser/*`**: parsing helpers for events (orders, disputes, DMs) into higher-level types.

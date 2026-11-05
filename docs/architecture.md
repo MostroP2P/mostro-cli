@@ -67,6 +67,18 @@ grown by T003; its touched command/query files remain below the limit.
 | util/storage.rs | 65 | 0 | 65 |
 | util/types.rs | 18 | 0 | 18 |
 
+**T011 update (2026-10-20)**: `cli.rs` is now split into five files. The table
+above stays the T002 snapshot; these rows replace its `cli.rs` row, and four
+files now exceed the limit.
+
+| Source under src/ | Physical | Test-only | Production |
+| --- | ---: | ---: | ---: |
+| cli.rs | 57 | 0 | 57 |
+| cli/args.rs | 75 | 0 | 75 |
+| cli/commands.rs | 300 | 0 | 300 |
+| cli/context.rs | 278 | 64 | 214 |
+| cli/legacy.rs | 197 | 0 | 197 |
+
 #### Import Findings
 
 Four function-local production imports remain: `OpenOptionsExt` in
@@ -100,7 +112,7 @@ this inventory is not an assertion that all import rules already pass.
 
 | Oversized file | Planned split and gate |
 | --- | --- |
-| cli.rs (810) | T011: small facade plus args, command definitions, context initialization and temporary legacy dispatch; split command families further if needed |
+| cli.rs (810) | Done in T011: facade plus args, command definitions, context initialization and temporary legacy dispatch; split command families further if needed |
 | db.rs (695) | Roadmap effects phase: connection/migrations and focused user/order persistence modules behind the db facade; no storage migration in the listing pilot |
 | parser/dms.rs (1198) | Roadmap effects/messaging phases: decode/correlation to msg, reply-driven writes to commands/apply, presentation to parse_human |
 | util/messaging.rs (487) | Roadmap shared-messaging phase: private Session, send_msg and receive_msg, with focused private helpers as needed |
@@ -116,18 +128,19 @@ the complete refactor must eliminate every legacy violation.
 
 - **`src/main.rs`**
   - Initializes the async runtime and delegates to `cli::run()`.
-  - Very thin; most logic is in `src/cli.rs`.
+  - Very thin; most logic starts in `src/cli.rs`.
 
-- **`src/cli.rs`**
-  - Declares submodules for each logical command group: `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `list_orders`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`.
-  - Defines:
-    - `Context`: runtime dependencies required by commands (Nostr client, keys, trade index, DB pool, optional admin context keys, and Mostro pubkey).
-    - `Cli`: top-level arguments parsed by `clap` (subcommand, verbosity, Mostro pubkey override, relay list, PoW, secret mode).
-    - `Commands`: enum containing all subcommands and their structured arguments.
+- **`src/cli.rs`** (facade)
+  - Declares submodules for each logical command group: `add_bond_invoice`, `add_invoice`, `adm_send_dm`, `conversation_key`, `dispute_chat`, `dm_to_user`, `get_dm`, `get_dm_user`, `last_trade_index`, `list_disputes`, `list_orders`, `maintenance`, `new_order`, `orders_info`, `rate_user`, `restore`, `send_dm`, `send_admin_dm_attach`, `send_msg`, `take_dispute`, `take_order`, `user_info`.
+  - Re-exports `Cli`, `Commands` and `Context`, so callers keep using `crate::cli::{Cli, Commands, Context}`.
   - `run()`:
     - Parses CLI args via `Cli::parse()`.
-    - Constructs a `Context` using `init_context(&cli)`.
-    - Dispatches: `if let Some(cmd) = &cli.command { cmd.run(&ctx).await?; }`.
+    - Runs daemon admin-RPC commands through `Commands::run_rpc` first, before any configuration, database or relay work.
+    - Otherwise constructs a `Context` using `init_context(&cli)` and dispatches through `Commands::run`.
+- **`src/cli/args.rs`**: `Cli`, the top-level `clap` arguments (subcommand, verbosity, Mostro pubkey override, relay list, PoW, secret mode, transport), and the `--fiatamount` range parser.
+- **`src/cli/commands.rs`**: the `Commands` enum containing all subcommands and their structured arguments.
+- **`src/cli/legacy.rs`**: `Commands::run_rpc` and `Commands::run`, the temporary dispatch that maps each variant to its `execute_*` handler.
+- **`src/cli/context.rs`**: `Context` (Nostr client, keys, trade index, DB pool, optional admin context keys, and Mostro pubkey) and its initialization.
   - `init_context()`:
     - Sets environment variables from CLI flags (e.g. `MOSTRO_PUBKEY`, `RELAYS`, `POW`, `SECRET`).
     - Connects to SQLite via `db::connect()`.
@@ -213,7 +226,7 @@ Each file in `src/cli/` encapsulates the logic of a specific feature or a group 
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `send_msg.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each module exports an `execute_*` function that `Commands::run` calls. This keeps `src/cli.rs` as a central router while pushing feature logic into focused files.
+Each module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. This keeps one central router while pushing feature logic into focused files.
 
 ### Typical flow: creating a new order
 
@@ -231,9 +244,9 @@ Each module exports an `execute_*` function that `Commands::run` calls. This kee
 When adding new features:
 
 - **New command**:
-  - Add a variant to `Commands` in `src/cli.rs`.
+  - Add a variant to `Commands` in `src/cli/commands.rs`.
   - Add the corresponding `execute_*` function in a `src/cli/*.rs` module.
-  - Extend the `Commands::run` match arm.
+  - Extend the `Commands::run` match arm in `src/cli/legacy.rs`.
   - Update `docs/commands.md` to keep documentation in sync.
 
 - **New database fields / tables**:

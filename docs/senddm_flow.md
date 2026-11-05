@@ -5,7 +5,7 @@ This document explains the full flow for the `senddm` command, from CLI invocati
 ### 1. CLI entrypoint
 
 - **Command**: `senddm`
-- **Defined in**: `src/cli.rs` (`Commands::SendDm`)
+- **Defined in**: `src/cli/commands.rs` (`Commands::SendDm`)
 - **Documented in**: `docs/commands.md`
 - **Args**:
   - `--pubkey <NPUB/HEX>`: Recipient pubkey.
@@ -14,10 +14,10 @@ This document explains the full flow for the `senddm` command, from CLI invocati
 
 The CLI argument parser constructs a `Commands::SendDm { pubkey, order_id, message }` variant and then calls:
 
-- `Commands::run(&self, ctx: &Context)` in `src/cli.rs`, which dispatches to:
+- `Commands::run(&self, ctx: &Context)` in `src/cli/legacy.rs`, which dispatches to:
   - `execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, &msg)` in `src/cli/send_dm.rs`.
 
-The shared `Context` (`src/cli.rs`) contains:
+The shared `Context` (`src/cli/context.rs`) contains:
 
 - `identity_keys: Keys`: long‑term i0 identity keys for the user.
 - `trade_keys: Keys`: current ephemeral trade keys (derived from identity via BIP32/NIP‑06).

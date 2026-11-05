@@ -77,7 +77,9 @@ they are not pilot acceptance.
 The [task list](tasks.md) assigns test-first dependencies and carries these
 baseline prerequisites explicitly. Setup T001-T003 and baseline checkpoints
 T004-T010 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t010-baseline-gate-decision-2026-10-20);
-the baseline gate is closed with recorded exceptions and T011-T055 remain pending.
+the baseline gate is closed with recorded exceptions. Foundation T011 is
+recorded in [the test summary](../../tests/TEST_SUMMARY.md#t011-cli-module-split-2026-10-20);
+T012-T055 remain pending.
 
 ## Execution Design
 
@@ -168,7 +170,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T010 as complete; its checkboxes track
+The task list records T001-T011 as complete; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
