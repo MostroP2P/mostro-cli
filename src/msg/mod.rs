@@ -86,8 +86,9 @@ pub struct ReadLimits {
     pub cleanup: Duration,
     /// Unique matching events retained before the read fails.
     pub max_unique_events: usize,
-    /// Per-relay notification buffer. The SDK skips lagged notifications
-    /// silently, so a relay producing this many before its EOSE fails the read.
+    /// Notifications accepted from one relay before its EOSE. The SDK skips
+    /// lagged notifications silently, so reaching this count fails the read.
+    /// The relay's channel holds [`CHANNEL_HEADROOM`] times as many.
     pub notification_capacity: usize,
 }
 
@@ -125,6 +126,24 @@ pub(crate) fn ephemeral_client() -> Client {
         .build()
 }
 
+/// Channel slots per relay for each notification accepted before EOSE.
+///
+/// A lagged SDK receiver keeps only the newest notifications and reports
+/// nothing. With a channel the same size as the capacity, notifications sent
+/// after EOSE could push the EOSE below the capacity count and hide the
+/// lost events. With this headroom a relay must also send more than
+/// `notification_capacity` notifications after its EOSE, before the
+/// collector reads them, to hide a loss. Closing that last case needs a
+/// lag-aware SDK API, which nostr-sdk 0.45 does not offer.
+const CHANNEL_HEADROOM: usize = 2;
+
+/// The SDK notification channel size for one relay of a read.
+fn channel_size(limits: &ReadLimits) -> usize {
+    limits
+        .notification_capacity
+        .saturating_mul(CHANNEL_HEADROOM)
+}
+
 /// The connected client of one public read; it never leaves this module tree.
 struct Session {
     client: Client,
@@ -143,7 +162,7 @@ impl Session {
                 .add_relay(url)
                 .reconnect(false)
                 .connect_timeout(limits.connect)
-                .notification_channel_size(limits.notification_capacity)
+                .notification_channel_size(channel_size(limits))
                 .await
                 .map_err(|_| ErrorCode::InternalError)?;
         }
