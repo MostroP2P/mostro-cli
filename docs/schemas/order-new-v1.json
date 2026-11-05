@@ -428,6 +428,19 @@
                   "const": "published"
                 }
               }
+            },
+            {
+              "properties": {
+                "daemon_acceptance": {
+                  "const": "rejected"
+                },
+                "persistence": {
+                  "const": "applied"
+                },
+                "publication": {
+                  "const": "published"
+                }
+              }
             }
           ],
           "properties": {

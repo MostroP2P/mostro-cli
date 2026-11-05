@@ -24,8 +24,8 @@ regtest node (mostrod v0.19.3, 2026-11-01; bonded and Cashu nodes not covered): 
 ([tasks.md](specs/004-order-take-json/tasks.md)); the add-invoice commands
 ([spec](specs/005-invoice-json/spec.md), [tasks.md](specs/005-invoice-json/tasks.md)),
 `message list` ([spec](specs/006-message-list-json/spec.md), [tasks.md](specs/006-message-list-json/tasks.md))
-and `order fiat-sent`, `order release` and `order cancel` ([spec](specs/007-trade-steps-json/spec.md), [tasks.md](specs/007-trade-steps-json/tasks.md))
-are verified against the scripted node only; `order add-invoice`, `message list` and the trade steps (except a range order) were probed on a real regtest node, `bond add-invoice` was not. Continue from existing
+and `order fiat-sent`, `order release` and `order cancel` ([spec](specs/007-trade-steps-json/spec.md), [tasks.md](specs/007-trade-steps-json/tasks.md)) and range children with `order sync` ([spec](specs/008-range-children/spec.md), [tasks.md](specs/008-range-children/tasks.md))
+are verified against the scripted node only; `order add-invoice`, `message list` and the trade steps (except a range order) were probed on a real regtest node, range children (a sell range order) were probed too, `bond add-invoice` was not. Continue from existing
 regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

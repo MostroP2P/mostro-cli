@@ -7,7 +7,7 @@
 Three commands that are one operation parameterised by the step: sign one request with the order's stored trade key, `exchange` with the
 step's allowed actions (order-id correlation as in `order add-invoice`), map the reply to a typed result, update the local status. Almost
 everything is reuse of spec 005 (`Store::trade_for_order`, `set_status`, `order_unknown`, `cli/write.rs`, envelope, schema rules); the new
-parts are the three reply sets and the `range_not_continued` warning (range continuation is spec 008).
+parts are the three reply sets and the range-order key (added by spec 008).
 
 ## Design
 

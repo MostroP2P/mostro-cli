@@ -443,6 +443,17 @@ async fn the_legacy_save_writes_the_order_row_and_the_trade_index_only_after_an_
             .unwrap(),
         2
     );
+    // An older index never moves it back (spec 008, slice 7): the index may
+    // have been reserved by a later request already.
+    mostro_client::util::save_order(accepted.clone(), &trade_keys, REQUEST_ID, 1, &pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        mostro_client::db::User::get_last_trade_index(pool.clone())
+            .await
+            .unwrap(),
+        2
+    );
     pool.close().await;
 
     // A store that cannot be written fails the save and leaves the index behind
@@ -695,26 +706,178 @@ mod store {
         );
     }
 
+    // --- The reservation (spec 008, slice 7) ---
+
+    /// The raw recorded index: `None` when it was never set.
+    async fn raw_index(sandbox: &Sandbox) -> Option<i64> {
+        scalar::<Option<i64>>(sandbox, "SELECT last_trade_index FROM users").await
+    }
+
+    async fn sql(sandbox: &Sandbox, statement: &'static str) {
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query(statement).execute(&pool).await.unwrap();
+        pool.close().await;
+    }
+
     #[tokio::test]
-    async fn advance_moves_the_index_forward_only() {
+    async fn a_reservation_is_recorded_before_it_returns_and_never_reuses_an_index() {
         let (sandbox, store, _) = seeded().await;
-        store.advance(4).await.unwrap();
-        assert_eq!(
-            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
-            4
+        assert_eq!(raw_index(&sandbox).await, None);
+
+        let first = store.reserve_trade().await.unwrap();
+        assert_eq!(first.trade.index, 1);
+        assert_eq!(raw_index(&sandbox).await, Some(1), "recorded at once");
+        assert!(!format!("{first:?}").contains(&first.trade.keys.secret_key().to_secret_hex()));
+        let second = store.reserve_trade().await.unwrap();
+        assert_eq!(second.trade.index, 2);
+        assert_ne!(
+            second.trade.keys.public_key(),
+            first.trade.keys.public_key()
         );
-        store.advance(2).await.unwrap();
+        assert_eq!(raw_index(&sandbox).await, Some(2));
+        let names: Vec<_> = directory(&sandbox).into_iter().map(|f| f.0).collect();
+        assert_eq!(names, vec!["mcli.db".to_string()], "no sidecar left behind");
+
+        // A damaged negative index never yields index 0, the identity's.
+        set_last_trade_index(&sandbox.mcli_dir(), -5).await;
+        assert_eq!(store.reserve_trade().await.unwrap().trade.index, 1);
+        assert_eq!(raw_index(&sandbox).await, Some(1));
+        // The last address of the derivation path is reserved; past it nothing
+        // is recorded.
+        let last = mostro_client::identity::LAST_TRADE_INDEX;
+        set_last_trade_index(&sandbox.mcli_dir(), last - 1).await;
+        assert_eq!(store.reserve_trade().await.unwrap().trade.index, last);
         assert_eq!(
-            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
-            4,
-            "an older index never moves it back"
+            store.reserve_trade().await.unwrap_err(),
+            StoreError::Unwritable
         );
-        store.advance(4).await.unwrap();
+        assert_eq!(raw_index(&sandbox).await, Some(last));
+    }
+
+    #[tokio::test]
+    async fn the_reserved_key_is_the_one_the_preview_showed() {
+        let (sandbox, store, _) = seeded().await;
+        set_last_trade_index(&sandbox.mcli_dir(), 6).await;
+
+        let preview = store.next_trade().await.unwrap();
+        let reserved = store.reserve_trade().await.unwrap();
+
+        assert_eq!(reserved.trade.index, preview.index);
+        assert_eq!(reserved.trade.keys.public_key(), preview.keys.public_key());
+    }
+
+    /// Reservations started together in `concurrent_reservations_...`. Enough
+    /// that a deferred transaction fails at once on the upgrade from its read
+    /// lock; few enough that the last waiter stays far inside the 5 s busy
+    /// timeout on a disk whose sync is slow (SQLite's busy handler polls about
+    /// every 100 ms, and 32 at once overran it with 25 ms per `fsync`).
+    const CONCURRENT_RESERVATIONS: i64 = 8;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_reservations_never_share_an_index() {
+        // Runs at once take turns on the write lock: each waits under the busy
+        // timeout instead of failing at once, as a deferred transaction would
+        // on the upgrade from its read lock.
+        let (sandbox, _, _) = seeded().await;
+        let tasks: Vec<_> = (0..CONCURRENT_RESERVATIONS)
+            .map(|_| {
+                let store = Store::in_dir(&sandbox.mcli_dir());
+                tokio::spawn(async move {
+                    store
+                        .reserve_trade()
+                        .await
+                        .map(|reserved| (reserved.trade.index, reserved.trade.keys.public_key()))
+                })
+            })
+            .collect();
+        let mut reserved = Vec::new();
+        for task in tasks {
+            reserved.push(task.await.unwrap().expect("every reservation succeeds"));
+        }
+
+        reserved.sort_by_key(|(index, _)| *index);
+        let indexes: Vec<i64> = reserved.iter().map(|(index, _)| *index).collect();
+        assert_eq!(indexes, (1..=CONCURRENT_RESERVATIONS).collect::<Vec<i64>>());
+        let keys: std::collections::HashSet<_> = reserved.iter().map(|(_, key)| *key).collect();
+        assert_eq!(keys.len(), indexes.len(), "one key per index");
+        assert_eq!(raw_index(&sandbox).await, Some(CONCURRENT_RESERVATIONS));
+    }
+
+    #[tokio::test]
+    async fn a_reservation_that_cannot_commit_is_an_error_and_records_nothing() {
+        // A reader holding its lock past the busy timeout makes the commit
+        // fail: the reservation must say so rather than return an index it
+        // never recorded.
+        let (sandbox, store, _) = seeded().await;
+        set_last_trade_index(&sandbox.mcli_dir(), 4).await;
+        let options =
+            sqlx::sqlite::SqliteConnectOptions::new().filename(sandbox.mcli_dir().join("mcli.db"));
+        let mut reader = <sqlx::SqliteConnection as sqlx::Connection>::connect_with(&options)
+            .await
+            .unwrap();
+        sqlx::query("BEGIN").execute(&mut reader).await.unwrap();
+        let _: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&mut reader)
+            .await
+            .unwrap();
+
+        let blocked = store.reserve_trade().await;
+
+        assert_eq!(blocked.unwrap_err(), StoreError::Unwritable);
+        sqlx::query("ROLLBACK").execute(&mut reader).await.unwrap();
+        sqlx::Connection::close(reader).await.unwrap();
+        assert_eq!(raw_index(&sandbox).await, Some(4), "nothing was recorded");
+        assert_eq!(store.reserve_trade().await.unwrap().trade.index, 5);
+    }
+
+    #[tokio::test]
+    async fn a_give_back_restores_the_exact_value_only_for_the_newest_reservation() {
+        let (sandbox, store, _) = seeded().await;
+        let only = store.reserve_trade().await.unwrap();
+        assert!(store.release(&only).await);
+        assert_eq!(raw_index(&sandbox).await, None, "NULL stays NULL");
+        assert!(!store.release(&only).await, "a second give-back is a no-op");
+        assert_eq!(raw_index(&sandbox).await, None);
+
+        let older = store.reserve_trade().await.unwrap();
+        let newer = store.reserve_trade().await.unwrap();
+        assert!(
+            !store.release(&older).await,
+            "a later reservation exists: the older index is skipped"
+        );
+        assert_eq!(raw_index(&sandbox).await, Some(2));
+        assert!(store.release(&newer).await);
+        assert_eq!(raw_index(&sandbox).await, Some(1));
+        assert!(!store.release(&newer).await);
+        assert_eq!(raw_index(&sandbox).await, Some(1));
+    }
+
+    #[tokio::test]
+    async fn no_user_row_or_a_frozen_users_table_reserves_nothing() {
+        let (sandbox, store, _) = seeded().await;
+        sql(
+            &sandbox,
+            "CREATE TRIGGER freeze_users BEFORE UPDATE ON users \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .await;
+        let before = directory(&sandbox);
         assert_eq!(
-            scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
-            4
+            store.reserve_trade().await.unwrap_err(),
+            StoreError::Unwritable
         );
-        assert_eq!(store.next_trade().await.unwrap().index, 5);
+        assert_eq!(directory(&sandbox), before, "nothing changed");
+
+        let (sandbox, store, _) = seeded().await;
+        sql(&sandbox, "DELETE FROM users").await;
+        let before = directory(&sandbox);
+        assert_eq!(
+            store.reserve_trade().await.unwrap_err(),
+            StoreError::Missing
+        );
+        assert_eq!(directory(&sandbox), before, "nothing changed");
     }
 
     #[tokio::test]
@@ -726,7 +889,10 @@ mod store {
             keys: Keys::generate(),
         };
         assert_eq!(store.next_trade().await.unwrap_err(), StoreError::Missing);
-        assert_eq!(store.advance(1).await, Err(StoreError::Missing));
+        assert_eq!(
+            store.reserve_trade().await.unwrap_err(),
+            StoreError::Missing
+        );
         assert_eq!(
             store
                 .save_order(&created(uuid::Uuid::new_v4()), &trade, 1)
@@ -743,7 +909,10 @@ mod store {
             store.next_trade().await.unwrap_err(),
             StoreError::Unwritable
         );
-        assert_eq!(store.advance(1).await, Err(StoreError::Unwritable));
+        assert_eq!(
+            store.reserve_trade().await.unwrap_err(),
+            StoreError::Unwritable
+        );
         assert_eq!(
             std::fs::read(sandbox.mcli_dir().join("mcli.db")).unwrap(),
             b"not a database"
@@ -765,15 +934,14 @@ mod store {
             writable,
             "the check says what a write would"
         );
-        let blocked = store.advance(3).await;
+        let blocked = store.reserve_trade().await;
         // A read-only file is reported unless the process may ignore the mode (root).
-        if blocked.is_ok() {
-            assert_eq!(
-                scalar::<i64>(&sandbox, "SELECT last_trade_index FROM users").await,
-                3
-            );
-        } else {
-            assert_eq!(blocked, Err(StoreError::Unwritable));
+        match blocked {
+            Ok(reserved) => assert_eq!(raw_index(&sandbox).await, Some(reserved.trade.index)),
+            Err(error) => {
+                assert_eq!(error, StoreError::Unwritable);
+                assert_eq!(raw_index(&sandbox).await, None);
+            }
         }
     }
 }
@@ -782,11 +950,16 @@ mod store {
 
 mod operation {
     use super::*;
+    use fake_mostro::{order_created, refusal, Outgoing, Received};
     use mostro_client::commands::order::new::{order_new, NewOptions, NewOutcome};
+    use mostro_client::commands::order::take::order_take;
     use mostro_client::outcome::new::{NewStep, OrderNewInput, OrderRequest};
+    use mostro_client::outcome::take::{OrderTakeInput, TakeRequest, TakeSide};
     use mostro_client::outcome::{ErrorCode, Status};
     use mostro_client::store::Store;
     use serde_json::json;
+    use std::sync::Mutex;
+    use uuid::Uuid;
 
     struct Maker {
         relay: LoopbackRelay,
@@ -850,12 +1023,10 @@ mod operation {
     }
 
     async fn create(maker: &Maker) -> NewOutcome {
-        let trade = maker.store.next_trade().await.unwrap();
         order_new(
             &input(),
             &maker.config,
             &maker.identity,
-            &trade,
             &maker.store,
             NewOptions {
                 pow: 0,
@@ -929,20 +1100,113 @@ mod operation {
 
     #[tokio::test]
     async fn a_refusal_is_an_error_with_its_reason_and_writes_nothing() {
-        let (respond, _) = new_order_daemon(5, false);
+        let respond: Respond = Arc::new(|request: &Received| {
+            vec![Outgoing::to_requester(refusal(
+                request,
+                CantDoReason::OutOfRangeSatsAmount,
+            ))]
+        });
         let maker = maker(respond, 0).await;
 
         let outcome = create(&maker).await;
 
         assert_eq!(outcome.status(), Status::Error);
         assert_eq!(outcome.error_code(), Some(ErrorCode::NodeRefused));
-        assert_eq!(outcome.reason(), Some("invalid_trade_index"));
+        assert_eq!(outcome.reason(), Some("out_of_range_sats_amount"));
         assert_eq!(
             stages(&outcome),
             json!({"publication": "published", "daemon_acceptance": "rejected",
                    "persistence": "not_attempted", "snapshot": null})
         );
-        assert_eq!(state(&maker).await, (0, 0), "a refusal spends no index");
+        // The index was reserved and given back exactly (NULL included).
+        assert_eq!(
+            raw_state(&maker).await,
+            (0, None),
+            "a refusal spends no index"
+        );
+    }
+
+    /// A node that checks every index against the last one it recorded, and
+    /// that records a take's index and then loses the order to another taker,
+    /// as mostrod v0.20.2's `take_sell` does when its compare-and-swap misses
+    /// (`update_user_trade_index`, then `not_allowed_by_status`). New orders
+    /// are created.
+    fn node_losing_a_take_race() -> (Respond, Arc<Mutex<i64>>) {
+        let last = Arc::new(Mutex::new(0));
+        let state = Arc::clone(&last);
+        let respond: Respond = Arc::new(move |request: &Received| {
+            let mut last = state.lock().unwrap();
+            let index = request.trade_index.unwrap_or(0);
+            let reply = if index <= *last {
+                refusal(request, CantDoReason::InvalidTradeIndex)
+            } else {
+                *last = index;
+                match request.action {
+                    Action::TakeSell => refusal(request, CantDoReason::NotAllowedByStatus),
+                    _ => order_created(request, Uuid::new_v4()),
+                }
+            };
+            vec![Outgoing::to_requester(reply)]
+        });
+        (respond, last)
+    }
+
+    #[tokio::test]
+    async fn an_index_the_node_recorded_before_refusing_costs_one_stale_refusal_not_every_run() {
+        let (respond, last) = node_losing_a_take_race();
+        let maker = maker(respond, 0).await;
+        let lost_take = OrderTakeInput::validate(TakeRequest {
+            side: TakeSide::Sell,
+            order: Uuid::new_v4(),
+            amount: None,
+            invoice: None,
+        })
+        .unwrap();
+        let options = NewOptions {
+            pow: 0,
+            check_protocol: true,
+        };
+
+        // The node records index 1 and then refuses the take: the refusal
+        // gives the index back, so the local index falls behind the node's.
+        let lost = order_take(
+            &lost_take,
+            &maker.config,
+            &maker.identity,
+            &maker.store,
+            options,
+            &super::limits(),
+        )
+        .await;
+        assert_eq!(lost.reason(), Some("not_allowed_by_status"));
+        assert_eq!(raw_state(&maker).await, (0, None));
+
+        // The next order carries index 1 again and the node refuses it as
+        // stale. Giving it back would repeat this refusal on every later run,
+        // so the index stays spent.
+        let stale = create(&maker).await;
+        assert_eq!(stale.error_code(), Some(ErrorCode::NodeRefused));
+        assert_eq!(stale.reason(), Some("invalid_trade_index"));
+        assert_eq!(
+            stages(&stale),
+            json!({"publication": "published", "daemon_acceptance": "rejected",
+                   "persistence": "applied", "snapshot": null})
+        );
+        assert_eq!(raw_state(&maker).await, (0, Some(1)));
+
+        // The run after it carries the next index, and the node creates it.
+        let created = create(&maker).await;
+        assert_eq!(created.status(), Status::Ok, "{:?}", wire(&created));
+        assert_eq!(created.data().unwrap().trade_index(), "2");
+        let sent: Vec<_> = maker
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.trade_index)
+            .collect();
+        assert_eq!(sent, [Some(1), Some(1), Some(2)]);
+        assert_eq!(raw_state(&maker).await, (1, Some(2)));
+        assert_eq!(*last.lock().unwrap(), 2);
     }
 
     #[tokio::test]
@@ -1003,30 +1267,20 @@ mod operation {
     async fn an_order_that_cannot_be_saved_is_uncertain_and_carries_what_the_node_made() {
         let (respond, _) = new_order_daemon(0, false);
         let maker = maker(respond, 0).await;
-        let trade = maker.store.next_trade().await.unwrap();
-        // The node will accept; the store loses its user row meanwhile.
+        // The node will accept; the store refuses the order row.
         let options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(maker.sandbox.mcli_dir().join("mcli.db"));
         let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
-        sqlx::query("DELETE FROM users")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER refuse_orders BEFORE INSERT ON orders \
+             BEGIN SELECT RAISE(ABORT, 'no orders'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         pool.close().await;
 
-        let outcome = order_new(
-            &input(),
-            &maker.config,
-            &maker.identity,
-            &trade,
-            &maker.store,
-            NewOptions {
-                pow: 0,
-                check_protocol: true,
-            },
-            &super::limits(),
-        )
-        .await;
+        let outcome = create(&maker).await;
 
         assert_eq!(outcome.status(), Status::Uncertain);
         assert_eq!(outcome.error_code(), Some(ErrorCode::OrderNotSaved));
@@ -1038,9 +1292,36 @@ mod operation {
                    "persistence": "failed", "snapshot": null})
         );
         assert_eq!(
-            scalar::<i64>(&maker, "SELECT COUNT(*) FROM orders").await,
-            0
+            state(&maker).await,
+            (0, 1),
+            "no row, and the index was spent before publishing"
         );
+    }
+
+    #[tokio::test]
+    async fn a_missing_user_row_sends_nothing() {
+        let (respond, last) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(maker.sandbox.mcli_dir().join("mcli.db"));
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("DELETE FROM users")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let outcome = create(&maker).await;
+
+        assert_eq!(outcome.status(), Status::Error);
+        assert_eq!(outcome.error_code(), Some(ErrorCode::IdentityMissing));
+        assert_eq!(
+            stages(&outcome),
+            json!({"publication": "not_attempted", "daemon_acceptance": "unknown",
+                   "persistence": "not_attempted", "snapshot": null})
+        );
+        assert!(maker.fake.received().is_empty());
+        assert_eq!(*last.lock().unwrap(), 0);
     }
 
     #[tokio::test]
@@ -1071,7 +1352,6 @@ mod operation {
     async fn work_the_node_expects_stops_the_command_before_anything_is_sent_or_written() {
         let (respond, last) = new_order_daemon(0, false);
         let maker = maker(respond, 9).await;
-        let before = std::fs::read(maker.sandbox.mcli_dir().join("mcli.db")).unwrap();
 
         let outcome = create(&maker).await;
 
@@ -1084,11 +1364,9 @@ mod operation {
         );
         assert!(maker.fake.received().is_empty());
         assert_eq!(*last.lock().unwrap(), 0);
-        assert_eq!(state(&maker).await, (0, 0));
-        assert_eq!(
-            std::fs::read(maker.sandbox.mcli_dir().join("mcli.db")).unwrap(),
-            before
-        );
+        // The index was reserved and given back: the values are restored
+        // exactly (NULL included), though the file was written.
+        assert_eq!(raw_state(&maker).await, (0, None));
     }
 
     // --- The binary (slice 4b) ------------------------------------------------
@@ -1215,6 +1493,10 @@ mod operation {
             scalar::<String>(&maker, "SELECT id FROM orders").await,
             outcome["data"]["order"]["id"].as_str().unwrap()
         );
+        assert!(
+            scalar::<bool>(&maker, "SELECT is_mine FROM orders").await,
+            "an order made with order new is the user's own"
+        );
         // The trade private key and the mnemonic stay in the store.
         let secret = scalar::<String>(&maker, "SELECT trade_keys FROM orders").await;
         let mnemonic = scalar::<String>(&maker, "SELECT mnemonic FROM users").await;
@@ -1296,10 +1578,10 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_refusal_shows_its_reason_in_both_modes_and_spends_nothing() {
-        let (respond, _) = new_order_daemon(5, false);
+    async fn a_stale_index_refusal_shows_its_reason_in_both_modes_and_is_not_sent_again() {
+        // The node is two indexes ahead of the local store.
+        let (respond, last) = new_order_daemon(2, false);
         let maker = maker(respond, 0).await;
-        let before = snapshot(&maker);
 
         let json = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
         assert_eq!(json.code(), Some(1), "{}", json.stderr_text());
@@ -1309,6 +1591,7 @@ mod operation {
         assert_eq!(outcome["error"]["code"], "node_refused");
         assert_eq!(outcome["error"]["reason"], "invalid_trade_index");
         assert_eq!(outcome["data"], serde_json::Value::Null);
+        assert_eq!(outcome["meta"]["persistence"], "applied", "the index kept");
 
         let human = run(&maker, &args(&[], &["--yes"])).await;
         assert_eq!(human.code(), Some(1));
@@ -1317,8 +1600,20 @@ mod operation {
             human.stderr_text(),
             "error: The node refused the request. (reason: invalid_trade_index)\n"
         );
-        assert_eq!(snapshot(&maker), before, "a refusal changes nothing");
-        assert_eq!(maker.fake.received().len(), 2, "one request per run");
+        // Each stale index stays spent, so the next run carries the one after
+        // it and catches up with the node.
+        assert_eq!(raw_state(&maker).await, (0, Some(2)));
+        let caught_up = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(caught_up.code(), Some(0), "{}", caught_up.stderr_text());
+        let seen: Vec<_> = maker
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.trade_index)
+            .collect();
+        assert_eq!(seen, [Some(1), Some(2), Some(3)], "one request per run");
+        assert_eq!(raw_state(&maker).await, (1, Some(3)));
+        assert_eq!(*last.lock().unwrap(), 3);
     }
 
     #[tokio::test]
@@ -1342,6 +1637,126 @@ mod operation {
         );
         assert_eq!(maker.fake.received().len(), 1, "one publication, no retry");
         assert_eq!(state(&maker).await, (0, 1));
+    }
+
+    // --- The index is reserved before publishing (spec 008, slice 7) ---------
+
+    /// The order rows and the raw recorded index (`None` when never set).
+    async fn raw_state(maker: &Maker) -> (i64, Option<i64>) {
+        (
+            scalar(maker, "SELECT COUNT(*) FROM orders").await,
+            scalar(maker, "SELECT last_trade_index FROM users").await,
+        )
+    }
+
+    /// The orders `order sync` adopts (id, index), read until one comes or a
+    /// few seconds pass: the node's late answer may still be on its way.
+    async fn sync_until_adopted(maker: &Maker) -> Vec<(String, String)> {
+        use mostro_client::commands::order::sync::order_sync;
+        use mostro_client::msg::ReadLimits;
+        use mostro_client::outcome::sync::SyncInput;
+
+        let limits = ReadLimits {
+            connect: Duration::from_secs(2),
+            read: Duration::from_millis(1_500),
+            cleanup: Duration::from_millis(500),
+            ..ReadLimits::default()
+        };
+        let input = SyncInput::validate(None).unwrap();
+        for _ in 0..20 {
+            let outcome = order_sync(
+                &input,
+                &maker.config,
+                &maker.store,
+                &limits,
+                chrono::Utc::now(),
+            )
+            .await;
+            let adopted: Vec<_> = outcome.data().map_or_else(Vec::new, |data| {
+                data.adopted()
+                    .iter()
+                    .map(|order| {
+                        (
+                            order.order().id().to_string(),
+                            order.trade_index().to_string(),
+                        )
+                    })
+                    .collect()
+            });
+            if !adopted.is_empty() {
+                return adopted;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        Vec::new()
+    }
+
+    #[tokio::test]
+    async fn a_run_killed_after_publishing_never_reuses_its_key_and_sync_adopts_the_order() {
+        // The node creates the first order but answers late, and the run dies
+        // before it hears the answer (a crash, a kill, Ctrl-C). Later requests
+        // are answered at once.
+        let (orders, last) = new_order_daemon(0, false);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let late: Respond = Arc::new(move |request| {
+            let replies = orders(request);
+            if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
+                return replies;
+            }
+            replies
+                .into_iter()
+                .map(|reply| reply.after(Duration::from_secs(2)))
+                .collect()
+        });
+        let maker = maker(late, 0).await;
+        let first = command(&maker, &args(&["--output", "json"], &["--yes"]));
+
+        let killed =
+            harness::kill_once_published(first, || !maker.fake.received().is_empty(), WATCHDOG)
+                .await
+                .unwrap();
+
+        assert!(killed, "the order was published before the kill");
+        assert_eq!(
+            raw_state(&maker).await,
+            (0, Some(1)),
+            "the index was recorded before publishing"
+        );
+        assert_eq!(*last.lock().unwrap(), 1, "the node made the order of key 1");
+        let adopted = sync_until_adopted(&maker).await;
+        assert_eq!(adopted.len(), 1, "order sync adopts the order: {adopted:?}");
+        assert_eq!(adopted[0].1, "1");
+        assert_eq!(raw_state(&maker).await, (1, Some(1)));
+
+        let second = run(&maker, &args(&["--output", "json"], &["--yes"])).await;
+
+        assert_eq!(second.code(), Some(0), "{}", second.stderr_text());
+        let seen = maker.fake.received();
+        assert_eq!(seen.len(), 2, "one request per run");
+        assert_eq!(seen[1].trade_index, Some(2), "the next index");
+        assert_ne!(seen[1].author, seen[0].author, "a new key");
+        assert_eq!(raw_state(&maker).await, (2, Some(2)));
+    }
+
+    #[tokio::test]
+    async fn two_runs_at_once_never_share_an_index() {
+        let (respond, _) = new_order_daemon(0, false);
+        let maker = maker(respond, 0).await;
+        let both = args(&["--output", "json"], &["--yes"]);
+
+        let (first, second) = tokio::join!(run(&maker, &both), run(&maker, &both));
+
+        for run in [&first, &second] {
+            // Both are published; the node may refuse the lower index when the
+            // higher one reaches it first.
+            assert!(matches!(run.code(), Some(0 | 1)), "{}", run.stderr_text());
+        }
+        let seen = maker.fake.received();
+        let mut indexes: Vec<_> = seen.iter().map(|seen| seen.trade_index).collect();
+        indexes.sort();
+        assert_eq!(indexes, [Some(1), Some(2)], "two indexes, not one");
+        assert_ne!(seen[0].author, seen[1].author, "two keys");
+        assert_eq!(raw_state(&maker).await.1, Some(2));
     }
 
     #[tokio::test]
@@ -1501,6 +1916,9 @@ mod operation {
         /// Global flags placed before the command.
         flags: &'static [&'static str],
         code: &'static str,
+        /// The failure comes after the trade was reserved (and given back):
+        /// the orders and the raw index are compared instead of the bytes.
+        reserved: bool,
     }
 
     impl Failing {
@@ -1512,6 +1930,15 @@ mod operation {
                 unset: &[],
                 flags: &[],
                 code,
+                reserved: false,
+            }
+        }
+
+        /// A failure inside the exchange, after the reservation.
+        const fn after_reservation(label: &'static str, code: &'static str) -> Self {
+            Self {
+                reserved: true,
+                ..Self::new(label, Tweak::None, code)
             }
         }
     }
@@ -1539,6 +1966,11 @@ mod operation {
     async fn check_failure(case: &Failing, maker: &Maker) {
         tweak(maker, case.tweak).await;
         let before = snapshot(maker);
+        let state_before = if case.reserved {
+            Some(raw_state(maker).await)
+        } else {
+            None
+        };
         let label = case.label;
         for mode in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
             let mut front: Vec<&str> = case.flags.to_vec();
@@ -1585,7 +2017,9 @@ mod operation {
             maker.fake.received().is_empty(),
             "{label}: something was sent"
         );
-        if !matches!(case.tweak, Tweak::ReadOnly) {
+        if let Some(state) = state_before {
+            assert_eq!(raw_state(maker).await, state, "{label}: the store changed");
+        } else if !matches!(case.tweak, Tweak::ReadOnly) {
             assert_eq!(snapshot(maker), before, "{label}: the store changed");
         }
         assert!(
@@ -1653,7 +2087,7 @@ mod operation {
         let (respond, _) = new_order_daemon(0, false);
         let old = maker_with(respond, 1, 0, false).await;
         check_failure(
-            &Failing::new("protocol 1", Tweak::None, "protocol_unsupported"),
+            &Failing::after_reservation("protocol 1", "protocol_unsupported"),
             &old,
         )
         .await;
@@ -1661,7 +2095,7 @@ mod operation {
         let (respond, _) = new_order_daemon(0, false);
         let work = maker_with(respond, 2, 9, false).await;
         check_failure(
-            &Failing::new("more work expected", Tweak::None, "pow_required"),
+            &Failing::after_reservation("more work expected", "pow_required"),
             &work,
         )
         .await;
@@ -1685,11 +2119,11 @@ mod operation {
         let (respond, _) = new_order_daemon(0, false);
         let maker = maker_with(respond, 2, 0, true).await;
         check_failure(
-            &Failing::new("rejected", Tweak::None, "request_rejected"),
+            &Failing::after_reservation("rejected", "request_rejected"),
             &maker,
         )
         .await;
-        assert_eq!(state(&maker).await, (0, 0));
+        assert_eq!(raw_state(&maker).await, (0, None));
     }
 
     #[tokio::test]
@@ -1699,7 +2133,7 @@ mod operation {
         let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let dead = format!("ws://{}", free.local_addr().unwrap());
         drop(free);
-        let before = snapshot(&maker);
+        let before = raw_state(&maker).await;
 
         let run = run_env(
             &maker,
@@ -1715,7 +2149,7 @@ mod operation {
         assert_eq!(outcome["status"], "error");
         assert_eq!(outcome["meta"]["publication"], "not_attempted");
         assert!(!run.stderr_text().contains("127.0.0.1"));
-        assert_eq!(snapshot(&maker), before);
+        assert_eq!(raw_state(&maker).await, before, "the index was given back");
     }
 
     #[tokio::test]

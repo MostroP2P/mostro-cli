@@ -32,7 +32,8 @@ authorization.
    `from_reply`; `NextStep`; the minimal `SmallOrder` for `waiting-seller-to-pay`.
 3. **Operation.** `commands/order/take.rs`: `order_take(side, input, config, identity, trade, store, options, limits)` using `exchange` with allowed
    actions `add-invoice`, `waiting-seller-to-pay`, `pay-invoice`, `pay-bond-invoice`, `cant-do`; mapping per the data model; the same index policy as
-   `order new` (`spend_index` helper shared).
+   `order new` (`spend_index` helper shared; amended 2026-11-05 by spec 008: the operation reserves its own trade before publishing and takes
+   no `trade` argument).
 4. **Dispatch and grammar.** `OrderCommands::TakeSell(TakeSellArgs)` and `TakeBuy(TakeBuyArgs)`; two registry entries (`JsonSupport::Write`) replacing the
    legacy ones; `cli/order_take.rs`; `parse_human/order_take.rs`; legacy `Commands::TakeSell/TakeBuy`, `cli/take_order.rs` and `save_taken_sell_order`
    removed.

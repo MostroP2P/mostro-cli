@@ -21,18 +21,20 @@ public key and asks; the `release` preview says it cannot be undone.
 
 ## Outcomes
 
-See the [data model](../data-model.md). The trade index is never advanced and no next trade key is sent. `uncertain` means the node may have
+See the [data model](../data-model.md). The trade index is advanced only for the key of a range order's maker step, before publishing (amended 2026-11-05 by spec 008). `uncertain` means the node may have
 acted: the program does not retry; the caller checks `order info --order <id>` before sending again.
 
 ## Range orders
 
-On a range order of the user's with room left, an accepted `fiat-sent` or `release` carries the warning `range_not_continued`: the node does not
-create an order for the rest of the range. Continuing the range is spec 008.
+See [spec 008](../../008-range-children/spec.md). On a range order the user made with room left, the maker's own step (`release` of a sell order,
+`fiat-sent` of a buy order) carries a fresh trade key; the data reports the reserved `next_trade_index`, and after a `release` `next_step` is
+`sync_child_order`. Elsewhere (a taker, a fixed order, an exhausted range, `cancel`) nothing is sent and no index is spent.
 
 ## Human output
 
-One block: a title for the result, the order id, the trade public key and a next-step sentence. The warnings `range_not_continued` and
-`local_status_stale` are fixed lines on stderr. `--verbose` prints one line `verbose: <command> <code or ok>`; diagnostics never include keys,
+One block: a title for the result, the order id, the trade public key and a next-step sentence. The warning `local_status_stale` is a fixed
+line on stderr (`trade_index_not_recorded` was removed: the index of a range continuation is recorded before publishing; amended 2026-11-05 by
+spec 008). `--verbose` prints one line `verbose: <command> <code or ok>`; diagnostics never include keys,
 relays or arguments.
 
 ## Stable errors

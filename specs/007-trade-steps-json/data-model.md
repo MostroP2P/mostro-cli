@@ -9,9 +9,9 @@ All three commands return the standard envelope (v1) with `meta.publication`, `m
 | `node_pubkey` | the node's public key (hex) |
 | `order_id` | lowercase UUID |
 | `result` | `fiat_sent`, `released`, `canceled`, `cancel_requested`, `cancel_accepted` |
-| `next_step` | `wait_for_release` (after `fiat_sent`), `wait_for_peer_cancel` (after `cancel_requested`), else `null` |
+| `next_step` | `wait_for_release` (after `fiat_sent`), `wait_for_peer_cancel` (after `cancel_requested`), `sync_child_order` (after a `released` that sent a next trade key, spec 008), else `null` |
 | `trade_pubkey` | public key of the order's trade key |
-| `next_trade_index` | decimal string or `null`; always `null` until spec 008 reserves an index for a range order |
+| `next_trade_index` | decimal string or `null`; the index reserved for the next trade key a range order's step carried (spec 008) |
 
 ## Replies mapped
 
@@ -33,7 +33,7 @@ its payload empty (a `peer` for `fiat-sent-ok`), otherwise the outcome is `reply
 | accepted, row updated | `ok` | | published / accepted / applied |
 | accepted, nothing to record (cancel request) | `ok` | | published / accepted / not_attempted |
 | accepted, row update failed | `ok` + warning `local_status_stale` | | published / accepted / failed |
-| accepted on a range order with room left (`fiat-sent`, `release`) | `ok` + warning `range_not_continued` | | as above |
+| range continuation (spec 008): the next trade index cannot be reserved (amended 2026-11-05 by spec 008) | `error` | `store_unwritable` | not_attempted / unknown / not_attempted |
 | `cant-do(r)` | `error` | `node_refused` + reason `r` | published / rejected / not_attempted |
 | no reply | `uncertain` | `reply_timeout` | published / unknown / not_attempted |
 | unusable reply | `uncertain` | `reply_malformed` | published / unknown / not_attempted |
@@ -42,5 +42,4 @@ its payload empty (a `peer` for `fiat-sent-ok`), otherwise the outcome is `reply
 | declined at the prompt | `error` | `order_declined` | not_attempted |
 | argument, configuration, identity, protocol, relay, work failures | `error` | as `order add-invoice` | not_attempted |
 
-`Stages::Step` also allows `applied` or `failed` persistence on `uncertain` for the index a range continuation will reserve (spec 008); today the
-persistence of an `uncertain` outcome is `not_attempted`.
+On `uncertain`, persistence is `applied` when a range continuation sent a key (its index was recorded before publishing) and `not_attempted` when no key was sent (amended 2026-11-05 by spec 008).

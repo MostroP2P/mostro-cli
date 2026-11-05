@@ -168,8 +168,6 @@ pub enum WarningCode {
     LocalStatusStale,
     // Added for `message.list`.
     TradeKeysLimited,
-    // Added for `order.fiat-sent` and `order.release`.
-    RangeNotContinued,
 }
 
 impl WarningCode {
@@ -187,9 +185,6 @@ impl WarningCode {
                 "One or more order timestamps cannot be shown as a UTC date."
             }
             Self::TradeKeysLimited => "Trade keys older than the newest 200 were not read.",
-            Self::RangeNotContinued => {
-                "The range order was not continued: the node creates no order for the rest of the range."
-            }
             Self::LocalStatusStale => {
                 "The node accepted the invoice but the local order status could not be updated."
             }

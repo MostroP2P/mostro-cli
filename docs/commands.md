@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `bond add-invoice` and `message list` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice` and `message list` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -44,7 +44,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `bond add-invoice` and `message list`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice` and `message list`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes and the invoice commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -87,7 +87,7 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--fiat-amount-max <M>`: makes a range order `N..M` at market price (`--sats` must then be 0).
     - `--sats <N>` (default 0, market price), `--premium <PERCENT>` (-100..100, default 0), `--invoice <BOLT11>`, `--expiration-days <N>` (0..365; 0 uses the node's default).
     - `--yes`: create without asking. Required with `--output json`, which never prompts or reads stdin.
-  - **Output**: the order preview and a prompt (blank or `y` accepts; `n`, anything else or closed stdin declines) in human mode; one JSON document with `--output json`. Statuses are `ok`, `error` and `uncertain`: `uncertain` means the node may hold the order (no reply, an unusable reply, or the order could not be saved locally); check `order list` before trying again. The trade index is advanced whenever the request was published and not refused, so a key is never reused. On a node that requires a maker bond the result is `ok` with `data.next_step` `pay_bond_invoice` and the bond invoice in `data.payment_request`: pay it with any Lightning wallet and the node then publishes the order.
+  - **Output**: the order preview and a prompt (blank or `y` accepts; `n`, anything else or closed stdin declines) in human mode; one JSON document with `--output json`. Statuses are `ok`, `error` and `uncertain`: `uncertain` means the node may hold the order (no reply, an unusable reply, or the order could not be saved locally); check `order list` before trying again. The trade index is recorded right before the request is published, so a key is never reused, even when the run dies before the reply, and two runs at once never share one; a refusal or a request that never left gives it back. A refusal for a stale index (`invalid_trade_index`) keeps it instead (`meta.persistence` `applied`): the node is already at or past it, so the next run carries the one after it. The node can record an index and still refuse (a take that lost the order to another taker, the first request of a new identity); the next request is then refused once as stale and the one after it goes through. The preview shows the index the order will use unless another command reserves one meanwhile; the result reports the one actually used. Two requests at once may reach the node out of order, and the node then refuses the lower index with `invalid_trade_index`. On a node that requires a maker bond the result is `ok` with `data.next_step` `pay_bond_invoice` and the bond invoice in `data.payment_request`: pay it with any Lightning wallet and the node then publishes the order.
   - **Migration**: `neworder`, its short flags, the squashed long flags (`--fiatcode`, `--paymentmethod`, `--expirationdays`), `--kind`, `--amount` and the `100-200` range syntax are gone with no alias; use `--side`, `--sats`, `--fiat-amount` with `--fiat-amount-max`. The Yadio currency check is gone: the node validates. The existing MCP server's `create_order` tool runs the old command and stops working until it is migrated.
   - **Handler**: `commands::order::new::order_new` through `msg::exchange` and `store`; dispatch and the prompt in `cli/order_new.rs`.
 
@@ -98,7 +98,7 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--amount <FIAT>`: the fiat amount, for a range order.
     - `--invoice <BOLT11|ADDRESS>`: take-sell only; without one the node asks for it next.
     - `--yes`: take without asking. Required with `--output json`, which never prompts or reads stdin.
-  - **Output**: a preview and a prompt in human mode (blank or `y` accepts; anything else and closed stdin decline); one JSON document with `--output json`. The data names the next step (`add_invoice`, `wait_for_seller_payment`, `pay_hold_invoice`, `pay_bond_invoice`) and carries the hold invoice or the taker bond invoice to pay when there is one; pay it with any Lightning wallet, the node continues afterwards. Statuses are `ok`, `error` and `uncertain` as for `order new`: `uncertain` means the node may hold the take; check `order info --order <id>` before trying again.
+  - **Output**: a preview and a prompt in human mode (blank or `y` accepts; anything else and closed stdin decline); one JSON document with `--output json`. The data names the next step (`add_invoice`, `wait_for_seller_payment`, `pay_hold_invoice`, `pay_bond_invoice`) and carries the hold invoice or the taker bond invoice to pay when there is one; pay it with any Lightning wallet, the node continues afterwards. Statuses are `ok`, `error` and `uncertain` as for `order new`: `uncertain` means the node may hold the take; check `order info --order <id>` before trying again. The trade index follows `order new`: recorded before the take is published, given back after a refusal or a take that never left, and kept after a refusal for a stale index (`invalid_trade_index`).
   - **Migration**: `takesell`, `takebuy`, `-o`, `--orderid`, `-i` and `-a` are gone with no alias; use `order take-sell|take-buy --order ... --invoice ... --amount ...`. An invalid invoice is now refused before anything is sent. The legacy read of the public book after a take-sell with an invoice is gone: the saved row is minimal (id, side, `waiting-payment`, trade key) until a later command refreshes it. The existing MCP server's `take_order` tool runs the old commands and stops working until it is migrated.
   - **Handler**: `commands::order::take::order_take` through `msg::exchange` and `store`; dispatch and the prompt in `cli/order_take.rs` (shared steps in `cli/write.rs`).
 
@@ -108,31 +108,37 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--order <UUID>`, `--invoice <BOLT11|ADDRESS>` (required).
     - `--yes`: send without asking. Required with `--output json`, which never prompts or reads stdin.
   - **Output**: a preview (never the invoice) and a prompt in human mode; one JSON document with `--output json`. `data.result` is `waiting_seller_payment`, `payment_accepted` (with the order) or `invoice_updated`. A failed local status update is the warning `local_status_stale`; the node refusing is `node_refused` with its reason; no or an unusable reply is `uncertain`. An order not in the local store is `order_unknown` and nothing is sent.
-  - **Migration**: `addinvoice`, `-o`, `--order-id` and `-i` are gone with no alias; use `order add-invoice --order ID --invoice INVOICE`. The existing MCP server's `add_invoice` tool runs the old command and will not work against this build until the MCP is migrated (a separate change with its own spec).
+  - **Migration**: `addinvoice`, `-o`, `--order-id` and `-i` are gone with no alias; use `order add-invoice --order ID --invoice INVOICE`. The existing MCP server has no tool for it.
   - **Handler**: `commands::order::invoice::order_add_invoice` through `msg::exchange` and `store`; dispatch and the prompt in `cli/invoice.rs`.
 
 - **`bond add-invoice`** (replaces `addbondinvoice`)
   - **Description**: Reply to the node's bond payout request with a BOLT-11 invoice for exactly your share of a slashed bond. This is unrelated to `pay-bond-invoice`, the bond you pay when an order or a take asks for one. Writes nothing locally.
   - **Args**: as `order add-invoice`, but the invoice must be BOLT-11 (an address is `invalid_arguments`).
   - **Output**: `data.result` is `invoice_accepted` with the share the node reported. Nodes before v0.20.1 never confirm: silence is `uncertain` (`reply_timeout`), not success, because the program cannot tell it from a lost reply. The confirmation carries no request id and is matched on the order.
-  - **Migration**: `addbondinvoice` and its short flags are gone with no alias; use `bond add-invoice --order ID --invoice BOLT11`. The old "timeout means success" reading is gone. An MCP tool for the old command, if any, breaks the same way.
+  - **Migration**: `addbondinvoice` and its short flags are gone with no alias; use `bond add-invoice --order ID --invoice BOLT11`. The old "timeout means success" reading is gone. The existing MCP server has no tool for it.
   - **Handler**: `commands::order::invoice::bond_add_invoice`; dispatch in `cli/invoice.rs`.
 
 - **`order fiat-sent`** (replaces `fiatsent`)
   - **Description**: Tell the node that you, the buyer, sent the fiat. Publishes one signed request with the stored trade key of the order and updates the local status to `fiat-sent`. It needs an existing local identity (`mcli.db`) and never creates one. In JSON mode it requires `--yes`.
   - **Args**: `--order <UUID>`, required; `--yes`.
-  - **Output**: `data.result` is `fiat_sent` and `data.next_step` is `wait_for_release`. A refusal (for example `invalid_pubkey` for the seller, `not_allowed_by_status`) is `node_refused` with the reason; silence or an unusable reply is `uncertain` and is not retried. A failed local status update is a success with the warning `local_status_stale`. On a range order of yours with room left the warning `range_not_continued` says the node will not create an order for the rest of the range (spec 008 will continue it).
-  - **Migration**: `fiatsent`, `-o` and `--order-id` are gone with no alias. The existing MCP server's `fiat_sent` tool runs the old command and will not work against this build until the MCP is migrated.
+  - **Output**: `data.result` is `fiat_sent` and `data.next_step` is `wait_for_release`. A refusal (for example `invalid_pubkey` for the seller, `not_allowed_by_status`) is `node_refused` with the reason; silence or an unusable reply is `uncertain` and is not retried. A failed local status update is a success with the warning `local_status_stale`. On a range order you made with room left, a buyer's `fiat-sent` carries a fresh trade key (the node keeps it until the seller releases) and `data.next_trade_index` reports the index reserved for it; the child order appears when the seller releases, and `order sync` gives it a local row. The index is recorded before the request is published, so a run that dies before the reply never lets a later order reuse the key; a refusal gives it back, and an index that cannot be reserved is `store_unwritable` with nothing sent.
+  - **Migration**: `fiatsent`, `-o` and `--order-id` are gone with no alias. The existing MCP server has no tool for it.
   - **Handler**: `commands::order::step::order_step` through `msg::exchange` and `store`; dispatch and the prompt in `cli/step.rs`.
 
 - **`order release`** (replaces `release`)
-  - **Description**: Settle the hold invoice so the node pays the buyer. Irreversible; the preview says so. Same rules, arguments and failure behaviour as `order fiat-sent`; the local status becomes `settled-hold-invoice`.
-  - **Output**: `data.result` is `released`. The `rate` message the node sends afterwards is visible with `message list`.
-  - **Migration**: `release`, `-o` and `--order-id` are gone with no alias; the MCP `release` tool breaks the same way.
+  - **Description**: Settle the hold invoice so the node pays the buyer. Irreversible; the preview says so. Same rules, arguments and failure behaviour as `order fiat-sent`; the local status becomes `settled-hold-invoice`. On a range order you made as the seller, with room left, it carries a fresh trade key so the node creates the child order for the rest of the range (see `order sync`).
+  - **Output**: `data.result` is `released`; with a key sent, `data.next_trade_index` is the reserved index and `data.next_step` is `sync_child_order`. The `rate` message the node sends afterwards is visible with `message list`.
+  - **Migration**: `release`, `-o` and `--order-id` are gone with no alias; the existing MCP server has no tool for it.
 
 - **`order cancel`** (replaces `cancel`)
   - **Description**: Cancel an order. The node decides what the request means from the order status, and `data.result` tells which: `canceled` (a pending or waiting order, canceled at once), `cancel_requested` (a cooperative cancel was started on an active trade; `next_step` is `wait_for_peer_cancel` and the other party confirms with `order cancel`) or `cancel_accepted` (you confirmed the other party's request). Same rules, arguments and failure behaviour as `order fiat-sent`; the local status is `canceled` or `cooperatively-canceled`, and unchanged for a request.
-  - **Migration**: `cancel`, `-o` and `--order-id` are gone with no alias; the MCP `cancel` tool breaks the same way.
+  - **Migration**: `cancel`, `-o` and `--order-id` are gone with no alias; the existing MCP server has no tool for it.
+
+- **`order sync`** (new)
+  - **Description**: Give the orders the node announced to your trade keys a local row. A range order's child order (see `order release` and `order fiat-sent`) is created by the node for a fresh trade key; the node announces it with a `new-order` message, and the commands that act on an order need its row. `order sync` reads those messages like `message list` (one bounded read, the node as the author, your derived trade keys as recipients), saves a row for every announced order the store does not know, with the key of its index and as your own order, and publishes nothing. It never replaces a row, so a second run saves nothing. No `--yes` and no prompt: nothing is published and only rows for your own keys are added. It needs an existing local identity and a writable store.
+  - **Args**: `--since MINUTES` (1 to 10080, default 10080).
+  - **Output**: `data.adopted` lists the orders added (the order, the trade index and key); `messages_read`, `messages_ignored`, `keys_read`, `keys_not_read` and `truncated` say what was looked at. When nothing is due the run is a success with an empty list and persistence `not_attempted`. A save that fails stops the run and is `uncertain` (`order_not_saved`) with the rows already saved; run it again. For a buy range order the child exists only after the seller releases, so run it then.
+  - **Handler**: `commands::order::sync::order_sync` through `msg::inbox` and `store`; dispatch in `cli/sync.rs`.
 
 - **`order info`** (replaces `ordersinfo`)
   - **Description**: Asks the node for its record of your own orders. It publishes one signed request using your identity key, waits for the reply to that request, and writes nothing locally. It needs an existing local identity (`mcli.db`) and never creates one. Orders that are not yours or unknown to the node are not returned; they are listed as not returned.
@@ -162,7 +168,7 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--since <minutes>`: 1 to 10080 (default 30); anything else is `invalid_arguments`.
     - `--order <UUID>`: read only the messages of that order (`order_unknown` if the database has no key for it).
   - **Handler**: `message_list` in `src/commands/message/list.rs`; dispatch in `src/cli/message.rs`; contract in [specs/006-message-list-json](../specs/006-message-list-json/contracts/cli.md).
-  - **Migration**: `getdm`, `-s` and `--from-user` are gone with no alias. Peer chat is `getdmuser`; the solver's key is read from the `peer` payload of `admin-took-dispute`. The existing MCP server's DM tools run the old command and will not work against this build until the MCP is migrated.
+  - **Migration**: `getdm`, `-s` and `--from-user` are gone with no alias. Peer chat is `getdmuser`; the solver's key is read from the `peer` payload of `admin-took-dispute`. The existing MCP server has no DM tool.
 
 - **`getdmuser`**
   - **Description**: Read both sides of the kind-14 chat for an order. The pubkey is the counterparty the conversation is derived from.
@@ -227,7 +233,7 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Handler**: `execute_conversation_key(&ctx.trade_keys, PublicKey::from_str(pubkey)?)` in `src/cli/conversation_key.rs`.
 
 - **`getlasttradeindex`**
-  - **Description**: Get last trade index of the user.
+  - **Description**: Get last trade index of the user and raise the local one to it. It never lowers the local index: the node does not count the keys of range children, so a lower answer is kept out and the local index is printed instead.
   - **Args**: None.
   - **Handler**: `execute_last_trade_index(&ctx.identity_keys, ctx.mostro_pubkey, ctx)` in `src/cli/last_trade_index.rs`.
 

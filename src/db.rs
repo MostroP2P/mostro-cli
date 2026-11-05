@@ -1,4 +1,4 @@
-use crate::identity::identity_keys_from_mnemonic;
+use crate::identity::{identity_keys_from_mnemonic, trade_keys_from_mnemonic};
 use crate::util::get_mcli_path;
 use anyhow::Result;
 use bip39::{Mnemonic, WordCount};
@@ -318,16 +318,7 @@ impl User {
             return Err(anyhow::anyhow!("Trade index cannot be negative"));
         }
         let user = User::get(pool).await?;
-        let account = NOSTR_ORDER_EVENT_KIND as u32;
-        let keys = Keys::from_mnemonic_advanced(
-            &user.mnemonic,
-            None,
-            Some(account),
-            Some(0),
-            Some(index as u32),
-        )?;
-
-        Ok(keys)
+        Ok(trade_keys_from_mnemonic(&user.mnemonic, index)?)
     }
 }
 

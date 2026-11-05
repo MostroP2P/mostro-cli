@@ -10,11 +10,12 @@ and `src/db.rs` of this repository, and the order-info exchange. Nothing here wa
 1. `check_trade_index` (before dispatch): for a known identity, a `trade_index` of 1 or more must be **greater than** the
    user's `last_trade_index` or the node answers `CantDo(invalid_trade_index)`; the inner signature must verify against the
    sender (`invalid_signature`). For an unknown identity, index 0 is refused (`invalid_trade_index`); the identity must differ
-   from the trade key (the user row is created from the first request).
+   from the trade key (the user row is created from the first request, with its index as `last_trade_index`, before `order_action`
+   runs, so a later refusal of that first request leaves the index recorded; (amended 2026-11-05 by spec 008, review of slice 7)).
 2. `order_action` validates, in order: the invoice (`invalid_invoice`), accepted currency, a half-specified range
    (`invalid_amount`), the fiat amount, the sats amount, range limits, zero-amount-with-premium, the quote in sats. Each failure
    is a `CantDo(reason)`. Only after all checks pass does it set the user's `last_trade_index` to the request's index. **A
-   refused request therefore does not consume the index on the node.**
+   refused request therefore does not consume the index on the node**, except the first request of an unknown identity (step 1).
 3. Without a maker bond the order is created `pending` and the node sends `Action::NewOrder` with `Payload::Order` (the
    order with `id` set; the message `id` is also the order id), echoing the request id, **addressed to the trade key** (not
    the identity key). Refusals (`CantDo`) are addressed to the trade key too.
@@ -38,10 +39,15 @@ and `src/db.rs` of this repository, and the order-info exchange. Nothing here wa
 - The exchange must carry a **separate identity and trade key**: the request is wrapped with the identity as seal signer and
   the trade key as author and inner signer (`wrap_message_with(.., identity, trade, ..)`), the wait is armed for the **trade key**
   as recipient and decrypts with it. Order info passes the identity for both and keeps working.
-- The local index must advance when the request was published and not provably rejected, otherwise a successful or ambiguous
-  publication reuses the same key and index next time. Gaps are harmless (the node only needs `index > last`). A provably
-  rejected request (`CantDo` refusal, or not published) leaves the index alone. The save and the index update are one SQLite
-  transaction, so a half-saved state is impossible.
+- The local index is recorded before the request is published: the reservation is the spend, so a published or possibly
+  published request is never followed by reuse of its key, even when the process dies before the reply, and two runs at
+  once take turns on the store's write lock instead of sharing an index. Gaps are harmless (the node only needs
+  `index > last`). A request that provably never left, or that the node refused with `CantDo`, gives its index back with a
+  compare-and-swap (back to the exact previous value, `NULL` included, only while the recorded index is still the reserved
+  one); otherwise the index is skipped. A refusal with `invalid_trade_index` keeps the index: the node is already at or past it,
+  and a give-back would make every later request carry it again (amended 2026-11-05 by spec 008, review of slice 7). The order row is saved after the reply; its transaction keeps a raise-only index
+  guard. Every writer of the index only raises it, the legacy `getlasttradeindex` and order save included, and a future
+  migrated `restore` must too: the node does not count the keys of range children (amended 2026-11-05 by spec 008).
 - A failed save after an accepted reply is `uncertain`. The recovery data is **public**: the order id, the trade index and the
   trade public key. The trade private key is derivable from the mnemonic and the index (`account trade-key`), so no key
   material is printed.

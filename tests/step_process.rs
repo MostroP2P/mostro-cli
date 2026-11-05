@@ -25,9 +25,9 @@ mod harness;
 #[path = "common/schema_check.rs"]
 mod schema_check;
 
-use fake_mostro::{info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
+use fake_mostro::{child_id, info_event, seed_identity, step_daemon, FakeMostro, Respond, Traded};
 use harness::{Backend, LoopbackRelay, Sandbox};
-use mostro_client::store::Store;
+use mostro_client::store::{Role, Store};
 
 const REQUEST_ID: u64 = 7070;
 const WAIT: Duration = Duration::from_millis(700);
@@ -235,7 +235,8 @@ async fn fiat_sent_by_the_buyer_moves_the_order_and_notifies_both_sides() {
 
 #[tokio::test]
 async fn fiat_sent_keeps_the_next_trade_key_of_a_range_order() {
-    let world = world(active).await;
+    let world =
+        world(|seller, buyer| vec![Traded::active(id(1), seller, buyer).ranged(10, 100, 40)]).await;
     let next = Payload::NextTrade("02".repeat(32), 9);
 
     world
@@ -450,6 +451,216 @@ async fn an_unknown_order_is_not_found_for_all_three_steps() {
     }
 }
 
+// --- Range children (spec 008, slice 2) -------------------------------------
+
+mod children {
+    use super::*;
+
+    /// Send `message` as `from`; what `from`, `other` and a third key hear.
+    async fn act_with(
+        world: &World,
+        from: &Keys,
+        listeners: &[&Keys],
+        message: Message,
+    ) -> Vec<Vec<Message>> {
+        let identity = Keys::generate();
+        let mut all = vec![from];
+        all.extend(listeners);
+        world
+            .peer
+            .hear_all(&all, world.peer.send(&message, &identity, from))
+            .await
+    }
+
+    fn next_key(index: u32) -> (Keys, Payload) {
+        let keys = Keys::generate();
+        let payload = Payload::NextTrade(keys.public_key().to_string(), index);
+        (keys, payload)
+    }
+
+    fn child_of(heard: &[Message]) -> MessageKind {
+        let news: Vec<_> = heard
+            .iter()
+            .map(|message| message.get_inner_message_kind().clone())
+            .filter(|kind| kind.action == Action::NewOrder)
+            .collect();
+        assert_eq!(news.len(), 1, "{heard:?}");
+        news[0].clone()
+    }
+
+    fn order_of(kind: &MessageKind) -> mostro_core::order::SmallOrder {
+        match &kind.payload {
+            Some(Payload::Order(order)) => order.clone(),
+            other => panic!("an order, got {other:?}"),
+        }
+    }
+
+    /// A sell range order of 10 to 100 of which 40 was taken, its fiat sent.
+    fn selling(taken: i64) -> impl FnOnce(PublicKey, PublicKey) -> Vec<Traded> {
+        move |seller, buyer| {
+            vec![Traded::active(id(1), seller, buyer)
+                .ranged(10, 100, taken)
+                .with_status(Status::FiatSent)]
+        }
+    }
+
+    #[tokio::test]
+    async fn the_release_of_a_sell_range_order_creates_a_child_for_the_key_it_carries() {
+        let world = world(selling(40)).await;
+        let (key, payload) = next_key(7);
+
+        let heard = act_with(
+            &world,
+            &world.seller,
+            &[&world.buyer, &key],
+            step(Action::Release, id(1), Some(payload)),
+        )
+        .await;
+
+        let kind = child_of(&heard[2]);
+        assert_eq!(kind.id, Some(child_id(id(1))));
+        assert_eq!(
+            kind.request_id,
+            Some(REQUEST_ID),
+            "the request id is echoed"
+        );
+        assert_eq!(kind.trade_index, Some(7), "the index of the key");
+        let child = order_of(&kind);
+        assert_eq!(child.status, Some(Status::Pending));
+        assert_eq!(child.min_amount, Some(10));
+        assert_eq!(child.max_amount, Some(60), "what is left of the range");
+        assert_eq!(child.fiat_amount, 0);
+        assert!(heard[0]
+            .iter()
+            .all(|m| m.get_inner_message_kind().action != Action::NewOrder));
+        let trades = world.trades.lock().unwrap();
+        assert_eq!(trades.len(), 2);
+        assert_eq!(trades[1].id, child_id(id(1)));
+        assert_eq!(trades[1].maker, key.public_key());
+    }
+
+    #[tokio::test]
+    async fn a_remainder_equal_to_the_minimum_becomes_a_fixed_order() {
+        let world = world(selling(90)).await;
+        let (key, payload) = next_key(3);
+
+        let heard = act_with(
+            &world,
+            &world.seller,
+            &[&world.buyer, &key],
+            step(Action::Release, id(1), Some(payload)),
+        )
+        .await;
+
+        let child = order_of(&child_of(&heard[2]));
+        assert_eq!(child.fiat_amount, 10);
+        assert_eq!((child.min_amount, child.max_amount), (None, None));
+    }
+
+    #[tokio::test]
+    async fn no_child_without_a_key_below_the_minimum_or_on_a_fixed_order() {
+        let (key, payload) = next_key(3);
+        // No key.
+        let world_a = world(selling(40)).await;
+        let heard = act_with(
+            &world_a,
+            &world_a.seller,
+            &[&world_a.buyer, &key],
+            step(Action::Release, id(1), None),
+        )
+        .await;
+        assert!(heard[2].is_empty(), "no key, no child");
+        assert_eq!(world_a.trades.lock().unwrap().len(), 1);
+        // The remainder is below the minimum.
+        let world_b = world(selling(95)).await;
+        let heard = act_with(
+            &world_b,
+            &world_b.seller,
+            &[&world_b.buyer, &key],
+            step(Action::Release, id(1), Some(payload.clone())),
+        )
+        .await;
+        assert!(heard[2].is_empty(), "nothing left to offer");
+        // A fixed order.
+        let world_c = world(at(Status::FiatSent)).await;
+        let heard = act_with(
+            &world_c,
+            &world_c.seller,
+            &[&world_c.buyer, &key],
+            step(Action::Release, id(1), Some(payload)),
+        )
+        .await;
+        assert!(heard[2].is_empty(), "a fixed order has no child");
+        assert_eq!(world_c.trades.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_buy_range_order_keeps_the_key_of_its_fiat_sent_and_the_peers_release_creates_the_child(
+    ) {
+        // The maker buys: `me` is the buyer-maker, `other` the seller.
+        let world =
+            world(|maker, peer| vec![Traded::active_buy(id(1), maker, peer).ranged(10, 100, 40)])
+                .await;
+        // `world.seller` is the first key, here the buyer-maker.
+        let maker = &world.seller;
+        let taker = &world.buyer;
+        let (key, payload) = next_key(5);
+
+        let sent = act_with(
+            &world,
+            maker,
+            &[taker],
+            step(Action::FiatSent, id(1), Some(payload)),
+        )
+        .await;
+        assert_eq!(
+            sent[0][0].get_inner_message_kind().action,
+            Action::FiatSentOk
+        );
+        assert_eq!(
+            world.trades.lock().unwrap()[0].next_trade,
+            Some((key.public_key().to_string(), 5)),
+            "the node keeps the key"
+        );
+
+        let released = act_with(
+            &world,
+            taker,
+            &[maker, &key],
+            step(Action::Release, id(1), None),
+        )
+        .await;
+
+        let kind = child_of(&released[2]);
+        assert_eq!(
+            kind.request_id,
+            Some(REQUEST_ID),
+            "the release's request id"
+        );
+        assert_eq!(kind.trade_index, Some(5));
+        assert_eq!(order_of(&kind).kind, Some(mostro_core::order::Kind::Buy));
+        assert!(released[1]
+            .iter()
+            .all(|m| m.get_inner_message_kind().action != Action::NewOrder));
+    }
+
+    #[tokio::test]
+    async fn a_fiat_sent_on_a_fixed_order_keeps_no_key() {
+        let world = world(active).await;
+        let (_, payload) = next_key(2);
+
+        world
+            .act(
+                &world.buyer,
+                &world.seller,
+                step(Action::FiatSent, id(1), Some(payload)),
+            )
+            .await;
+
+        assert_eq!(world.trades.lock().unwrap()[0].next_trade, None);
+    }
+}
+
 // --- The store (spec 007, slice 2) ------------------------------------------
 
 mod store {
@@ -477,7 +688,7 @@ mod store {
         )
         .await;
 
-        assert!(store.range_has_room(id(1)).await.unwrap());
+        assert!(store.maker_range(id(1)).await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -486,14 +697,86 @@ mod store {
             "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95",
         )
         .await;
-        assert!(!store.range_has_room(id(1)).await.unwrap());
-        assert!(!store.range_has_room(id(2)).await.unwrap(), "unknown");
+        assert!(!store.maker_range(id(1)).await.unwrap().is_some());
+        assert!(
+            !store.maker_range(id(2)).await.unwrap().is_some(),
+            "unknown"
+        );
 
         let (_sandbox, store) = stored(
             "UPDATE orders SET is_mine = 1, min_amount = NULL, max_amount = NULL, fiat_amount = 40",
         )
         .await;
-        assert!(!store.range_has_room(id(1)).await.unwrap(), "fixed");
+        assert!(!store.maker_range(id(1)).await.unwrap().is_some(), "fixed");
+    }
+
+    async fn marker(sandbox: &Sandbox, order: Uuid) -> Option<bool> {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(sandbox.mcli_dir().join("mcli.db"))
+            .read_only(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let value = sqlx::query_scalar("SELECT is_mine FROM orders WHERE id = ?1")
+            .bind(order.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    fn range(order: Uuid, owner: PublicKey) -> mostro_core::order::SmallOrder {
+        let mut small = Traded::active(order, owner, owner).small();
+        small.min_amount = Some(10);
+        small.max_amount = Some(100);
+        small.fiat_amount = 40;
+        small
+    }
+
+    #[tokio::test]
+    async fn the_maker_marker_is_exact_and_only_the_makers_range_has_room() {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = store.next_trade().await.unwrap();
+        let mine = range(id(1), trade.keys.public_key());
+        let taken = range(id(2), trade.keys.public_key());
+
+        store
+            .save_order_as(&mine, &trade, REQUEST_ID, Role::Maker)
+            .await
+            .unwrap();
+        store
+            .save_order_as(&taken, &trade, REQUEST_ID, Role::Taker)
+            .await
+            .unwrap();
+
+        assert_eq!(marker(&sandbox, id(1)).await, Some(true));
+        assert_eq!(marker(&sandbox, id(2)).await, Some(false));
+        assert!(
+            store.maker_range(id(1)).await.unwrap().is_some(),
+            "the maker's"
+        );
+        assert!(
+            !store.maker_range(id(2)).await.unwrap().is_some(),
+            "a taker needs no next key"
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_again_keeps_the_role_of_the_latest_save_and_save_order_is_the_makers() {
+        let sandbox = Sandbox::new().unwrap();
+        seed_identity(&sandbox.mcli_dir()).await;
+        let store = Store::in_dir(&sandbox.mcli_dir());
+        let trade = store.next_trade().await.unwrap();
+        let order = range(id(1), trade.keys.public_key());
+
+        store.save_order(&order, &trade, REQUEST_ID).await.unwrap();
+        assert_eq!(marker(&sandbox, id(1)).await, Some(true), "the default");
+        store
+            .save_order_as(&order, &trade, REQUEST_ID, Role::Taker)
+            .await
+            .unwrap();
+        assert_eq!(marker(&sandbox, id(1)).await, Some(false), "updated");
     }
 
     #[tokio::test]
@@ -505,12 +788,12 @@ mod store {
         let db = sandbox.mcli_dir().join("mcli.db");
         let before = std::fs::read(&db).unwrap();
 
-        store.range_has_room(id(1)).await.unwrap();
+        store.maker_range(id(1)).await.unwrap();
 
         assert_eq!(std::fs::read(&db).unwrap(), before);
         let empty = Sandbox::new().unwrap();
         let missing = Store::in_dir(&empty.mcli_dir());
-        assert!(missing.range_has_room(id(1)).await.is_err());
+        assert!(missing.maker_range(id(1)).await.is_err());
         assert!(!empty.mcli_dir().join("mcli.db").exists());
     }
 }
@@ -536,7 +819,6 @@ mod operation {
         sandbox: Sandbox,
         store: Store,
         me: Keys,
-        other: Keys,
     }
 
     /// A user holding orders 1 and 2 under one trade key `me`, against a node
@@ -596,7 +878,6 @@ mod operation {
             sandbox,
             store,
             me,
-            other,
         }
     }
 
@@ -736,7 +1017,7 @@ mod operation {
         assert!(seen[0].signature_valid);
         assert!(seen[0].request_id.is_some());
         assert_eq!(seen[0].trade_index, None);
-        assert_eq!(seen[0].next_trade, None, "range orders are spec 008");
+        assert_eq!(seen[0].next_trade, None, "a fixed order carries no key");
         assert!(seen[0].order.is_none() && seen[0].invoice.is_none());
     }
 
@@ -1102,50 +1383,340 @@ mod operation {
     const RANGE: &str =
         "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 40";
 
+    /// The seller-maker of a range order whose fiat was sent.
+    fn selling_range(me: PublicKey, other: PublicKey) -> Vec<Traded> {
+        vec![Traded::active(id(1), me, other)
+            .ranged(10, 100, 40)
+            .with_status(Status::FiatSent)]
+    }
+
+    /// The buyer-maker of an active range order.
+    fn buying_range(me: PublicKey, other: PublicKey) -> Vec<Traded> {
+        vec![Traded::active_buy(id(1), me, other).ranged(10, 100, 40)]
+    }
+
+    async fn make_buy_order(holder: &Holder) {
+        sql(holder, "UPDATE orders SET kind = 'buy'").await;
+    }
+
+    fn sent_key(holder: &Holder) -> Option<(String, u32)> {
+        holder.fake.received()[0].next_trade.clone()
+    }
+
     #[tokio::test]
-    async fn a_range_order_with_room_left_is_accepted_but_not_continued_and_says_so() {
-        for (kind, trades) in [
-            (
-                StepKind::FiatSent,
-                Box::new(buying) as Box<dyn FnOnce(PublicKey, PublicKey) -> Vec<Traded>>,
-            ),
-            (StepKind::Release, Box::new(selling_at(Status::FiatSent))),
-        ] {
-            let holder = holder(trades, 0, |respond| respond).await;
+    async fn the_makers_own_step_on_a_range_order_carries_a_key_and_spends_one_index() {
+        // A seller releases; a buyer sends fiat-sent. Either way the node gets a
+        // fresh key at the next index and the index is recorded.
+        for (kind, buys) in [(StepKind::Release, false), (StepKind::FiatSent, true)] {
+            let holder = if buys {
+                holder(buying_range, 0, |respond| respond).await
+            } else {
+                holder(selling_range, 0, |respond| respond).await
+            };
             sql(&holder, RANGE).await;
-            let index = last_index(&holder).await;
+            if buys {
+                make_buy_order(&holder).await;
+            }
+            let before = last_index(&holder).await;
 
             let outcome = take(&holder, kind, id(1)).await;
 
             assert_eq!(outcome.status(), Outcome::Ok, "{kind:?}");
-            assert_eq!(warnings(&outcome), ["range_not_continued"], "{kind:?}");
+            let data = outcome.data().expect("data");
+            let index = (before + 1).to_string();
+            assert_eq!(data.next_trade_index(), Some(index.as_str()), "{kind:?}");
+            assert_eq!(
+                data.next_step(),
+                Some(if buys {
+                    StepNext::WaitForRelease
+                } else {
+                    StepNext::SyncChildOrder
+                }),
+                "{kind:?}"
+            );
+            assert!(warnings(&outcome).is_empty(), "{kind:?}");
             assert_eq!(stages(&outcome), meta("published", "accepted", "applied"));
-            assert_eq!(last_index(&holder).await, index, "no index is reserved");
-            assert_eq!(holder.fake.received()[0].next_trade, None);
+            assert_eq!(last_index(&holder).await, before + 1, "{kind:?}");
+            let (key, sent_index) = sent_key(&holder).expect("a next trade key");
+            assert_eq!(i64::from(sent_index), before + 1);
+            assert_eq!(key.len(), 64, "a public key in hex");
+            assert_ne!(key, holder.me.public_key().to_hex(), "a fresh key");
         }
     }
 
     #[tokio::test]
-    async fn no_range_warning_for_a_fixed_order_an_exhausted_range_or_a_cancel() {
-        let holder = self::holder(buying, 0, |respond| respond).await;
-        let fixed = take(&holder, StepKind::FiatSent, id(1)).await;
-        assert!(warnings(&fixed).is_empty(), "fixed");
+    async fn no_key_for_a_taker_a_fixed_order_an_exhausted_range_the_wrong_step_or_a_cancel() {
+        type Case = (&'static str, StepKind, &'static str, bool);
+        let cases: [Case; 5] = [
+            ("a taker", StepKind::FiatSent, "UPDATE orders SET is_mine = 0, min_amount = 10, max_amount = 100, fiat_amount = 40", true),
+            ("a fixed order", StepKind::FiatSent, "UPDATE orders SET is_mine = 1", true),
+            ("an exhausted range", StepKind::FiatSent, "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95", true),
+            // A sell order's maker does not carry the key with fiat-sent.
+            ("the seller-maker's fiat-sent", StepKind::FiatSent, RANGE, false),
+            ("a cancel", StepKind::Cancel, RANGE, true),
+        ];
+        for (label, kind, statement, buying_side) in cases {
+            let holder = if buying_side {
+                self::holder(buying, 0, |respond| respond).await
+            } else {
+                self::holder(selling_range, 0, |respond| respond).await
+            };
+            sql(&holder, statement).await;
+            let before = last_index(&holder).await;
 
-        let holder = self::holder(buying, 0, |respond| respond).await;
-        sql(
+            let _ = take(&holder, kind, id(1)).await;
+
+            assert_eq!(sent_key(&holder), None, "{label}");
+            assert_eq!(last_index(&holder).await, before, "{label}: no index");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_index_is_spent_when_the_node_may_hold_the_key_and_kept_when_it_refused() {
+        // Refused: the node took nothing.
+        let holder = holder(selling_at(Status::Active), 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let refused = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&refused), Some(ErrorCode::NodeRefused));
+        assert!(sent_key(&holder).is_some(), "the key was sent");
+        assert_eq!(
+            last_index(&holder).await,
+            before,
+            "a refusal spends nothing"
+        );
+        assert_eq!(
+            stages(&refused),
+            meta("published", "rejected", "not_attempted")
+        );
+
+        // Silence: the node may hold it.
+        let holder = self::holder(selling_range, 0, |_| fake_mostro::silent()).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let silent = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&silent), Some(ErrorCode::ReplyTimeout));
+        assert_eq!(stages(&silent), meta("published", "unknown", "applied"));
+        assert_eq!(last_index(&holder).await, before + 1);
+
+        // An unusable reply: the same.
+        let wrong: Respond = Arc::new(|request: &Received| {
+            vec![Outgoing::to_requester(Message::new_order(
+                Some(id(77)),
+                request.request_id,
+                None,
+                Action::HoldInvoicePaymentSettled,
+                None,
+            ))]
+        });
+        let holder = self::holder(selling_range, 0, move |_| wrong).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let malformed = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&malformed), Some(ErrorCode::ReplyMalformed));
+        assert_eq!(stages(&malformed), meta("published", "unknown", "applied"));
+        assert_eq!(last_index(&holder).await, before + 1);
+
+        // Nothing left the machine: nothing spent.
+        let holder = self::holder(selling_range, 9, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let stopped = take(&holder, StepKind::Release, id(1)).await;
+        assert_eq!(code(&stopped), Some(ErrorCode::PowRequired));
+        assert_eq!(last_index(&holder).await, before);
+        assert!(holder.fake.received().is_empty());
+    }
+
+    // --- The index is reserved before publishing (spec 008, slice 7) ---
+
+    /// The seller-maker of two range orders whose fiat was sent.
+    fn selling_two_ranges(me: PublicKey, other: PublicKey) -> Vec<Traded> {
+        [id(1), id(2)]
+            .map(|order| {
+                Traded::active(order, me, other)
+                    .ranged(10, 100, 40)
+                    .with_status(Status::FiatSent)
+            })
+            .to_vec()
+    }
+
+    /// The step daemon, except that the requester hears nothing: only the
+    /// child's announcement to its new key goes out. A `new-order` is answered
+    /// as the order daemon does.
+    fn unheard_steps_and_orders(steps: Respond) -> Respond {
+        let (orders, _) = fake_mostro::new_order_daemon(0, false);
+        Arc::new(move |request: &Received| {
+            if request.action == Action::NewOrder {
+                return orders(request);
+            }
+            steps(request)
+                .into_iter()
+                .filter(|out| out.message.get_inner_message_kind().action == Action::NewOrder)
+                .collect()
+        })
+    }
+
+    /// The orders `order sync` adopts (id, index, key), read until one comes or
+    /// a few seconds pass: the node's announcement may still be on its way.
+    async fn sync_until_adopted(holder: &Holder) -> Vec<(String, String, String)> {
+        use mostro_client::commands::order::sync::order_sync;
+        use mostro_client::msg::ReadLimits;
+        use mostro_client::outcome::sync::SyncInput;
+
+        let limits = ReadLimits {
+            connect: Duration::from_secs(2),
+            read: Duration::from_millis(1_500),
+            cleanup: Duration::from_millis(500),
+            ..ReadLimits::default()
+        };
+        let input = SyncInput::validate(None).unwrap();
+        for _ in 0..12 {
+            let outcome = order_sync(
+                &input,
+                &holder.config,
+                &holder.store,
+                &limits,
+                chrono::Utc::now(),
+            )
+            .await;
+            let adopted: Vec<_> = outcome.data().map_or_else(Vec::new, |data| {
+                data.adopted()
+                    .iter()
+                    .map(|order| {
+                        (
+                            order.order().id().to_string(),
+                            order.trade_index().to_string(),
+                            order.trade_pubkey().to_string(),
+                        )
+                    })
+                    .collect()
+            });
+            if !adopted.is_empty() {
+                return adopted;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        Vec::new()
+    }
+
+    #[tokio::test]
+    async fn a_continuation_killed_after_publishing_keeps_its_index_and_sync_adopts_the_child() {
+        // The node creates the child and announces it to the new key, but the
+        // run dies before it hears the answer (a crash, a kill, Ctrl-C).
+        let holder = holder(selling_range, 0, unheard_steps_and_orders).await;
+        sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
+        let release = command(
             &holder,
-            "UPDATE orders SET is_mine = 1, min_amount = 10, max_amount = 100, fiat_amount = 95",
+            &step_args(&["--output", "json"], "release", &["--yes"]),
+        );
+
+        let killed =
+            harness::kill_once_published(release, || !holder.fake.received().is_empty(), WATCHDOG)
+                .await
+                .unwrap();
+
+        assert!(killed, "the release was published before the kill");
+        let (key, index) = sent_key(&holder).expect("a next trade key");
+        assert_eq!(i64::from(index), before + 1);
+        assert_eq!(
+            last_index(&holder).await,
+            before + 1,
+            "the index was recorded before publishing"
+        );
+        assert_eq!(
+            sync_until_adopted(&holder).await,
+            [(
+                child_id(id(1)).to_string(),
+                (before + 1).to_string(),
+                key.clone()
+            )],
+            "order sync derives the child's key and adopts it"
+        );
+        let new = run(
+            &holder,
+            &[
+                "--output",
+                "json",
+                "order",
+                "new",
+                "--side",
+                "sell",
+                "--currency",
+                "USD",
+                "--fiat-amount",
+                "100",
+                "--payment-method",
+                "bank transfer",
+                "--yes",
+            ],
         )
         .await;
-        let exhausted = take(&holder, StepKind::FiatSent, id(1)).await;
-        assert!(warnings(&exhausted).is_empty(), "exhausted");
+        assert_eq!(new.code(), Some(0), "{}", new.stderr_text());
+        let seen = holder.fake.received();
+        let order = seen.last().unwrap();
+        assert_eq!(order.action, Action::NewOrder);
+        assert_eq!(order.trade_index, Some(before + 2), "the next order");
+        assert_ne!(order.author.to_hex(), key, "never the child's key");
+        assert_eq!(last_index(&holder).await, before + 2);
+    }
 
-        let holder = self::holder(buying, 0, |respond| respond).await;
+    #[tokio::test]
+    async fn two_continuations_at_once_never_share_an_index() {
+        let holder = holder(selling_two_ranges, 0, |respond| respond).await;
         sql(&holder, RANGE).await;
-        let canceled = take(&holder, StepKind::Cancel, id(1)).await;
-        assert_eq!(canceled.status(), Outcome::Ok);
-        assert!(warnings(&canceled).is_empty(), "a cancel continues nothing");
-        let _ = &holder.other;
+        let before = last_index(&holder).await;
+
+        let (first, second) = tokio::join!(
+            take(&holder, StepKind::Release, id(1)),
+            take(&holder, StepKind::Release, id(2))
+        );
+
+        for outcome in [&first, &second] {
+            assert_eq!(
+                outcome.status(),
+                Outcome::Ok,
+                "{:?}",
+                serde_json::to_value(outcome)
+            );
+        }
+        let mut sent: Vec<(String, u32)> = holder
+            .fake
+            .received()
+            .iter()
+            .map(|seen| seen.next_trade.clone().expect("a next trade key"))
+            .collect();
+        sent.sort_by_key(|(_, index)| *index);
+        let indexes: Vec<i64> = sent.iter().map(|(_, index)| i64::from(*index)).collect();
+        assert_eq!(indexes, [before + 1, before + 2], "two indexes, not one");
+        assert_ne!(sent[0].0, sent[1].0, "two keys");
+        assert_eq!(last_index(&holder).await, before + 2);
+    }
+
+    #[tokio::test]
+    async fn an_index_that_cannot_be_reserved_stops_the_step_before_anything_is_sent() {
+        let holder = holder(selling_range, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        sql(
+            &holder,
+            "CREATE TRIGGER freeze_users BEFORE UPDATE ON users \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .await;
+        let before = database(&holder);
+
+        let outcome = take(&holder, StepKind::Release, id(1)).await;
+
+        assert_eq!(outcome.status(), Outcome::Error);
+        assert_eq!(code(&outcome), Some(ErrorCode::StoreUnwritable));
+        assert_eq!(
+            stages(&outcome),
+            meta("not_attempted", "unknown", "not_attempted")
+        );
+        assert!(warnings(&outcome).is_empty());
+        assert!(holder.fake.received().is_empty(), "nothing was sent");
+        assert_eq!(database(&holder), before, "nothing changed");
+        assert_eq!(status_of(&holder, id(1)).await, "fiat-sent");
     }
 
     // --- The binary (slice 4b) ---
@@ -1451,31 +2022,55 @@ mod operation {
     }
 
     #[tokio::test]
-    async fn a_range_order_with_room_left_warns_in_both_modes_and_the_exit_is_success() {
-        let holder = holder(buying, 0, |respond| respond).await;
+    async fn a_range_release_reports_the_key_and_points_at_order_sync_in_both_modes() {
+        let holder = holder(selling_range, 0, |respond| respond).await;
         sql(&holder, RANGE).await;
+        let before = last_index(&holder).await;
 
         let json = run(
             &holder,
-            &step_args(&["--output", "json"], "fiat-sent", &["--yes"]),
+            &step_args(&["--output", "json"], "release", &["--yes"]),
         )
         .await;
         assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
         let outcome = document(&json);
-        conforms_to_the_checked_in_schema("fiat-sent", &outcome);
-        assert_eq!(outcome["warnings"][0]["code"], "range_not_continued");
+        conforms_to_the_checked_in_schema("release", &outcome);
+        assert_eq!(
+            outcome["data"]["next_trade_index"],
+            (before + 1).to_string()
+        );
+        assert_eq!(outcome["data"]["next_step"], "sync_child_order");
+        assert_eq!(outcome["warnings"], json!([]));
+        assert_eq!(last_index(&holder).await, before + 1);
+        assert!(!json
+            .stdout_text()
+            .contains(&holder.me.secret_key().to_secret_hex()));
 
-        let holder = self::holder(buying, 0, |respond| respond).await;
+        let holder = self::holder(selling_range, 0, |respond| respond).await;
         sql(&holder, RANGE).await;
-        let human = run(&holder, &step_args(&[], "fiat-sent", &["--yes"])).await;
+        let human = run(&holder, &step_args(&[], "release", &["--yes"])).await;
         assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
-        assert!(human.stdout_text().contains("Fiat Marked As Sent"));
+        let out = human.stdout_text();
         assert!(
-            human
-                .stderr_text()
-                .contains("warning: this is a range order with room left"),
-            "{}",
-            human.stderr_text()
+            out.contains("Sats Released") && out.contains("order sync"),
+            "{out}"
+        );
+        assert!(human.stderr.is_empty(), "{}", human.stderr_text());
+    }
+
+    #[tokio::test]
+    async fn a_range_fiat_sent_by_the_buyer_says_the_child_comes_with_the_release() {
+        let holder = holder(buying_range, 0, |respond| respond).await;
+        sql(&holder, RANGE).await;
+        make_buy_order(&holder).await;
+
+        let human = run(&holder, &step_args(&[], "fiat-sent", &["--yes"])).await;
+
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        let out = human.stdout_text();
+        assert!(
+            out.contains("Fiat Marked As Sent") && out.contains("order sync"),
+            "{out}"
         );
     }
 

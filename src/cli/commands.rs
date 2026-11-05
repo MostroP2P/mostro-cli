@@ -3,6 +3,9 @@ use clap::{ArgAction, Args, Subcommand};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+pub use super::command_args::{
+    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, StepArgs, SyncArgs,
+};
 use crate::outcome::order::{SIDES, STATUSES};
 
 #[derive(Subcommand, Clone)]
@@ -260,16 +263,12 @@ pub enum OrderCommands {
     /// local identity (it never creates one), publishes one signed request and
     /// updates the order's local status. JSON output requires --yes
     Cancel(StepArgs),
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct StepArgs {
-    /// Id of the order
-    #[arg(long = "order", value_name = "UUID")]
-    pub order: Uuid,
-    /// Send the request without asking (required with --output json)
-    #[arg(long)]
-    pub yes: bool,
+    /// Give the orders the node announced to your trade keys a local row: the
+    /// child order of a range order, or any order the store lost. Reads the
+    /// node's `new-order` messages like `message list`, saves a row only for an
+    /// order the store does not know and publishes nothing. Needs an existing
+    /// local identity (it never creates one)
+    Sync(SyncArgs),
 }
 
 #[derive(Subcommand, Clone)]
@@ -281,16 +280,6 @@ pub enum MessageCommands {
     List(ListMessagesArgs),
 }
 
-#[derive(Args, Clone, Debug)]
-pub struct ListMessagesArgs {
-    /// How far back to read, in minutes (1 to 10080, default 30)
-    #[arg(long, value_name = "MINUTES")]
-    pub since: Option<i64>,
-    /// Read only the messages of this order
-    #[arg(long = "order", value_name = "UUID")]
-    pub order: Option<Uuid>,
-}
-
 #[derive(Subcommand, Clone)]
 #[clap(rename_all = "lower")]
 pub enum BondCommands {
@@ -299,32 +288,6 @@ pub enum BondCommands {
     /// and publishes one signed request. JSON output requires --yes
     #[command(name = "add-invoice")]
     AddInvoice(AddBondInvoiceArgs),
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct AddInvoiceArgs {
-    /// Id of the order the node asked an invoice for
-    #[arg(long = "order", value_name = "UUID")]
-    pub order: Uuid,
-    /// Your invoice (BOLT-11 or Lightning address) for the sats
-    #[arg(long)]
-    pub invoice: String,
-    /// Send the invoice without asking (required with --output json)
-    #[arg(long)]
-    pub yes: bool,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct AddBondInvoiceArgs {
-    /// Id of the order whose bond was slashed
-    #[arg(long = "order", value_name = "UUID")]
-    pub order: Uuid,
-    /// A BOLT-11 invoice for exactly your share of the slashed bond
-    #[arg(long)]
-    pub invoice: String,
-    /// Send the invoice without asking (required with --output json)
-    #[arg(long)]
-    pub yes: bool,
 }
 
 #[derive(Args, Clone, Debug)]

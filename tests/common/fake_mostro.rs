@@ -605,6 +605,15 @@ pub struct Traded {
     pub initiator: Option<PublicKey>,
     /// The key and index the node kept from a range `fiat-sent` or `release`.
     pub next_trade: Option<(String, u32)>,
+    /// The bounds of a range order.
+    pub range: Option<(i64, i64)>,
+    /// The fiat amount of the slice that was taken.
+    pub fiat_amount: i64,
+}
+
+/// The id the scripted node gives the child order of `parent`.
+pub fn child_id(parent: Uuid) -> Uuid {
+    Uuid::from_u128(parent.as_u128() + 0x1000)
 }
 
 impl Traded {
@@ -618,6 +627,16 @@ impl Traded {
             seller: Some(seller),
             initiator: None,
             next_trade: None,
+            range: None,
+            fiat_amount: 15,
+        }
+    }
+
+    /// An active trade of a `buy` order: the maker buys from `seller`.
+    pub fn active_buy(id: Uuid, buyer: PublicKey, seller: PublicKey) -> Self {
+        Self {
+            maker: buyer,
+            ..Self::active(id, seller, buyer)
         }
     }
 
@@ -631,12 +650,29 @@ impl Traded {
             seller: None,
             initiator: None,
             next_trade: None,
+            range: None,
+            fiat_amount: 15,
         }
     }
 
     pub fn with_status(mut self, status: Status) -> Self {
         self.status = status;
         self
+    }
+
+    /// A range order of `min` to `max` of which `taken` was taken.
+    pub fn ranged(mut self, min: i64, max: i64, taken: i64) -> Self {
+        self.range = Some((min, max));
+        self.fiat_amount = taken;
+        self
+    }
+
+    fn kind(&self) -> OrderKind {
+        if self.buyer == Some(self.maker) {
+            OrderKind::Buy
+        } else {
+            OrderKind::Sell
+        }
     }
 
     fn taker(&self) -> Option<PublicKey> {
@@ -649,13 +685,13 @@ impl Traded {
     pub fn small(&self) -> SmallOrder {
         SmallOrder::new(
             Some(self.id),
-            Some(OrderKind::Sell),
+            Some(self.kind()),
             Some(self.status),
             15_000,
             "USD".to_string(),
-            None,
-            None,
-            15,
+            self.range.map(|(min, _)| min),
+            self.range.map(|(_, max)| max),
+            self.fiat_amount,
             "bank transfer".to_string(),
             1,
             None,
@@ -703,7 +739,8 @@ pub fn step_daemon(trades: Vec<Traded>) -> (Respond, Arc<Mutex<Vec<Traded>>>) {
                 reputation: None,
             }))
         };
-        match request.action {
+        let mut spawned = None;
+        let replies = match request.action {
             Action::FiatSent => {
                 if trade.status != Status::Active {
                     return refuse(CantDoReason::NotAllowedByStatus);
@@ -715,7 +752,10 @@ pub fn step_daemon(trades: Vec<Traded>) -> (Respond, Arc<Mutex<Vec<Traded>>>) {
                     return refuse(CantDoReason::InvalidPubkey);
                 }
                 trade.status = Status::FiatSent;
-                trade.next_trade = request.next_trade.clone();
+                // The node keeps the key only on a range order.
+                if trade.range.is_some() {
+                    trade.next_trade = request.next_trade.clone();
+                }
                 vec![
                     notice(seller, Action::FiatSentOk, peer(buyer)),
                     to_sender(Action::FiatSentOk, peer(seller)),
@@ -732,18 +772,68 @@ pub fn step_daemon(trades: Vec<Traded>) -> (Respond, Arc<Mutex<Vec<Traded>>>) {
                     return refuse(CantDoReason::NotAllowedByStatus);
                 }
                 trade.status = Status::SettledHoldInvoice;
-                trade.next_trade = request.next_trade.clone();
-                vec![
+                let mut out = vec![
                     notice(buyer, Action::Released, None),
                     to_sender(Action::HoldInvoicePaymentSettled, None),
                     notice(seller, Action::Rate, None),
-                ]
+                ];
+                // The key of the maker's next trade: sent with a sell order's
+                // `release`, kept from a buy order's `fiat-sent`.
+                let key = if trade.maker == seller {
+                    request.next_trade.clone()
+                } else {
+                    trade.next_trade.clone()
+                };
+                if let Some((child, to, index)) = spawn_child(trade, key) {
+                    out.push(
+                        Outgoing::to_requester(Message::new_order(
+                            Some(child.id),
+                            request.request_id,
+                            Some(i64::from(index)),
+                            Action::NewOrder,
+                            Some(Payload::Order(child.small())),
+                        ))
+                        .addressed_to(to),
+                    );
+                    spawned = Some(child);
+                }
+                out
             }
             Action::Cancel => cancel_reply(trade, request, to_sender, notice),
             _ => refuse(CantDoReason::InvalidAction),
-        }
+        };
+        trades.extend(spawned);
+        replies
     });
     (respond, state)
+}
+
+/// The child order of a settled range order, as `get_child_order` and
+/// `handle_child_order` build it: only with a next trade key, and only when
+/// what is left of the range still reaches its minimum. An exactly-minimum
+/// remainder becomes a fixed order, a larger one a range with a new maximum.
+/// The child belongs to the key, which is also who it is announced to.
+fn spawn_child(parent: &Traded, key: Option<(String, u32)>) -> Option<(Traded, PublicKey, u32)> {
+    let (min, max) = parent.range?;
+    let (hex, index) = key?;
+    let to = PublicKey::from_hex(&hex).ok()?;
+    let left = max.checked_sub(parent.fiat_amount)?;
+    if left < min {
+        return None;
+    }
+    let mut child = Traded::pending(child_id(parent.id), to);
+    if left == min {
+        child.fiat_amount = left;
+    } else {
+        child.range = Some((min, left));
+        child.fiat_amount = 0;
+    }
+    if parent.kind() == OrderKind::Buy {
+        child.buyer = Some(to);
+    } else {
+        child.seller = Some(to);
+    }
+    Some((child, to, index))
 }
 
 fn cancel_reply(

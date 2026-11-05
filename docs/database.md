@@ -83,7 +83,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
       - Deletes an order row.
 
 - **Usage**:
-  - Many command handlers persist or update orders via `util::save_order`, which internally calls `Order::new` and updates `User::last_trade_index`.
+  - Many command handlers persist or update orders via `util::save_order`, which internally calls `Order::new` and raises `User::last_trade_index` (never lowers it).
   - A taker's row is created from the node's reply when it carries the order (`add-invoice`, `pay-invoice`, `pay-bond-invoice`). An `order take-sell` that already carried the invoice is answered with `waiting-seller-to-pay` and no order, so `commands::order::take` saves a minimal row from the request (id, side, `waiting-payment`, the amount taken, the trade key) together with the trade index in one transaction (#204); the legacy read of the public book is gone.
 
 #### `users`
@@ -128,7 +128,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
   - `cli::init_context()`:
     - Uses `User::get_identity_keys` and `User::get_next_trade_keys` to create identity and trade key pairs.
   - `util::save_order()`:
-    - After saving an order, it loads `User`, sets `last_trade_index`, and calls `save` to persist progress through the keyspace.
+    - After saving an order, it raises `last_trade_index` to the order's index through `util::raise_trade_index` when that is higher, and never lowers it, so the next order cannot reuse a key the node has seen. The legacy `getlasttradeindex` handler uses the same raise-only path.
 
 ### Migrations
 

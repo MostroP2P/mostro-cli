@@ -27,8 +27,9 @@ Statuses `ok`, `error` and `uncertain` (the envelope's third value, not used bef
 1 for everything else including `uncertain`. The table in the [data model](../data-model.md) fixes the stages per case.
 
 `uncertain` means the node may hold a live order. The CLI does not retry. A caller reads `order list` (own orders) before trying
-again; the trade index is advanced locally whenever the request was published and not provably rejected, so the next attempt
-uses a fresh key.
+again; the trade index is recorded locally before the request is published (and given back only after a refusal or a request that
+never left), so the next attempt uses a fresh key even when the run died before the reply (amended 2026-11-05 by spec 008). A refusal for
+a stale index (`invalid_trade_index`) keeps it (`published/rejected/applied`), so the next attempt carries the one after it (amended 2026-11-05 by spec 008, review of slice 7).
 
 ## Human output
 

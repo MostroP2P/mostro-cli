@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
-use super::{invoice, message, order_new, order_take, step};
+use super::{invoice, message, order_new, order_take, step, sync};
 use super::{
     offline_discovery, BondCommands, Cli, Commands, DiscoveryData, MessageCommands, OrderCommands,
 };
@@ -114,6 +114,15 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
             command: BondCommands::AddInvoice(args),
         }) => return Some(invoice::bond(cli, args, output).await),
         _ => {}
+    }
+
+    // Rows for the orders the node announced: a read of the relays with local
+    // writes only.
+    if let Some(Commands::Order {
+        command: OrderCommands::Sync(args),
+    }) = &cli.command
+    {
+        return Some(sync::run(cli, args, output).await);
     }
 
     // A step on an order already held: one signed request with its stored key.

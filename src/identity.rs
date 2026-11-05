@@ -38,8 +38,25 @@ impl std::error::Error for IdentityError {}
 /// index 0. The only derivation of this key in the program. An invalid
 /// mnemonic is `Unreadable`; its text is never part of the error.
 pub fn identity_keys_from_mnemonic(mnemonic: &str) -> Result<Keys, IdentityError> {
+    trade_keys_from_mnemonic(mnemonic, 0)
+}
+
+/// The last trade index a key can be derived for: the address is a normal
+/// (non-hardened) BIP32 index, below 2^31.
+pub const LAST_TRADE_INDEX: i64 = i32::MAX as i64;
+
+/// The trade key of `index` of `mnemonic`: account `NOSTR_ORDER_EVENT_KIND`,
+/// change 0, address `index` (0 is the identity). The only derivation of a
+/// trade key in the program. An invalid mnemonic or an index outside
+/// `0..=LAST_TRADE_INDEX` is `Unreadable`; the mnemonic is never part of the
+/// error.
+pub fn trade_keys_from_mnemonic(mnemonic: &str, index: i64) -> Result<Keys, IdentityError> {
+    if !(0..=LAST_TRADE_INDEX).contains(&index) {
+        return Err(IdentityError::Unreadable);
+    }
+    let index = u32::try_from(index).map_err(|_| IdentityError::Unreadable)?;
     let account = NOSTR_ORDER_EVENT_KIND as u32;
-    Keys::from_mnemonic_advanced(mnemonic, None, Some(account), Some(0), Some(0))
+    Keys::from_mnemonic_advanced(mnemonic, None, Some(account), Some(0), Some(index))
         .map_err(|_| IdentityError::Unreadable)
 }
 
@@ -525,5 +542,31 @@ mod tests {
         let again = identity_keys_from_mnemonic(&mnemonic).unwrap();
         assert_eq!(keys.public_key(), again.public_key());
         assert!(identity_keys_from_mnemonic("not a mnemonic").is_err());
+    }
+
+    #[test]
+    fn a_trade_key_is_the_address_of_its_index_and_index_zero_is_the_identity() {
+        let mnemonic = bip39::Mnemonic::generate(bip39::WordCount::Words12)
+            .unwrap()
+            .to_string();
+        let account = NOSTR_ORDER_EVENT_KIND as u32;
+        let seventh =
+            Keys::from_mnemonic_advanced(&mnemonic, None, Some(account), Some(0), Some(7)).unwrap();
+        assert_eq!(
+            trade_keys_from_mnemonic(&mnemonic, 7).unwrap().public_key(),
+            seventh.public_key()
+        );
+        assert_eq!(
+            trade_keys_from_mnemonic(&mnemonic, 0).unwrap().public_key(),
+            identity_keys_from_mnemonic(&mnemonic).unwrap().public_key()
+        );
+        for outside in [-1, LAST_TRADE_INDEX + 1, i64::from(u32::MAX)] {
+            assert_eq!(
+                trade_keys_from_mnemonic(&mnemonic, outside).unwrap_err(),
+                IdentityError::Unreadable,
+                "{outside}"
+            );
+        }
+        assert!(trade_keys_from_mnemonic(&mnemonic, LAST_TRADE_INDEX).is_ok());
     }
 }

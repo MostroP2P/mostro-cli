@@ -1,12 +1,12 @@
-//! The one local write of a request that creates an order: the order row and
-//! the trade index.
+//! The local writes of the requests that create or continue an order: the
+//! trade index, reserved before publishing (`store/reserve.rs`), and the order row.
 //!
 //! Unlike [`crate::identity`], this module opens `mcli.db` for writing, but it
 //! never creates it, never changes permissions and never migrates. Every
 //! operation opens the existing file, does one thing and closes it, so a failed
 //! run leaves no connection or sidecar file behind. Errors carry no text from
 //! the store. The trade key and index come from the same derivation as the rest
-//! of the program ([`User::get_next_trade_keys`]).
+//! of the program ([`crate::identity::trade_keys_from_mnemonic`]).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -19,20 +19,42 @@ use uuid::Uuid;
 
 use crate::db::User;
 use crate::identity::{open_mode, resolve_dir, OpenMode};
+pub(crate) use reserve::raise_index_in;
+pub use reserve::Reservation;
+use reserve::{release_in, reserve_in};
+use save::{save_in, Existing};
 
-/// `is_mine`, `min_amount`, `max_amount` and `fiat_amount` of a stored order.
-type RangeRow = (Option<bool>, Option<i64>, Option<i64>, i64);
+mod reserve;
+mod save;
 
-/// The rule of the legacy `fiatsent` and `release`: a next trade key is sent
-/// when the order is flagged mine (any value), has a range, and the room left
-/// in it, `max - fiat_amount`, still reaches the minimum.
+/// `is_mine`, `min_amount`, `max_amount`, `fiat_amount` and `kind` of a stored order.
+type RangeRow = (Option<bool>, Option<i64>, Option<i64>, i64, Option<String>);
+
+/// Whether the user's range order has room for a child order: the order is the
+/// user's own (a taker continues nothing), has a range, and the room left in
+/// it, `max - fiat_amount`, still reaches the minimum.
 pub fn range_has_room(
     is_mine: Option<bool>,
     min: Option<i64>,
     max: Option<i64>,
     fiat_amount: i64,
 ) -> bool {
-    matches!((is_mine, min, max), (Some(_), Some(min), Some(max)) if max - fiat_amount >= min)
+    matches!((is_mine, min, max), (Some(true), Some(min), Some(max)) if max - fiat_amount >= min)
+}
+
+/// Whose order a saved row is: the one the user made with `order new`, or the
+/// one the user took with `order take-*`. Only a maker continues a range order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Maker,
+    Taker,
+}
+
+/// A range order the user made, with room left in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MakerRange {
+    /// The user sells (a `sell` order); otherwise the user buys.
+    pub sells: bool,
 }
 
 /// Why the store could not be read or written.
@@ -179,8 +201,10 @@ impl Store {
         result
     }
 
-    /// The trade key and index the next order would use: the recorded index plus
-    /// one. Writes nothing.
+    /// The trade key and index the next reservation would get: the recorded
+    /// index plus one. Writes nothing. Only for the human preview: a request
+    /// publishes the trade of [`Store::reserve_trade`], which is this one unless
+    /// another command reserved one meanwhile.
     pub async fn next_trade(&self) -> Result<Trade, StoreError> {
         let pool = self.open().await?;
         let trade = User::get_next_trade_keys(&pool).await;
@@ -190,13 +214,26 @@ impl Store {
             .map_err(|_| StoreError::Unwritable)
     }
 
-    /// Record that `index` is spent without saving an order, so the next order
-    /// uses a fresh key. Never moves the recorded index backwards.
-    pub async fn advance(&self, index: i64) -> Result<(), StoreError> {
+    /// Reserve the next trade right before publishing: its index is recorded as
+    /// spent, and committed, before this returns. Call it after every local
+    /// check and the confirmation; never hold it across a prompt.
+    pub async fn reserve_trade(&self) -> Result<Reservation, StoreError> {
         let pool = self.open().await?;
-        let result = advance_in(&pool, index).await;
+        let reserved = reserve_in(&pool).await;
         pool.close().await;
-        result
+        reserved
+    }
+
+    /// Give `reservation` back once its request never left or the node
+    /// refused it (see `commands::order::write` for the refusal it keeps).
+    /// Best effort: `false` leaves the index spent, a harmless gap.
+    pub async fn release(&self, reservation: &Reservation) -> bool {
+        let Ok(pool) = self.open().await else {
+            return false;
+        };
+        let released = release_in(&pool, reservation).await;
+        pool.close().await;
+        released
     }
 
     /// The trade keys of the newest `newest` indexes up to the recorded last
@@ -227,20 +264,25 @@ impl Store {
             .and_then(|secret| Keys::parse(&secret).ok()))
     }
 
-    /// Whether `fiat-sent` and `release` for the stored order `id` must carry a
-    /// next trade key: the user made a range order with room left in it.
-    /// `Ok(false)` when there is no such order. Writes nothing.
-    pub async fn range_has_room(&self, id: Uuid) -> Result<bool, StoreError> {
+    /// What `fiat-sent` and `release` need to know about the stored order `id`
+    /// when it is a range order the user made with room left in it: `None` for
+    /// anything else (a taken order, a fixed order, an exhausted range, an unknown
+    /// order). Writes nothing.
+    pub async fn maker_range(&self, id: Uuid) -> Result<Option<MakerRange>, StoreError> {
         let pool = self.open().await?;
         let row: Result<Option<RangeRow>, _> = sqlx::query_as(
-            "SELECT is_mine, min_amount, max_amount, fiat_amount FROM orders WHERE id = ?1",
+            "SELECT is_mine, min_amount, max_amount, fiat_amount, kind FROM orders WHERE id = ?1",
         )
         .bind(id.to_string())
         .fetch_optional(&pool)
         .await;
         pool.close().await;
         let row = row.map_err(|_| StoreError::Unwritable)?;
-        Ok(row.is_some_and(|(is_mine, min, max, fiat)| range_has_room(is_mine, min, max, fiat)))
+        Ok(row.and_then(|(is_mine, min, max, fiat, kind)| {
+            range_has_room(is_mine, min, max, fiat).then(|| MakerRange {
+                sells: kind.as_deref() == Some("sell"),
+            })
+        }))
     }
 
     /// Set the status of the stored order `id`. Fails when there is no such
@@ -259,7 +301,7 @@ impl Store {
         }
     }
 
-    /// Save the order the node created and record its index, in one transaction:
+    /// Save the order the user made and record its index, in one transaction:
     /// both are written or neither is.
     pub async fn save_order(
         &self,
@@ -267,10 +309,58 @@ impl Store {
         trade: &Trade,
         request_id: u64,
     ) -> Result<(), StoreError> {
+        self.save_order_as(order, trade, request_id, Role::Maker)
+            .await
+    }
+
+    /// [`Store::save_order`] for an order of the given `role`.
+    pub async fn save_order_as(
+        &self,
+        order: &SmallOrder,
+        trade: &Trade,
+        request_id: u64,
+        role: Role,
+    ) -> Result<(), StoreError> {
         let pool = self.open().await?;
-        let result = save_in(&pool, order, trade, request_id).await;
+        let result = save_in(&pool, order, trade, request_id, (role, Existing::Replace)).await;
+        pool.close().await;
+        result.map(|_| ())
+    }
+
+    /// Save `order` as the user's own under `trade` only if no row has its id:
+    /// `true` when a row was written, `false` when one existed and was left
+    /// untouched. The index is recorded in the same transaction.
+    pub async fn adopt_order(
+        &self,
+        order: &SmallOrder,
+        trade: &Trade,
+        request_id: u64,
+    ) -> Result<bool, StoreError> {
+        let pool = self.open().await?;
+        let result = save_in(
+            &pool,
+            order,
+            trade,
+            request_id,
+            (Role::Maker, Existing::Keep),
+        )
+        .await;
         pool.close().await;
         result
+    }
+
+    /// The ids of every order in the store. Writes nothing.
+    pub async fn known_orders(&self) -> Result<std::collections::HashSet<Uuid>, StoreError> {
+        let pool = self.open().await?;
+        let ids: Result<Vec<String>, _> = sqlx::query_scalar("SELECT id FROM orders")
+            .fetch_all(&pool)
+            .await;
+        pool.close().await;
+        let ids = ids.map_err(|_| StoreError::Unreadable)?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| Uuid::parse_str(id).ok())
+            .collect())
     }
 }
 
@@ -294,81 +384,4 @@ async fn derive_trade_keys(pool: &SqlitePool, newest: usize) -> Result<TradeKeys
     }
     let not_read = usize::try_from(first - 1).unwrap_or(0);
     Ok(TradeKeys { keys, not_read })
-}
-
-async fn advance_in(pool: &SqlitePool, index: i64) -> Result<(), StoreError> {
-    let done = sqlx::query(
-        "UPDATE users SET last_trade_index = ?1 \
-         WHERE COALESCE(last_trade_index, 0) < ?1",
-    )
-    .bind(index)
-    .execute(pool)
-    .await
-    .map_err(|_| StoreError::Unwritable)?;
-    // Nothing changed is fine when the index was already recorded; a missing
-    // user row is not.
-    if done.rows_affected() == 0 {
-        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| StoreError::Unwritable)?;
-        if rows == 0 {
-            return Err(StoreError::Missing);
-        }
-    }
-    Ok(())
-}
-
-async fn save_in(
-    pool: &SqlitePool,
-    order: &SmallOrder,
-    trade: &Trade,
-    request_id: u64,
-) -> Result<(), StoreError> {
-    let (Some(id), Some(kind), Some(status)) =
-        (order.id, order.kind.as_ref(), order.status.as_ref())
-    else {
-        return Err(StoreError::Unwritable);
-    };
-    let unwritable = |_| StoreError::Unwritable;
-    let mut transaction = pool.begin().await.map_err(unwritable)?;
-    sqlx::query(
-        "INSERT INTO orders (id, kind, status, amount, min_amount, max_amount, fiat_code, \
-         fiat_amount, payment_method, premium, trade_keys, is_mine, request_id, created_at, \
-         expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14) \
-         ON CONFLICT(id) DO UPDATE SET kind = ?2, status = ?3, amount = ?4, min_amount = ?5, \
-         max_amount = ?6, fiat_code = ?7, fiat_amount = ?8, payment_method = ?9, premium = ?10, \
-         trade_keys = ?11, is_mine = 1, request_id = ?12, expires_at = ?14",
-    )
-    .bind(id.to_string())
-    .bind(kind.to_string())
-    .bind(status.to_string())
-    .bind(order.amount)
-    .bind(order.min_amount)
-    .bind(order.max_amount)
-    .bind(&order.fiat_code)
-    .bind(order.fiat_amount)
-    .bind(&order.payment_method)
-    .bind(order.premium)
-    .bind(trade.keys.secret_key().to_secret_hex())
-    .bind(request_id as i64)
-    .bind(chrono::Utc::now().timestamp())
-    .bind(order.expires_at)
-    .execute(&mut *transaction)
-    .await
-    .map_err(unwritable)?;
-    sqlx::query("UPDATE users SET last_trade_index = ?1 WHERE COALESCE(last_trade_index, 0) < ?1")
-        .bind(trade.index)
-        .execute(&mut *transaction)
-        .await
-        .map_err(unwritable)?;
-    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(unwritable)?;
-    if users == 0 {
-        // Dropping the transaction rolls the order row back.
-        return Err(StoreError::Missing);
-    }
-    transaction.commit().await.map_err(unwritable)
 }

@@ -16,6 +16,7 @@ pub enum Stages {
     /// One published request and a local write: persistence says whether the
     /// write the outcome calls for was `applied` or `failed`, and is
     /// `not_attempted` when no write is called for (a refusal, a local failure).
+    /// A refusal for a stale index keeps the index spent: `applied`.
     Write,
     /// One published request that updates a local row only afterwards:
     /// `applied`, or `failed` on success (the outcome then warns), and
@@ -29,6 +30,11 @@ pub enum Stages {
     /// and an unconfirmed request on a range order also records the trade index
     /// it reserved (`applied` or `failed`).
     Step,
+    /// A read of the relays that may write rows locally and publishes nothing:
+    /// publication and node acceptance are `not_applicable`; persistence is
+    /// `applied` when a row was saved, `not_attempted` when nothing was to be
+    /// saved or the command stopped first, `failed` when a save failed.
+    Sync,
 }
 
 /// The stage combinations (publication, node acceptance, persistence) allowed
@@ -121,6 +127,24 @@ impl<'a> OutcomeRules<'a> {
         }
     }
 
+    /// Rules of `order.sync` (`Stages::Sync`): a read with local rows.
+    pub fn sync(
+        command: &'static str,
+        errors: &'a [ErrorCode],
+        uncertain: &'a [ErrorCode],
+        warnings: &'a [WarningCode],
+    ) -> Self {
+        Self {
+            command,
+            errors,
+            uncertain,
+            warnings,
+            snapshot_on_success: true,
+            reason: false,
+            stages: Stages::Sync,
+        }
+    }
+
     /// Rules of the trade steps (`Stages::Step`).
     pub fn step(
         command: &'static str,
@@ -155,10 +179,12 @@ impl<'a> OutcomeRules<'a> {
             },
             Stages::Write => Combos {
                 success: vec![["published", "accepted", "applied"]],
-                // Nothing sent, or refused.
+                // Nothing sent, or refused (the index given back, or kept on
+                // `invalid_trade_index`).
                 failure: vec![
                     ["not_attempted", "unknown", "not_attempted"],
                     ["published", "rejected", "not_attempted"],
+                    ["published", "rejected", "applied"],
                 ],
                 // The node may hold an order: unknown or accepted without a
                 // saved row, with the index recorded or not.
@@ -169,6 +195,19 @@ impl<'a> OutcomeRules<'a> {
                     ["unknown", "unknown", "failed"],
                     ["published", "accepted", "failed"],
                 ],
+            },
+            Stages::Sync => Combos {
+                success: vec![
+                    ["not_applicable", "not_applicable", "applied"],
+                    ["not_applicable", "not_applicable", "not_attempted"],
+                ],
+                // Before anything was read, or after reading and before saving.
+                failure: vec![
+                    ["not_applicable", "not_applicable", "not_applicable"],
+                    ["not_applicable", "not_applicable", "not_attempted"],
+                ],
+                // A save failed after others succeeded.
+                uncertain: vec![["not_applicable", "not_applicable", "failed"]],
             },
             Stages::Update | Stages::Delivery | Stages::Step => Combos {
                 success: if self.stages != Stages::Delivery {

@@ -27,10 +27,9 @@ trade without the legacy commands. None of those documents change.
   back; `fiat-sent` is cheap to undo only by dispute, so it is not exempt.
 - Q: Trade index and range orders? -> A: Decided 2026-11-02: these commands sign with the order's stored trade key and spend no index, and they
   do **not** send a next trade key. On a range order of the user's with room left, `fiat-sent` and `release` therefore leave the range
-  **not continued** by the node (no child order is created). The outcome says so with the warning `range_not_continued` (new), in JSON and in the
-  human text, and the user can post a new order for the rest. Doing this correctly (reserving the index, sending the next trade key, and
+  **not continued** by the node (no child order is created). (Superseded by spec 008, which sends the key and removes the warning `range_not_continued`.) Doing this correctly (reserving the index, sending the next trade key, and
   giving the child order a usable local row) is **required follow-up work, spec 008 "range children"**, not an option; this spec stays free
-  of it so the three commands can be finished and verified first. The room test is the shared `range_has_room` rule (already in the store).
+  of it so the three commands can be finished and verified first. The room test is the shared `range_has_room` rule (already in the store). Amended by [spec 008](../008-range-children/spec.md): the rule now also requires the order to be the user's own, which the first version could not tell (a taker of a range order got the warning too).
   The old command waited for the child's `new-order` message; neither this spec nor 008 needs the command to wait, `message list` shows it.
 - Q: Local effects? -> A: After an accepted reply the local row status follows the node (`fiat-sent`; `settled-hold-invoice`; `canceled`,
   `cooperatively-canceled`; a cooperative cancel started by either side leaves the status as it is). A failed update is `ok` with the
@@ -52,7 +51,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
 - **FR-002**: Identity from the existing store, read-only; none means `identity_missing`. The trade key comes from the stored row; an unknown
   order or a row without a key is `order_unknown` and nothing is published.
 - **FR-003**: Confirmation as clarified above; the preview shows the command, the order id and the trade public key.
-- **FR-004**: Exactly one signed request is published, no retry. The trade index is never changed.
+- **FR-004**: Exactly one signed request is published, no retry. The trade index is never changed, except by the continuation of a range order (spec 008) (amended 2026-11-05 by spec 008).
 - **FR-005**: The reply is selected by node author, addressee (the trade key), allowed actions and the request id (the node echoes it to the
   sender in all three source paths, so there is no order-id fallback); the order the reply names is checked afterwards. Armed before publishing, bounded by a deadline, released on every
   exit, through `msg::exchange`. Allowed: `fiat-sent` -> `fiat-sent-ok`, `cant-do`; `release` -> `hold-invoice-payment-settled`, `released`
@@ -61,7 +60,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
   `not_allowed_by_status`, `order_already_canceled`, `is_not_your_order`) or nothing was published; `uncertain` when published and the result
   is unknown (no reply, malformed reply, relay read failure).
 - **FR-007**: Data per command (see the plan): the order id, a `result` word (`fiat_sent`; `released`; `canceled`, `cancel_requested`,
-  `cancel_accepted`), the trade public key, and, when the range was not continued, the warning `range_not_continued`. A `next_step` names only commands that exist (for
+  `cancel_accepted`), the trade public key, and, for a range order, the reserved `next_trade_index` (spec 008). A `next_step` names only commands that exist (for
   cancel_requested: wait for the peer, who answers with `order cancel`; for fiat-sent: wait for the seller to release).
 - **FR-008**: One versioned JSON outcome per command (`order.fiat-sent`, `order.release`, `order.cancel`, names already in the registry),
   command-scoped schemas, fixtures, regenerated discovery, drift and boundary checks. No private key, mnemonic or database record is
@@ -77,7 +76,7 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
 - **SC-001**: Against the scripted daemon, each accepted reply (including both cooperative-cancel steps) yields one valid document and one
   published request, with the local status updated; every refusal, silence and argument failure yields one document with its code and exit.
 - **SC-002**: Without `--yes`, JSON mode does nothing and never reads stdin.
-- **SC-003**: Every failure leaves the database byte-identical; the trade index never changes.
+- **SC-003**: Every failure leaves the database byte-identical; the trade index never changes (a range continuation, spec 008, reserves and may give back an index) (amended 2026-11-05 by spec 008).
 - **SC-004**: A reply for another addressee, another author or with another request id is ignored; a reply naming another order is `reply_malformed`.
 - **SC-005**: Human and JSON agree on every field; no secret sentinel appears in a diagnostic stream; Linux and the CI Windows runner pass.
 - **SC-006**: Nothing about a real daemon is claimed until a separately authorized regtest probe is recorded. The probe can walk a whole trade

@@ -43,10 +43,7 @@ pub const STEP_UNCERTAIN: [ErrorCode; 5] = [
 ];
 
 /// Warnings of the steps beyond the pilot pair.
-pub const STEP_WARNINGS: [WarningCode; 2] = [
-    WarningCode::LocalStatusStale,
-    WarningCode::RangeNotContinued,
-];
+pub const STEP_WARNINGS: [WarningCode; 1] = [WarningCode::LocalStatusStale];
 
 /// Which step is taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,9 +74,15 @@ impl StepKind {
     }
 
     /// Whether the request carries a next trade key when the order is a range
-    /// order of the user's with room left.
-    pub fn carries_next_trade(self) -> bool {
-        matches!(self, Self::FiatSent | Self::Release)
+    /// order of the user's with room left: the maker's own step. A seller
+    /// (`sells`) sends it with `release`, a buyer with `fiat-sent`, where the
+    /// node keeps it until the peer releases.
+    pub fn sends_key(self, sells: bool) -> bool {
+        match self {
+            Self::Release => sells,
+            Self::FiatSent => !sells,
+            Self::Cancel => false,
+        }
     }
 
     /// The actions the node answers this step with, besides `cant-do`.
@@ -142,6 +145,9 @@ pub enum StepNext {
     WaitForRelease,
     /// Wait for the other party to confirm with `order cancel`.
     WaitForPeerCancel,
+    /// The node created a child order for the rest of the range; `order sync`
+    /// gives it a local row.
+    SyncChildOrder,
 }
 
 /// A step the node answered, as the data of the reply.
@@ -185,9 +191,11 @@ impl StepData {
                 Some(StepNext::WaitForRelease),
                 Some(Status::FiatSent),
             ),
-            (Action::HoldInvoicePaymentSettled | Action::Released, _) if bare => {
-                (StepResult::Released, None, Some(Status::SettledHoldInvoice))
-            }
+            (Action::HoldInvoicePaymentSettled | Action::Released, _) if bare => (
+                StepResult::Released,
+                next_trade_index.map(|_| StepNext::SyncChildOrder),
+                Some(Status::SettledHoldInvoice),
+            ),
             (Action::Canceled, _) if bare => (StepResult::Canceled, None, Some(Status::Canceled)),
             (Action::CooperativeCancelInitiatedByYou, _) if bare => (
                 StepResult::CancelRequested,
@@ -293,9 +301,9 @@ mod tests {
             assert!(!kind.replies().is_empty());
             assert!(!kind.replies().contains(&Action::CantDo));
         }
-        assert!(StepKind::FiatSent.carries_next_trade());
-        assert!(StepKind::Release.carries_next_trade());
-        assert!(!StepKind::Cancel.carries_next_trade());
+        assert!(StepKind::Release.sends_key(true) && !StepKind::Release.sends_key(false));
+        assert!(StepKind::FiatSent.sends_key(false) && !StepKind::FiatSent.sends_key(true));
+        assert!(!StepKind::Cancel.sends_key(true) && !StepKind::Cancel.sends_key(false));
     }
 
     #[test]
@@ -381,6 +389,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(data.next_trade_index(), Some("12"));
+        assert_eq!(
+            data.next_step(),
+            Some(StepNext::SyncChildOrder),
+            "a release that sent a key points at order sync"
+        );
+    }
+
+    #[test]
+    fn a_fiat_sent_that_sent_a_key_still_waits_for_the_release() {
+        let (data, _) = map(
+            StepKind::FiatSent,
+            Action::FiatSentOk,
+            None,
+            Some(order_id()),
+            Some(12),
+        )
+        .unwrap();
+        assert_eq!(data.next_trade_index(), Some("12"));
+        assert_eq!(data.next_step(), Some(StepNext::WaitForRelease));
     }
 
     #[test]

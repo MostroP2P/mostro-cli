@@ -6,12 +6,13 @@ use uuid::Uuid;
 
 use crate::cli::send_msg::execute_send_msg;
 use crate::cli::{Commands, Context};
-use crate::db::{Order, User};
+use crate::db::Order;
+use crate::store::{raise_index_in, StoreError};
 use crate::util::messaging::get_admin_keys;
 use crate::util::send_dm;
 
 /// Saves `order` with the keys of the trade that made or took it, and records
-/// `trade_index` as the last one used.
+/// `trade_index` as spent ([`raise_trade_index`]).
 ///
 /// Both writes are what the next command relies on: a missing row leaves the
 /// trade unusable from this client, and a stale index makes the next order
@@ -33,14 +34,23 @@ pub async fn save_order(
         println!("Warning: The newly created order has no ID.");
     }
 
-    let mut user = User::get(pool).await.map_err(|e| {
-        anyhow::anyhow!("could not load the user to record trade index {trade_index}: {e}")
-    })?;
-    user.set_last_trade_index(trade_index);
-    user.save(pool)
-        .await
-        .map_err(|e| anyhow::anyhow!("could not record trade index {trade_index}: {e}"))?;
+    raise_trade_index(pool, trade_index).await?;
     Ok(())
+}
+
+/// Record `index` as spent without ever lowering the local index, and return
+/// the index recorded afterwards. Raise-only because a lower value (the node's
+/// count, which leaves out the keys of range children) would let the next
+/// order reuse a key the node holds.
+pub async fn raise_trade_index(pool: &SqlitePool, index: i64) -> Result<i64> {
+    raise_index_in(pool, index)
+        .await
+        .map_err(|error| match error {
+            StoreError::Missing => {
+                anyhow::anyhow!("could not load the local user to record trade index {index}")
+            }
+            _ => anyhow::anyhow!("could not record trade index {index}"),
+        })
 }
 
 pub async fn run_simple_order_msg(

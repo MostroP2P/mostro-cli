@@ -18,5 +18,5 @@ pub use messaging::{
 pub use misc::{ensure_private_dir, get_mcli_path, uppercase_first};
 pub use net::connect_nostr;
 pub use reply::{select_reply_event, ExpectedReply};
-pub use storage::{admin_send_dm, run_simple_order_msg, save_order};
+pub use storage::{admin_send_dm, raise_trade_index, run_simple_order_msg, save_order};
 pub use types::{Event, ListKind};

@@ -27,12 +27,12 @@
     },
     {
       "exit_code": 0,
-      "name": "fiat_sent_range_not_continued",
+      "name": "fiat_sent_range_key_sent",
       "stdout": {
         "command": "order.fiat-sent",
         "data": {
           "next_step": "wait_for_release",
-          "next_trade_index": null,
+          "next_trade_index": "4",
           "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
           "order_id": "00000000-0000-0000-0000-000000000001",
           "result": "fiat_sent",
@@ -47,12 +47,7 @@
         },
         "schema_version": "1",
         "status": "ok",
-        "warnings": [
-          {
-            "code": "range_not_continued",
-            "message": "The range order was not continued: the node creates no order for the rest of the range."
-          }
-        ]
+        "warnings": []
       }
     },
     {
@@ -63,6 +58,31 @@
         "data": {
           "next_step": null,
           "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "released",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "release_range_continued",
+      "stdout": {
+        "command": "order.release",
+        "data": {
+          "next_step": "sync_child_order",
+          "next_trade_index": "4",
           "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
           "order_id": "00000000-0000-0000-0000-000000000001",
           "result": "released",

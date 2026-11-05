@@ -1,8 +1,9 @@
 //! Dispatch of `order fiat-sent`, `order release` and `order cancel`. The same
 //! shape as the other write commands: everything that can fail locally fails
 //! before the question is asked, the question is asked in human mode only, and
-//! exactly one request is published. No trade is reserved: the order's stored
-//! key signs. The shared steps are in [`super::write`].
+//! exactly one request is published. The order's stored key signs; the next
+//! trade key of a range continuation is reserved by the operation, after the
+//! question, right before publishing. The shared steps are in [`super::write`].
 
 use super::commands::StepArgs;
 use super::invocation::OutputMode;
@@ -16,9 +17,6 @@ use crate::outcome::{Envelope, ErrorCode, WarningCode};
 use crate::parse_human::{render_step, render_step_preview};
 
 const UNWRITABLE: &str = "error: the result could not be written";
-const RANGE_NOT_CONTINUED: &str = "warning: this is a range order with room left, and the node \
-                                   does not continue it: it creates no order for the rest of the \
-                                   range. Post a new order for it.";
 const STATUS_STALE: &str = "warning: the node accepted the request but the local order status \
                             could not be updated; `order info --order <id>` shows the real one.";
 
@@ -68,9 +66,6 @@ fn advice(kind: StepKind) -> &'static str {
 /// The warnings a human cannot read in a document: fixed lines on stderr.
 fn warn(outcome: &Envelope<StepData, ()>) {
     let mut err = std::io::stderr().lock();
-    if outcome.warnings().contains(WarningCode::RangeNotContinued) {
-        diagnose(&mut err, RANGE_NOT_CONTINUED);
-    }
     if outcome.warnings().contains(WarningCode::LocalStatusStale) {
         diagnose(&mut err, STATUS_STALE);
     }

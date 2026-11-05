@@ -24,7 +24,7 @@ are `order_declined` (exit 1, nothing done). `--yes` skips the prompt in both mo
 
 Statuses `ok`, `error`, `uncertain`; exit 0 for `ok`, 2 for `invalid_arguments`, 1 for everything else. The [data model](../data-model.md) fixes
 the stages per case and the `next_step` per reply. `uncertain` means the node may hold the take: the program does not retry; the caller checks
-`order info --order <id>` before trying again. The trade index is advanced whenever the take was published and not provably refused.
+`order info --order <id>` before trying again. The trade index is recorded before the take is published and given back after a refusal or a take that never left (amended 2026-11-05 by spec 008), but kept after a refusal for a stale index (`invalid_trade_index`, `published/rejected/applied`) (amended 2026-11-05 by spec 008, review of slice 7).
 
 ## Human output
 

@@ -341,6 +341,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-cancel-v1.json"
     );
+    const SYNC_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-sync-v1.json"
+    );
     const MESSAGE_LIST_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/message-list-v1.json"
@@ -354,7 +358,7 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new take-sell take-buy add-invoice fiat-sent release cancel; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in list info new take-sell take-buy add-invoice fiat-sent release cancel sync; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done; \
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
     .output_schema\" > docs/schemas/bond-add-invoice-v1.json; \
@@ -458,6 +462,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn sync_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.sync"),
+            read_json(SYNC_FIXTURE),
+            "stale fixture of order.sync; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn trade_step_schema_fixtures_match_the_generated_schemas() {
         for (name, fixture) in [
             ("order.fiat-sent", FIAT_SENT_FIXTURE),
@@ -524,6 +537,7 @@ mod schema_fixtures {
                 "order.list",
                 "order.new",
                 "order.release",
+                "order.sync",
                 "order.take-buy",
                 "order.take-sell",
                 "schema"
@@ -1344,8 +1358,9 @@ mod schema_fixtures {
             ),
             (
                 "node_refused",
-                "a refusal that spent a write",
-                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+                // `applied` is allowed: a refusal for a stale index keeps it.
+                "a refusal whose write failed",
+                Box::new(|o| o["meta"]["persistence"] = json!("failed")),
             ),
             (
                 "node_refused",
@@ -1807,13 +1822,13 @@ mod schema_fixtures {
         }
     }
 
-    fn step_data(kind: StepKind, action: Action) -> Value {
+    fn step_data(kind: StepKind, action: Action, index: Option<i64>) -> Value {
         let data = StepData::from_reply(
             &node(),
             &StepInput::new(kind, id(1)),
             (&action, &None, Some(id(1))),
             &PublicKey::from_hex(TRADE).unwrap(),
-            None,
+            index,
         )
         .unwrap()
         .0;
@@ -1870,8 +1885,6 @@ mod schema_fixtures {
             ))
             .unwrap()
         };
-        let mut range = Warnings::new();
-        range.add(mostro_client::outcome::WarningCode::RangeNotContinued);
         let mut stale = Warnings::new();
         stale.add(mostro_client::outcome::WarningCode::LocalStatusStale);
         vec![
@@ -1879,18 +1892,18 @@ mod schema_fixtures {
                 "fiat_sent",
                 ok(
                     fiat,
-                    step_data(StepKind::FiatSent, Action::FiatSentOk),
+                    step_data(StepKind::FiatSent, Action::FiatSentOk, None),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
                 0,
             ),
             (
-                "fiat_sent_range_not_continued",
+                "fiat_sent_range_key_sent",
                 ok(
                     fiat,
-                    step_data(StepKind::FiatSent, Action::FiatSentOk),
-                    range,
+                    step_data(StepKind::FiatSent, Action::FiatSentOk, Some(4)),
+                    Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
                 0,
@@ -1899,7 +1912,21 @@ mod schema_fixtures {
                 "release_released",
                 ok(
                     release,
-                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled),
+                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled, None),
+                    Warnings::new(),
+                    accepted(Persistence::Applied),
+                ),
+                0,
+            ),
+            (
+                "release_range_continued",
+                ok(
+                    release,
+                    step_data(
+                        StepKind::Release,
+                        Action::HoldInvoicePaymentSettled,
+                        Some(4),
+                    ),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
@@ -1909,7 +1936,7 @@ mod schema_fixtures {
                 "release_stale_status",
                 ok(
                     release,
-                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled),
+                    step_data(StepKind::Release, Action::HoldInvoicePaymentSettled, None),
                     stale,
                     accepted(Persistence::Failed),
                 ),
@@ -1919,7 +1946,7 @@ mod schema_fixtures {
                 "cancel_canceled",
                 ok(
                     cancel,
-                    step_data(StepKind::Cancel, Action::Canceled),
+                    step_data(StepKind::Cancel, Action::Canceled, None),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
@@ -1929,7 +1956,11 @@ mod schema_fixtures {
                 "cancel_requested",
                 ok(
                     cancel,
-                    step_data(StepKind::Cancel, Action::CooperativeCancelInitiatedByYou),
+                    step_data(
+                        StepKind::Cancel,
+                        Action::CooperativeCancelInitiatedByYou,
+                        None,
+                    ),
                     Warnings::new(),
                     accepted(Persistence::NotAttempted),
                 ),
@@ -1939,7 +1970,7 @@ mod schema_fixtures {
                 "cancel_accepted",
                 ok(
                     cancel,
-                    step_data(StepKind::Cancel, Action::CooperativeCancelAccepted),
+                    step_data(StepKind::Cancel, Action::CooperativeCancelAccepted, None),
                     Warnings::new(),
                     accepted(Persistence::Applied),
                 ),
@@ -1994,7 +2025,7 @@ mod schema_fixtures {
     #[test]
     fn proposed_step_examples_conform_to_the_checked_in_schemas() {
         let examples = step_examples();
-        assert_eq!(examples.len(), 16);
+        assert_eq!(examples.len(), 17);
         for (name, exit, outcome) in examples {
             if outcome["command"].is_null() {
                 continue; // no command resolved: every schema allows it
@@ -2089,9 +2120,14 @@ mod schema_fixtures {
                 Box::new(|o| o["command"] = json!("order.cancel")),
             ),
             (
-                "fiat_sent_range_not_continued",
+                "release_stale_status",
                 "an unknown warning",
                 Box::new(|o| o["warnings"][0]["code"] = json!("trade_keys_limited")),
+            ),
+            (
+                "release_range_continued",
+                "a numeric index",
+                Box::new(|o| o["data"]["next_trade_index"] = json!(4)),
             ),
             (
                 "release_node_refused",
@@ -2132,6 +2168,324 @@ mod schema_fixtures {
         for (case, label, edit) in variants {
             let (_, mut outcome) = step_example(case);
             let schema = step_fixture(outcome["command"].as_str().unwrap());
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
+
+    // --- Order sync (spec 008) ---
+
+    use mostro_client::outcome::sync::{AdoptedOrder, SyncData, SyncInput};
+
+    const SYNC_COMMAND: &str = "order.sync";
+    const SYNC_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/008-range-children/contracts/examples.json"
+    );
+
+    fn sync_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(SYNC_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn sync_example(name: &str) -> (i32, Value) {
+        sync_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    /// A pending range child of 10 to 60, announced to the key of index 3.
+    fn adopted_child() -> AdoptedOrder {
+        let mut order = pending_order(OrderStatus::Pending);
+        order.min_amount = Some(10);
+        order.max_amount = Some(60);
+        order.fiat_amount = 0;
+        order.amount = 0;
+        AdoptedOrder::new(
+            id(5),
+            &order,
+            (3, &PublicKey::from_hex(TRADE).unwrap()),
+            &mut Warnings::new(),
+        )
+    }
+
+    fn sync_data(
+        adopted: Vec<AdoptedOrder>,
+        read: usize,
+        truncated: bool,
+        keys: (usize, usize),
+    ) -> Value {
+        let input = SyncInput::validate(Some(60)).unwrap();
+        to_value(SyncData::new(
+            &node(),
+            &input,
+            adopted,
+            (read, truncated),
+            keys,
+        ))
+        .unwrap()
+    }
+
+    fn sync_cases() -> Vec<(&'static str, Value, i32)> {
+        let ok = |data: Value, warnings, snapshot, persistence| {
+            to_value(MessageEnvelope::ok(
+                SYNC_COMMAND,
+                data,
+                warnings,
+                ExecutionMeta::sync(Some(snapshot), persistence),
+            ))
+            .unwrap()
+        };
+        let uncertain = |data: Value| {
+            to_value(MessageEnvelope::uncertain(
+                SYNC_COMMAND,
+                ErrorCode::OrderNotSaved,
+                Some(data),
+                Warnings::new(),
+                ExecutionMeta::sync(Some(read_snapshot(2, 2)), Persistence::Failed),
+            ))
+            .unwrap()
+        };
+        let error = |code, meta| {
+            to_value(MessageEnvelope::error(
+                Some(SYNC_COMMAND),
+                code,
+                Warnings::new(),
+                meta,
+            ))
+            .unwrap()
+        };
+        let before_reading = || ExecutionMeta::read(None);
+        let mut limited = Warnings::new();
+        limited.add(mostro_client::outcome::WarningCode::TradeKeysLimited);
+        vec![
+            (
+                "child_order_added",
+                ok(
+                    sync_data(vec![adopted_child()], 4, false, (3, 0)),
+                    Warnings::new(),
+                    read_snapshot(2, 4),
+                    Persistence::Applied,
+                ),
+                0,
+            ),
+            (
+                "nothing_to_add",
+                ok(
+                    sync_data(Vec::new(), 4, false, (3, 0)),
+                    Warnings::new(),
+                    read_snapshot(2, 4),
+                    Persistence::NotAttempted,
+                ),
+                0,
+            ),
+            (
+                "more_messages_and_keys_than_were_read",
+                ok(
+                    sync_data(vec![adopted_child()], 50, true, (200, 50)),
+                    limited,
+                    read_snapshot(2, 50),
+                    Persistence::Applied,
+                ),
+                0,
+            ),
+            (
+                "one_order_saved_and_one_not",
+                uncertain(sync_data(vec![adopted_child()], 2, false, (3, 0))),
+                1,
+            ),
+            (
+                "identity_missing",
+                error(ErrorCode::IdentityMissing, before_reading()),
+                1,
+            ),
+            (
+                "store_unwritable",
+                error(ErrorCode::StoreUnwritable, before_reading()),
+                1,
+            ),
+            (
+                "store_unreadable_after_the_keys",
+                error(
+                    ErrorCode::StoreUnreadable,
+                    ExecutionMeta::sync(None, Persistence::NotAttempted),
+                ),
+                1,
+            ),
+            (
+                "relays_unreachable",
+                error(
+                    ErrorCode::RelayConnectionFailed,
+                    ExecutionMeta::sync(None, Persistence::NotAttempted),
+                ),
+                1,
+            ),
+            (
+                "read_timeout",
+                error(
+                    ErrorCode::ReadTimeout,
+                    ExecutionMeta::sync(Some(read_snapshot(0, 0)), Persistence::NotAttempted),
+                ),
+                1,
+            ),
+            (
+                "window_out_of_range",
+                error(ErrorCode::InvalidArguments, before_reading()),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_sync_examples_conform_to_the_checked_in_schema() {
+        let schema = read_json(SYNC_FIXTURE);
+        let examples = sync_examples();
+        assert_eq!(examples.len(), 10);
+        for (name, exit, outcome) in examples {
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            // Data on a success, and on the one uncertain outcome that saved rows.
+            assert_eq!(
+                !outcome["data"].is_null(),
+                matches!(
+                    name.as_str(),
+                    "child_order_added"
+                        | "nothing_to_add"
+                        | "more_messages_and_keys_than_were_read"
+                        | "one_order_saved_and_one_not"
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn sync_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = sync_cases();
+        assert_eq!(cases.len(), sync_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = sync_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_sync_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "child_order_added",
+                "a numeric trade index",
+                Box::new(|o| o["data"]["adopted"][0]["trade_index"] = json!(3)),
+            ),
+            (
+                "child_order_added",
+                "an uppercase trade key",
+                Box::new(|o| o["data"]["adopted"][0]["trade_pubkey"] = json!(TRADE.to_uppercase())),
+            ),
+            (
+                "child_order_added",
+                "an order without an id",
+                Box::new(|o| {
+                    o["data"]["adopted"][0]["order"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("id");
+                }),
+            ),
+            (
+                "child_order_added",
+                "a count that is a number",
+                Box::new(|o| o["data"]["messages_read"] = json!(4)),
+            ),
+            (
+                "child_order_added",
+                "a missing truncation flag",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("truncated");
+                }),
+            ),
+            (
+                "child_order_added",
+                "a published request",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "child_order_added",
+                "rows saved but not applied",
+                Box::new(|o| o["meta"]["persistence"] = json!("not_applicable")),
+            ),
+            (
+                "child_order_added",
+                "no snapshot",
+                Box::new(|o| o["meta"]["snapshot"] = Value::Null),
+            ),
+            (
+                "nothing_to_add",
+                "a failed write on a success",
+                Box::new(|o| o["meta"]["persistence"] = json!("failed")),
+            ),
+            (
+                "more_messages_and_keys_than_were_read",
+                "a warning of another command",
+                Box::new(|o| o["warnings"][0]["code"] = json!("local_status_stale")),
+            ),
+            (
+                "one_order_saved_and_one_not",
+                "a plain error status",
+                Box::new(|o| o["status"] = json!("error")),
+            ),
+            (
+                "one_order_saved_and_one_not",
+                "a code that is an error only",
+                Box::new(|o| o["error"]["code"] = json!("identity_missing")),
+            ),
+            (
+                "one_order_saved_and_one_not",
+                "persistence that did not fail",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "identity_missing",
+                "a node refusal",
+                Box::new(|o| o["error"]["code"] = json!("node_refused")),
+            ),
+            (
+                "read_timeout",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"adopted": []})),
+            ),
+        ];
+        let schema = read_json(SYNC_FIXTURE);
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = sync_example(case);
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
             edit(&mut outcome);
             assert!(
                 !schema_check::conforms(&schema, &schema, &outcome),
@@ -2891,6 +3245,8 @@ mod source_boundaries {
         pub path: String,
         lines: Vec<String>,
         production: usize,
+        /// Declared only under `#[cfg(test)]`; see [`is_test_only`].
+        test_only: bool,
     }
 
     impl Source {
@@ -2922,25 +3278,49 @@ mod source_boundaries {
         }
         let mut paths = Vec::new();
         walk(Path::new(SRC), &mut paths);
-        paths.sort();
-        paths
+        let texts: BTreeMap<String, Vec<String>> = paths
             .into_iter()
             .map(|path| {
                 let text = read_to_string(&path).unwrap();
-                let lines: Vec<String> = text.lines().map(str::to_string).collect();
                 let relative = path
                     .strip_prefix(SRC)
                     .unwrap()
                     .to_string_lossy()
                     .replace('\\', "/");
-                let production = production_len(&relative, &lines);
-                Source {
-                    path: relative,
-                    lines,
-                    production,
-                }
+                (relative, text.lines().map(str::to_string).collect())
+            })
+            .collect();
+        texts
+            .iter()
+            .map(|(path, lines)| Source {
+                path: path.clone(),
+                lines: lines.clone(),
+                production: production_len(path, lines),
+                test_only: is_test_only(path, &texts),
             })
             .collect()
+    }
+
+    /// Whether `path` is a test-only file: its parent module declares it with
+    /// `#[cfg(test)]` directly above `mod name;`, so it is never compiled into
+    /// the binary. The constitution excludes such files from the size limit;
+    /// the import, transport and no-I/O checks still read every line of them.
+    fn is_test_only(path: &str, texts: &BTreeMap<String, Vec<String>>) -> bool {
+        let Some((dir, name)) = path
+            .strip_suffix(".rs")
+            .and_then(|stem| stem.rsplit_once('/'))
+        else {
+            return false;
+        };
+        let declaration = format!("mod {name};");
+        [format!("{dir}.rs"), format!("{dir}/mod.rs")]
+            .iter()
+            .filter_map(|parent| texts.get(parent))
+            .any(|lines| {
+                lines
+                    .windows(2)
+                    .any(|pair| pair[0].trim() == "#[cfg(test)]" && pair[1].trim() == declaration)
+            })
     }
 
     /// Whether `line` starts a `mod name {` item.
@@ -3044,6 +3424,30 @@ mod source_boundaries {
         assert_eq!(production_len("tests", &with_tests), 1);
         let with_import = text("use a;\n#[cfg(test)]\nuse b;\nfn a() {}\n");
         assert_eq!(production_len("import", &with_import), 2);
+
+        let tree: BTreeMap<String, Vec<String>> = [
+            ("a.rs", "#[cfg(test)]\nmod tests;\nmod b;\n"),
+            ("a/b.rs", "fn b() {}\n"),
+            ("a/tests.rs", "fn t() {}\n"),
+            ("c/mod.rs", "#[cfg(test)]\nmod tests;\n"),
+            ("c/tests.rs", "fn t() {}\n"),
+            ("d.rs", "#[cfg(test)]\nuse x;\nmod tests;\n"),
+            ("d/tests.rs", "fn t() {}\n"),
+        ]
+        .into_iter()
+        .map(|(path, body)| (path.to_string(), text(body)))
+        .collect();
+        assert!(
+            is_test_only("a/tests.rs", &tree),
+            "declared under cfg(test)"
+        );
+        assert!(is_test_only("c/tests.rs", &tree), "declared from a mod.rs");
+        assert!(!is_test_only("a/b.rs", &tree), "an unguarded module");
+        assert!(!is_test_only("a.rs", &tree), "a top-level file");
+        assert!(
+            !is_test_only("d/tests.rs", &tree),
+            "cfg(test) guards the import"
+        );
     }
 
     #[test]
@@ -3060,7 +3464,7 @@ mod source_boundaries {
     fn production_files_respect_the_size_limit_and_the_frozen_exceptions() {
         let frozen: BTreeMap<_, _> = LEGACY_OVERSIZED.into_iter().collect();
         let mut seen = 0;
-        for source in sources() {
+        for source in sources().into_iter().filter(|source| !source.test_only) {
             let size = source.production().len();
             match frozen.get(source.path.as_str()) {
                 Some(&cap) => {
@@ -3296,6 +3700,39 @@ mod source_boundaries {
             checked >= 12,
             "only {checked} files matched the boundary list"
         );
+    }
+
+    /// Files that may reserve a trade index: the operations that publish a
+    /// request carrying a fresh trade key.
+    const RESERVERS: [&str; 3] = [
+        "commands/order/new.rs",
+        "commands/order/step.rs",
+        "commands/order/take.rs",
+    ];
+
+    #[test]
+    fn a_published_trade_index_is_always_reserved_never_peeked() {
+        // An operation that published a peeked index could reuse a key after a
+        // crash or share one with a concurrent run (spec 008, slice 7).
+        let mut reservers = Vec::new();
+        for source in sources() {
+            for (number, line) in source.code() {
+                if source.path.starts_with("commands/") {
+                    assert!(
+                        !line.contains(".next_trade("),
+                        "{}:{number}: an operation peeks the trade index: {}",
+                        source.path,
+                        line.trim()
+                    );
+                }
+                if line.contains("reserve_trade(") && !source.path.starts_with("store") {
+                    reservers.push(source.path.clone());
+                }
+            }
+        }
+        reservers.sort();
+        reservers.dedup();
+        assert_eq!(reservers, RESERVERS);
     }
 
     #[test]
