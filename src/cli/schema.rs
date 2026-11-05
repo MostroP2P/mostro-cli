@@ -17,6 +17,7 @@ use crate::outcome::info::OrderInfoData;
 use crate::outcome::new::OrderNewData;
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules};
+use crate::outcome::take::{OrderTakeData, TakeSide};
 use crate::outcome::{ErrorCode, WarningCode};
 
 pub use crate::outcome::schema::{SchemaDocument, DIALECT as SCHEMA_DIALECT};
@@ -114,7 +115,9 @@ fn descriptor(entry: &CommandEntry, schemas: Option<CommandSchemas>) -> CommandD
 /// modeled, so they are `None` rather than an empty list.
 fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
-        "order.list" | ORDER_INFO | ORDER_NEW => Some(LISTING_CONFIGURATION.to_vec()),
+        "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY => {
+            Some(LISTING_CONFIGURATION.to_vec())
+        }
         SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
@@ -182,6 +185,10 @@ const NEW_ERRORS: [ErrorCode; 15] = [
     ErrorCode::StoreUnwritable,
 ];
 
+/// Canonical names of the two takes.
+const ORDER_TAKE_SELL: &str = "order.take-sell";
+const ORDER_TAKE_BUY: &str = "order.take-buy";
+
 /// Warnings of `order.new` beyond the pilot pair.
 const NEW_WARNINGS: [WarningCode; 1] = [WarningCode::InvalidOrderTimestamp];
 
@@ -218,6 +225,19 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &UNCERTAIN_CODES,
             &NEW_WARNINGS,
         )),
+        name @ (ORDER_TAKE_SELL | ORDER_TAKE_BUY) => {
+            let side = if name == ORDER_TAKE_SELL {
+                TakeSide::Sell
+            } else {
+                TakeSide::Buy
+            };
+            output_schema::<OrderTakeData, ()>(&OutcomeRules::write(
+                side.command(),
+                &NEW_ERRORS,
+                &UNCERTAIN_CODES,
+                &NEW_WARNINGS,
+            ))
+        }
         SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
             SCHEMA_COMMAND,
             &DISCOVERY_ERRORS,
@@ -434,13 +454,13 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|command| command["name"] == "order.take-sell")
+            .find(|command| command["name"] == "order.add-invoice")
             .unwrap();
         assert_eq!(
             legacy,
             &json!({
-                "name": "order.take-sell",
-                "cli_path": ["takesell"],
+                "name": "order.add-invoice",
+                "cli_path": ["addinvoice"],
                 "output_modes": ["human"],
                 "input_schema": null,
                 "output_schema": null,
@@ -545,7 +565,7 @@ mod tests {
         assert_eq!(output["title"], "order.list outcome");
         assert!(output.contains_key("$defs") && output.contains_key("oneOf"));
         assert!(listing.input_schema.is_some());
-        let legacy = by_name(&data, "order.take-sell");
+        let legacy = by_name(&data, "order.add-invoice");
         assert_eq!(
             (&legacy.input_schema, &legacy.output_schema),
             (&None, &None)

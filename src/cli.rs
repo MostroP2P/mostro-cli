@@ -16,7 +16,6 @@ pub mod send_admin_dm_attach;
 pub mod send_dm;
 pub mod send_msg;
 pub mod take_dispute;
-pub mod take_order;
 pub mod user_info;
 
 mod args;
@@ -25,11 +24,13 @@ mod context;
 mod legacy;
 mod migrated;
 mod order_new;
+mod order_take;
 mod registry;
 mod schema;
+mod write;
 
 pub use args::Cli;
-pub use commands::{Commands, NewArgs, OrderCommands};
+pub use commands::{Commands, NewArgs, OrderCommands, TakeBuyArgs, TakeSellArgs};
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
 pub use schema::{

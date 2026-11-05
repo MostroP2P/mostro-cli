@@ -7,6 +7,7 @@ use mostro_client::cli::{offline_discovery, Context};
 use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
 use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
+use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
 use mostro_client::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Warnings,
 };
@@ -281,7 +282,8 @@ mod schema_fixtures {
     use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
         Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, OrderNewData,
-        OrderNewInput, OrderRequest, Persistence, PublicKey, Publication, Value, Warnings,
+        OrderNewInput, OrderRequest, OrderTakeData, OrderTakeInput, Persistence, PublicKey,
+        Publication, TakeRequest, TakeSide, Taken, Value, Warnings,
     };
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
@@ -301,6 +303,14 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-new-v1.json"
     );
+    const TAKE_SELL_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-take-sell-v1.json"
+    );
+    const TAKE_BUY_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-take-buy-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -310,7 +320,7 @@ mod schema_fixtures {
     /// them and never rewrite a fixture.
     const REGENERATE: &str =
         "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    for NAME in list info new; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in list info new take-sell take-buy; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -373,6 +383,20 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn take_schema_fixtures_match_the_generated_schemas() {
+        for (name, fixture) in [
+            ("order.take-sell", TAKE_SELL_FIXTURE),
+            ("order.take-buy", TAKE_BUY_FIXTURE),
+        ] {
+            assert_eq!(
+                generated_output_schema(name),
+                read_json(fixture),
+                "stale fixture of {name}; {REGENERATE}"
+            );
+        }
+    }
+
+    #[test]
     fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
         let fixture = read_json(DISCOVERY_FIXTURE);
         let keys: Vec<&str> = fixture
@@ -412,7 +436,17 @@ mod schema_fixtures {
             .filter(|command| command["output_modes"] == json!(["human", "json"]))
             .map(|command| command["name"].as_str().unwrap())
             .collect();
-        assert_eq!(machine, ["order.info", "order.list", "order.new", "schema"]);
+        assert_eq!(
+            machine,
+            [
+                "order.info",
+                "order.list",
+                "order.new",
+                "order.take-buy",
+                "order.take-sell",
+                "schema"
+            ]
+        );
     }
 
     /// A signed 64-bit integer in canonical decimal text, which a JSON Schema
@@ -1252,6 +1286,360 @@ mod schema_fixtures {
             let (_, mut outcome) = new_example(case);
             assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
             edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
+    // --- The proposed outcomes of the takes (spec 004) -----------------------
+
+    const TAKE_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/004-order-take-json/contracts/examples.json"
+    );
+
+    fn take_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(TAKE_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn take_example(name: &str) -> (i32, Value) {
+        take_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn take_fixture(command: &str) -> Value {
+        match command {
+            "order.take-sell" => read_json(TAKE_SELL_FIXTURE),
+            "order.take-buy" => read_json(TAKE_BUY_FIXTURE),
+            other => panic!("no fixture for {other}"),
+        }
+    }
+
+    fn taken_data(side: TakeSide, taken: &Taken, amount: Option<i64>) -> OrderTakeData {
+        let input = OrderTakeInput::validate(TakeRequest {
+            side,
+            order: id(1),
+            amount,
+            invoice: None,
+        })
+        .unwrap();
+        OrderTakeData::from_taken(
+            &node(),
+            &input,
+            taken,
+            3,
+            &PublicKey::from_hex(TRADE).unwrap(),
+        )
+        .unwrap()
+        .0
+    }
+
+    fn pending_order(status: OrderStatus) -> SmallOrder {
+        let mut order = small_order(1, |_| {});
+        order.status = Some(status);
+        order.seller_trade_pubkey = None;
+        order
+    }
+
+    type TakeEnvelope = Envelope<OrderTakeData, ()>;
+
+    fn take_cases() -> Vec<(&'static str, Value, i32)> {
+        let sell = "order.take-sell";
+        let buy = "order.take-buy";
+        let accepted = || {
+            write(
+                Publication::Published,
+                DaemonAcceptance::Accepted,
+                Persistence::Applied,
+            )
+        };
+        let ok = |command, data| {
+            to_value(TakeEnvelope::ok(command, data, Warnings::new(), accepted())).unwrap()
+        };
+        let error = |command, code, meta| {
+            to_value(TakeEnvelope::error(
+                Some(command),
+                code,
+                Warnings::new(),
+                meta,
+            ))
+            .unwrap()
+        };
+        let add_invoice = Taken::AddInvoice(pending_order(OrderStatus::WaitingBuyerInvoice));
+        let hold = Taken::PayInvoice(
+            pending_order(OrderStatus::WaitingPayment),
+            "lnbcrt1holdinvoice".to_string(),
+        );
+        vec![
+            (
+                "sell_add_invoice",
+                ok(sell, taken_data(TakeSide::Sell, &add_invoice, None)),
+                0,
+            ),
+            (
+                "sell_waiting_for_the_seller",
+                ok(
+                    sell,
+                    taken_data(TakeSide::Sell, &Taken::WaitingSellerToPay, Some(150)),
+                ),
+                0,
+            ),
+            (
+                "buy_pay_hold_invoice",
+                ok(buy, taken_data(TakeSide::Buy, &hold, None)),
+                0,
+            ),
+            (
+                "sell_node_refused",
+                to_value(TakeEnvelope::refused(
+                    Some(sell),
+                    "invalid_order_status",
+                    Warnings::new(),
+                    write(
+                        Publication::Published,
+                        DaemonAcceptance::Rejected,
+                        Persistence::NotAttempted,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "sell_bond_required",
+                error(sell, ErrorCode::BondRequired, accepted()),
+                1,
+            ),
+            (
+                "buy_reply_timeout_uncertain",
+                to_value(TakeEnvelope::uncertain(
+                    buy,
+                    ErrorCode::ReplyTimeout,
+                    None,
+                    Warnings::new(),
+                    write(
+                        Publication::Published,
+                        DaemonAcceptance::Unknown,
+                        Persistence::Applied,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "buy_order_not_saved_uncertain",
+                to_value(TakeEnvelope::uncertain(
+                    buy,
+                    ErrorCode::OrderNotSaved,
+                    Some(taken_data(TakeSide::Buy, &hold, None)),
+                    Warnings::new(),
+                    write(
+                        Publication::Published,
+                        DaemonAcceptance::Accepted,
+                        Persistence::Failed,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "sell_order_declined",
+                error(sell, ErrorCode::OrderDeclined, unsent_write()),
+                1,
+            ),
+            (
+                "buy_identity_missing",
+                error(buy, ErrorCode::IdentityMissing, unsent_write()),
+                1,
+            ),
+            (
+                "sell_yes_required",
+                error(sell, ErrorCode::InvalidArguments, unsent_write()),
+                2,
+            ),
+            (
+                "removed_spelling",
+                to_value(TakeEnvelope::error(
+                    None,
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    ExecutionMeta::not_executed(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_take_examples_conform_to_the_checked_in_schemas() {
+        let examples = take_examples();
+        assert_eq!(examples.len(), 11);
+        for (name, exit, outcome) in examples {
+            if outcome["command"].is_null() {
+                continue; // no command resolved: both schemas allow it
+            }
+            let schema = take_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                !outcome["data"].is_null(),
+                matches!(
+                    name.as_str(),
+                    "sell_add_invoice"
+                        | "sell_waiting_for_the_seller"
+                        | "buy_pay_hold_invoice"
+                        | "buy_order_not_saved_uncertain"
+                ),
+                "{name}"
+            );
+        }
+        // The removed spelling conforms to both schemas.
+        let (_, removed) = take_example("removed_spelling");
+        for command in ["order.take-sell", "order.take-buy"] {
+            let schema = take_fixture(command);
+            assert!(schema_check::conforms(&schema, &schema, &removed));
+        }
+    }
+
+    #[test]
+    fn take_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = take_cases();
+        assert_eq!(cases.len(), take_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = take_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_take_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "sell_add_invoice",
+                "an unknown next step",
+                Box::new(|o| o["data"]["next_step"] = json!("pay_now")),
+            ),
+            (
+                "sell_add_invoice",
+                "a numeric trade index",
+                Box::new(|o| o["data"]["trade_index"] = json!(3)),
+            ),
+            (
+                "sell_add_invoice",
+                "an uppercase trade key",
+                Box::new(|o| o["data"]["trade_pubkey"] = json!(TRADE.to_uppercase())),
+            ),
+            (
+                "sell_add_invoice",
+                "a missing payment_request key",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("payment_request");
+                }),
+            ),
+            (
+                "sell_add_invoice",
+                "an unknown side",
+                Box::new(|o| o["data"]["side"] = json!("both")),
+            ),
+            (
+                "sell_add_invoice",
+                "a bad order id",
+                Box::new(|o| o["data"]["order_id"] = json!("not-a-uuid")),
+            ),
+            (
+                "sell_add_invoice",
+                "a failed save on success",
+                Box::new(|o| o["meta"]["persistence"] = json!("failed")),
+            ),
+            (
+                "sell_add_invoice",
+                "a success that is uncertain",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "sell_add_invoice",
+                "the other command",
+                Box::new(|o| o["command"] = json!("order.take-buy")),
+            ),
+            (
+                "sell_node_refused",
+                "an uppercase reason",
+                Box::new(|o| o["error"]["reason"] = json!("Invalid Status")),
+            ),
+            (
+                "sell_node_refused",
+                "an accepted refusal",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "sell_node_refused",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"order_id": null})),
+            ),
+            (
+                "buy_reply_timeout_uncertain",
+                "a plain error status",
+                Box::new(|o| o["status"] = json!("error")),
+            ),
+            (
+                "buy_reply_timeout_uncertain",
+                "a code that is an error only",
+                Box::new(|o| o["error"]["code"] = json!("order_declined")),
+            ),
+            (
+                "buy_reply_timeout_uncertain",
+                "nothing published",
+                Box::new(|o| o["meta"]["publication"] = json!("not_attempted")),
+            ),
+            (
+                "buy_order_not_saved_uncertain",
+                "a saved persistence",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "sell_order_declined",
+                "a published declined take",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+        ];
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = take_example(case);
+            let schema = take_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            // The edit that swaps the command must be judged by the original schema.
+            let schema = if label == "the other command" {
+                take_fixture("order.take-sell")
+            } else {
+                schema
+            };
             assert!(
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label} on {case}"

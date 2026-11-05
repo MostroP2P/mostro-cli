@@ -3237,6 +3237,213 @@ the Windows job. Documentation only; no production change. Lean mode: the only e
 - **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), MCP `create_order`, and
   `order take`.
 
+## Order Take, Slice 1: Characterization And Fixtures: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `4be1332` (pushed). No production change. Lean mode: the only evidence entry for the
+slice.
+
+- **Legacy `takesell`/`takebuy` pinned**, removed with the commands in slice 4:
+  - **Payload bytes** (4 unit tests in `cli/take_order.rs`): take-buy sends `Amount(n)` only when an amount is given and ignores an
+    invoice; take-sell without an invoice sends `Amount(n)` and `Amount(0)` when nothing is given; with an invoice it sends the payment request
+    with the amount inside it, and an **invalid invoice is printed and sent anyway**; only the two take actions build a payload.
+  - **Grammar** (4 tests, `cli_functions::take_characterization`): the order id is required and a UUID in any case; the long flag is
+    squashed (`--orderid`); `-i`/`--invoice` exists only on take-sell; the amount is a non-negative integer, zero parses; both are registered
+    legacy commands with canonical names `order.take-sell`/`order.take-buy` and no JSON.
+  - **Local effects** were already pinned by the existing unit tests of `taken_sell_order` and `save_taken_sell_order` (row from the book
+    or minimal, trade keys and index saved, an existing row left alone).
+- **Fixtures** (`tests/common/fake_mostro.rs`, `tests/order_take_process.rs`): the scripted daemon records the order id, amount and invoice a
+  take carries; `take_daemon(book, bonded)` applies the source's checks in order (index and signature, order known, a pending order for the
+  taker, side, status, own order, range amount, invoice) and keeps a book (statuses, the taker set, the index, remembered only after every
+  check passed). Replies as in the source: `add-invoice` with the order (take-sell, no invoice); `waiting-seller-to-pay` with no payload to the
+  taker while the hold invoice `pay-invoice` is addressed to the **maker** (take-sell, invoice); `pay-invoice` with the order and hold invoice
+  (take-buy); `pay-bond-invoice` with the order parked (bonded node); `cant-do` otherwise.
+- **Self-tests** (6): each reply and its addressing (the maker's own listener hears the hold invoice), a range order inside and outside its
+  bounds with the amount echoed, every refusal (stale index, unknown order, wrong side both ways, taken order, invalid invoice, own order,
+  pending order) leaving the index and the taker set untouched, and the bonded answer.
+- **Checks on the checks**: remembering the index before the checks, addressing the hold invoice to the taker, and dropping the pending-order
+  check each failed a self-test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (568 tests: lib 159, `cli_functions` 68, `integration_tests` 41,
+  `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 6, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`:
+  all pass.
+
+## Order Take, Slice 2: Shared Dispatch And Outcomes: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `480d241` (not pushed yet). Lean mode: the only evidence entry for the slice.
+
+- **Extraction first** (behavior-preserving): the steps every write command shares moved from `cli/order_new.rs` (215 lines) to
+  `cli/write.rs` (configuration, identity, store and trade resolution; the JSON `--yes` rule; the refusal envelope; the prompt with a
+  command-supplied preview and question; presentation, the verbose line and the uncertain advice). `order_new.rs` is 77 lines. The 40 `order new`
+  tests, binary scenarios included, are unchanged and green. `WriteOptions` (pow, protocol check) moved to `commands/order` and `NewOptions` is an
+  alias.
+- **Input and data** (`outcome/take.rs`, 8 unit tests): `TakeSide` (command name, action and kind of the order taken); `OrderTakeInput::validate`
+  (positive amount; an invoice only on take-sell, bounded, no whitespace or control characters; the error names the option, never the value, so an
+  invalid invoice is now refused locally instead of printed and sent as the legacy command did); `payload()` is byte for byte the legacy one for every
+  invoice and amount combination (the slice 1 cases); `minimal_order()` (id, side of the order, `waiting-payment`, the amount taken, empty text);
+  `OrderTakeData::from_taken` maps `add-invoice`, `waiting-seller-to-pay` and `pay-invoice` to `add_invoice`, `wait_for_seller_payment` and
+  `pay_hold_invoice` with the order to save, and refuses a reply that names another order or carries no id; the hold invoice is data and appears
+  nowhere else.
+- **Schema tests**: each canonical name generates its own schema (`order.take-sell`, `order.take-buy`, three statuses); real outcomes of every next step and
+  an unsaved take conform; eight contradictions do not.
+- **Checks on the checks**: dropping the other-order check, allowing an invoice on take-buy, changing the zero amount of the legacy payload and changing the
+  minimal row's status each failed a test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (577 tests: lib 168, `cli_functions` 68, `integration_tests` 41,
+  `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 6, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+## Order Take, Slice 3: The Operation: 2026-10-30
+
+Native Linux, rustc 1.97.0, on `develop` after `9304528` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Extraction first** (behavior-preserving): the outcomes every write command shares (`failed`, `malformed`, `bond_required`, `refused`, `saved`,
+  `spend_index`, `unsent`) moved from `commands/order/new.rs` to `commands/order/write.rs` (`Sent`), with the index policy stated once; `new.rs` shrank
+  and its 40 tests, binary scenarios included, are unchanged and green.
+- **The operation** (`commands/order/take.rs`, `order_take` for both sides): one `exchange` with the take actions allowed (`add-invoice`,
+  `waiting-seller-to-pay`, `pay-invoice`, `pay-bond-invoice`, `cant-do`), each reply mapped by side: take-sell accepts `add-invoice` with an order or
+  `waiting-seller-to-pay` naming the order taken; take-buy accepts `pay-invoice` with the order and the hold invoice; anything else, or a reply about
+  another order, is `reply_malformed` (uncertain).
+- **Operation tests** (10 in `tests/order_take_process.rs`, the real `order_take` against the scripted daemon and a seeded store):
+  take-sell without an invoice asks for one and saves the node's order (row `waiting-buyer-invoice`, index 1, trade key stored, the node's book index
+  advanced); take-sell with an invoice waits for the seller and saves the minimal row (kind `sell`, `waiting-payment`, empty currency); take-buy returns the
+  hold invoice as data and stores no invoice; a range take records the amount taken; refusals (stale index, wrong side, unknown order) carry their reason and
+  write nothing; silence is `uncertain` with the index spent and no row; three replies that do not fit (another order's `add-invoice`, a hold invoice for a
+  take-sell, a waiting reply naming another order) are `uncertain`/`reply_malformed`; a bonded node is `bond_required` with the index spent; an order table
+  that cannot be written is `order_not_saved` with the data returned and the index still spent; needed work stops everything with `mcli.db` byte-identical.
+- **Checks on the checks**: dropping the order check on the waiting reply, spending no index after a failed save, spending none after a bond request and
+  accepting a hold invoice for a take-sell each failed a test (the last one first survived because the odd reply carried no order; it now carries a
+  matching one so only the side check can catch it); restored.
+- **Correction (2026-11-01)**: this entry claimed all gates passed, but `source_boundaries::production_imports_are_at_the_top_except_frozen_legacy` failed on a `pub use`
+  left at the end of `commands/order/take.rs`; I had summed the per-binary counts without checking for failures, and CI (run 41306913823) caught it. The next slice moved the line to
+  the top (4962983). Failures are now counted explicitly before a slice is reported.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (586 tests: lib 168, `cli_functions` 68, `integration_tests` 41,
+  `order_info_process` 34, `order_list_process` 46, `order_new_process` 40, `order_take_process` 16, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+## Order Take, Slice 4a: The Commands: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `11b27cb` (pushed). `mostro-cli order take-sell` and `order take-buy` exist; the legacy `takesell` and
+`takebuy` (commands, handler `cli/take_order.rs`, the book read after a take-sell with an invoice, their characterization and save tests) are removed with
+no alias. Lean mode: this and the 4b entry are the evidence for the slice; 4b adds the binary scenarios.
+
+- **Pieces**: `OrderCommands::TakeSell(TakeSellArgs)` and `TakeBuy(TakeBuyArgs)` (`--order UUID`, `--amount`, `--invoice` on take-sell only, `--yes`), two registry
+  entries with `JsonSupport::Write` (the canonical names and no registry change), `cli/order_take.rs` (validation, then the shared `cli/write.rs` steps, preview and
+  prompt in human mode only, JSON without `--yes` refused with `invalid_arguments`), `parse_human/order_take.rs` (the preview never shows the invoice the user gave;
+  the hold invoice is alone on its line), the command-scoped schemas (`order.take-sell`, `order.take-buy`), `docs/schemas/order-take-sell-v1.json` and
+  `order-take-buy-v1.json`, and the regenerated `discovery-v1.json` (only the two take descriptors changed; their old human-only entries became machine ones).
+  The dispatch needed `#[command(name = "take-sell")]`: the group's lower-casing rule had named them `takesell`.
+- **Grammar tests** (5, `cli_functions::order_take_grammar`): the options and defaults of both commands, a take-buy without an invoice option, the order
+  required and text amounts rejected, every legacy spelling gone, both registered as JSON-capable writes. The registry, output-intent, discovery and drift tests
+  were updated to the new fact (six machine commands; legacy samples now use `addinvoice`); a drift test covers the two new fixtures.
+- **Boundary check at work**: the import-position test refused a `pub use` I had left at the end of `commands/order/take.rs`.
+- **Docs**: `README.md`, `docs/commands.md` (the two takes replace the legacy entries, with the migration note and the MCP warning) and `docs/database.md` (the
+  minimal row replaces the book read).
+- **Real binary check**: `order take-sell` in JSON without `--yes` is `invalid_arguments` exit 2 naming `order.take-sell`; `order take-buy --yes` with no
+  configuration is `configuration_missing` exit 1; `takesell` is an unrecognized subcommand; nothing is created.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (578 tests: lib 159, `cli_functions` 67, `integration_tests` 42, `order_info_process` 34,
+  `order_list_process` 46, `order_new_process` 40, `order_take_process` 16, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6; fewer
+  than before because the legacy save and characterization tests went with the commands), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
+  --all-features`: all pass.
+
+## Order Take, Slice 4b: Binary Scenarios: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `4962983` (pushed). The real binary against the scripted daemon, a seeded identity store and a sandboxed
+home; stdin is a closed descriptor or a file the test wrote, never a pipe it has to feed. Lean mode: with 4a, the evidence for the slice.
+
+- **Take-sell in JSON** (`--yes`): exit 0, one document that conforms to the checked-in `order-take-sell-v1.json`, nothing on stderr, `next_step` `add_invoice`, no
+  hold invoice, stages `published/accepted/applied`, one request, the row and index 1 in the store; neither the trade private key (read from the store), the mnemonic
+  nor a relay address appears in any stream.
+- **The user's invoice never comes back**: a take-sell with an invoice carrying a sentinel, in JSON with `--verbose` and in human mode through the prompt, shows no
+  trace of it in stdout or stderr (the preview only says "Invoice: provided"); the node received it; the store keeps no invoice; the reply is
+  `wait_for_seller_payment` with a null order and `--verbose` prints exactly `verbose: order.take-sell ok`.
+- **Take-buy**: JSON `pay_hold_invoice` with the hold invoice in `data.payment_request` (conforming to `order-take-buy-v1.json`); in human mode the hold invoice is alone on its
+  line of stdout and never on stderr; `--verbose` prints exactly `verbose: order.take-buy ok`.
+- **Confirmation**: JSON without `--yes` is `invalid_arguments` exit 2 naming the command, for both sides, with no request and the data directory byte-identical. Through the prompt
+  `y`, blank and `Y` + CRLF accept; `n`, `no`, `maybe`, an empty input and a closed stdin decline with exit 1, the fixed `order_declined` line, no request and an untouched store.
+- **Refusal** (node's index ahead): JSON `node_refused` with the reason and null data, one fixed human line with the reason, the store byte-identical, one request per run.
+  **Silence**: after the production 15 s budget `uncertain` / `reply_timeout`, nothing on stderr, exactly one request, the index spent and no row. **Bonded node**: `bond_required`, index spent.
+- **Unsaved take** (orders table dropped): JSON `uncertain` / `order_not_saved` with the hold invoice still in the data and persistence `failed`; human still prints the hold invoice on its line
+  and the error plus the line pointing to `order info --order <id>`, without repeating the hold invoice on stderr. **Range take**: the amount reaches the node, the document and the row.
+- **Checks on the checks**: putting the hold invoice on the same line as its label, rewording the advice line and printing the user's invoice in the preview each failed the test that guards it;
+  restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (589 tests: lib 159, `cli_functions` 67, `integration_tests` 42, `order_info_process` 34, `order_list_process` 46,
+  `order_new_process` 40, `order_take_process` 27, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+- Still open for slice 5: the failure matrix at binary level (identity, configuration, protocol and work, rejected and unreachable relay, unwritable store, invalid input, secret sentinels, unwritable
+  streams), `contracts/examples.json` and its validation.
+
+## Order Take, Slice 5: Failure Matrix And Examples: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `0103425` (pushed). Lean mode: the only evidence entry for the slice.
+
+- **Failure matrix** (binary, `tests/order_take_process.rs`; each case runs on **both** takes as JSON, human and `--verbose`, all with `--yes`, a planted sentinel where an input
+  carries text): no store and an empty `users` table (`identity_missing`); a file that is not a database, no `users` table and a null mnemonic (`identity_unreadable`); missing node
+  key or relays (`configuration_missing`); a bad node key, relay, `--pow` or `--transport` (`configuration_invalid`); protocol 1 (`protocol_unsupported`); more work expected than
+  configured (`pow_required`); a relay rejecting every write (`request_rejected`, index unspent); an unreachable relay (`relay_connection_failed`); a read-only store file
+  (`store_unwritable`). For each: exit 1, the command's own canonical name, status `error`, stages `not_attempted/unknown/not_attempted`, a document that conforms to that command's
+  checked-in schema, nothing on stderr in JSON mode and one `error:` line on stderr only in the others, no sentinel, relay address or hold invoice in any stream, no request at the
+  daemon, the data directory byte-identical and nothing created elsewhere. An explicit `--transport nip44` with enough `--pow` succeeds on a node advertising protocol 1.
+- **Argument errors**: ten cases exit 2 with `invalid_arguments`, nothing sent or written, nothing echoed, nothing on stderr: a zero or negative amount, an invoice with whitespace or over
+  4096 bytes, an invoice on take-buy, a text amount, a bad order id and a missing order (all keeping the resolved command), and the removed `takesell` and `takebuy` (command `null`).
+- **Unwritable streams**: a closed stdout after the take exits 1 with one fixed line per mode and both takes are saved all the same; a closed stderr changes neither the exit nor the
+  JSON document.
+- **Examples** (`contracts/examples.json`, eleven outcomes across both commands: the three next steps, refusal, bond, timeout and unsaved take as `uncertain`, declined, identity
+  missing, `--yes` required, removed spelling): each conforms to its command's checked-in schema, is reproduced by the owned constructors, carries data only when it should, and seventeen
+  invalid variants do not conform.
+- **Checks on the checks**: allowing whitespace in an invoice, mapping an unreadable store to missing and disabling the writable-file check each failed a test; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (600 tests: lib 159, `cli_functions` 67, `integration_tests` 45, `order_info_process` 34, `order_list_process` 46,
+  `order_new_process` 40, `order_take_process` 35, `parser_orders` 123, `parser_dms` 19, `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all pass.
+
+## Order Take, Slice 6: Docs And Verification: 2026-11-01
+
+Native Linux, rustc 1.97.0, on `develop` after `40f125c` (slice 5, not pushed when this was written; CI is green for the pushed slices up to 4b, Windows included).
+Documentation only; no production change. Lean mode: the only evidence entry for the slice.
+
+- **Docs**: `docs/architecture.md` (the legacy `take_order.rs` and its size row are gone, the shared write dispatch and the take modules are described, a "taking an order" flow
+  is added), `docs/pow_error_handling.md` (the list of flows through `wait_for_dm` no longer names the migrated commands), the requirement evidence in `tests/README.md`,
+  `specs/004-order-take-json/quickstart.md` (focused commands, offline smoke check, acceptance matrix, the six-step regtest probe procedure), and the status lines of the spec, plan,
+  `AGENTS.md`, `docs/ai-development.md` and the roadmap (Amendment 12). The README, command reference and database notes were migrated in slice 4a; the boundary counts and CI
+  wiring needed no change (the transport owners are still `msg`).
+- **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order take-sell` in JSON without `--yes` is `invalid_arguments` exit 2 naming
+  `order.take-sell`; `order take-buy --yes` with no configuration is `configuration_missing` exit 1; `takesell` is an unrecognized subcommand; nothing is created.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked` (600 tests), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass (no source
+  changed since slice 5).
+- **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), the MCP migration (`create_order`, `take_order`, `get_order` all break against
+  the CLI until then), Cashu escrow replies (reported as unusable), and the empty fields of the minimal row.
+
+## Regtest Probe Of order info, order new And The Takes: 2026-11-01
+
+Authorized by the maintainer on 2026-11-01. Regtest only: the MCP repository's `regtest/` network (bitcoind 27, three LND 0.18.3 nodes, nostr-rs-relay 0.9, **mostrod v0.19.3**), the
+throwaway identities Alice and Bob, the debug build of `develop` at `aa20208` through `devenv.sh cli`. No public node, no `devenv.sh clean`, no identity file read (only
+`last_trade_index` columns of the throwaway stores were read or, for the stale-index case, set).
+
+- **Setup defect, not ours**: the first `devenv.sh up` failed with "mostro LND did not sync to chain": the chain left from 2026-10-20 had a stale tip, so bitcoind reported initial block
+  download and LND waited. One `devenv.sh mine 1` fixed it and a second `up` opened the four channels.
+- **`order list`**: `ok`, the book empty then one pending order after Alice's first `order new`, with `completed_relays` 1/1.
+- **`order new`** (Alice, fixed sell order and a buy order; a range order 10..50; four orders in all): `ok`, `published/accepted/applied`; the reply is `new-order` with the order
+  (`pending`, expiry about 24 h, net sats equal to the request), addressed to the trade key; the trade index advances 2, 3, 4, 6, 7 on Alice (5 was spent by a take, see below) and the node
+  accepted each; a range order comes back with `fiat_amount` 0 and `min`/`max`.
+- **`order info`**: the owner sees the order with `seller_trade_pubkey` filled in by the node; another identity asking for it gets `ok` with the id in `not_returned` and the
+  `orders_not_returned` warning (the success the design maps both an empty reply and `not_found` to; the log did not show which the node sent).
+- **`order take-sell` without an invoice** (Bob): `ok`, `add_invoice`, the order in `waiting-buyer-invoice`, `published/accepted/applied`, trade index 1 for a new identity. The legacy
+  `addinvoice -o <id> -i <bolt11>` then accepted the row the new command saved, the hold invoice was paid by Alice, `fiatsent` and `release` ran, and `order info` showed `success`: the
+  rows written by the new commands work with the old ones.
+- **`order take-sell` with an invoice**: `ok`, `wait_for_seller_payment` with a null order, as the source says (#204); the minimal row was enough for `fiatsent` and `release` to complete the trade
+  (`success`).
+- **`order take-buy`** (Bob takes Alice's buy order): `ok`, `pay_hold_invoice`, the order in `waiting-payment`, a hold invoice of 616 characters in `data.payment_request`.
+- **Range take**: `--amount` inside the bounds is accepted (`add_invoice`, the order shows the amount 30 of 10..50); none, 5 and 60 are refused `out_of_range_sats_amount`.
+- **Refusals** (all `node_refused`, `published/rejected/not_attempted`, nothing spent): `pending_order_exists` (a taker who already has a pending order), `invalid_order_status` (an already taken
+  order), `not_found` (unknown id), `invalid_trade_index` (local index set back to 1 while the node's was 4; the local index stayed 1; the legacy `getlasttradeindex` resynchronised it to 4).
+  The checks run in the order of the source: the pending-order check comes before the side check.
+- **Not as the fixture assumed**: taking one's own order **succeeds** when the take uses a fresh trade key (the node compares trade keys, not identities), so the `invalid_pubkey`
+  refusal modeled by the scripted daemon is only reachable by reusing the maker's trade key; the CLI never does. Nothing in the CLI needed to change.
+- **Node stopped during a take** (`docker stop` of mostrod): `uncertain` / `reply_timeout` after 15 s, `published/unknown/applied`, local index 5 spent. After the restart the order was still
+  `pending` on the node (the missed event was not processed) and the next request, at local index 6 over the node's 4, passed the index check (the refusal that followed was
+  `pending_order_exists`), so a gap in the indexes is harmless, as designed.
+- **Not verified**: a bonded node (`bond_required`) and a node with Cashu escrow, because this regtest configures neither; an order outside its take window; a stale market price; the NIP-42
+  AUTH path; behavior on mostrod v0.20.x (the scripted daemon is built from that source, the probe ran on v0.19.3 and they agreed on every case above).
+- **State left behind**: the regtest network is still running with five orders and two completed trades; `regtest/devenv.sh down` stops it and keeps the state.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

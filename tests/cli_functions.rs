@@ -1,122 +1,5 @@
-use mostro_client::cli::take_order::{accepted_take_local_save_failed, save_taken_sell_order};
-use mostro_client::cli::Context;
 use mostro_core::prelude::*;
-use nostr_sdk::prelude::*;
-use sqlx::SqlitePool;
 use uuid::Uuid;
-
-const TAKEN_SELL_ORDER: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
-
-fn taken_sell_order_id() -> Uuid {
-    Uuid::parse_str(TAKEN_SELL_ORDER).unwrap()
-}
-
-async fn take_save_pool(last_trade_index: i64) -> SqlitePool {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    sqlx::query(
-        r#"
-        CREATE TABLE orders (
-            id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
-            amount INTEGER NOT NULL, min_amount INTEGER, max_amount INTEGER,
-            fiat_code TEXT NOT NULL, fiat_amount INTEGER NOT NULL,
-            payment_method TEXT NOT NULL, premium INTEGER NOT NULL,
-            trade_keys TEXT, counterparty_pubkey TEXT, is_mine BOOLEAN,
-            buyer_invoice TEXT, request_id INTEGER, created_at INTEGER,
-            expires_at INTEGER, solver_pubkey TEXT
-        );
-        CREATE TABLE users (
-            i0_pubkey char(64) PRIMARY KEY, mnemonic TEXT,
-            last_trade_index INTEGER, created_at INTEGER
-        );
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query("INSERT INTO users VALUES (?, 'test', ?, 0)")
-        .bind("ab".repeat(32))
-        .bind(last_trade_index)
-        .execute(&pool)
-        .await
-        .unwrap();
-    pool
-}
-
-fn offline_take_ctx(pool: SqlitePool, trade: &Keys, trade_index: i64) -> Context {
-    Context {
-        client: Client::builder()
-            .authenticator(SignerAuthenticator::new(trade.clone()))
-            .build(),
-        identity_keys: trade.clone(),
-        trade_keys: trade.clone(),
-        trade_index,
-        pool,
-        context_keys: None,
-        mostro_pubkey: Keys::generate().public_key(),
-    }
-}
-
-#[tokio::test]
-async fn takesell_post_accept_save_keeps_accepted_status_and_order_cause() {
-    let pool = take_save_pool(3).await;
-    sqlx::query(
-        "CREATE TRIGGER refuse_orders BEFORE INSERT ON orders \
-         BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    let order_id = taken_sell_order_id();
-    let ctx = offline_take_ctx(pool, &Keys::generate(), 4);
-
-    let error = accepted_take_local_save_failed(
-        &order_id,
-        save_taken_sell_order(&order_id, None, 77, &ctx)
-            .await
-            .expect_err("a refused order insert must not report success"),
-    );
-    let text = format!("{error:#}");
-
-    assert!(
-        text.contains(&format!("Mostro accepted the take of {order_id}")),
-        "{text}"
-    );
-    assert!(text.contains("disk full"), "{text}");
-    assert!(
-        mostro_client::db::Order::get_by_id(&ctx.pool, TAKEN_SELL_ORDER)
-            .await
-            .is_err(),
-        "no local row after a refused insert"
-    );
-}
-
-#[tokio::test]
-async fn takesell_post_accept_save_keeps_accepted_status_and_index_cause() {
-    let pool = take_save_pool(3).await;
-    sqlx::query("DROP TABLE users")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let order_id = taken_sell_order_id();
-    let ctx = offline_take_ctx(pool, &Keys::generate(), 4);
-
-    let error = accepted_take_local_save_failed(
-        &order_id,
-        save_taken_sell_order(&order_id, None, 77, &ctx)
-            .await
-            .expect_err("a missing user row must not report success"),
-    );
-    let text = format!("{error:#}");
-
-    assert!(
-        text.contains(&format!("Mostro accepted the take of {order_id}")),
-        "{text}"
-    );
-    assert!(
-        text.contains("trade index") || text.contains("local user") || text.contains("user"),
-        "{text}"
-    );
-}
 
 // Test rate_user helper function
 #[test]
@@ -1045,7 +928,7 @@ mod output_intent {
             &["getlasttradeindex"],
             &["restore"],
             &["admmaintenancestatus"],
-            &["takesell", "--orderid", ORDER],
+            &["addinvoice", "--orderid", ORDER, "--invoice", "lnbc1"],
         ];
         for suffix in valid {
             let argv = [&["--output", "json"][..], suffix].concat();
@@ -1056,12 +939,12 @@ mod output_intent {
         }
         check(&[
             (
-                &["--output", "json", "takesell"],
-                Expect::Json(Some(&["takesell"])),
+                &["--output", "json", "addinvoice"],
+                Expect::Json(Some(&["addinvoice"])),
             ),
             (
-                &["--output", "json", "takesell", "--orderid", "not-a-uuid"],
-                Expect::Json(Some(&["takesell"])),
+                &["--output", "json", "addinvoice", "--orderid", "not-a-uuid"],
+                Expect::Json(Some(&["addinvoice"])),
             ),
             (
                 &["--output", "json", "getlasttradeindex", "--bogus"],
@@ -1072,7 +955,7 @@ mod output_intent {
                 &["--output", "json", "nosuch", "--bogus"],
                 Expect::Json(None),
             ),
-            (&["takesell"], Expect::Human),
+            (&["addinvoice"], Expect::Human),
         ]);
     }
 
@@ -1199,8 +1082,6 @@ mod registry {
     const APPROVED: [(&[&str], &str); 34] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
-        (&["takesell"], "order.take-sell"),
-        (&["takebuy"], "order.take-buy"),
         (&["addinvoice"], "order.add-invoice"),
         (&["addbondinvoice"], "bond.add-invoice"),
         (&["getdm"], "message.list"),
@@ -1231,6 +1112,8 @@ mod registry {
         (&["getuserinfo"], "account.info"),
         (&["order", "info"], "order.info"),
         (&["order", "new"], "order.new"),
+        (&["order", "take-sell"], "order.take-sell"),
+        (&["order", "take-buy"], "order.take-buy"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1304,7 +1187,7 @@ mod registry {
                         )
                     );
                 }
-                "order.new" => {
+                "order.new" | "order.take-sell" | "order.take-buy" => {
                     assert_eq!(entry.json, JsonSupport::Write);
                     assert_eq!(
                         entry.stages::<()>(),
@@ -1361,7 +1244,17 @@ mod registry {
             .filter(|entry| entry.json != JsonSupport::Unsupported)
             .map(|entry| entry.canonical)
             .collect();
-        assert_eq!(machine, ["order.list", "schema", "order.info", "order.new"]);
+        assert_eq!(
+            machine,
+            [
+                "order.list",
+                "schema",
+                "order.info",
+                "order.new",
+                "order.take-sell",
+                "order.take-buy"
+            ]
+        );
     }
 }
 
@@ -1616,5 +1509,114 @@ mod order_new_grammar {
         assert_eq!(entry.canonical, "order.new");
         assert_eq!(entry.json, JsonSupport::Write);
         assert!(lookup(&["neworder".to_string()]).is_none());
+    }
+}
+
+/// The grammar of `order take-sell` and `order take-buy` (spec 004). The legacy
+/// `takesell` and `takebuy`, their short flags and the squashed `--orderid` are
+/// gone.
+mod order_take_grammar {
+    use clap::Parser;
+    use mostro_client::cli::{
+        lookup, Cli, Commands, JsonSupport, OrderCommands, TakeBuyArgs, TakeSellArgs,
+    };
+
+    const ID: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+
+    fn sell(args: &[&str]) -> Result<TakeSellArgs, clap::Error> {
+        let argv = ["mostro-cli", "order", "take-sell"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Order {
+                command: OrderCommands::TakeSell(args),
+            }) => Ok(args),
+            _ => panic!("not take-sell"),
+        }
+    }
+
+    fn buy(args: &[&str]) -> Result<TakeBuyArgs, clap::Error> {
+        let argv = ["mostro-cli", "order", "take-buy"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Order {
+                command: OrderCommands::TakeBuy(args),
+            }) => Ok(args),
+            _ => panic!("not take-buy"),
+        }
+    }
+
+    #[test]
+    fn take_sell_takes_an_order_an_optional_invoice_and_amount_and_yes() {
+        let args = sell(&["--order", ID]).unwrap();
+        assert_eq!(args.order.to_string(), ID);
+        assert_eq!((args.invoice, args.amount, args.yes), (None, None, false));
+        let args = sell(&[
+            "--order",
+            &ID.to_uppercase(),
+            "--invoice",
+            "lnbc1",
+            "--amount",
+            "150",
+            "--yes",
+        ])
+        .unwrap();
+        assert_eq!(args.order.to_string(), ID);
+        assert_eq!(args.invoice.as_deref(), Some("lnbc1"));
+        assert_eq!((args.amount, args.yes), (Some(150), true));
+    }
+
+    #[test]
+    fn take_buy_has_no_invoice_option() {
+        let args = buy(&["--order", ID, "--amount", "150", "--yes"]).unwrap();
+        assert_eq!((args.amount, args.yes), (Some(150), true));
+        assert!(buy(&["--order", ID, "--invoice", "lnbc1"]).is_err());
+    }
+
+    #[test]
+    fn the_order_is_required_and_text_amounts_are_rejected() {
+        for bad in [
+            sell(&[]).err(),
+            sell(&["--order", "not-a-uuid"]).err(),
+            sell(&["--order", ID, "--amount", "1.5"]).err(),
+            sell(&["--order", ID, "--amount", "abc"]).err(),
+            buy(&[]).err(),
+            buy(&["--order", ID, "--amount", "x"]).err(),
+        ] {
+            assert!(bad.is_some());
+        }
+    }
+
+    #[test]
+    fn the_legacy_spellings_are_gone() {
+        let try_args = |args: &[&str]| Cli::try_parse_from(args.iter().copied());
+        assert!(try_args(&["mostro-cli", "takesell", "--orderid", ID]).is_err());
+        assert!(try_args(&["mostro-cli", "takebuy", "-o", ID]).is_err());
+        for legacy in [
+            ["-o", ID],
+            ["--order-id", ID],
+            ["--orderid", ID],
+            ["-i", "lnbc1"],
+            ["-a", "5"],
+        ] {
+            let mut all = vec!["--order", ID];
+            all.extend(legacy);
+            assert!(sell(&all).is_err(), "{legacy:?}");
+        }
+    }
+
+    #[test]
+    fn both_are_registered_json_capable_writes() {
+        for (path, name) in [
+            ("take-sell", "order.take-sell"),
+            ("take-buy", "order.take-buy"),
+        ] {
+            let entry = lookup(&["order".to_string(), path.to_string()]).unwrap();
+            assert_eq!(entry.canonical, name);
+            assert_eq!(entry.json, JsonSupport::Write);
+        }
+        assert!(lookup(&["takesell".to_string()]).is_none());
+        assert!(lookup(&["takebuy".to_string()]).is_none());
     }
 }

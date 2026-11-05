@@ -222,7 +222,7 @@ mostro-cli order info --order <uuid-1> --order <uuid-2>   # needs your local ide
 mostro-cli order new --side sell --currency ARS --fiat-amount 1000 --fiat-amount-max 10000 --payment-method "face to face"
 
 # 5. Take someone else's sell order
-mostro-cli takesell -o <order-id> -a 500     # optional fiat amount for range orders
+mostro-cli order take-sell --order <order-id> --amount 500     # optional fiat amount for range orders
 
 # 6. After the trade, fetch new DMs from Mostro
 mostro-cli getdm --since 60
@@ -312,11 +312,11 @@ Buyer-as-taker flow against an existing sell order:
 2. **Take it.** You can either provide a Lightning invoice for the trade amount, or omit it and add one later:
 
    ```bash
-   mostro-cli takesell -o <order-id> -i lnbc...    # with invoice
-   mostro-cli takesell -o <order-id>               # without invoice
+   mostro-cli order take-sell --order <order-id> --invoice lnbc...    # with invoice
+   mostro-cli order take-sell --order <order-id>                      # without invoice
    ```
 
-   For range orders, also pass `-a <fiat_amount>`.
+   For range orders, also pass `--amount <fiat_amount>`.
 
 3. **If you didn't provide an invoice, add one when prompted:**
 
@@ -590,8 +590,8 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order new --side <buy|sell> --currency <fiat> --fiat-amount <N> [--fiat-amount-max <M>] --payment-method <text> [--sats <N>] [--premium <P>] [--invoice <BOLT11>] [--expiration-days N] [--yes]` — create an order (supports `--output json`, which requires `--yes`). Replaces `neworder`.
 
 ### Taking orders
-- `takesell -o <id> [-i <invoice>] [-a <fiat-amount>]` — buyer takes a sell order.
-- `takebuy -o <id> [-a <fiat-amount>]` — seller takes a buy order.
+- `order take-sell --order <id> [--invoice <invoice>] [--amount <fiat>] [--yes]` — buyer takes a sell order (supports `--output json`, which requires `--yes`). Replaces `takesell`.
+- `order take-buy --order <id> [--amount <fiat>] [--yes]` — seller takes a buy order (supports `--output json`, which requires `--yes`). Replaces `takebuy`.
 - `addinvoice -o <id> -i <invoice>` — buyer adds an invoice after taking.
 
 ### Trade lifecycle
@@ -641,7 +641,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info` and `order new` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell` and `order take-buy` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -655,7 +655,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Four commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info` and `order new` (the last needs `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Six commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `order info`, `order new`, `order take-sell` and `order take-buy` (the last three need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

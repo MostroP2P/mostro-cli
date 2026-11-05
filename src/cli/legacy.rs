@@ -1,5 +1,4 @@
 use anyhow::Result;
-use mostro_core::prelude::Action;
 use nostr_sdk::prelude::PublicKey;
 use std::str::FromStr;
 
@@ -26,7 +25,6 @@ use super::take_dispute::{
     execute_admin_add_solver, execute_admin_cancel_dispute, execute_admin_settle_dispute,
     execute_take_dispute,
 };
-use super::take_order::execute_take_order;
 use super::user_info::execute_user_info;
 use crate::util::run_simple_order_msg;
 
@@ -104,14 +102,6 @@ impl Commands {
             // Order management commands
             Commands::Order { .. } => unreachable!("public listing runs without a Context"),
             Commands::Schema => unreachable!("discovery runs without a Context"),
-            Commands::TakeSell {
-                order_id,
-                invoice,
-                amount,
-            } => execute_take_order(order_id, Action::TakeSell, invoice, *amount, ctx).await,
-            Commands::TakeBuy { order_id, amount } => {
-                execute_take_order(order_id, Action::TakeBuy, &None, *amount, ctx).await
-            }
             Commands::AddInvoice { order_id, invoice } => {
                 execute_add_invoice(order_id, invoice, ctx).await
             }

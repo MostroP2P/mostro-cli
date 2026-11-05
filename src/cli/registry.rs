@@ -66,8 +66,6 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "schema",
         json: JsonSupport::Read,
     },
-    legacy(&["takesell"], "order.take-sell"),
-    legacy(&["takebuy"], "order.take-buy"),
     legacy(&["addinvoice"], "order.add-invoice"),
     legacy(&["addbondinvoice"], "bond.add-invoice"),
     legacy(&["getdm"], "message.list"),
@@ -104,6 +102,16 @@ pub const REGISTRY: &[CommandEntry] = &[
     CommandEntry {
         path: &["order", "new"],
         canonical: "order.new",
+        json: JsonSupport::Write,
+    },
+    CommandEntry {
+        path: &["order", "take-sell"],
+        canonical: "order.take-sell",
+        json: JsonSupport::Write,
+    },
+    CommandEntry {
+        path: &["order", "take-buy"],
+        canonical: "order.take-buy",
         json: JsonSupport::Write,
     },
 ];
