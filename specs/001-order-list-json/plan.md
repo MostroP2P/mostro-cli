@@ -4,7 +4,7 @@
 
 **Feature directory**: `001-order-list-json`, not a Git branch.
 
-**Status** (2026-10-28): implemented through T054 and **verified on native Linux with loopback relays only**. Requirements FR-001 to FR-009 and SC-001 to SC-004 have automated evidence, with the limits listed in [tests/README.md](../../tests/README.md#order-list-pilot-requirement-evidence). **SC-005 is open**: no native Windows run exists, and the CI Windows job has not run on GitHub. Not covered: live relays or nodes, NIP-42 AUTH, a process-level `internal_error`, the unmigrated write commands and the MCP. A release or acceptance claim needs the Windows result first.
+**Status** (2026-10-28): implemented through T054 and **verified on native Linux with loopback relays only**. Requirements FR-001 to FR-009 and SC-001 to SC-004 have automated evidence, with the limits listed in [tests/README.md](../../tests/README.md#order-list-pilot-requirement-evidence). SC-005 is met on a GitHub-hosted native Windows runner (CI run 40934312083, commit `3a4145e`: the whole automated suite passed there); a run on a developer workstation has not happened. Not covered: live relays or nodes, NIP-42 AUTH, a process-level `internal_error`, the unmigrated write commands and the MCP. 
 
 ## Summary
 
@@ -101,7 +101,7 @@ the US3 acceptance T047 in [its section](../../tests/TEST_SUMMARY.md#t047-us3-ac
 T048-T049 in [their section](../../tests/TEST_SUMMARY.md#t048-t049-documentation-2026-10-28)
 T050 in [its section](../../tests/TEST_SUMMARY.md#t050-source-boundary-checks-2026-10-28)
 T051 in [its section](../../tests/TEST_SUMMARY.md#t051-ci-wiring-2026-10-28)
-T052 (Linux only, Windows blocked) in [its section](../../tests/TEST_SUMMARY.md#t052-quickstart-acceptance-2026-10-28)
+T052 (Linux; Windows later confirmed by CI) in [its section](../../tests/TEST_SUMMARY.md#t052-quickstart-acceptance-2026-10-28)
 T053 in [its section](../../tests/TEST_SUMMARY.md#t053-final-gates-2026-10-28)
 and T054 in [its section](../../tests/TEST_SUMMARY.md#t054-requirement-reconciliation-2026-10-28);
 T055 is the status update that follows this list.
@@ -204,7 +204,7 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list records T001-T055 as complete, with the Windows part of T052 blocked; its checkboxes track
+The task list records T001-T055 as complete, with the Windows part of T052 later covered by the CI-hosted run; its checkboxes track
 execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)

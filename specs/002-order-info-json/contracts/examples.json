@@ -1,0 +1,207 @@
+{
+  "contract_status": "proposed",
+  "cases": [
+    {
+      "name": "subset_success",
+      "exit_code": 0,
+      "stdout": {
+        "schema_version": "1",
+        "command": "order.info",
+        "status": "ok",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "orders": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "side": "sell",
+              "status": "active",
+              "sats_amount": "15000",
+              "fiat_currency": "USD",
+              "fiat_amount": "15",
+              "fiat_amount_min": null,
+              "fiat_amount_max": null,
+              "payment_method": "bank transfer",
+              "premium_percent": "1",
+              "buyer_trade_pubkey": null,
+              "seller_trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "expires_at": "2026-10-17T00:00:00Z",
+              "expires_at_unix": "1792195200"
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000003",
+              "side": "buy",
+              "status": "pending",
+              "sats_amount": "0",
+              "fiat_currency": "EUR",
+              "fiat_amount": "0",
+              "fiat_amount_min": "10",
+              "fiat_amount_max": "20",
+              "payment_method": "face to face",
+              "premium_percent": "-5",
+              "buyer_trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+              "seller_trade_pubkey": null,
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "expires_at": null,
+              "expires_at_unix": null
+            }
+          ],
+          "not_returned": [
+            "00000000-0000-0000-0000-000000000002"
+          ]
+        },
+        "error": null,
+        "warnings": [
+          {
+            "code": "orders_not_returned",
+            "message": "Some requested orders were not returned by the node."
+          }
+        ],
+        "meta": {
+          "publication": "published",
+          "daemon_acceptance": "accepted",
+          "persistence": "not_applicable",
+          "snapshot": null
+        }
+      }
+    },
+    {
+      "name": "not_found_success",
+      "exit_code": 0,
+      "stdout": {
+        "schema_version": "1",
+        "command": "order.info",
+        "status": "ok",
+        "data": {
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "orders": [],
+          "not_returned": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002"
+          ]
+        },
+        "error": null,
+        "warnings": [
+          {
+            "code": "orders_not_returned",
+            "message": "Some requested orders were not returned by the node."
+          }
+        ],
+        "meta": {
+          "publication": "published",
+          "daemon_acceptance": "accepted",
+          "persistence": "not_applicable",
+          "snapshot": null
+        }
+      }
+    },
+    {
+      "name": "node_refused",
+      "exit_code": 1,
+      "stdout": {
+        "schema_version": "1",
+        "command": "order.info",
+        "status": "error",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "too_many_requests"
+        },
+        "warnings": [],
+        "meta": {
+          "publication": "published",
+          "daemon_acceptance": "rejected",
+          "persistence": "not_applicable",
+          "snapshot": null
+        }
+      }
+    },
+    {
+      "name": "reply_timeout",
+      "exit_code": 1,
+      "stdout": {
+        "schema_version": "1",
+        "command": "order.info",
+        "status": "error",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "warnings": [],
+        "meta": {
+          "publication": "published",
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "snapshot": null
+        }
+      }
+    },
+    {
+      "name": "identity_missing",
+      "exit_code": 1,
+      "stdout": {
+        "schema_version": "1",
+        "command": "order.info",
+        "status": "error",
+        "data": null,
+        "error": {
+          "code": "identity_missing",
+          "message": "No local identity exists."
+        },
+        "warnings": [],
+        "meta": {
+          "publication": "not_attempted",
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "snapshot": null
+        }
+      }
+    },
+    {
+      "name": "invalid_arguments",
+      "exit_code": 2,
+      "stdout": {
+        "schema_version": "1",
+        "command": "order.info",
+        "status": "error",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "warnings": [],
+        "meta": {
+          "publication": "not_attempted",
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "snapshot": null
+        }
+      }
+    },
+    {
+      "name": "removed_spelling",
+      "exit_code": 2,
+      "stdout": {
+        "schema_version": "1",
+        "command": null,
+        "status": "error",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "warnings": [],
+        "meta": {
+          "publication": "not_attempted",
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "snapshot": null
+        }
+      }
+    }
+  ]
+}

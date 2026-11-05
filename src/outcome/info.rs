@@ -202,6 +202,14 @@ impl OrderRecord {
         self.created_at.as_deref()
     }
 
+    pub fn created_at_unix(&self) -> Option<&str> {
+        self.created_at_unix.as_deref()
+    }
+
+    pub fn expires_at_unix(&self) -> Option<&str> {
+        self.expires_at_unix.as_deref()
+    }
+
     pub fn expires_at(&self) -> Option<&str> {
         self.expires_at.as_deref()
     }

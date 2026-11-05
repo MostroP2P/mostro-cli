@@ -160,6 +160,16 @@ impl<D, S> Envelope<D, S> {
         envelope
     }
 
+    /// Record `extra` as well, still one warning per code.
+    pub fn add_warnings(&mut self, extra: &Warnings) {
+        self.warnings.merge(extra);
+    }
+
+    /// The node's refusal reason, only on `node_refused`.
+    pub fn reason(&self) -> Option<&str> {
+        self.error.as_ref().and_then(ErrorInfo::reason)
+    }
+
     pub fn status(&self) -> Status {
         self.status
     }

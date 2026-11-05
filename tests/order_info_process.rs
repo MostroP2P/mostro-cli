@@ -22,6 +22,9 @@ use nostr_sdk::prelude::{
     Client, ClientNotification, Event, Filter, Keys, Kind, LocalRelay, MachineReadablePrefix,
     WritePolicy, WritePolicyResult,
 };
+use serde_json::{json, Value};
+use sqlx::sqlite::SqliteConnectOptions;
+use tokio::process::Command;
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -34,7 +37,10 @@ use fake_mostro::{
     always_orders, info_event, malformed_reply, orders_reply, refusal, seed_identity, silent,
     FakeMostro, Outgoing, Received, Respond,
 };
-use harness::{is_empty_dir, Backend, LoopbackRelay, Sandbox};
+use harness::{
+    closed_pipe, is_empty_dir, run_with_watchdog, Backend, Captured, LoopbackRelay, Sandbox,
+    WATCHDOG,
+};
 
 const REQUEST_ID: u64 = 8721;
 
@@ -284,15 +290,32 @@ fn limits() -> ExchangeLimits {
 
 /// A world whose info event is issued for the node it creates.
 async fn world(info: impl FnOnce(&Keys) -> Option<Event>, respond: Respond) -> World {
+    world_on(
+        |node, requests| {
+            LocalRelay::builder()
+                .write_policy(CountRequests {
+                    node: node.public_key(),
+                    count: requests,
+                })
+                .build()
+        },
+        info,
+        respond,
+    )
+    .await
+}
+
+/// Like [`world`], on a relay that `make` builds from the node's keys and the
+/// request counter.
+async fn world_on(
+    make: impl FnOnce(&Keys, Arc<AtomicUsize>) -> LocalRelay,
+    info: impl FnOnce(&Keys) -> Option<Event>,
+    respond: Respond,
+) -> World {
     // The node keys must exist before the info event, so build them first.
     let node = Keys::generate();
     let requests = Arc::new(AtomicUsize::new(0));
-    let relay = LocalRelay::builder()
-        .write_policy(CountRequests {
-            node: node.public_key(),
-            count: Arc::clone(&requests),
-        })
-        .build();
+    let relay = make(&node, Arc::clone(&requests));
     if let Some(event) = info(&node) {
         relay.add_event(event).await.unwrap();
     }
@@ -758,6 +781,832 @@ async fn a_request_without_an_identifier_fails_before_any_connection() {
     assert!(world.fake.received().is_empty());
 }
 
+// --- The command, run as a child process (spec 002, slice 4) ----------------
+
+/// What the identity store looks like in the child's data directory.
+#[derive(Clone, Copy, Debug)]
+enum Store {
+    /// A real store with one user.
+    Valid,
+    /// No file at all.
+    Absent,
+    /// A database whose `users` table is empty.
+    EmptyUsers,
+    /// A file that is not a database.
+    Garbage,
+    /// A database without a `users` table.
+    NoUsersTable,
+    /// A user row without a mnemonic.
+    NullMnemonic,
+}
+
+/// A world plus a sandbox with an identity store for the child to read.
+struct Bin {
+    world: World,
+    sandbox: Sandbox,
+    identity: Keys,
+    /// Names and bytes of the data directory before any run.
+    dir_before: Vec<(String, Vec<u8>)>,
+}
+
+async fn bin(respond: Respond) -> Bin {
+    bin_in(world(plain_info, respond).await, Store::Valid).await
+}
+
+async fn bin_in(world: World, store: Store) -> Bin {
+    let sandbox = Sandbox::new().unwrap();
+    let dir = sandbox.mcli_dir();
+    let identity = match store {
+        Store::Valid => seed_identity(&dir).await,
+        Store::Absent => Keys::generate(),
+        Store::Garbage => {
+            fs::write(dir.join("mcli.db"), b"this is not a sqlite database").unwrap();
+            Keys::generate()
+        }
+        Store::EmptyUsers | Store::NoUsersTable | Store::NullMnemonic => {
+            let options = SqliteConnectOptions::new()
+                .filename(dir.join("mcli.db"))
+                .create_if_missing(true);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            let schema = match store {
+                Store::NoUsersTable => "CREATE TABLE other (x INTEGER)",
+                _ => {
+                    "CREATE TABLE users (i0_pubkey char(64) PRIMARY KEY, mnemonic TEXT, \
+                      last_trade_index INTEGER, created_at INTEGER)"
+                }
+            };
+            sqlx::query(schema).execute(&pool).await.unwrap();
+            if matches!(store, Store::NullMnemonic) {
+                sqlx::query("INSERT INTO users (i0_pubkey, mnemonic) VALUES ('aa', NULL)")
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            pool.close().await;
+            Keys::generate()
+        }
+    };
+    let dir_before = directory(&dir);
+    Bin {
+        world,
+        sandbox,
+        identity,
+        dir_before,
+    }
+}
+
+fn directory(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<_> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                fs::read(entry.path()).unwrap_or_default(),
+            )
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+impl Bin {
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = self.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", self.world.config.mostro_pubkey().to_hex())
+            .env("RELAYS", &self.world.relay.url);
+        command
+    }
+
+    async fn run(&self, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(self.command(args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    /// The data directory is exactly as it was (no file added, none changed) and
+    /// nothing was created elsewhere.
+    fn assert_untouched(&self, label: &str) {
+        let now = directory(&self.sandbox.mcli_dir());
+        let names =
+            |files: &[(String, Vec<u8>)]| files.iter().map(|f| f.0.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            names(&now),
+            names(&self.dir_before),
+            "{label}: files appeared or vanished"
+        );
+        assert!(
+            now == self.dir_before,
+            "{label}: the identity store changed"
+        );
+        assert!(
+            is_empty_dir(&self.sandbox.home()) && is_empty_dir(&self.sandbox.cwd()),
+            "{label}"
+        );
+    }
+
+    /// Run with environment changes applied after the defaults.
+    async fn run_env(&self, args: &[&str], set: &[(&str, &str)], unset: &[&str]) -> Captured {
+        let mut command = self.command(args);
+        for (name, value) in set {
+            command.env(name, value);
+        }
+        for name in unset {
+            command.env_remove(name);
+        }
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+}
+
+fn document(run: &Captured) -> Value {
+    let stdout = run.stdout_text();
+    assert!(
+        stdout.ends_with('\n') && stdout.lines().count() == 1,
+        "{stdout}"
+    );
+    serde_json::from_str(&stdout).unwrap()
+}
+
+fn text(n: u128) -> String {
+    Uuid::from_u128(n).to_string()
+}
+
+const ID: [&str; 2] = ["order", "info"];
+
+fn info_args<'a>(output: &[&'a str], ids: &'a [String]) -> Vec<&'a str> {
+    let mut args: Vec<&str> = output.to_vec();
+    args.extend(ID);
+    for id in ids {
+        args.extend(["--order", id.as_str()]);
+    }
+    args
+}
+
+fn reply_with(orders: Vec<SmallOrder>) -> Respond {
+    Arc::new(move |request: &Received| {
+        vec![Outgoing::to_requester(orders_reply(
+            request,
+            orders.clone(),
+        ))]
+    })
+}
+
+#[tokio::test]
+async fn one_id_returns_the_order_as_one_document_with_one_request_and_no_effects() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["command"], "order.info");
+    assert_eq!(outcome["status"], "ok");
+    assert_eq!(outcome["error"], Value::Null);
+    assert_eq!(outcome["warnings"], json!([]));
+    assert_eq!(outcome["data"]["not_returned"], json!([]));
+    assert_eq!(
+        outcome["data"]["node_pubkey"],
+        bin.world.config.mostro_pubkey().to_hex()
+    );
+    let record = &outcome["data"]["orders"][0];
+    assert_eq!(record["id"], ids[0].as_str());
+    assert_eq!(
+        (record["side"].as_str(), record["status"].as_str()),
+        (Some("sell"), Some("active"))
+    );
+    assert_eq!(record["sats_amount"], "15000");
+    assert_eq!(record["created_at"], "2026-10-16T00:00:00Z");
+    assert_eq!(
+        outcome["meta"],
+        json!({"publication": "published", "daemon_acceptance": "accepted",
+               "persistence": "not_applicable", "snapshot": null})
+    );
+    let seen = bin.world.fake.received();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].author, bin.identity.public_key());
+    assert_eq!(seen[0].identity, bin.identity.public_key());
+    assert_eq!(seen[0].ids, vec![Uuid::from_u128(1)]);
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 1);
+    bin.assert_untouched("success");
+}
+
+#[tokio::test]
+async fn a_subset_keeps_request_order_drops_unrequested_orders_and_warns_once() {
+    let reply = vec![
+        order(Uuid::from_u128(3)),
+        order(Uuid::from_u128(99)),
+        order(Uuid::from_u128(1)),
+        order(Uuid::from_u128(3)),
+    ];
+    let bin = bin(reply_with(reply)).await;
+    let ids = [text(1), text(2), text(3)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0));
+    let outcome = document(&run);
+    let returned: Vec<&str> = outcome["data"]["orders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(returned, [ids[0].as_str(), ids[2].as_str()]);
+    assert_eq!(outcome["data"]["not_returned"], json!([ids[1]]));
+    let codes: Vec<&str> = outcome["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(codes, ["orders_not_returned"]);
+    bin.assert_untouched("subset");
+}
+
+#[tokio::test]
+async fn a_repeated_id_in_any_case_is_requested_once() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let upper = text(1).to_uppercase();
+    let ids = [text(1), upper, text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(bin.world.fake.received()[0].ids, vec![Uuid::from_u128(1)]);
+    assert_eq!(
+        document(&run)["data"]["orders"].as_array().unwrap().len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn not_found_is_the_same_success_as_a_reply_that_leaves_the_ids_out() {
+    let refuse: Respond = Arc::new(|request: &Received| {
+        vec![Outgoing::to_requester(refusal(
+            request,
+            mostro_core::prelude::CantDoReason::NotFound,
+        ))]
+    });
+    let bin = bin(refuse).await;
+    let ids = [text(5), text(4)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["status"], "ok");
+    assert_eq!(outcome["data"]["orders"], json!([]));
+    assert_eq!(outcome["data"]["not_returned"], json!([ids[0], ids[1]]));
+    assert_eq!(outcome["warnings"][0]["code"], "orders_not_returned");
+    assert_eq!(outcome["meta"]["daemon_acceptance"], "accepted");
+}
+
+#[tokio::test]
+async fn noise_around_the_reply_never_decides_the_result() {
+    let outsider = Keys::generate();
+    let someone_else = Keys::generate().public_key();
+    let id = Uuid::from_u128(1);
+    let noisy: Respond = Arc::new(move |request: &Received| {
+        let empty = |request_id: Option<u64>| {
+            Message::new_order(
+                None,
+                request_id,
+                None,
+                Action::Orders,
+                Some(Payload::Orders(Vec::new())),
+            )
+        };
+        vec![
+            Outgoing::to_requester(empty(request.request_id.map(|n| n + 1))),
+            Outgoing::to_requester(empty(request.request_id)).signed_by(outsider.clone()),
+            Outgoing::to_requester(empty(request.request_id)).addressed_to(someone_else),
+            Outgoing::to_requester(orders_reply(request, vec![order(id)]))
+                .after(Duration::from_millis(60)),
+        ]
+    });
+    let bin = bin(noisy).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(document(&run)["data"]["orders"][0]["id"], ids[0].as_str());
+    assert_eq!(
+        bin.world.fake.received().len(),
+        1,
+        "one request reached the node"
+    );
+    // The relay counts every kind-14 event not signed by the node: the request
+    // and the stranger's noise.
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_refusal_is_an_error_with_its_reason_in_both_modes() {
+    let refuse: Respond = Arc::new(|request: &Received| {
+        vec![Outgoing::to_requester(refusal(
+            request,
+            mostro_core::prelude::CantDoReason::TooManyRequests,
+        ))]
+    });
+    let bin = bin(refuse).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+    assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["status"], "error");
+    assert_eq!(outcome["data"], Value::Null);
+    assert_eq!(outcome["error"]["code"], "node_refused");
+    assert_eq!(outcome["error"]["reason"], "too_many_requests");
+    assert_eq!(
+        outcome["meta"],
+        json!({"publication": "published", "daemon_acceptance": "rejected",
+               "persistence": "not_applicable", "snapshot": null})
+    );
+
+    let human = bin.run(&info_args(&[], &ids)).await;
+    assert_eq!(human.code(), Some(1));
+    assert!(human.stdout.is_empty());
+    assert_eq!(
+        human.stderr_text(),
+        "error: The node refused the request. (reason: too_many_requests)\n"
+    );
+    bin.assert_untouched("refusal");
+}
+
+#[tokio::test]
+async fn a_reply_with_an_unusable_payload_is_reply_malformed() {
+    let odd: Respond =
+        Arc::new(|request: &Received| vec![Outgoing::to_requester(malformed_reply(request))]);
+    let bin = bin(odd).await;
+    let ids = [text(1)];
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(1));
+    let outcome = document(&run);
+    assert_eq!(outcome["error"]["code"], "reply_malformed");
+    assert_eq!(outcome["meta"]["daemon_acceptance"], "unknown");
+}
+
+#[tokio::test]
+async fn a_silent_node_is_a_timeout_after_the_production_budget_and_one_request() {
+    let bin = bin(silent()).await;
+    let ids = [text(1)];
+    let started = std::time::Instant::now();
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert!(
+        started.elapsed() >= ExchangeLimits::default().reply,
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["error"]["code"], "reply_timeout");
+    assert_eq!(outcome["meta"]["publication"], "published");
+    assert_eq!(outcome["meta"]["daemon_acceptance"], "unknown");
+    assert_eq!(bin.world.fake.received().len(), 1);
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 1);
+    bin.assert_untouched("timeout");
+}
+
+#[tokio::test]
+async fn human_and_json_describe_the_same_orders() {
+    let id = Uuid::from_u128(1);
+    let mut priced = order(id);
+    priced.min_amount = Some(10);
+    priced.max_amount = Some(20);
+    priced.premium = -3;
+    priced.payment_method = "bank\u{1b}[31m transfer".to_string();
+    let bin = bin(reply_with(vec![priced])).await;
+    let ids = [text(1), text(2)];
+
+    let json_run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+    let human_run = bin.run(&info_args(&[], &ids)).await;
+    let explicit = bin.run(&info_args(&["--output", "human"], &ids)).await;
+
+    assert_eq!(
+        (json_run.code(), human_run.code(), explicit.code()),
+        (Some(0), Some(0), Some(0))
+    );
+    assert!(human_run.stderr.is_empty() && explicit.stderr.is_empty());
+    assert_eq!(human_run.stdout_text(), explicit.stdout_text());
+    let human = human_run.stdout_text();
+    let record = &document(&json_run)["data"]["orders"][0];
+    for needle in [
+        record["id"].as_str().unwrap(),
+        "sell",
+        "active",
+        "15000 sats",
+        "USD",
+        "Fiat Range: 10-20",
+        "Premium: -3%",
+        "bank\\u{1b}[31m transfer",
+        "2026-10-16 00:00:00 UTC",
+        "2026-10-17 00:00:00 UTC",
+        ids[1].as_str(),
+        "Not returned",
+    ] {
+        assert!(human.contains(needle), "missing {needle:?} in:\n{human}");
+    }
+    assert!(
+        !human.contains('\u{1b}'),
+        "a raw control character reached the terminal"
+    );
+    assert_eq!(
+        bin.world.requests.load(Ordering::SeqCst),
+        3,
+        "one request per run"
+    );
+    bin.assert_untouched("parity");
+}
+
+#[tokio::test]
+async fn the_output_flag_works_at_every_position() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let id = text(1);
+    let spellings: [Vec<&str>; 6] = [
+        vec!["--output", "json", "order", "info", "--order", &id],
+        vec!["--output=json", "order", "info", "--order", &id],
+        vec!["order", "--output", "json", "info", "--order", &id],
+        vec!["order", "--output=json", "info", "--order", &id],
+        vec!["order", "info", "--order", &id, "--output", "json"],
+        vec!["order", "info", "--output=json", "--order", &id],
+    ];
+    let mut documents = Vec::new();
+    for args in &spellings {
+        let run = bin.run(args).await;
+        assert_eq!(run.code(), Some(0), "{args:?}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{args:?}");
+        documents.push(document(&run));
+    }
+    for other in &documents[1..] {
+        assert_eq!(other["data"], documents[0]["data"]);
+        assert_eq!(other["meta"], documents[0]["meta"]);
+    }
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 6);
+}
+
+#[tokio::test]
+async fn many_ids_go_out_in_one_request_without_a_cap_in_the_cli() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(7))])).await;
+    let ids: Vec<String> = (1..=300).map(text).collect();
+
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    let seen = bin.world.fake.received();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].ids.len(), 300);
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 1);
+    let outcome = document(&run);
+    assert_eq!(outcome["data"]["orders"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        outcome["data"]["not_returned"].as_array().unwrap().len(),
+        299
+    );
+}
+
+#[tokio::test]
+async fn verbose_adds_one_allow_listed_line_and_never_the_mnemonic_or_the_ids() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let ids = [text(1)];
+    let mut args = vec!["--verbose"];
+    args.extend(info_args(&["--output", "json"], &ids));
+
+    let run = bin.run(&args).await;
+
+    assert_eq!(run.code(), Some(0));
+    assert_eq!(
+        run.stderr_text(),
+        "verbose: order.info ok; 1 returned, 0 not returned\n"
+    );
+    let pool = sqlx::SqlitePool::connect(&format!(
+        "sqlite://{}?mode=ro",
+        bin.sandbox.mcli_dir().join("mcli.db").display()
+    ))
+    .await
+    .unwrap();
+    let mnemonic: String = sqlx::query_scalar("SELECT mnemonic FROM users LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    for stream in [run.stdout_text(), run.stderr_text()] {
+        assert!(!stream.contains(&mnemonic));
+        for word in mnemonic.split(' ') {
+            assert!(
+                !stream.contains(&format!(" {word} ")),
+                "a mnemonic word reached a stream"
+            );
+        }
+        assert!(
+            !stream.contains("127.0.0.1"),
+            "a relay address reached a stream"
+        );
+    }
+    bin.assert_untouched("verbose");
+}
+
+#[tokio::test]
+async fn an_unwritable_stdout_exits_1_with_one_fixed_line_after_one_request() {
+    let bin = bin(reply_with(vec![order(Uuid::from_u128(1))])).await;
+    let ids = [text(1)];
+    for (output, line) in [
+        (
+            &["--output", "json"][..],
+            "error: the JSON outcome could not be written\n",
+        ),
+        (
+            &[][..],
+            "error: the order information could not be written\n",
+        ),
+    ] {
+        let mut command = bin.command(&info_args(output, &ids));
+        command.stdout(closed_pipe());
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert_eq!(run.code(), Some(1), "{output:?}: {}", run.stderr_text());
+        assert_eq!(run.stderr_text(), line, "{output:?}");
+    }
+    assert_eq!(
+        bin.world.requests.load(Ordering::SeqCst),
+        2,
+        "one request per run"
+    );
+}
+
+/// One failure of the matrix: where it comes from and what both modes show.
+struct Failing {
+    label: &'static str,
+    store: Store,
+    /// Environment added to the child, then variables removed.
+    set: &'static [(&'static str, &'static str)],
+    unset: &'static [&'static str],
+    /// Extra global arguments placed before the command.
+    flags: &'static [&'static str],
+    code: &'static str,
+    exit: i32,
+    publication: &'static str,
+    acceptance: &'static str,
+}
+
+const SENTINEL: &str = "SENTINEL-zq81";
+
+impl Failing {
+    const fn new(label: &'static str, store: Store, code: &'static str) -> Self {
+        Self {
+            label,
+            store,
+            set: &[],
+            unset: &[],
+            flags: &[],
+            code,
+            exit: 1,
+            publication: "not_attempted",
+            acceptance: "unknown",
+        }
+    }
+}
+
+/// Run `case` in both modes plus `--verbose`, against a world made by `make`,
+/// and return the world's request count seen from the relay.
+async fn check_failure(case: &Failing, bin: &Bin) {
+    let ids = [text(1)];
+    let label = case.label;
+    for output in [&["--output", "json"][..], &[][..], &["--verbose"][..]] {
+        let mut flags: Vec<&str> = case.flags.to_vec();
+        flags.extend(output);
+        let run = bin
+            .run_env(&info_args(&flags, &ids), case.set, case.unset)
+            .await;
+        assert_eq!(
+            run.code(),
+            Some(case.exit),
+            "{label} {output:?}: {}",
+            run.stderr_text()
+        );
+        let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+        for stream in [&stdout, &stderr] {
+            assert!(!stream.contains(SENTINEL), "{label}: a sentinel leaked");
+            assert!(
+                !stream.contains("127.0.0.1"),
+                "{label}: a relay address leaked"
+            );
+        }
+        if output == ["--output", "json"] {
+            let outcome = document(&run);
+            assert_eq!(outcome["command"], "order.info", "{label}");
+            assert_eq!(outcome["status"], "error", "{label}");
+            assert_eq!(outcome["data"], Value::Null, "{label}");
+            assert_eq!(outcome["error"]["code"], case.code, "{label}");
+            assert_eq!(outcome["meta"]["publication"], case.publication, "{label}");
+            assert_eq!(
+                outcome["meta"]["daemon_acceptance"], case.acceptance,
+                "{label}"
+            );
+            assert_eq!(outcome["meta"]["persistence"], "not_applicable", "{label}");
+            assert!(stderr.is_empty(), "{label}: {stderr}");
+        } else {
+            assert!(stdout.is_empty(), "{label} {output:?}: {stdout}");
+            assert!(stderr.starts_with("error: "), "{label}: {stderr}");
+            assert_eq!(
+                stderr.lines().next().unwrap().matches("error:").count(),
+                1,
+                "{label}"
+            );
+        }
+    }
+    bin.assert_untouched(label);
+}
+
+#[tokio::test]
+async fn failures_before_any_request_are_stable_and_leave_no_trace() {
+    let cases = [
+        Failing::new("no store", Store::Absent, "identity_missing"),
+        Failing::new("no user", Store::EmptyUsers, "identity_missing"),
+        Failing::new("not a database", Store::Garbage, "identity_unreadable"),
+        Failing::new("no users table", Store::NoUsersTable, "identity_unreadable"),
+        Failing::new("null mnemonic", Store::NullMnemonic, "identity_unreadable"),
+        Failing {
+            unset: &["MOSTRO_PUBKEY"],
+            ..Failing::new("no node key", Store::Valid, "configuration_missing")
+        },
+        Failing {
+            unset: &["RELAYS"],
+            ..Failing::new("no relays", Store::Valid, "configuration_missing")
+        },
+        Failing {
+            set: &[("MOSTRO_PUBKEY", SENTINEL)],
+            ..Failing::new("bad node key", Store::Valid, "configuration_invalid")
+        },
+        Failing {
+            set: &[("RELAYS", "http://SENTINEL-zq81.invalid")],
+            ..Failing::new("bad relay", Store::Valid, "configuration_invalid")
+        },
+        Failing {
+            flags: &["--pow", SENTINEL],
+            ..Failing::new("bad pow", Store::Valid, "configuration_invalid")
+        },
+        Failing {
+            flags: &["--transport", SENTINEL],
+            ..Failing::new("bad transport", Store::Valid, "configuration_invalid")
+        },
+    ];
+    for case in &cases {
+        let bin = bin_in(world(plain_info, silent()).await, case.store).await;
+        check_failure(case, &bin).await;
+        assert!(bin.world.fake.received().is_empty(), "{}", case.label);
+        assert_eq!(
+            bin.world.requests.load(Ordering::SeqCst),
+            0,
+            "{}",
+            case.label
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_node_that_cannot_be_served_fails_before_publishing() {
+    let unsupported = Failing::new("protocol 1", Store::Valid, "protocol_unsupported");
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(1), Some(0), None, None)),
+            silent(),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    check_failure(&unsupported, &bin).await;
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 0);
+
+    let work = Failing::new("more work expected", Store::Valid, "pow_required");
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(2), Some(9), None, None)),
+            silent(),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    check_failure(&work, &bin).await;
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 0);
+
+    // An explicit transport skips the protocol check, and enough work passes.
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(1), Some(9), None, None)),
+            reply_with(vec![order(Uuid::from_u128(1))]),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    let ids = [text(1)];
+    let mut args = vec!["--transport", "nip44", "--pow", "9", "--output", "json"];
+    args.extend(&info_args(&[], &ids));
+    let run = bin.run(&args).await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+}
+
+#[tokio::test]
+async fn a_relay_that_rejects_the_request_is_request_rejected_with_nothing_published() {
+    let bin = bin_in(
+        world_on(
+            |_, _| LocalRelay::builder().write_policy(BlockWrites).build(),
+            plain_info,
+            silent(),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    let case = Failing::new("rejected", Store::Valid, "request_rejected");
+    check_failure(&case, &bin).await;
+    assert!(bin.world.fake.received().is_empty());
+}
+
+#[tokio::test]
+async fn relay_failures_are_told_apart_and_cost_one_attempt() {
+    // Nothing listens on the configured relay.
+    let bin = bin(silent()).await;
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead = format!("ws://{}", free.local_addr().unwrap());
+    drop(free);
+    let case = Failing {
+        set: &[],
+        ..Failing::new("unreachable", Store::Valid, "relay_connection_failed")
+    };
+    let ids = [text(1)];
+    let run = bin
+        .run_env(
+            &info_args(&["--output", "json"], &ids),
+            &[("RELAYS", dead.as_str())],
+            &[],
+        )
+        .await;
+    assert_eq!(run.code(), Some(case.exit), "{}", run.stderr_text());
+    let outcome = document(&run);
+    assert_eq!(outcome["error"]["code"], case.code);
+    assert_eq!(outcome["meta"]["publication"], "not_attempted");
+    assert!(!run.stderr_text().contains("127.0.0.1"));
+    assert!(bin.world.fake.received().is_empty());
+    bin.assert_untouched("unreachable");
+}
+
+#[tokio::test]
+async fn argument_errors_name_the_command_only_when_it_resolved() {
+    let bin = bin(silent()).await;
+    let cases: [(&[&str], Value); 5] = [
+        (&["order", "info"], json!("order.info")),
+        (
+            &["order", "info", "--order", "not-a-uuid"],
+            json!("order.info"),
+        ),
+        (&["order", "info", "--order"], json!("order.info")),
+        (
+            &["order", "info", "--order", &text(1), "--bogus"],
+            json!("order.info"),
+        ),
+        (&["ordersinfo", "--order", &text(1)], Value::Null),
+    ];
+    for (args, command) in cases {
+        let mut all = vec!["--output", "json"];
+        all.extend(args);
+        let run = bin.run(&all).await;
+        assert_eq!(run.code(), Some(2), "{args:?}: {}", run.stderr_text());
+        let outcome = document(&run);
+        assert_eq!(outcome["command"], command, "{args:?}");
+        assert_eq!(outcome["error"]["code"], "invalid_arguments", "{args:?}");
+        assert_eq!(outcome["meta"]["publication"], "not_attempted", "{args:?}");
+        assert!(!run.stdout_text().contains("not-a-uuid"), "{args:?}");
+    }
+    assert!(bin.world.fake.received().is_empty());
+    bin.assert_untouched("arguments");
+}
+
+#[tokio::test]
+async fn an_unwritable_stderr_changes_neither_the_exit_nor_the_document() {
+    let bin = bin(silent()).await;
+    let ids = [text(1)];
+    let mut command = bin.command(&info_args(&["--output", "json", "--pow", "x"], &ids));
+    command.stderr(closed_pipe());
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert_eq!(run.code(), Some(1));
+    assert_eq!(document(&run)["error"]["code"], "configuration_invalid");
+}
+
 // --- Publication spends the reply budget -------------------------------------
 
 /// Refuses requests sent straight to it, with a machine-readable reason.
@@ -948,4 +1797,100 @@ async fn a_missing_acknowledgement_without_a_reply_stays_unknown_within_the_budg
     );
     assert_eq!(fake.received().len(), 1);
     assert!(elapsed < exchange_bound(), "{elapsed:?}");
+}
+
+// --- A relay that asks for authentication before accepting -----------------
+
+/// Forwards each connection on `listener` to `to`, holding every chunk the
+/// client sends for `lag`, so this relay answers well after a direct one.
+async fn lagging_proxy(listener: tokio::net::TcpListener, to: std::net::SocketAddr, lag: Duration) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    while let Ok((client, _)) = listener.accept().await {
+        tokio::spawn(async move {
+            let Ok(relay) = tokio::net::TcpStream::connect(to).await else {
+                return;
+            };
+            let (mut client_rx, mut client_tx) = client.into_split();
+            let (mut relay_rx, mut relay_tx) = relay.into_split();
+            let up = async move {
+                let mut buffer = vec![0u8; 64 * 1024];
+                while let Ok(read) = client_rx.read(&mut buffer).await {
+                    if read == 0 {
+                        break;
+                    }
+                    tokio::time::sleep(lag).await;
+                    if relay_tx.write_all(&buffer[..read]).await.is_err() {
+                        break;
+                    }
+                }
+            };
+            let down = async move {
+                let _ = tokio::io::copy(&mut relay_rx, &mut client_tx).await;
+            };
+            tokio::join!(up, down);
+        });
+    }
+}
+
+#[tokio::test]
+async fn a_relay_that_asks_for_authentication_still_receives_the_request() {
+    // The node reads only relay A, which answers the first EVENT with
+    // `auth-required:` and is reached through a lagging link; relay B, where
+    // the node does not read, accepts at once.
+    let node = Keys::generate();
+    let front = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let back = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let a_url = format!("ws://{}", front.local_addr().unwrap());
+    // NIP-42 checks the relay URL inside the AUTH event: the public one.
+    let a = LocalRelay::builder()
+        .port(front.local_addr().unwrap().port())
+        .nip42(nostr_sdk::prelude::LocalRelayBuilderNip42::write())
+        .build();
+    a.add_event(info_event(&node, Some(2), Some(0), None, None))
+        .await
+        .unwrap();
+    let back_addr = back.local_addr().unwrap();
+    let served = tokio::spawn(harness::accept_loop(
+        back,
+        Backend::Relay(Box::new(a.clone())),
+        harness::Sessions {
+            accepted: Arc::new(AtomicUsize::new(0)),
+            open: Arc::new(AtomicUsize::new(0)),
+            ended: Arc::new(tokio::sync::Notify::new()),
+        },
+    ));
+    let proxied = tokio::spawn(lagging_proxy(front, back_addr, Duration::from_millis(50)));
+    let b = LoopbackRelay::start(Backend::Relay(Box::new(LocalRelay::new())))
+        .await
+        .unwrap();
+    let fake = FakeMostro::start(&a_url, node.clone(), always_orders(Vec::new())).await;
+    let config = PublicReadConfig::new(node.public_key(), &format!("{},{}", a_url, b.url)).unwrap();
+    let identity = Keys::generate();
+
+    let result = exchange(
+        &config,
+        plain_outbound(&identity, node.public_key()),
+        &expect_orders(),
+        &limits(),
+    )
+    .await;
+
+    let exchanged = result.unwrap_or_else(|failed| {
+        panic!(
+            "expected the reply, got {:?}",
+            (failed.code(), failed.publication())
+        )
+    });
+    assert_eq!(
+        exchanged.reply().get_inner_message_kind().action,
+        Action::Orders
+    );
+    assert_eq!(fake.received().len(), 1, "the node got the request once");
+    served.abort();
+    proxied.abort();
+    a.shutdown();
 }

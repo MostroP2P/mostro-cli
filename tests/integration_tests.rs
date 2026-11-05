@@ -4,8 +4,11 @@ use std::path::Path;
 
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
+use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
 use mostro_client::outcome::order::ListOrdersInput;
-use mostro_client::outcome::{Envelope, ErrorCode, ExecutionMeta, Warnings};
+use mostro_client::outcome::{
+    DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Publication, Warnings,
+};
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
@@ -275,9 +278,11 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 
 mod schema_fixtures {
     use super::{
-        json, offline_discovery, read_to_string, schema_check, to_value, Envelope, ErrorCode,
-        ExecutionMeta, Value, Warnings,
+        json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
+        Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, PublicKey, Publication,
+        Value, Warnings,
     };
+    use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
     const DISCOVERY_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -287,6 +292,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-list-v1.json"
     );
+    const INFO_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-info-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -294,9 +303,10 @@ mod schema_fixtures {
 
     /// How to refresh the fixtures after an intended change. The tests only read
     /// them and never rewrite a fixture.
-    const REGENERATE: &str = "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
-    cargo run -q -- --output json schema | jq '.data.commands[] | select(.name==\"order.list\") | .output_schema' \
-    > docs/schemas/order-list-v1.json";
+    const REGENERATE: &str =
+        "regenerate with: cargo run -q -- schema > docs/schemas/discovery-v1.json; \
+    for NAME in list info; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    select(.name==\\\"order.$NAME\\\") | .output_schema\" > docs/schemas/order-$NAME-v1.json; done";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -307,14 +317,18 @@ mod schema_fixtures {
         to_value(offline_discovery()).unwrap()
     }
 
-    fn generated_listing_schema() -> Value {
+    fn generated_output_schema(name: &str) -> Value {
         generated_discovery()["commands"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|command| command["name"] == "order.list")
+            .find(|command| command["name"] == name)
             .map(|command| command["output_schema"].clone())
-            .expect("order.list is described")
+            .unwrap_or_else(|| panic!("{name} is described"))
+    }
+
+    fn generated_listing_schema() -> Value {
+        generated_output_schema("order.list")
     }
 
     #[test]
@@ -332,6 +346,15 @@ mod schema_fixtures {
             generated_listing_schema(),
             read_json(LISTING_FIXTURE),
             "stale docs/schemas/order-list-v1.json; {REGENERATE}"
+        );
+    }
+
+    #[test]
+    fn info_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.info"),
+            read_json(INFO_FIXTURE),
+            "stale docs/schemas/order-info-v1.json; {REGENERATE}"
         );
     }
 
@@ -375,7 +398,7 @@ mod schema_fixtures {
             .filter(|command| command["output_modes"] == json!(["human", "json"]))
             .map(|command| command["name"].as_str().unwrap())
             .collect();
-        assert_eq!(machine, ["order.list", "schema"]);
+        assert_eq!(machine, ["order.info", "order.list", "schema"]);
     }
 
     /// A signed 64-bit integer in canonical decimal text, which a JSON Schema
@@ -464,7 +487,7 @@ mod schema_fixtures {
         // The examples are hand-authored design fixtures; only the files under
         // docs/schemas are generated and drift-checked.
         assert_eq!(read_json(EXAMPLES)["contract_status"], "proposed");
-        for fixture in [DISCOVERY_FIXTURE, LISTING_FIXTURE] {
+        for fixture in [DISCOVERY_FIXTURE, LISTING_FIXTURE, INFO_FIXTURE] {
             assert!(fixture.contains("/docs/schemas/"));
             assert!(read_json(fixture).get("cases").is_none());
         }
@@ -597,6 +620,314 @@ mod schema_fixtures {
         assert!(!schema_check::conforms(&schema, &schema, &outcome));
         for bad in ["", "-0", "+1", "01", "1.0", "0x1", " 1"] {
             assert!(!is_canonical_i64(bad), "{bad:?}");
+        }
+    }
+
+    // --- The proposed outcomes of `order info` (spec 002) --------------------
+
+    const INFO_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/002-order-info-json/contracts/examples.json"
+    );
+    const NODE: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+    fn info_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(INFO_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn info_example(name: &str) -> (i32, Value) {
+        info_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn id(n: u128) -> uuid::Uuid {
+        uuid::Uuid::from_u128(n)
+    }
+
+    fn small_order(n: u128, edit: impl FnOnce(&mut SmallOrder)) -> SmallOrder {
+        let key = Some(NODE.to_string());
+        let mut order = if n == 1 {
+            SmallOrder::new(
+                Some(id(1)),
+                Some(OrderKind::Sell),
+                Some(OrderStatus::Active),
+                15_000,
+                "USD".to_string(),
+                None,
+                None,
+                15,
+                "bank transfer".to_string(),
+                1,
+                None,
+                key,
+                None,
+                Some(1_792_108_800),
+                Some(1_792_195_200),
+            )
+        } else {
+            SmallOrder::new(
+                Some(id(3)),
+                Some(OrderKind::Buy),
+                Some(OrderStatus::Pending),
+                0,
+                "EUR".to_string(),
+                Some(10),
+                Some(20),
+                0,
+                "face to face".to_string(),
+                -5,
+                key,
+                None,
+                None,
+                Some(1_792_108_800),
+                None,
+            )
+        };
+        edit(&mut order);
+        order
+    }
+
+    fn requested(ids: &[u128]) -> OrderInfoInput {
+        OrderInfoInput::new(ids.iter().map(|n| id(*n))).unwrap()
+    }
+
+    fn node() -> PublicKey {
+        PublicKey::from_hex(NODE).unwrap()
+    }
+
+    #[test]
+    fn proposed_info_examples_conform_to_the_checked_in_schema() {
+        let schema = read_json(INFO_FIXTURE);
+        let examples = info_examples();
+        assert_eq!(examples.len(), 7);
+        for (name, exit, outcome) in examples {
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match outcome["error"]["code"].as_str() {
+                None => 0,
+                Some("invalid_arguments") => 2,
+                Some(_) => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn info_examples_are_reproduced_by_the_owned_constructors() {
+        let delivered = |daemon| ExecutionMeta::request(Publication::Published, daemon);
+        let unsent =
+            || ExecutionMeta::request(Publication::NotAttempted, DaemonAcceptance::Unknown);
+        let reply = [small_order(1, |_| {}), small_order(3, |_| {})];
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &requested(&[1, 2, 3]), &reply);
+        let subset = Envelope::ok(
+            "order.info",
+            data,
+            warnings,
+            delivered(DaemonAcceptance::Accepted),
+        );
+        let (data, warnings) = OrderInfoData::from_reply(&node(), &requested(&[1, 2]), &[]);
+        let not_found = Envelope::ok(
+            "order.info",
+            data,
+            warnings,
+            delivered(DaemonAcceptance::Accepted),
+        );
+        let error = |code, meta| {
+            Envelope::<OrderInfoData, ()>::error(Some("order.info"), code, Warnings::new(), meta)
+        };
+        let cases: Vec<(&str, Value, i32)> = vec![
+            (
+                "subset_success",
+                to_value(&subset).unwrap(),
+                subset.exit_code(),
+            ),
+            (
+                "not_found_success",
+                to_value(&not_found).unwrap(),
+                not_found.exit_code(),
+            ),
+            (
+                "node_refused",
+                to_value(Envelope::<OrderInfoData, ()>::refused(
+                    Some("order.info"),
+                    "too_many_requests",
+                    Warnings::new(),
+                    delivered(DaemonAcceptance::Rejected),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "reply_timeout",
+                to_value(error(
+                    ErrorCode::ReplyTimeout,
+                    delivered(DaemonAcceptance::Unknown),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "identity_missing",
+                to_value(error(ErrorCode::IdentityMissing, unsent())).unwrap(),
+                1,
+            ),
+            (
+                "invalid_arguments",
+                to_value(error(ErrorCode::InvalidArguments, unsent())).unwrap(),
+                2,
+            ),
+            (
+                "removed_spelling",
+                to_value(Envelope::<OrderInfoData, ()>::error(
+                    None,
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    ExecutionMeta::not_executed(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ];
+        assert_eq!(cases.len(), info_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = info_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_info_variants_do_not_conform() {
+        let schema = read_json(INFO_FIXTURE);
+        let (_, base) = info_example("subset_success");
+        let (_, refused) = info_example("node_refused");
+        assert!(schema_check::conforms(&schema, &schema, &base));
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let on_base: Vec<(&str, Edit)> = vec![
+            (
+                "number for a decimal string",
+                Box::new(|o| o["data"]["orders"][0]["fiat_amount"] = json!(15)),
+            ),
+            (
+                "null id",
+                Box::new(|o| o["data"]["orders"][0]["id"] = Value::Null),
+            ),
+            (
+                "negative zero",
+                Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("-0")),
+            ),
+            (
+                "uppercase trade key",
+                Box::new(|o| {
+                    o["data"]["orders"][0]["seller_trade_pubkey"] = json!(NODE.to_uppercase())
+                }),
+            ),
+            (
+                "unknown status",
+                Box::new(|o| o["data"]["orders"][0]["status"] = json!("uncertain")),
+            ),
+            (
+                "unknown side",
+                Box::new(|o| o["data"]["orders"][0]["side"] = json!("both")),
+            ),
+            (
+                "offset time",
+                Box::new(|o| {
+                    o["data"]["orders"][0]["created_at"] = json!("2026-10-16T00:00:00+02:00")
+                }),
+            ),
+            (
+                "missing nullable key",
+                Box::new(|o| {
+                    o["data"]["orders"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("expires_at");
+                }),
+            ),
+            (
+                "not_returned entry that is not an id",
+                Box::new(|o| o["data"]["not_returned"][0] = json!("not-a-uuid")),
+            ),
+            (
+                "missing not_returned",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("not_returned");
+                }),
+            ),
+            (
+                "envelope status",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "read stages",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("not_applicable")),
+            ),
+            (
+                "a local write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "a snapshot",
+                Box::new(|o| o["meta"]["snapshot"] = json!({})),
+            ),
+            (
+                "another command",
+                Box::new(|o| o["command"] = json!("order.list")),
+            ),
+        ];
+        for (label, edit) in on_base {
+            let mut outcome = base.clone();
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label}"
+            );
+        }
+        let on_refused: Vec<(&str, Edit)> = vec![
+            (
+                "an uppercase reason",
+                Box::new(|o| o["error"]["reason"] = json!("Too Many")),
+            ),
+            (
+                "a numeric reason",
+                Box::new(|o| o["error"]["reason"] = json!(429)),
+            ),
+            (
+                "an accepted failure",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "a code of another command",
+                Box::new(|o| o["error"]["code"] = json!("output_not_supported")),
+            ),
+            (
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"orders": []})),
+            ),
+        ];
+        for (label, edit) in on_refused {
+            let mut outcome = refused.clone();
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label}"
+            );
         }
     }
 }

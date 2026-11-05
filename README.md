@@ -216,7 +216,7 @@ mostro-cli order list --side sell --currency usd
 mostro-cli order list --side buy --currency ves --status pending
 
 # 3. Inspect details for specific orders
-mostro-cli ordersinfo -o <uuid-1> -o <uuid-2>
+mostro-cli order info --order <uuid-1> --order <uuid-2>   # needs your local identity; creates nothing
 
 # 4. Create your own order (sell 1000-10000 ARS at market price)
 mostro-cli neworder -k sell -c ars -f 1000-10000 -m "face to face"
@@ -586,7 +586,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 ### Order browsing & creation
 - `order list [--side buy|sell] [--currency <code>] [--status <status>]` — list open orders (read-only; supports `--output json`). Replaces `listorders`.
 - `schema` — describe the machine interface offline (supports `--output json`).
-- `ordersinfo -o <uuid> [-o <uuid> ...]` — request details for specific orders.
+- `order info --order <uuid> [--order <uuid> ...]` — ask the node for its record of your own orders (supports `--output json`). Replaces `ordersinfo`.
 - `neworder -k <buy|sell> -c <fiat> -f <amount|min-max> -m <methods> [-a <sats>] [-p <premium>] [-i <invoice>] [--expiration-days N]` — create an order.
 
 ### Taking orders
@@ -641,7 +641,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list` and `schema` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema` and `order info` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -655,7 +655,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Two commands can answer in JSON so that scripts and agents do not have to parse tables: `order list` and `schema`. Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Three commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema` and `order info`. Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

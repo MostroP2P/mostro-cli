@@ -39,5 +39,5 @@ research, contracts and validation procedure. Execution progress lives in the
 [task list](../tasks.md) and its evidence in `tests/TEST_SUMMARY.md`; checked
 tasks prove only their recorded scope. Runtime evidence for the acceptance
 criteria is reconciled in [tests/README.md](../../../tests/README.md#order-list-pilot-requirement-evidence):
-verified on Linux with loopback relays, with SC-005 (native Windows) open. No item above
+verified on Linux with loopback relays, and SC-005 (native Windows) met by a GitHub-hosted runner. No item above
 was changed by that evidence.

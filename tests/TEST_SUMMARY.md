@@ -2766,7 +2766,11 @@ process tests are the evidence that nothing is read or written.
   unchanged (no EVENT published), and rejected invocations make zero relay
   connections.
 
-### Windows (blocked)
+### Windows (blocked at the time; later covered by CI)
+
+Update 2026-10-29: the full suite passed on a GitHub-hosted native Windows runner; see
+[the CI result recorded with slice 3](#ci-result-for-the-previous-push-3a4145e-native-windows-passed).
+The text below is the original record.
 
 Not run: row-by-row Windows results, the watchdog test's Windows behavior after
 the 6 s change, and the new `pilot-windows` CI job. Until they exist, SC-005 and the
@@ -2948,6 +2952,91 @@ The GitHub run `40934312083` was green in every job, including `Pilot tests (nat
 `util_misc`, which are Unix-only tests. This is the first Windows evidence for the order-list pilot (its commands, process
 tests with planted secret sentinels, streams and exit codes); it is a hosted runner, not a developer workstation. The
 slice-3 changes have not run on Windows yet.
+
+
+## Order Info, Slice 4: The Command: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `3919d99`. `mostro-cli order info --order UUID...` exists; the
+legacy `ordersinfo` (command, handler `cli/orders_info.rs`, characterization tests) is removed with no alias. Lean mode:
+this is the only evidence entry for the slice.
+
+- **Extraction first** (behavior-preserving, tests rerun): the dispatch of migrated commands and its tests moved from
+  `cli.rs` to `cli/migrated.rs` (`cli.rs` 316 to 189 lines; `migrated.rs` 290 with the third command).
+- **Pieces**: `OrderCommands::Info` (`--order`, required, repeatable, no cap), the registry entry `order.info` moved to
+  the path `order info` with `JsonSupport::Request`, `commands/order/info.rs` (the operation: one `exchange`, mapping
+  `Orders`, `CantDo(not_found)` to the empty success, other `CantDo` to `node_refused` with its reason, anything else to
+  `reply_malformed`), `parse_human/order_info.rs` (pure, the familiar labelled lines, nothing invented for values the
+  node omitted, control characters escaped), `--pow`/`--transport` handling (`POW`/`TRANSPORT` as fallbacks; only `nip44`;
+  an explicit transport skips the protocol check), identity read-only after configuration, one `--verbose` line of codes and
+  counts. Local failures (arguments, configuration, work, transport, identity) happen before anything is published.
+- **Forced by the registry move, done here instead of slice 5**: `command_schemas` and `required_configuration` for
+  `order.info`, the regenerated `docs/schemas/discovery-v1.json` (only the `order.info` descriptor changed; every other
+  descriptor is identical, and `order-list-v1.json` is unchanged), the new `docs/schemas/order-info-v1.json`, and a drift
+  test for it. `README.md` and `docs/commands.md` no longer describe `ordersinfo`.
+- **Binary scenarios** (13 new, `tests/order_info_process.rs`, the real binary against the scripted daemon, a seeded identity
+  store and a relay that counts request EVENTs): one id returns the order as one document with exactly one request, the
+  identity as signer and the identity store byte-identical with nothing else created; a subset in request order with
+  unrequested and repeated orders dropped and one warning; a repeated id in any case requested once; `not_found` as the
+  same success; noise (other request, wrong signer, other recipient) never deciding; a refusal as exit 1 with its reason in
+  JSON and one fixed human line; `reply_malformed`; a silent node as `reply_timeout` after the production 15 s budget with
+  one request; human and JSON parity with a range, a negative premium and an escape sequence in the payment method (shown
+  escaped, no raw control character), three runs and three requests; the output flag at six positions returning the same
+  document; 300 ids in one request; `--verbose` printing one allow-listed line with no mnemonic word, id or relay address;
+  an unwritable stdout (JSON and human) exiting 1 with one fixed line.
+- **Grammar tests** (4 new, `cli_functions::order_info_grammar`): repeatable any-case ids with no cap; a missing, malformed or
+  positional id, `-o`, `--orderids` and `ordersinfo` all rejected; the registry entry; argument errors with JSON intent keep the
+  resolved command `order.info`.
+- **Real binary check**: `order info --help`; `ordersinfo` is an unrecognized subcommand; with no configuration the JSON
+  outcome is `configuration_missing`, with configuration but no identity `identity_missing`, nothing created.
+- **Checks on the checks**: removing deduplication, mapping `not_found` to an error and dropping terminal escaping each
+  failed exactly the test that guards it; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (505 tests: lib 146, `cli_functions` 71,
+  `integration_tests` 34, `order_info_process` 28, `order_list_process` 46, `parser_orders` 123, others unchanged, doctests 6),
+  `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets --all-features`: all pass. Not yet run on Windows.
+
+## Order Info, Slice 5: Failure Matrix And Examples: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `a8c7db3`. Lean mode: the only evidence entry for the slice. The schemas and
+fixtures of this slice were done in slice 4.
+
+- **Failure matrix** (6 new binary tests, `tests/order_info_process.rs`; each failure runs as JSON, human and `--verbose`,
+  with a planted sentinel where an input carries text): no store, an empty `users` table (`identity_missing`); a file that is
+  not a database, no `users` table, a null mnemonic (`identity_unreadable`); missing node key or relays
+  (`configuration_missing`); a bad node key, relay, `--pow` or `--transport` (`configuration_invalid`); protocol 1
+  (`protocol_unsupported`); more work expected than configured (`pow_required`); a relay rejecting writes
+  (`request_rejected`); an unreachable relay (`relay_connection_failed`). For each: the exit code, `command` `order.info`,
+  stages (`not_attempted`/`unknown`, `persistence` `not_applicable`), JSON on stdout only and nothing on stderr, human on
+  stderr only as one `error:` line, no sentinel and no `127.0.0.1` in any stream, zero requests at the relay, and the data
+  directory byte-identical with nothing created elsewhere. An explicit `--transport nip44` with enough `--pow` succeeds on a
+  node advertising protocol 1.
+- **Argument errors**: exit 2, `invalid_arguments`, `order.info` as the command for a missing, malformed or valueless
+  `--order` and an unknown option, `null` for the removed `ordersinfo`; no request, nothing created, the bad value not echoed.
+- **Unwritable stderr** (JSON mode) keeps exit 1 and the document.
+- **Examples** (`contracts/examples.json`, 3 tests in `schema_fixtures`): every proposed outcome conforms to the checked-in
+  schema, is reproduced by the owned constructors, and invalid variants are rejected.
+- **Checks on the checks**: mapping an unreadable store to `identity_missing` and skipping the work check each failed the
+  matrix; restored.
+- Gates: fmt, Clippy `-D warnings`, `cargo test --locked --no-fail-fast` (508 tests: lib 146, `cli_functions` 71,
+  `integration_tests` 37, `order_info_process` 34, `order_list_process` 46, `parser_orders` 123, `parser_dms` 19,
+  `parser_disputes` 9, `util_misc` 17, doctests 6), `cargo build --locked`, `cargo +1.94.0 check --locked --all-targets
+  --all-features`: all pass. Slice 4 and 5 are not yet run on Windows until CI runs after a push.
+
+## Order Info, Slice 6: Docs And Verification: 2026-10-29
+
+Native Linux, rustc 1.97.0, on `develop` after `d593399` (pushed). Documentation only; no production change. Lean mode: the
+only evidence entry for the slice.
+
+- **Docs**: `docs/architecture.md` (new identity, request-and-reply and operation rows, the order-info effects rule, the
+  `orders_info.rs` removal, a note that the size table is a pilot-time snapshot), the `README.md` and `docs/commands.md`
+  migration notes (done in slice 4), the requirement evidence in `tests/README.md`, and the status lines of the spec, plan,
+  quickstart, `AGENTS.md`, `docs/ai-development.md` and the roadmap (Amendment 10). The frozen boundary counts had been
+  updated deliberately in slices 3-4 and are green.
+- **Offline smoke check** (the real binary, empty environment, sandboxed home, closed stdin): `order info --order ... --output
+  json` gives `configuration_missing`, exit 1, `not_attempted`, nothing created; `schema --output json` lists `order.info`.
+- Gates on the final tree: fmt, Clippy `-D warnings`, `cargo test --locked` (508 tests), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features` (the last three as in slice 5; no source changed since).
+- **Open**: the regtest probe (separate authorization, regtest identities only, never `devenv.sh clean`), Windows evidence
+  for slices 4-6 via CI, and the MCP `get_order` migration.
 
 ## Overview
 
