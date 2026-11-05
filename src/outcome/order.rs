@@ -14,6 +14,31 @@ use serde::{Serialize, Serializer};
 
 use super::{ErrorCode, WarningCode, Warnings};
 
+/// Accepted `--side` values, matched case-insensitively.
+pub const SIDES: [&str; 2] = ["buy", "sell"];
+
+/// Accepted `--status` values: every pinned core status, matched
+/// case-insensitively.
+pub const STATUSES: [&str; 17] = [
+    "active",
+    "canceled",
+    "canceled-by-admin",
+    "settled-by-admin",
+    "completed-by-admin",
+    "dispute",
+    "expired",
+    "fiat-sent",
+    "settled-hold-invoice",
+    "pending",
+    "success",
+    "waiting-buyer-invoice",
+    "waiting-payment",
+    "waiting-taker-bond",
+    "waiting-maker-bond",
+    "cooperatively-canceled",
+    "in-progress",
+];
+
 /// Normalized `order list` filters, serialized as `ListData.filters`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ListOrdersInput {
@@ -61,18 +86,18 @@ impl ListOrdersInput {
 /// One selected order from the public book.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PublicOrder {
-    id: String,
-    side: Kind,
-    status: Status,
-    sats_amount: String,
-    fiat_currency: String,
-    fiat_amount: String,
-    fiat_amount_min: Option<String>,
-    fiat_amount_max: Option<String>,
-    payment_method: String,
-    premium_percent: String,
-    created_at: Option<String>,
-    created_at_unix: String,
+    pub(crate) id: String,
+    pub(crate) side: Kind,
+    pub(crate) status: Status,
+    pub(crate) sats_amount: String,
+    pub(crate) fiat_currency: String,
+    pub(crate) fiat_amount: String,
+    pub(crate) fiat_amount_min: Option<String>,
+    pub(crate) fiat_amount_max: Option<String>,
+    pub(crate) payment_method: String,
+    pub(crate) premium_percent: String,
+    pub(crate) created_at: Option<String>,
+    pub(crate) created_at_unix: String,
 }
 
 impl PublicOrder {
@@ -119,9 +144,9 @@ impl PublicOrder {
 /// `order.list` success data.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ListData {
-    node_pubkey: String,
-    filters: ListOrdersInput,
-    orders: Vec<PublicOrder>,
+    pub(crate) node_pubkey: String,
+    pub(crate) filters: ListOrdersInput,
+    pub(crate) orders: Vec<PublicOrder>,
 }
 
 impl ListData {
@@ -173,9 +198,9 @@ pub struct Snapshot {
     observed_at: Timestamp,
     per_relay_limit: usize,
     max_unique_events: usize,
-    configured_relays: usize,
-    completed_relays: usize,
-    received_events: usize,
+    pub(crate) configured_relays: usize,
+    pub(crate) completed_relays: usize,
+    pub(crate) received_events: usize,
     completion_policy: CompletionPolicy,
     complete_history: bool,
 }

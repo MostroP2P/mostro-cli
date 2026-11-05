@@ -135,6 +135,13 @@ impl Warnings {
         self.0.iter().any(|warning| warning.code == code)
     }
 
+    /// Record every warning of `other`, still one per code.
+    pub fn merge(&mut self, other: &Warnings) {
+        for warning in &other.0 {
+            self.add(warning.code);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -251,6 +258,18 @@ impl<D, S> Envelope<D, S> {
 
     pub fn command(&self) -> Option<&'static str> {
         self.command
+    }
+
+    pub fn data(&self) -> Option<&D> {
+        self.data.as_ref()
+    }
+
+    pub fn snapshot(&self) -> Option<&S> {
+        self.meta.snapshot.as_ref()
+    }
+
+    pub fn error_code(&self) -> Option<ErrorCode> {
+        self.error.map(|error| error.code)
     }
 
     /// An `internal_error` outcome for the same command, stages and warnings,

@@ -15,7 +15,6 @@ use super::get_dm::execute_get_dm;
 use super::get_dm_user::execute_get_dm_user;
 use super::last_trade_index::{execute_last_trade_index, execute_last_trade_index_private_key};
 use super::list_disputes::execute_list_disputes;
-use super::list_orders::execute_list_orders;
 use super::maintenance::{
     execute_cancel_pending, execute_maintenance_status, execute_set_maintenance,
 };
@@ -105,11 +104,7 @@ impl Commands {
             }
 
             // Order management commands
-            Commands::ListOrders {
-                status,
-                currency,
-                kind,
-            } => execute_list_orders(kind, currency, status, ctx).await,
+            Commands::Order { .. } => unreachable!("public listing runs without a Context"),
             Commands::NewOrder {
                 kind,
                 fiat_code,

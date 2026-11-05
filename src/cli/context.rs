@@ -31,7 +31,7 @@ fn get_env_var(cli: &Cli) {
         init_logger();
     }
 
-    if let Some(ref mostro_pubkey) = cli.mostropubkey {
+    if let Some(ref mostro_pubkey) = cli.mostro_pubkey {
         set_var("MOSTRO_PUBKEY", mostro_pubkey.clone());
     }
 
@@ -63,17 +63,17 @@ exports in a file (e.g. ~/.config/mostro/env.sh, chmod 600) and `source` it\n\
 before running the CLI.\n\
 See https://github.com/MostroP2P/mostro-cli#suggested-setup";
 
-/// Resolve the Mostro instance pubkey from `--mostropubkey` / `-m`, then
+/// Resolve the Mostro instance pubkey from `--mostro-pubkey` / `-m`, then
 /// `MOSTRO_PUBKEY`. Fails with setup guidance if neither is set.
 fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
-    cli.mostropubkey
+    cli.mostro_pubkey
         .clone()
         .or_else(|| var("MOSTRO_PUBKEY").ok())
         .ok_or_else(|| {
             anyhow!(
                 "MOSTRO_PUBKEY not set.\n\
                  Provide it using one of the following methods:\n\
-                 1) --mostropubkey <npub> (or -m)\n\
+                 1) --mostro-pubkey <npub> (or -m)\n\
                  2) export MOSTRO_PUBKEY=<npub>\n\
                  \n\
                  {ENV_FILE_HINT}"
@@ -234,9 +234,9 @@ mod tests {
     #[serial]
     fn missing_mostro_pubkey_message_guides_setup() {
         with_env_cleared("MOSTRO_PUBKEY", || {
-            let cli = Cli::try_parse_from(["mostro-cli", "listorders"]).unwrap();
+            let cli = Cli::try_parse_from(["mostro-cli", "listdisputes"]).unwrap();
             let err = resolve_mostro_pubkey(&cli).unwrap_err().to_string();
-            assert!(err.contains("--mostropubkey <npub>"), "{err}");
+            assert!(err.contains("--mostro-pubkey <npub>"), "{err}");
             assert!(err.contains("(or -m)"), "{err}");
             assert!(err.contains("export MOSTRO_PUBKEY=<npub>"), "{err}");
             assert!(err.contains("does not read any config file"), "{err}");
@@ -270,8 +270,8 @@ mod tests {
     #[serial]
     fn mostro_pubkey_flag_wins_when_env_is_unset() {
         with_env_cleared("MOSTRO_PUBKEY", || {
-            let cli =
-                Cli::try_parse_from(["mostro-cli", "-m", "npub1testpubkey", "listorders"]).unwrap();
+            let cli = Cli::try_parse_from(["mostro-cli", "-m", "npub1testpubkey", "listdisputes"])
+                .unwrap();
             assert_eq!(resolve_mostro_pubkey(&cli).unwrap(), "npub1testpubkey");
         });
     }

@@ -1,6 +1,6 @@
 use chrono::DateTime;
-use mostro_client::cli::list_orders::parse_status_filter;
 use mostro_client::cli::Context;
+use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
@@ -114,7 +114,8 @@ fn order_query_uses_exact_seven_day_window_at_fixed_time() {
 #[case(Some("PeNdInG"), Status::Pending)]
 #[case(Some("ACTIVE"), Status::Active)]
 fn listing_status_defaults_and_case(#[case] input: Option<&str>, #[case] expected: Status) {
-    assert_eq!(parse_status_filter(input).unwrap(), expected);
+    let filters = ListOrdersInput::parse(None, None, input).unwrap();
+    assert_eq!(filters.status(), expected);
 }
 
 #[rstest]
@@ -123,7 +124,7 @@ fn listing_status_defaults_and_case(#[case] input: Option<&str>, #[case] expecte
 #[case("pending ")]
 #[case("unknown")]
 fn listing_status_rejects_invalid_or_padded_values(#[case] input: &str) {
-    assert!(parse_status_filter(Some(input)).is_err());
+    assert!(ListOrdersInput::parse(None, None, Some(input)).is_err());
 }
 
 // `create_filter` for the `DirectMessages*` kinds selects kind 14 and pins

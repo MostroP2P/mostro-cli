@@ -4,6 +4,7 @@ use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 
 use crate::db::User;
+use crate::msg::seven_day_filter;
 use crate::parser::{parse_dispute_events, parse_dm_events, parse_orders_events};
 use crate::util::messaging::get_admin_keys;
 
@@ -26,17 +27,8 @@ pub fn create_seven_days_filter_at(
     event_kind: u16,
     now: DateTime<Utc>,
 ) -> Result<Filter> {
-    let since_time = now
-        .checked_sub_signed(chrono::Duration::days(7))
-        .ok_or(anyhow::anyhow!("Failed to get since days ago"))?
-        .timestamp() as u64;
-    let timestamp = Timestamp::from(since_time);
-    Ok(Filter::new()
-        .author(pubkey)
-        .limit(50)
-        .since(timestamp)
-        .custom_tag(SingleLetterTag::LOWERCASE_Z, value)
-        .kind(nostr_sdk::prelude::Kind::Custom(event_kind)))
+    seven_day_filter(&value, pubkey, event_kind, now)
+        .map_err(|_| anyhow::anyhow!("Failed to get since days ago"))
 }
 
 pub fn create_filter(

@@ -29,6 +29,7 @@ use hyper::service::service_fn;
 use hyper::upgrade::{self, OnUpgrade};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use mostro_client::commands::order::list::{list_orders, COMMAND};
 use mostro_client::msg::{fetch_msg, FetchFailure, PublicReadConfig, ReadLimits};
 use mostro_client::outcome::order::Snapshot;
 use mostro_client::outcome::ErrorCode;
@@ -573,14 +574,17 @@ fn sandbox_is_removed_on_drop() {
 async fn parent_config_does_not_leak_into_the_child() {
     let sandbox = Sandbox::new().unwrap();
 
-    let run = run_with_watchdog(sandbox.command(["listorders"]), WATCHDOG)
+    let run = run_with_watchdog(sandbox.command(["order", "list"]), WATCHDOG)
         .await
         .unwrap();
 
     assert!(run.reaped);
     assert_eq!(run.code(), Some(1), "stderr: {}", run.stderr_text());
     assert!(run.stdout.is_empty(), "stdout: {}", run.stdout_text());
-    assert!(run.stderr_text().contains("MOSTRO_PUBKEY not set"));
+    assert_eq!(
+        run.stderr_text(),
+        "error: Required node configuration is missing.\n"
+    );
     for dir in [sandbox.home(), sandbox.mcli_dir(), sandbox.cwd()] {
         assert!(is_empty_dir(&dir), "{dir:?} was written");
     }
@@ -627,7 +631,7 @@ async fn child_reaches_the_loopback_relay_with_sandboxed_storage() {
     let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
         .await
         .unwrap();
-    let mut command = sandbox.command(["listorders"]);
+    let mut command = sandbox.command(["order", "list"]);
     set_node_env(&mut command, &Keys::generate(), &[&endpoint]);
 
     let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
@@ -635,15 +639,18 @@ async fn child_reaches_the_loopback_relay_with_sandboxed_storage() {
     assert!(run.reaped);
     assert_eq!(run.code(), Some(0), "stderr: {}", run.stderr_text());
     assert!(run.stdout_text().contains("List Orders"));
+    assert!(run.stdout_text().contains("No offers found"));
     assert!(endpoint.connections() >= 1);
-    assert!(is_empty_dir(&sandbox.home()), "HOME was written");
+    for dir in [sandbox.home(), sandbox.mcli_dir(), sandbox.cwd()] {
+        assert!(is_empty_dir(&dir), "{dir:?} was written");
+    }
 }
 
 #[tokio::test]
 async fn watchdog_kills_and_reaps_a_hung_child() {
     let sandbox = Sandbox::new().unwrap();
     let endpoint = LoopbackRelay::start(Backend::Silent).await.unwrap();
-    let mut command = sandbox.command(["listorders"]);
+    let mut command = sandbox.command(["order", "list"]);
     set_node_env(&mut command, &Keys::generate(), &[&endpoint]);
     let limit = Duration::from_secs(2);
 
@@ -766,12 +773,13 @@ async fn argument_errors_exit_2_with_safe_stderr_before_any_effect() {
         .await
         .unwrap();
     let unknown_flag = format!("--{SENTINEL}");
-    let rows: [&[&str]; 5] = [
-        &["listorders", &unknown_flag],
+    let rows: [&[&str]; 6] = [
+        &["order", "list", &unknown_flag],
         &[SENTINEL],
-        &["--output", SENTINEL, "listorders"],
-        &["--output", "json", "--output", "json", "listorders"],
-        &["--output", "human", "listorders", &unknown_flag],
+        &["--output", SENTINEL, "order", "list"],
+        &["--output", "json", "--output", "json", "order", "list"],
+        &["--output", "human", "order", "list", &unknown_flag],
+        &["listorders"],
     ];
     for args in rows {
         let label = format!("{args:?}");
@@ -792,16 +800,21 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
         .await
         .unwrap();
     let unknown_flag = format!("--{SENTINEL}");
-    let rows: [(&[&str], Value, &str); 8] = [
+    let rows: [(&[&str], Value, &str); 9] = [
         (
-            &["--output", "json", "listorders"],
-            json!("order.list"),
+            &["--output", "json", "listdisputes"],
+            json!("dispute.list"),
             "output_not_supported",
         ),
         (
-            &["listorders", "--output=json"],
-            json!("order.list"),
+            &["listdisputes", "--output=json"],
+            json!("dispute.list"),
             "output_not_supported",
+        ),
+        (
+            &["--output", "json", "listorders"],
+            Value::Null,
+            "invalid_arguments",
         ),
         (
             &["--output", "json", "getlasttradeprivkey"],
@@ -865,6 +878,45 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
     assert_eq!(endpoint.connections(), 0);
 }
 
+/// `order list` owns its JSON: argument errors keep `order.list` with read
+/// stages, and a valid invocation reads the configured relay.
+#[tokio::test]
+async fn order_list_json_uses_read_stages() {
+    let endpoint = LoopbackRelay::start(Backend::Relay(Box::default()))
+        .await
+        .unwrap();
+    let rows: [(&[&str], i32, &str); 3] = [
+        (
+            &["--output", "json", "order", "list", "--side", "both"],
+            2,
+            "invalid_arguments",
+        ),
+        (
+            &["order", "--output=json", "list", "--kind", "sell"],
+            2,
+            "invalid_arguments",
+        ),
+        (&["order", "list", "--output", "json"], 0, "ok"),
+    ];
+    for (args, exit, code) in rows {
+        let label = format!("{args:?}");
+        let (run, sandbox) = run_configured(args, &endpoint).await;
+        assert_eq!(run.code(), Some(exit), "{label}: {}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{label}: {}", run.stderr_text());
+        let stdout = run.stdout_text();
+        assert_eq!(stdout.lines().count(), 1, "{label}: {stdout}");
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(outcome["command"], "order.list", "{label}");
+        let status = outcome["error"]["code"].as_str().unwrap_or("ok");
+        assert_eq!(status, code, "{label}: {outcome}");
+        for stage in ["publication", "daemon_acceptance", "persistence"] {
+            assert_eq!(outcome["meta"][stage], "not_applicable", "{label}");
+        }
+        assert_no_effects(&sandbox, &label);
+    }
+    assert_eq!(endpoint.connections(), 1);
+}
+
 /// Positive control: the same configuration does reach the endpoint when an
 /// RPC command runs in human mode, so zero connections above is meaningful.
 #[tokio::test]
@@ -881,7 +933,7 @@ async fn help_and_version_stay_text_on_stdout() {
     let rows: [&[&str]; 5] = [
         &["--help"],
         &["--output", "json", "--help"],
-        &["listorders", "--output", "json", "--help"],
+        &["order", "list", "--output", "json", "--help"],
         &["--version"],
         &["--output", "json", "--version"],
     ];
@@ -923,14 +975,17 @@ const PRODUCTION_CAP: usize = 10_000;
 
 /// The order-book filter the list command sends, at the fixed clock.
 fn order_filter(mostro: &Keys) -> Filter {
-    let at = DateTime::<Utc>::from_timestamp(i64::try_from(QUERY_AT).unwrap(), 0).unwrap();
     create_seven_days_filter_at(
         "order".to_string(),
         mostro.public_key(),
         NOSTR_ORDER_EVENT_KIND,
-        at,
+        query_clock(),
     )
     .unwrap()
+}
+
+fn query_clock() -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp(i64::try_from(QUERY_AT).unwrap(), 0).unwrap()
 }
 
 fn book_event(author: &Keys, kind: Kind, z: &str, created_at: u64) -> Event {
@@ -1378,4 +1433,548 @@ async fn cancelling_a_read_closes_its_connections() {
     }
 
     assert!(answering.wait_idle(OBSERVE).await);
+}
+
+// `order.list` operation (T028) over the collector and reducer.
+
+/// A published order state `hours` before the query time.
+fn listing(mostro: &Keys, id: u128, hours: u64, side: &str, status: &str) -> Event {
+    listing_at(mostro, id, QUERY_AT - hours * HOUR, side, status)
+}
+
+fn listing_at(mostro: &Keys, id: u128, created_at: u64, side: &str, status: &str) -> Event {
+    EventBuilder::new(Kind::Custom(NOSTR_ORDER_EVENT_KIND), "")
+        .tags([
+            Tag::custom("d", [Uuid::from_u128(id).to_string()]),
+            Tag::custom("k", [side]),
+            Tag::custom("s", [status]),
+            Tag::custom("f", ["USD"]),
+            Tag::custom("amt", ["0"]),
+            Tag::custom("fa", ["100"]),
+            Tag::custom("pm", ["cash"]),
+            Tag::custom("premium", ["1"]),
+            Tag::custom("z", ["order"]),
+        ])
+        .custom_created_at(Timestamp::from(created_at))
+        .finalize(mostro)
+        .unwrap()
+}
+
+async fn list(
+    side: Option<&str>,
+    config: impl FnOnce() -> Result<PublicReadConfig, ErrorCode>,
+) -> (Value, i32) {
+    let outcome = list_orders(side, None, None, config, &quick_limits(), query_clock()).await;
+    (serde_json::to_value(&outcome).unwrap(), outcome.exit_code())
+}
+
+fn assert_read_stages(outcome: &Value) {
+    assert_eq!(outcome["command"], COMMAND, "{outcome}");
+    for stage in ["publication", "daemon_acceptance", "persistence"] {
+        assert_eq!(outcome["meta"][stage], "not_applicable", "{outcome}");
+    }
+}
+
+#[tokio::test]
+async fn listing_selects_latest_matching_states_across_relays() {
+    let mostro = Keys::generate();
+    let first = serve(
+        LocalRelay::new(),
+        &[
+            listing(&mostro, 1, 1, "sell", "pending"),
+            listing(&mostro, 2, 3, "sell", "pending"),
+            listing(&mostro, 3, 2, "buy", "pending"),
+        ],
+    )
+    .await;
+    let second = serve(
+        LocalRelay::new(),
+        &[
+            listing(&mostro, 2, 2, "sell", "canceled"),
+            listing(&mostro, 4, 4, "sell", "pending"),
+        ],
+    )
+    .await;
+    let config = read_config(&mostro, &[&first.url, &second.url]);
+
+    let (outcome, exit) = list(Some("SELL"), || Ok(config)).await;
+
+    assert_eq!(exit, 0, "{outcome}");
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(outcome["error"], Value::Null, "{outcome}");
+    assert_eq!(outcome["warnings"], json!([]), "{outcome}");
+    assert_read_stages(&outcome);
+    let data = &outcome["data"];
+    assert_eq!(data["node_pubkey"], mostro.public_key().to_hex());
+    assert_eq!(
+        data["filters"],
+        json!({ "side": "sell", "currency": null, "status": "pending" })
+    );
+    let rows: Vec<&str> = data["orders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|order| order["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            Uuid::from_u128(1).to_string(),
+            Uuid::from_u128(4).to_string()
+        ]
+    );
+    let snapshot = &outcome["meta"]["snapshot"];
+    assert_counts(snapshot, 2, 2, 5);
+    assert_eq!(snapshot["since"], QUERY_SINCE, "{snapshot}");
+}
+
+#[tokio::test]
+async fn listing_validates_filters_before_reading_configuration() {
+    let (outcome, exit) = list(Some("both"), || panic!("configuration was read")).await;
+    assert_eq!(exit, 2, "{outcome}");
+    assert_eq!(outcome["error"]["code"], "invalid_arguments", "{outcome}");
+    assert_eq!(outcome["data"], Value::Null, "{outcome}");
+    assert_eq!(outcome["meta"]["snapshot"], Value::Null, "{outcome}");
+    assert_read_stages(&outcome);
+
+    let (outcome, exit) = list(None, || Err(ErrorCode::ConfigurationMissing)).await;
+    assert_eq!(exit, 1, "{outcome}");
+    assert_eq!(
+        outcome["error"]["code"], "configuration_missing",
+        "{outcome}"
+    );
+    assert_eq!(outcome["meta"]["snapshot"], Value::Null, "{outcome}");
+    assert_read_stages(&outcome);
+}
+
+#[tokio::test]
+async fn listing_failure_keeps_the_snapshot_and_returns_no_rows() {
+    let mostro = Keys::generate();
+    let answering = serve(
+        LocalRelay::new(),
+        &[listing(&mostro, 1, 1, "sell", "pending")],
+    )
+    .await;
+    let (closed, _) = start_fixture(Fixture::Closed).await;
+    let config = read_config(&mostro, &[&answering.url, &closed.url]);
+
+    let (outcome, exit) = list(None, || Ok(config)).await;
+
+    assert_eq!(exit, 1, "{outcome}");
+    assert_eq!(outcome["status"], "error", "{outcome}");
+    assert_eq!(outcome["error"]["code"], "relay_read_failed", "{outcome}");
+    assert_eq!(outcome["data"], Value::Null, "{outcome}");
+    assert_read_stages(&outcome);
+    assert_eq!(
+        outcome["meta"]["snapshot"]["configured_relays"], 2,
+        "{outcome}"
+    );
+}
+
+// `order list` binary matrix (T031): the real child against loopback relays,
+// on the real clock.
+
+/// The book every successful binary case reads: orders 1 and 2 are pending,
+/// order 3 was pending but its latest state is canceled. Order events are
+/// addressable, so the relay itself keeps only order 3's newest state.
+fn live_book(mostro: &Keys) -> Vec<Event> {
+    let ago = |hours: u64| Timestamp::now().as_secs() - hours * HOUR;
+    vec![
+        listing_at(mostro, 1, ago(1), "sell", "pending"),
+        listing_at(mostro, 2, ago(2), "buy", "pending"),
+        listing_at(mostro, 3, ago(3), "sell", "pending"),
+        listing_at(mostro, 3, ago(2), "sell", "canceled"),
+    ]
+}
+
+async fn run_listing(
+    sandbox: &Sandbox,
+    args: &[&str],
+    mostro: &Keys,
+    relays: &[&LoopbackRelay],
+) -> Captured {
+    let mut command = sandbox.command(args);
+    set_node_env(&mut command, mostro, relays);
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped, "{args:?}: child was not reaped");
+    assert!(run.status.is_some(), "{args:?}: watchdog fired");
+    run
+}
+
+/// The one JSON document on stdout, fully consumed, whose status agrees with
+/// the exit code.
+fn one_document(run: &Captured) -> Value {
+    let stdout = run.stdout_text();
+    assert!(
+        stdout.ends_with('\n') && stdout.lines().count() == 1,
+        "{stdout}"
+    );
+    // `from_str` rejects anything after the document except whitespace.
+    let outcome: Value = serde_json::from_str(&stdout).unwrap();
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+    let exit = run.code().unwrap();
+    let expected_status = if exit == 0 { "ok" } else { "error" };
+    assert_eq!(outcome["status"], expected_status, "exit {exit}: {outcome}");
+    assert_eq!(outcome["schema_version"], "1", "{outcome}");
+    assert_read_stages(&outcome);
+    outcome
+}
+
+fn row_ids(outcome: &Value) -> Vec<String> {
+    outcome["data"]["orders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|order| order["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Every event the relay stores; a listing must not add any.
+async fn stored_ids(relay: &LoopbackRelay) -> BTreeSet<EventId> {
+    let client = connected_client(&[relay.url.as_str()]).await;
+    let events = client
+        .fetch_events(Filter::new())
+        .timeout(OBSERVE)
+        .await
+        .unwrap();
+    client.shutdown().await;
+    ids(events.iter())
+}
+
+#[tokio::test]
+async fn order_list_binary_selects_rows_in_both_modes() {
+    let mostro = Keys::generate();
+    let book = live_book(&mostro);
+    let relay = serve(LocalRelay::new(), &book).await;
+    let stored = stored_ids(&relay).await;
+    let sandbox = Sandbox::new().unwrap();
+
+    let run = run_listing(
+        &sandbox,
+        &["--output", "json", "order", "list"],
+        &mostro,
+        &[&relay],
+    )
+    .await;
+    assert_eq!(run.code(), Some(0));
+    let outcome = one_document(&run);
+    assert_eq!(
+        row_ids(&outcome),
+        [
+            Uuid::from_u128(1).to_string(),
+            Uuid::from_u128(2).to_string()
+        ]
+    );
+    assert_eq!(outcome["data"]["node_pubkey"], mostro.public_key().to_hex());
+    assert_eq!(outcome["warnings"], json!([]));
+    assert_counts(&outcome["meta"]["snapshot"], 1, 1, stored.len());
+
+    let run = run_listing(
+        &sandbox,
+        &["order", "list", "--side", "sell"],
+        &mostro,
+        &[&relay],
+    )
+    .await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+    let table = run.stdout_text();
+    assert!(table.contains(&Uuid::from_u128(1).to_string()), "{table}");
+    for absent in [2, 3] {
+        assert!(
+            !table.contains(&Uuid::from_u128(absent).to_string()),
+            "{table}"
+        );
+    }
+
+    assert_eq!(
+        stored_ids(&relay).await,
+        stored,
+        "the listing published an event"
+    );
+    assert_no_effects(&sandbox, "fresh identity location");
+}
+
+#[tokio::test]
+async fn order_list_binary_empty_results_are_successes() {
+    let mostro = Keys::generate();
+    let book = live_book(&mostro);
+    let seeded = serve(LocalRelay::new(), &book).await;
+    let stored = stored_ids(&seeded).await;
+    let (empty, _) = start_fixture(Fixture::Empty).await;
+    let rows: [(&[&str], &LoopbackRelay, usize); 2] = [
+        (
+            &["--output", "json", "order", "list", "--currency", "eur"],
+            &seeded,
+            stored.len(),
+        ),
+        (&["--output", "json", "order", "list"], &empty, 0),
+    ];
+    for (args, relay, received) in rows {
+        let sandbox = Sandbox::new().unwrap();
+        let run = run_listing(&sandbox, args, &mostro, &[relay]).await;
+        assert_eq!(run.code(), Some(0), "{args:?}");
+        let outcome = one_document(&run);
+        assert_eq!(outcome["data"]["orders"], json!([]), "{args:?}");
+        assert_counts(&outcome["meta"]["snapshot"], 1, 1, received);
+        assert_no_effects(&sandbox, &format!("{args:?}"));
+    }
+    assert_eq!(stored_ids(&seeded).await, stored);
+}
+
+#[tokio::test]
+async fn order_list_binary_read_failures_return_no_rows() {
+    let mostro = Keys::generate();
+    let answering = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let (closed, _) = start_fixture(Fixture::Closed).await;
+    let json = ["--output", "json", "order", "list"];
+    let rows: [&[&LoopbackRelay]; 2] = [&[&closed], &[&answering, &closed]];
+    for relays in rows {
+        let sandbox = Sandbox::new().unwrap();
+        let run = run_listing(&sandbox, &json, &mostro, relays).await;
+        assert_eq!(run.code(), Some(1));
+        let outcome = one_document(&run);
+        assert_eq!(outcome["error"]["code"], "relay_read_failed", "{outcome}");
+        assert_eq!(outcome["data"], Value::Null, "{outcome}");
+        let snapshot = &outcome["meta"]["snapshot"];
+        assert_eq!(snapshot["configured_relays"], relays.len(), "{outcome}");
+        assert_no_effects(&sandbox, "read failure");
+    }
+
+    let sandbox = Sandbox::new().unwrap();
+    let run = run_listing(
+        &sandbox,
+        &["order", "list"],
+        &mostro,
+        &[&answering, &closed],
+    )
+    .await;
+    assert_eq!(run.code(), Some(1));
+    assert!(run.stdout.is_empty(), "{}", run.stdout_text());
+    assert_eq!(
+        run.stderr_text(),
+        "error: A configured relay failed during the public order read.\n"
+    );
+}
+
+#[tokio::test]
+async fn order_list_binary_times_out_on_a_silent_relay() {
+    let mostro = Keys::generate();
+    let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+    let sandbox = Sandbox::new().unwrap();
+    let started = Instant::now();
+
+    let run = run_listing(
+        &sandbox,
+        &["--output", "json", "order", "list"],
+        &mostro,
+        &[&silent],
+    )
+    .await;
+
+    // Production budgets: 15 s read plus at most 1 s cleanup, after connecting.
+    let defaults = ReadLimits::default();
+    assert!(
+        started.elapsed() >= defaults.read,
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(run.code(), Some(1));
+    let outcome = one_document(&run);
+    assert_eq!(outcome["error"]["code"], "read_timeout", "{outcome}");
+    assert_counts(&outcome["meta"]["snapshot"], 1, 0, 0);
+    assert_no_effects(&sandbox, "timeout");
+}
+
+#[tokio::test]
+async fn order_list_binary_ignores_existing_and_unusable_identity_locations() {
+    let mostro = Keys::generate();
+    let relay = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let json = ["--output", "json", "order", "list"];
+
+    let existing = Sandbox::new().unwrap();
+    let database = existing.mcli_dir().join("mcli.db");
+    fs::write(&database, b"synthetic identity store").unwrap();
+    let run = run_listing(&existing, &json, &mostro, &[&relay]).await;
+    assert_eq!(run.code(), Some(0));
+    assert_eq!(
+        one_document(&run)["data"]["orders"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(fs::read(&database).unwrap(), b"synthetic identity store");
+    let entries: Vec<_> = fs::read_dir(existing.mcli_dir()).unwrap().collect();
+    assert_eq!(entries.len(), 1, "only the existing store may be present");
+
+    // MCLI_DIR naming a regular file cannot hold an identity database.
+    let unusable = Sandbox::new().unwrap();
+    let blocker = unusable.cwd().join("not-a-directory");
+    fs::write(&blocker, b"x").unwrap();
+    let mut command = unusable.command(json);
+    set_node_env(&mut command, &mostro, &[&relay]);
+    command.env("MCLI_DIR", &blocker);
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped);
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(
+        one_document(&run)["data"]["orders"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(fs::read(&blocker).unwrap(), b"x");
+    for dir in [unusable.home(), unusable.mcli_dir()] {
+        assert!(is_empty_dir(&dir), "{dir:?} was written");
+    }
+}
+
+// Diagnostics (T032): verbose and `RUST_LOG=trace` must not leak raw SDK,
+// relay, URL or argument text on the migrated path.
+
+/// Answers every REQ with CLOSED carrying `reason`.
+#[derive(Debug)]
+struct RejectSaying(&'static str);
+
+impl QueryPolicy for RejectSaying {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        Box::pin(async { QueryPolicyResult::reject(MachineReadablePrefix::Error, self.0) })
+    }
+}
+
+const CLOSED_SENTINEL: &str = "relay-says secret-sentinel-7f3a";
+
+/// The relay URL with a sentinel in its query, which the relay ignores.
+fn sentinel_url(relay: &LoopbackRelay) -> String {
+    format!("{}/?token={SENTINEL}", relay.url)
+}
+
+/// Run `order list` verbosely with full logging requested, plus `extra`
+/// arguments before the command and `env` overrides.
+async fn run_verbose(json: bool, extra: &[&str], env: &[(&str, &str)]) -> (Captured, Sandbox) {
+    let sandbox = Sandbox::new().unwrap();
+    let mut args = vec!["--verbose"];
+    args.extend_from_slice(extra);
+    if json {
+        args.extend(["--output", "json"]);
+    }
+    args.extend(["order", "list"]);
+    let mut command = sandbox.command(&args);
+    command.env("RUST_LOG", "trace");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+    assert!(run.reaped && run.status.is_some(), "{args:?}");
+    (run, sandbox)
+}
+
+/// No sentinel anywhere, and every stderr line comes from the allow-list.
+fn assert_allow_listed(run: &Captured, label: &str) {
+    let (stdout, stderr) = (run.stdout_text(), run.stderr_text());
+    for (stream, text) in [("stdout", &stdout), ("stderr", &stderr)] {
+        assert!(!text.contains(SENTINEL), "{label}: {stream} leaked: {text}");
+        assert!(
+            !text.contains("127.0.0.1"),
+            "{label}: {stream} leaked a URL: {text}"
+        );
+    }
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.starts_with("verbose: order.list ") || line.starts_with("error: ")),
+        "{label}: {stderr}"
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("verbose: "))
+            .count(),
+        1,
+        "{label}: {stderr}"
+    );
+}
+
+#[tokio::test]
+async fn order_list_diagnostics_are_allow_listed_in_verbose_mode() {
+    let mostro = Keys::generate();
+    let mostro_hex = mostro.public_key().to_hex();
+    let book = serve(LocalRelay::new(), &live_book(&mostro)).await;
+    let closed = LoopbackRelay::start(Backend::Relay(Box::new(
+        LocalRelay::builder()
+            .query_policy(RejectSaying(CLOSED_SENTINEL))
+            .build(),
+    )))
+    .await
+    .unwrap();
+    let (book_url, closed_url) = (sentinel_url(&book), sentinel_url(&closed));
+    let bad_relays = format!("not-a-url-{SENTINEL}");
+    let (key, book_url, closed_url) = (mostro_hex.as_str(), book_url.as_str(), closed_url.as_str());
+    type Row<'a> = (&'a str, Vec<&'a str>, Vec<(&'a str, &'a str)>, i32, &'a str);
+    let rows: Vec<Row> = vec![
+        (
+            "success over a URL with a secret query",
+            vec![],
+            vec![("MOSTRO_PUBKEY", key), ("RELAYS", book_url)],
+            0,
+            "verbose: order.list ok; 3 events from 1/1 relays",
+        ),
+        (
+            "CLOSED with secret server text",
+            vec![],
+            vec![("MOSTRO_PUBKEY", key), ("RELAYS", closed_url)],
+            1,
+            "verbose: order.list relay_read_failed; 0 events from 0/1 relays",
+        ),
+        (
+            "secret environment pubkey",
+            vec![],
+            vec![("MOSTRO_PUBKEY", SENTINEL), ("RELAYS", book_url)],
+            1,
+            "verbose: order.list configuration_invalid; no read",
+        ),
+        (
+            "secret CLI pubkey",
+            vec!["--mostro-pubkey", SENTINEL],
+            vec![("RELAYS", book_url)],
+            1,
+            "verbose: order.list configuration_invalid; no read",
+        ),
+        (
+            "secret CLI relays",
+            vec!["--relays", bad_relays.as_str()],
+            vec![("MOSTRO_PUBKEY", key)],
+            1,
+            "verbose: order.list configuration_invalid; no read",
+        ),
+    ];
+    for (label, extra, env, exit, summary) in rows {
+        for json in [true, false] {
+            let label = format!("{label} (json: {json})");
+            let (run, sandbox) = run_verbose(json, &extra, &env).await;
+            assert_eq!(run.code(), Some(exit), "{label}: {}", run.stderr_text());
+            assert_allow_listed(&run, &label);
+            assert!(
+                run.stderr_text().lines().any(|line| line == summary),
+                "{label}: {}",
+                run.stderr_text()
+            );
+            if json {
+                let stdout = run.stdout_text();
+                assert_eq!(stdout.lines().count(), 1, "{label}: {stdout}");
+                let outcome: Value = serde_json::from_str(&stdout).unwrap();
+                assert_eq!(outcome["status"], if exit == 0 { "ok" } else { "error" });
+            } else if exit != 0 {
+                assert!(run.stdout.is_empty(), "{label}: {}", run.stdout_text());
+            }
+            assert_no_effects(&sandbox, &label);
+        }
+    }
 }

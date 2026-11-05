@@ -1491,6 +1491,324 @@ T001-T026 are complete. T027 (moving the order reducer into `msg::orders`) is
 next. The JSON pilot is still unimplemented: no command calls `fetch_msg`
 yet.
 
+## T027 Order Reducer Extraction: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T026. Linux was not
+rerun.
+
+The private `src/msg/orders.rs` (84 production lines) now owns the order
+query, decoder and reducer:
+- `seven_day_filter` holds the seven-day author/kind/`z`/limit-50 filter that
+  `util::events::create_seven_days_filter_at` built; that helper now delegates
+  to it and keeps its error text for the order and dispute callers.
+- `reduce_orders` takes the SDK's `BTreeSet<Event>` order (timestamp
+  descending, event id ascending), keeps the first decodable event per order
+  id as its latest state, and filters by status, currency and side only after
+  that reduction. Rows come out newest first without a second sort. Tag
+  decoding is unchanged (`nip33::order_from_tags`); events without an id or
+  side are skipped, and times beyond `i64` saturate.
+- `parser::orders::parse_orders_events` delegates to it, which drops about 55
+  production lines from `src/parser/orders.rs`. No CLI aliases were added.
+- `commands::order::list::select_orders` stays a `todo!("T028")` stub. T028
+  must build it on `reduce_orders` instead of adding a second reducer.
+
+The module is declared `mod orders;` and re-exported `pub(crate)`, so it is
+not part of the library API.
+
+One mutation, reverted afterwards: making the per-id dedup a no-op failed 5
+parser tests (latest-before-status/currency/side filters, same-time ties,
+saturated far-future times).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders` (T020 slice) | PASS: 89 passed, 8 ignored (T028) |
+| `cargo test --locked --test integration_tests` | PASS: 14 of 14 |
+| `cargo test --locked --test order_list_process` (T021 slice) twice | Run 1 FAIL (watchdog, 10.9 s); run 2 PASS: 25 of 25 in 2.9 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | All suites pass except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The watchdog failure repeats the first-run-after-relink pattern recorded for
+T025 and T026. It does not touch the reducer.
+
+T001-T027 are complete. T028 (`order.list` command on `fetch_msg` and
+`reduce_orders`) is next. No command calls `fetch_msg` yet.
+
+## T028 Order-List Operation: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T027. Linux was not
+rerun.
+
+`src/commands/order/list.rs` (under 90 production lines) implements the typed
+operation; `commands/mod.rs`, `commands/order/mod.rs` and `lib.rs` already
+declared it:
+- `list_orders(side, currency, status, config, limits, now)` returns one
+  `Envelope<ListData, Snapshot>` for `order.list` and never prints, exits,
+  opens the database or touches a Nostr client.
+- Filters are parsed by `ListOrdersInput::parse` before the `config` closure
+  runs, so invalid arguments never read node configuration. Argument,
+  configuration and pre-query errors carry a null snapshot.
+- Its only network access is one `fetch_msg` with the seven-day order filter
+  at the injected clock. A failed read keeps its code, warnings and snapshot
+  with null data.
+- `select_orders` builds on `msg::reduce_orders` (no second reducer) and
+  `ListData::from_selected`. It now borrows the event set, so the parser test
+  helper passes `&`.
+- Read errors and successes use `ExecutionMeta::read`: every write stage is
+  `not_applicable`.
+- `Warnings::merge` in `src/outcome.rs` combines collector and mapping
+  warnings, still one per code.
+
+CLI wiring, the human renderer and binary-level cases remain T029-T031.
+
+The 8 T020 selection tests are no longer ignored and pass. Three new tests in
+`tests/order_list_process.rs` call `list_orders` against loopback relays:
+latest-state selection across two relays with snapshot counts, filter
+validation before configuration (the config closure panics if called) plus
+`configuration_missing`, and a CLOSED relay failing the read while the
+snapshot is kept.
+
+One mutation, reverted afterwards: dropping the status filter in
+`select_orders` failed 3 selection tests and the cross-relay command test
+(it surfaced as `internal_error` from the mapping invariant).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders` | PASS: 97 of 97, 0 ignored |
+| `cargo test --locked --test order_list_process listing` | PASS: 3 of 3 |
+| `cargo fmt --all -- --check` | PASS after applying rustfmt's layout |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo test --locked --test order_list_process` second run | PASS: 28 of 28 in 3.1 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+The watchdog failure repeats the first-run-after-relink pattern recorded for
+T025-T027.
+
+T001-T028 are complete. T029 (typed list rendering in `parse_machine` and
+`parse_human`) is next. No CLI command reaches `list_orders` yet.
+
+## T029 Typed List Rendering: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T021-T028. Linux was not
+rerun.
+
+Both output branches can now render a `ListOutcome`:
+- `parse_machine::emit` was already generic over the envelope. Two new unit
+  tests drive it with a real `ListOutcome`: one success line carrying
+  `data.orders`, `data.filters` and `meta.snapshot`, and a snapshot time
+  outside four-digit years turning into one `internal_error` document with
+  null data and snapshot.
+- New `src/parse_human/table.rs` holds the order table (headings, market for
+  zero sats, `min-max`/`min-?`/`?-max`, UTC-minute or Invalid date, colors,
+  fixed-width id column, "No Offers" wording) built from an `OrderRow` of
+  display strings.
+- `parser::orders::print_orders_table` now maps `SmallOrder` to `OrderRow`
+  and delegates, keeping its legacy defaults (absent status shown as active,
+  absent time as 1970). `print_order_preview` reuses the shared range helper.
+  `src/parser/orders.rs` lost about 120 production lines.
+- New `src/parse_human/order.rs` `render_list(&ListData)` prints the filter
+  summary, node key and the same table from typed data only: no network,
+  storage, logging or writes.
+- `PublicOrder` and `ListData` fields became `pub(crate)` so the renderer
+  reads them; the public API and JSON shape are unchanged.
+
+A unit test renders one order through both paths and checks that the typed
+view ends with exactly the legacy table, plus filter summary, node key, market,
+`10-?` range and UTC minute. A second covers the empty-book wording and an
+unrepresentable time showing Invalid date. Full presentation parity remains
+T034-T036.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib parse_` | PASS: 10 of 10 |
+| `cargo test --locked --test parser_orders` | PASS: 97 of 97 (legacy table tests unchanged) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo test --locked --test order_list_process` second run | PASS: 28 of 28 in 3.0 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T029 are complete. T030 (CLI wiring of `order list` and the root
+`--mostro-pubkey` spelling) is next.
+
+## T030 Order-List CLI Wiring: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T027-T029 (pushed as
+`b8ce0e4`/`314262b`). Linux was not rerun.
+
+- The command registry moved from `src/cli/commands.rs` to
+  `src/cli/registry.rs`. Entries now carry a leaf `path`, so `order list`
+  registers as `["order", "list"]` with canonical `order.list` and
+  `JsonSupport::Read`; every other entry is unchanged and human-only.
+- `listorders` and its `--kind` spelling are gone, replaced by
+  `order list [--side buy|sell] [--currency TEXT] [--status STATUS]`. Side and
+  status use Clap possible values (case-insensitive, untrimmed) from the new
+  shared `outcome::order::{SIDES, STATUSES}`, which a parser test pins to the
+  data-model status set. The legacy `src/cli/list_orders.rs` handler was
+  deleted; its status tests in `tests/integration_tests.rs` now use
+  `ListOrdersInput::parse`.
+- The root `--mostropubkey` spelling became `--mostro-pubkey` (`-m` kept).
+  No aliases; other legacy spellings are unchanged.
+- `cli::run` binds the arguments once and routes `order list` in both modes
+  to `list_orders` before RPC routing, environment mutation, logging or
+  `Context`. Configuration comes from `PublicReadConfig::resolve` over the
+  CLI values and `MOSTRO_PUBKEY`/`RELAYS` without `set_var`. JSON goes
+  through `parse_machine::emit`; human prints `render_list` with one stdout
+  write, or one fixed `error: <message>` line on stderr with the outcome's
+  exit code.
+- JSON rejection of other commands now resolves the full subcommand path.
+  Argument errors resolved to `order.list` use read stages
+  (`not_applicable`); legacy and unresolved rejections keep
+  `not_attempted`/`unknown`/`not_attempted`.
+- `Envelope` gained `data()` and `error_code()` accessors for the human path.
+
+Tests:
+- `tests/cli_functions.rs`: the decision-table grammar tests now run against
+  the real `Cli` instead of a test-built `order list` grammar. New coverage
+  for every side/status spelling, and for removed spellings (`listorders`,
+  `--kind`, `--mostropubkey`) failing as argument errors, including
+  `--output json listorders` as `invalid_arguments` with command null.
+  Registry tests compare leaf paths, and `only_order_list_supports_json`
+  replaces `no_command_supports_json_yet`.
+- `tests/order_list_process.rs`: binaries now run `order list`. Missing
+  configuration gives exactly `error: Required node configuration is
+  missing.` with exit 1 and no files written; a configured empty relay
+  prints the human table with exit 0 and leaves HOME, MCLI_DIR and cwd
+  empty. JSON rejection rows use `listdisputes`. New
+  `order_list_json_uses_read_stages` checks `--side both` and `--kind` as
+  JSON `invalid_arguments` for `order.list` with read stages and no
+  connection, plus one JSON success over the loopback relay.
+
+One mutation, reverted afterwards: marking `order.list` as
+`JsonSupport::Unsupported` failed `only_order_list_supports_json` and
+`order_list_json_uses_read_stages` (argument errors reverted to
+`not_attempted` stages).
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions --test integration_tests --test parser_orders --test order_list_process` | PASS: 61, 14, 98 and 29 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass (lib 97, cli_functions 61, integration 14, disputes 9, dms 19, parser_orders 98, util 15) except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking |
+| `cargo test --locked --test order_list_process` second run | PASS: 29 of 29 in 4.1 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Documentation (`docs/commands.md`, `README.md`) still shows `listorders` and
+`--mostropubkey`; T049 owns that migration text.
+
+T001-T030 are complete. T031 (binary success/failure/identity matrix for
+`order list`) is next.
+
+## T031 Order-List Binary Matrix: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T030 (pushed as
+`cce8203`/`5e301fc`). Linux was not rerun. Test-only change in
+`tests/order_list_process.rs`; no production code changed.
+
+Every case runs the real `mostro-cli` child against loopback relays on the
+real clock, with the existing sandbox (allow-listed environment, isolated
+HOME/USERPROFILE/MCLI_DIR/cwd, closed stdin, captured streams, 40-second
+watchdog). Each run asserts the child exited and was reaped. JSON runs go
+through `one_document`: exactly one newline-terminated line, parsed whole by
+Serde (anything after the document fails), empty stderr, `status` agreeing
+with the exit code, schema version 1 and read stages `not_applicable`.
+
+| Test | Cases |
+| --- | --- |
+| `order_list_binary_selects_rows_in_both_modes` | JSON success: pending rows 1 and 2 newest first, order 3 hidden by its later canceled state, node key, no warnings, snapshot counts; human `--side sell` lists only order 1; the relay stores exactly the same events afterwards (no EVENT published); fresh HOME, MCLI_DIR and cwd stay empty |
+| `order_list_binary_empty_results_are_successes` | Filtered-empty (`--currency eur` over a non-empty book) and EOSE-empty relay: exit 0, `orders: []`, received counts 3 and 0 |
+| `order_list_binary_read_failures_return_no_rows` | CLOSED alone and answering+CLOSED (partial failure): exit 1, `relay_read_failed`, data null, snapshot kept with configured relay count; human mode prints exactly the fixed stderr line with empty stdout |
+| `order_list_binary_times_out_on_a_silent_relay` | Silent relay at production budgets: exit 1 after at least the 15-second read budget, `read_timeout`, snapshot 1 configured / 0 completed / 0 received |
+| `order_list_binary_ignores_existing_and_unusable_identity_locations` | An existing synthetic `mcli.db` is left byte-identical and alone; `MCLI_DIR` naming a regular file still lists successfully and leaves the file and HOME untouched |
+
+Finding while writing the tests: kind 38383 is addressable, so `LocalRelay`
+keeps only the newest state per `d` tag. The first run expected 4 received
+events and got 3; the tests now take the relay's stored set as the baseline
+instead of the seeded list. This is relay behavior, not a CLI defect.
+
+Not covered here: NIP-42 AUTH. The loopback relays do not request it, so
+"AUTH allowed" is not exercised; the no-EVENT check compares stored events
+before and after each run. Exit 2 binary cases remain in
+`order_list_json_uses_read_stages` and `argument_errors_exit_2_with_safe_stderr_before_any_effect`.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process order_list_binary` | PASS: 5 of 5 in 15.2 s (first run: 2 failed on the addressable-event count, fixed in the test) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 97, cli_functions 61, integration 14, order_list_process 34 (15.9 s), disputes 9, dms 19, parser_orders 98, util 15; the watchdog test also passed on this first run |
+| `cargo test --locked --test order_list_process` second run | PASS: 34 of 34 in 16.0 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T031 are complete. T032 (allow-listed diagnostics and verbose behavior
+on the migrated path) is next.
+
+## T032 Order-List Diagnostics And Verbose: 2026-10-26
+
+Native Windows, rustc 1.97.0; uncommitted on top of T031 (`220577f`/`d8df6a3`,
+not yet pushed). Linux was not rerun.
+
+Starting point, confirmed by the first run below: the `order list` path never
+installs a `log` logger or a `tracing` subscriber, so `RUST_LOG=trace` and
+`--verbose` produced no SDK output. `--verbose` simply did nothing there.
+
+Changes:
+- `src/cli.rs`: with `--verbose`, the public listing writes exactly one
+  allow-listed stderr line after its outcome: `verbose: order.list <ok|code>;
+  <received> events from <completed>/<configured> relays`, or `...; no read`
+  when no query started. Only counts and the stable code appear; never relay,
+  URL, argument, server or SDK text. Still no logger on this path.
+- `src/outcome.rs`: `Envelope::snapshot()` accessor; `Snapshot` relay/event
+  counts became `pub(crate)` for that line.
+- `src/msg/orders.rs`: the decode-failure log is fixed text at debug level
+  instead of the raw error.
+- `src/main.rs` is unchanged: on this path its only `Err` is the fixed
+  argument-binding message.
+
+New test `order_list_diagnostics_are_allow_listed_in_verbose_mode` runs the
+binary with `--verbose` and `RUST_LOG=trace`, in JSON and human mode, for:
+success over a relay URL whose query carries a sentinel; CLOSED whose server
+reason carries the sentinel; sentinel `MOSTRO_PUBKEY`, `--mostro-pubkey` and
+`--relays`. For each it checks the exit code, no sentinel or loopback address
+on stdout or stderr, every stderr line starting with `verbose: order.list ` or
+`error: `, exactly one verbose line with the expected counts/code, one JSON
+document in JSON mode, empty stdout on human errors and no sandbox effects.
+
+Evidence:
+- Before the change the test failed only on the missing verbose line
+  (`left: 0, right: 1` for the first row); nothing leaked.
+- After it the test passes (1 of 1, 17.2 s).
+- Mutation, reverted afterwards: calling `pretty_env_logger::init()` on this
+  path when verbose made the test fail with the sentinel URL in stderr
+  (`DEBUG nostr_sdk::relay::inner > Connecting to 'ws://127.0.0.1:…/?token=secret-sentinel-7f3a'`
+  and the raw WebSocket request).
+
+Open, outside this task: legacy commands still initialize `pretty_env_logger`
+under `--verbose` (`src/cli/context.rs`), which, as the mutation shows, lets
+the SDK print relay URLs. They are not on the migrated path.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process order_list_diagnostics` (before) | FAIL as expected: missing verbose line |
+| same (after) | PASS: 1 of 1 |
+| same with the logger mutation | FAIL: sentinel URL in stderr |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | All suites pass (lib 97, cli_functions 61, integration 14, disputes 9, dms 19, parser_orders 98, util 15) except `watchdog_kills_and_reaps_a_hung_child` on the first run after relinking (order_list_process 34 of 35) |
+| `cargo test --locked --test order_list_process` second run | PASS: 35 of 35 in 15.9 s |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T032 are complete. T033 (US1 focused matrix and internal milestone) is
+next.
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

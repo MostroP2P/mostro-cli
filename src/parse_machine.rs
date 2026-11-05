@@ -51,7 +51,10 @@ fn write_failed(err: &mut impl Write) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::order::list::{ListOutcome, COMMAND};
+    use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
     use crate::outcome::{ErrorCode, ExecutionMeta, Warnings};
+    use nostr_sdk::prelude::{Keys, Timestamp};
     use serde::ser::{Error as _, Serializer};
     use serde_json::{json, Value};
     use std::io;
@@ -158,5 +161,50 @@ mod tests {
         assert_eq!(emit(&rejected(), &mut out, &mut err), 1);
         assert_eq!(out.written.len(), 10);
         assert_eq!(err, WRITE_FAILED.as_bytes());
+    }
+
+    fn list_outcome(observed_at: u64) -> ListOutcome {
+        let node = Keys::generate().public_key();
+        let filters = ListOrdersInput::parse(None, None, None).unwrap();
+        let (data, warnings) = ListData::from_selected(&node, filters, &[]).unwrap();
+        let snapshot = Snapshot::new(
+            Timestamp::from(1_791_504_000),
+            Timestamp::from(observed_at),
+            50,
+            10_000,
+            1,
+            1,
+            0,
+        );
+        Envelope::ok(COMMAND, data, warnings, ExecutionMeta::read(Some(snapshot)))
+    }
+
+    #[test]
+    fn list_outcome_is_one_typed_document() {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(emit(&list_outcome(1_792_108_800), &mut out, &mut err), 0);
+        let written = documents(&out);
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0]["command"], json!("order.list"));
+        assert_eq!(written[0]["data"]["orders"], json!([]));
+        assert_eq!(written[0]["data"]["filters"]["status"], json!("pending"));
+        assert_eq!(
+            written[0]["meta"]["snapshot"]["observed_at"],
+            json!("2026-10-16T00:00:00Z")
+        );
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn unrepresentable_snapshot_time_becomes_internal_error() {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(emit(&list_outcome(u64::MAX), &mut out, &mut err), 1);
+        let written = documents(&out);
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0]["command"], json!("order.list"));
+        assert_eq!(written[0]["data"], Value::Null);
+        assert_eq!(written[0]["error"]["code"], json!("internal_error"));
+        assert_eq!(written[0]["meta"]["snapshot"], Value::Null);
+        assert!(err.is_empty());
     }
 }
