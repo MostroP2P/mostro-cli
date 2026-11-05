@@ -152,6 +152,9 @@ and keeps `order.list`.
 | conversationkey | account.conversation-key | admmaintenancestatus | maintenance.status |
 | | | admcancelpending | maintenance.cancel-pending |
 
+The offline discovery command is registered as `schema`, the one canonical
+name without a dot, and is machine-capable alongside `order.list`.
+
 No pilot path returns uncertain or automatically retries. In particular, a
 timeout with partial events is error/data null, not an empty or partial success.
 

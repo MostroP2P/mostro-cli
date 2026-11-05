@@ -2114,6 +2114,416 @@ tree. The first prototype run exposed a test defect: `one_document` asserts the
 T001-T040 are complete. T041 (discovery DTOs) is next; T043 removes the five
 `red until T043` ignores.
 
+## T041 Discovery DTOs: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `9d185c2`.
+
+### Change
+
+New `src/cli/schema.rs` (118 production lines), declared and re-exported from
+`src/cli.rs`: `DiscoveryData` (`schema_version` `1`, `executable_version` from
+`CARGO_PKG_VERSION`, Draft 2020-12 `schema_dialect`, `commands`),
+`CommandDescriptor` (`name`, `cli_path`, `output_modes`, `input_schema`,
+`output_schema`, `required_configuration`), `PresentationMode`, `CommandSchemas`
+and `discovery(schemas)`, which describes every registry entry sorted by canonical
+name. It is built from the registry and constants only: no environment value,
+identity or network is read. `order.list` names `MOSTRO_PUBKEY` and `RELAYS`;
+`schema` gets an empty list; legacy entries get `null`. Schema documents are
+plain JSON objects, so there is no schema of a schema. No dependency was added.
+
+Not in scope here: the schema documents themselves (T042) and the `schema`
+subcommand and registry entry (T043). The builder takes the documents from the
+caller, so T042 supplies them and a machine command given none serializes
+both as `null`; T042 must make that case impossible for `order.list`.
+
+### Evidence
+
+Seven unit tests in `src/cli/schema.rs`: header constants and package version;
+every registered command described once, sorted by name, with the registry's
+`cli_path`; legacy entries human-only with null schemas and configuration;
+`order.list` with both modes, schemas and configuration names; an unsupplied
+schema stays null; a synthetic `schema` entry gets an empty configuration list
+and sorts after `order.list`; and an exact serialized legacy descriptor with every
+key present including nulls.
+
+Red: with a `todo!` body all 7 failed. Green after the implementation.
+A unit test that set the environment variables was dropped because it mutates
+process state shared with other tests; the process tests of T040 and T046 prove
+that discovery ignores configuration values.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib cli::schema` | red 0 of 8 (before dropping one test), then PASS 7 of 7 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 109, cli_functions 63 (4 ignored), integration 14, order_list_process 40 (1 ignored), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T041 are complete. T042 (generated schemas) is next.
+
+## T042 Generated Schemas: 2026-10-27
+
+Native Linux, rustc 1.97.0, on `develop` after `f863231`.
+
+### Change
+
+- `src/outcome.rs`, `src/outcome/order.rs`: schemars `JsonSchema` derives on the
+  envelope pieces and the order DTOs. Fields the derive cannot describe use
+  `schema_with` helpers for foreign core types (side, status), decimal strings,
+  UUIDs, node hex, RFC3339 `Z` times and the fixed snapshot values.
+- New `src/outcome/schema.rs` (223 production lines): `output_schema` builds a
+  Draft 2020-12 document per command from the Serialize contract, so
+  nullable fields are `required` and typed with `null`. It has three branches:
+  success (command, `ok`, data, null error, read stages, snapshot rule), failure of
+  the resolved command (only its listed codes, null data) and failure before
+  resolution (null command, `invalid_arguments`, `not_attempted`/`unknown`/
+  `not_attempted`). `uncertain` is excluded in the pilot. Unknown fields stay allowed.
+- `src/cli/schema.rs`: `input_schema` reads the arguments of a command from
+  Clap (names, help, required, possible values, case-insensitivity), adds the
+  shared validator's `pending` default, excludes `--output`/help/version and
+  rejects extra properties; `command_schemas` supplies both documents for
+  `order.list`. `SCHEMA_VERSION` and the dialect are now defined once, in `outcome`.
+- Dev-only dependency `regex` 1 (default features off, `std`): already in the
+  lockfile, so `Cargo.lock` gains one dependency line and no package; used only
+  to run the generated patterns in tests.
+
+### Evidence
+
+- `outcome::schema` (8 tests): envelope keys and dialect; real serialized
+  success, failure, snapshot-bearing failure and unresolved outcomes conform
+  to the generated schema, checked by a small in-test schema checker;
+  19 contradictory or malformed outcomes do not (wrong or `uncertain` status,
+  data with an error, wrong command, missing key, `-0`, numeric amount, bad
+  UUID or offset time, snapshot rules, a code the command cannot produce);
+  nullable order fields required and nullable; decimal, UUID, node-key and
+  time patterns accept and reject the documented cases; error, warning, stage,
+  side and status enums equal the contract and `STATUSES`; a command
+  without snapshot evidence requires a null one.
+- `cli::schema` (4 more tests): listing input equals Clap's arguments with the
+  shared enums and default; `neworder` requirements follow Clap; unknown
+  paths give none; every machine-capable registry entry has generated schemas
+  and legacy entries have none; discovery carries the listing documents.
+- Teeth: loosening the decimal pattern to `^-?[0-9]+$` failed
+  `decimal_pattern_accepts_only_canonical_integers` and
+  `contradictory_or_malformed_outcomes_do_not_conform`; it was restored.
+- Red note: the first run was a compile failure (the DTOs did not implement
+  `JsonSchema`), not a behavioral failure; the mutation above is the evidence
+  that the assertions can fail.
+
+### Limits and handoff
+
+- The signed 64-bit range of decimal strings cannot be a pattern; it stays a
+  producer rule covered by `money_fields_are_canonical_signed_decimal_strings`.
+- `Snapshot` constants (50, 10,000) are `const` in the schema; process tests that
+  shrink limits emit non-conforming snapshots only in tests.
+- `DiscoveryData` has no `JsonSchema` derive yet and `schema` has no registry entry;
+  T043 adds both, and `every_machine_command_has_generated_schemas_and_legacy_has_none`
+  will then require a schema for it.
+- The conformance checker is test-local. T045 validates the proposed examples
+  and the checked-in fixtures and decides whether to share it or add a validator.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib outcome::schema cli::schema` | PASS: 8 + 11 |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 121, cli_functions 63 (4 ignored), integration 14, order_list_process 40 (1 ignored), disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T042 are complete. T043 (offline `schema` dispatch) is next.
+
+## T043 Offline Schema Dispatch: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `90fa5c9`.
+
+### Change
+
+- `src/cli/commands.rs`: a `Schema` subcommand with no arguments.
+  `src/cli/registry.rs`: its entry, canonical name `schema`, read stages. In
+  `legacy.rs` it is unreachable, like `order list`; `run_rpc` already ignores it.
+- `src/cli.rs`: `schema` is dispatched right after parsing, before the
+  public listing, `install_rustls_crypto_provider`, `run_rpc`, the logger and
+  `init_context`. Human mode (default or explicit) prints the discovery
+  document as pretty JSON through `print_discovery`, which serializes fully
+  before one write and exits 1 with one fixed line on a failed write. `--output json`
+  wraps the same data in the standard envelope through `emit`.
+- `src/cli/schema.rs`: `DiscoveryData` and its parts derive `JsonSchema`;
+  `command_schemas` now also generates `schema`'s documents (input from Clap,
+  output from `DiscoveryData`, errors `invalid_arguments` and `internal_error`).
+
+### Evidence
+
+- The five tests ignored as `red until T043` pass with their ignores removed:
+  four in `tests/cli_functions.rs` (schema in all output positions, no
+  arguments plus JSON intent on errors, help/version text, registry entry) and
+  `schema_runs_offline_in_both_modes` in `tests/order_list_process.rs`. That
+  process test runs `schema` in both modes with no configuration and with an
+  invalid key, a planted sentinel, an RPC token and a reachable relay: exit 0,
+  empty stderr, identical data in both modes, no sentinel, sandbox untouched and
+  zero relay connections.
+- Registry tests were updated, as T039 forecast: the approved mapping gains
+  `schema`; the dotted-name check skips it; `only_order_list_and_schema_support_json`.
+  `every_machine_command_has_generated_schemas_and_legacy_has_none` now covers
+  `schema` and passes. The legacy-rejection process test counts two machine commands.
+- New unit tests in `src/cli.rs`: one pretty document equal to the typed data and
+  listing `schema` and `order.list`; a failed write exits 1 with one fixed line and
+  an unwritable stderr does not change the result.
+- Manual check: `mostro-cli schema` prints the pretty document and
+  `mostro-cli --output json schema` the envelope.
+
+Not claimed: the checked-in `docs/schemas/*` fixtures and their drift checks
+(T045), the full stable-error mapping (T044) and Windows runs.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 123, cli_functions 67, integration 14, order_list_process 41, disputes 9, dms 19, parser_orders 110, util 17; no ignored tests |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Production lines: `cli.rs` 271, `cli/schema.rs` 219, `cli/registry.rs` 94.
+
+T001-T043 are complete. T044 (safe error mapping) is next.
+
+## T044 Safe Error Mapping: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `9245045`.
+
+### Audit
+
+Each stable code was traced from its source to the wire. The mapping in
+`src/outcome.rs` (codes, exits, fixed prose, stage sets), `src/msg/mod.rs`
+(`configuration_*`, `relay_connection_failed`) and `src/msg/receive_msg.rs`
+(`relay_read_failed`, `read_timeout`, `read_limit_exceeded`, failures carrying
+the snapshot and cleanup warnings) was already complete and tested
+(`outcome::tests`, T021/T026 collector tests, T031/T040 binary tests), as was
+the argument-error identity in `src/cli/invocation.rs` and `report`. One gap
+was found.
+
+### Defect and fix
+
+`run()` turned a failure to bind parsed arguments to the typed grammar into
+an `anyhow` error: stderr text, empty stdout and exit 1 even with `--output json`,
+which breaks the one-document promise for a controlled outcome. It is now
+`unbound` in `src/cli.rs`: JSON mode emits an `internal_error` envelope with the
+resolved command identity and stage evidence (or a null command), human mode
+prints one fixed line, both exit 1. `rejection` now delegates to `reject_to`, which
+takes the writers. The case cannot occur through the real grammar, so
+`unbindable_arguments_are_an_internal_error_in_the_selected_mode` covers it with
+parsed matches directly; its first run did not compile (no `unbound`), so it is
+a compile-level red, not a behavioral one.
+
+### Added tests
+
+- `an_unwritable_stdout_exits_1_with_one_fixed_line` (process): with the stdout
+  reader closed, an argument error (2), a removed spelling (2), a `schema`
+  success (0) and the human discovery document all exit 1 with exactly one fixed
+  stderr line; the sandbox stays empty. This is the documented
+  "broken stdout write" row, previously covered only at unit level.
+- `schema_argument_errors_keep_the_resolved_command` (process): three malformed
+  `schema` invocations return exit 2, command `schema`, `invalid_arguments`, null
+  data, read stages, one document, no planted sentinel and no effects.
+
+### Not covered here
+
+`read_limit_exceeded` and `internal_error` still have no binary-level case: the
+production 10,000-event cap needs a relay that ignores the requested limit, and
+`internal_error` cannot be induced through a real run. Both stay with the
+collector and serialization tests and with T046.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 14, order_list_process 43, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+`src/cli.rs` is 316 production lines.
+
+T001-T044 are complete. T045 (checked-in schema fixtures and drift checks) is next.
+
+
+## T045 Schema Fixtures And Drift Checks: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `8ca6e3e`.
+
+### Fixtures
+
+- `docs/schemas/discovery-v1.json`: the raw `DiscoveryData` (no envelope) that
+  `mostro-cli schema` prints: 34 commands, 35.6 KB.
+- `docs/schemas/order-list-v1.json`: the `order.list` output schema, equal to that
+  descriptor's `output_schema`: 12.1 KB.
+- Both were produced by the shipped binary, not by hand:
+  `cargo run -q -- schema > docs/schemas/discovery-v1.json` and
+  `cargo run -q -- --output json schema | jq '.data.commands[] | select(.name=="order.list") | .output_schema' > docs/schemas/order-list-v1.json`.
+  `executable_version` is part of the fixture, so a package version bump fails
+  the drift check until the fixtures are regenerated. That is intended.
+
+### Change
+
+- New `offline_discovery()` in `src/cli/schema.rs`; the `schema` command, the
+  fixtures and the drift tests all use this one path (registry, Clap grammar and
+  owned DTOs). `cli.rs` calls it instead of building the document itself.
+- New `tests/common/schema_check.rs`: the schema checker from T042, now one file
+  shared by the `outcome::schema` unit tests (through `#[path]`) and the
+  integration tests, so there is no second copy and no new dependency.
+
+### Evidence (`tests/integration_tests.rs`, 8 new tests)
+
+| Test | Covers |
+| --- | --- |
+| `discovery_fixture_matches_the_generated_document` | parsed fixture equals the regenerated document; the failure message prints the regeneration commands |
+| `listing_schema_fixture_matches_the_generated_schema` | same for the listing schema |
+| `discovery_fixture_is_raw_discovery_data_not_an_envelope` | exactly the four DiscoveryData keys, sorted commands, machine commands are `order.list` and `schema` |
+| `proposed_listing_examples_conform_to_the_checked_in_schema` | the four `order.list` examples in `examples.json` conform; exits agree; every decimal field is a canonical signed 64-bit integer |
+| `the_legacy_rejection_example_matches_its_constructor_and_is_not_a_listing` | `unsupported_secret_command` equals the owned constructor's output and is not a listing outcome |
+| `examples_stay_proposals_separate_from_generated_output` | `contract_status` stays `proposed`; generated files live only under `docs/schemas` |
+| `invalid_types_nulls_enums_and_amounts_do_not_conform` | 19 edits of the large-amount example are rejected: wrong types, nulls, unknown enum values, `-0`/`+5`/`015`/`1.5`/`1e3`, a missing nullable key, a claimed complete history, an error with data |
+| `the_signed_64_bit_range_is_a_semantic_rule_the_pattern_cannot_state` | range boundaries pass; one past either end passes the pattern but fails the semantic check; a 21-character value fails the schema |
+
+The tests only read the fixtures; none rewrites them.
+
+Teeth: with `executable_version` changed in the discovery fixture and the schema
+version constant changed in the listing fixture, five tests failed (both drift
+checks, the example conformance, the mutation test and the range test); the
+fixtures were restored and all passed again.
+
+CI wiring of these checks and of the Windows runs is T051.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test integration_tests` | PASS: 22 (8 new) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS after boxing a complex test type |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 22, order_list_process 43, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T045 are complete. T046 (full configuration/argument/read matrix) is next.
+
+## T046 Full Process Matrix: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `c6cd503`. Tests only; no
+production code changed. Harness as in T013.
+
+### Matrix
+
+The configuration, argument, unsupported-command and secret cases were
+already covered by T018, T031, T032, T040 and T044 and were not repeated. The
+gaps found were failures after partial relay results, the event cap through a
+real process, every output position for a success, and a combined secret sweep.
+
+| Test | Covers |
+| --- | --- |
+| `read_failures_are_stable_in_every_mode_without_retries` | Four failing reads, each run in JSON, human and verbose-JSON at once: `closed`, `answering then closed` (`relay_read_failed`, snapshot kept), `answering then refused` (`relay_connection_failed`, no snapshot), `answering then silent` (`read_timeout` after the 15 s budget, snapshot kept). Each checks exit 1, one document, `order.list`, null data, snapshot presence, the human line `error: <message>` with empty stdout, only the allow-listed verbose line, an untouched sandbox and exactly three connections per relay for three runs |
+| `exceeding_the_event_cap_fails_the_binary_without_truncating` | Eleven loopback relays each answering a query with 1,000 distinct signed orders (limit and relay caps lifted): `read_limit_exceeded`, null data, snapshot `received_events` exactly 10,000, same stream checks |
+| `every_output_position_returns_the_same_listing` | Six spellings of `--output json` (root, intermediate, leaf, space and equals forms): exit 0, one document each, identical command, status, data, error, warnings and event count, an untouched sandbox, one read per run |
+
+Secrets planted in every failing run: a token in each relay URL query,
+`ADMIN_NSEC`, `MOSTRO_RPC_TOKEN` and `NSEC`. None appears in stdout, stderr or the
+verbose line; no URL host appears in stdout or the allow-listed lines.
+
+### Findings
+
+- The SDK reports each relay event twice (`Event` and `Message` notifications),
+  so a relay that ignores the requested limit fails with `relay_read_failed`
+  after about 1,020 events, before the 10,000-event cap can apply to it. The cap
+  is therefore reachable only across several relays, which is how the test reaches it.
+- Retry check limits: the "exactly one connection per relay" assertion does not
+  detect a library change that enables SDK reconnection (checked: switching
+  `reconnect(false)` to `reconnect(true)` still passed), because reconnection only
+  follows a dropped connection and none of these rows drops one. The disconnect-
+  before-EOSE case remains covered only at the collector level
+  (`a_relay_disconnecting_before_eose_fails_the_read`), without a connection count.
+- `internal_error` still has no binary-level case; it cannot be induced through a
+  real run and stays with the serialization and unbound-argument unit tests.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test order_list_process -- exceeding_the_event_cap read_failures_are every_output_position` | PASS: 4 of 4 in 15.1 s (the timeout row waits its 15 s budget) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 22, order_list_process 46, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+T001-T046 are complete. T047 (US3 acceptance run) is next.
+
+## T047 US3 Acceptance: 2026-10-28
+
+Native Linux, rustc 1.97.0, on `develop` after `d0d0099`. No code changed in
+this task. It covers US3 (offline discovery and stable errors) on this platform
+only; Windows, CI wiring and the final reconciliation remain open.
+
+### Coverage
+
+| US3 obligation | Automated evidence |
+| --- | --- |
+| Offline discovery in both modes, no configuration, identity, connection or stdin | `order_list_process::schema_runs_offline_in_both_modes`: absent and invalid configuration, planted sentinel, reachable relay, zero connections, untouched sandbox; identical data in both modes |
+| `schema` grammar, help/version, registry entry | `cli_functions`: schema at every output depth, no arguments plus JSON intent on errors, help/version text, registry mapping (34 entries, 2 machine-capable) |
+| Versions | `schema_version` `1`; `executable_version` `0.16.3` in the fixture equals `Cargo.toml`; the drift test fails on any change |
+| Schema drift | `integration_tests`: both checked-in fixtures equal the regenerated documents; the failure message prints the regeneration commands; corrupting either fixture failed five tests (T045) |
+| Field and encoding rules | `integration_tests`: the four proposed `order.list` examples conform; 19 malformed variants do not; decimal strings are canonical signed 64-bit integers, with the range rule checked semantically |
+| Early guard for unmigrated commands | `every_legacy_command_rejects_json_before_any_effect`: all 32 legacy commands incl. gRPC and secret paths, exit 2, `output_not_supported`, zero connections |
+| Stable errors | table below |
+| Secrets | planted sentinels in arguments, environment, relay URLs and tokens absent from every stream in the T040, T032 and T046 runs |
+
+| Code | Exit | Binary-level evidence |
+| --- | --- | --- |
+| `invalid_arguments` | 2 | contract decision table (T018), `order_list_json_uses_read_stages`, `schema_argument_errors_keep_the_resolved_command` |
+| `output_not_supported` | 2 | `every_legacy_command_rejects_json_before_any_effect` |
+| `configuration_missing`, `configuration_invalid` | 1 | `configuration_errors_are_stable_and_leak_nothing` |
+| `relay_connection_failed` | 1 | `an_unreachable_relay_is_a_connection_failure_in_the_binary`, `read_failures_are_stable_in_every_mode_without_retries` |
+| `relay_read_failed` | 1 | `order_list_binary_read_failures_return_no_rows`, the T046 matrix |
+| `read_timeout` | 1 | `order_list_binary_times_out_on_a_silent_relay`, the T046 matrix |
+| `read_limit_exceeded` | 1 | `exceeding_the_event_cap_fails_the_binary_without_truncating` |
+| `internal_error` | 1 | unit level only: `parse_machine` serialization failure and `unbound_arguments_are_an_internal_error_in_the_selected_mode` |
+
+Also covered: the unwritable stdout (exit 1, one fixed line), unwritable stderr
+(result unchanged) and help/version text exceptions.
+
+### Runs
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions` | PASS: 67 |
+| `cargo test --locked --test integration_tests` | PASS: 22 |
+| `cargo test --locked --test order_list_process` | PASS: 46 in 15-16 s |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked --no-fail-fast` | PASS: lib 124, cli_functions 67, integration 22, order_list_process 46, disputes 9, dms 19, parser_orders 110, util 17 |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+### Still open (kept, not waived)
+
+- `internal_error` has no process-level case; it cannot be induced through a real run.
+- A relay disconnecting before EOSE has no connection-count check in the binary
+  (the T046 retry assertion does not detect SDK reconnection).
+- NIP-42 AUTH is never exercised by the loopback relays.
+- Windows: no native run; the watchdog test was timing-sensitive there (T033).
+- Only loopback relays were used; no public relay or live node.
+- Docs, CI drift wiring and requirement reconciliation: T048-T055.
+
+T001-T047 are complete. T048 (architecture documentation) and T049 (command
+documentation) are next and may run in parallel.
+
+
+
 ## Overview
 
 **Total Test Files Created/Modified:** 6

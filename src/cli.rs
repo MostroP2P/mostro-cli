@@ -26,16 +26,21 @@ mod commands;
 mod context;
 mod legacy;
 mod registry;
+mod schema;
 
 pub use args::Cli;
 pub use commands::{Commands, OrderCommands};
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};
+pub use schema::{
+    command_schemas, discovery, input_schema, offline_discovery, CommandDescriptor, CommandSchemas,
+    DiscoveryData, PresentationMode, SchemaDocument, SCHEMA_DIALECT, SCHEMA_VERSION,
+};
 
 use std::env;
 use std::io::{self, Write};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use clap::error::ErrorKind;
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
@@ -50,6 +55,7 @@ use crate::parse_machine::emit;
 use crate::util::net::install_rustls_crypto_provider;
 use context::init_context;
 use invocation::{parse_invocation, ArgumentFailure, Invocation, OutputMode, OutputSelection};
+use schema::SCHEMA_COMMAND;
 
 /// Parse argv, run the command and return the process exit status.
 pub async fn run() -> Result<i32> {
@@ -61,8 +67,33 @@ pub async fn run() -> Result<i32> {
         }
         Invocation::Rejected(failure) => return Ok(report(&failure)),
     };
-    let cli = Cli::from_arg_matches(&matches)
-        .map_err(|_| anyhow!("internal error: parsed arguments could not be bound"))?;
+    let Ok(cli) = Cli::from_arg_matches(&matches) else {
+        return Ok(unbound(
+            &matches,
+            output,
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        ));
+    };
+
+    // Offline discovery needs no configuration, identity, logger or network.
+    if let Some(Commands::Schema) = &cli.command {
+        let data = offline_discovery();
+        return Ok(match output {
+            OutputMode::Json => {
+                let outcome = Envelope::<DiscoveryData, ()>::ok(
+                    SCHEMA_COMMAND,
+                    data,
+                    Warnings::new(),
+                    ExecutionMeta::read(None),
+                );
+                emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock())
+            }
+            OutputMode::Human => {
+                print_discovery(&data, &mut io::stdout().lock(), &mut io::stderr().lock())
+            }
+        });
+    }
 
     // Public listing needs no identity, database, environment mutation or RPC.
     if let Some(Commands::Order {
@@ -172,6 +203,26 @@ fn print_list(outcome: &ListOutcome, out: &mut impl Write, err: &mut impl Write)
     }
 }
 
+/// The discovery document as pretty JSON on `out`. It is serialized completely
+/// before the first byte is written; a failure exits 1 with one fixed line.
+fn print_discovery(data: &DiscoveryData, out: &mut impl Write, err: &mut impl Write) -> i32 {
+    let Ok(mut text) = serde_json::to_string_pretty(data) else {
+        diagnose(
+            err,
+            &format!("error: {}", ErrorCode::InternalError.message()),
+        );
+        return RUNTIME_ERROR_EXIT;
+    };
+    text.push('\n');
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(_) => {
+            diagnose(err, "error: the discovery document could not be written");
+            RUNTIME_ERROR_EXIT
+        }
+    }
+}
+
 /// The subcommand names from the root to the selected leaf.
 fn command_path(matches: &ArgMatches) -> Vec<String> {
     let mut path = Vec::new();
@@ -214,6 +265,20 @@ fn report(failure: &ArgumentFailure) -> i32 {
 }
 
 fn rejection(entry: Option<&CommandEntry>, code: ErrorCode) -> i32 {
+    reject_to(
+        entry,
+        code,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )
+}
+
+fn reject_to(
+    entry: Option<&CommandEntry>,
+    code: ErrorCode,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> i32 {
     let stages = entry.map_or_else(ExecutionMeta::not_executed, CommandEntry::stages);
     let outcome = Envelope::<(), ()>::error(
         entry.map(|entry| entry.canonical),
@@ -221,7 +286,32 @@ fn rejection(entry: Option<&CommandEntry>, code: ErrorCode) -> i32 {
         Warnings::new(),
         stages,
     );
-    emit(&outcome, &mut io::stdout().lock(), &mut io::stderr().lock())
+    emit(&outcome, out, err)
+}
+
+/// Parsed arguments that cannot be bound to the typed grammar: an internal
+/// error, reported in the selected mode with the resolved command identity.
+fn unbound(
+    matches: &ArgMatches,
+    output: OutputMode,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> i32 {
+    match output {
+        OutputMode::Json => reject_to(
+            lookup(&command_path(matches)),
+            ErrorCode::InternalError,
+            out,
+            err,
+        ),
+        OutputMode::Human => {
+            diagnose(
+                err,
+                &format!("error: {}", ErrorCode::InternalError.message()),
+            );
+            RUNTIME_ERROR_EXIT
+        }
+    }
 }
 
 #[cfg(test)]
@@ -301,5 +391,73 @@ mod tests {
         assert_eq!(print_list(&listed(), &mut Broken, &mut Broken), 1);
         assert_eq!(print_list(&listed(), &mut Vec::new(), &mut Broken), 0);
         diagnose(&mut Broken, "verbose: ignored");
+    }
+
+    fn discovered() -> DiscoveryData {
+        offline_discovery()
+    }
+
+    #[test]
+    fn discovery_prints_one_pretty_document_with_the_schema_command() {
+        let data = discovered();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(print_discovery(&data, &mut out, &mut err), 0);
+        assert!(err.is_empty());
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.ends_with("}\n") && text.contains("\n  \"commands\""));
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed, serde_json::to_value(&data).unwrap());
+        let names: Vec<&str> = parsed["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|command| command["name"].as_str())
+            .collect();
+        assert!(names.contains(&"schema") && names.contains(&"order.list"));
+    }
+
+    #[test]
+    fn failed_discovery_write_exits_1_with_one_fixed_line() {
+        let mut err = Vec::new();
+        assert_eq!(print_discovery(&discovered(), &mut Broken, &mut err), 1);
+        assert_eq!(err, b"error: the discovery document could not be written\n");
+        assert_eq!(
+            print_discovery(&discovered(), &mut Vec::new(), &mut Broken),
+            0
+        );
+    }
+
+    /// An accepted invocation that cannot be bound to the typed arguments is
+    /// an internal error: one JSON document when JSON was selected, fixed text
+    /// on stderr and empty stdout otherwise; always exit 1.
+    #[test]
+    fn unbindable_arguments_are_an_internal_error_in_the_selected_mode() {
+        let matches = |args: &[&str]| Cli::command().get_matches_from(args);
+        let listing = matches(&["mostro-cli", "order", "list"]);
+        let legacy = matches(&["mostro-cli", "getdm"]);
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(unbound(&listing, OutputMode::Json, &mut out, &mut err), 1);
+        let document: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(document["command"], "order.list");
+        assert_eq!(document["status"], "error");
+        assert_eq!(document["data"], serde_json::Value::Null);
+        assert_eq!(document["error"]["code"], "internal_error");
+        assert_eq!(document["meta"]["publication"], "not_applicable");
+        assert!(err.is_empty());
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(unbound(&legacy, OutputMode::Json, &mut out, &mut err), 1);
+        let document: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(document["command"], "message.list");
+        assert_eq!(document["meta"]["publication"], "not_attempted");
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(unbound(&legacy, OutputMode::Human, &mut out, &mut err), 1);
+        assert!(out.is_empty());
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            format!("error: {}\n", ErrorCode::InternalError.message())
+        );
     }
 }

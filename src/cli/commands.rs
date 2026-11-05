@@ -15,6 +15,9 @@ pub enum Commands {
         #[command(subcommand)]
         command: OrderCommands,
     },
+    /// Describe the machine interface offline: commands, inputs, results and
+    /// errors. Needs no node, identity or network
+    Schema,
     /// Create a new buy/sell order on Mostro
     NewOrder {
         /// Choose an order kind
