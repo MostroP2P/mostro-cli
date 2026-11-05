@@ -1843,6 +1843,7 @@ dependencies = [
  "log",
  "mostro-core",
  "nostr",
+ "nostr-memory",
  "nostr-sdk",
  "pretty_env_logger",
  "prost",

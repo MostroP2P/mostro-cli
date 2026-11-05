@@ -94,8 +94,8 @@ the feature works. Record code-test results separately when implementation lands
 ## Resume On Another Linux/WSL Laptop
 
 This is a development handoff, not a trading-identity migration or a compatible
-CLI/MCP release pair. At the 2026-10-22 checkpoint, T001-T019 are complete, the
-baseline and foundation gates are closed with recorded exceptions, and T020 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
+CLI/MCP release pair. At the 2026-10-22 checkpoint, T001-T020 are complete, the
+baseline and foundation gates are closed with recorded exceptions, and T021 is next. Follow the [task list](../specs/001-order-list-json/tasks.md) and
 [test evidence](../tests/TEST_SUMMARY.md) if work has advanced since then. The
 JSON pilot and full baseline gate remain unverified; the declared MSRV is 1.94
 (raised from 1.86 to match the locked graph), and regtest compatibility is
@@ -245,10 +245,11 @@ Enter key passphrases directly in your terminal, never in Copilot chat.
 In Copilot Agent chat with both repositories open:
 
 ```text
-Continue mostro-cli on develop, implementing T020 only from
+Continue mostro-cli on develop, implementing T021 only from
 specs/001-order-list-json/tasks.md. Read AGENTS.md and the constitution first,
-then the existing plan and tests/TEST_SUMMARY.md. T001-T019 are complete;
+then the existing plan and tests/TEST_SUMMARY.md. T001-T020 are complete;
 the baseline and foundation gates are closed with recorded exceptions and the JSON pilot is unimplemented.
+US1 contract tests are #[ignore = "red until T0xx"]; remove a task's ignores when it lands.
 Use the existing Spec Kit feature; do not regenerate its artifacts.
 Use .venv/bin/python (or uv run --no-project --python 3.11 python) for its scripts.
 Read the cross-repository roadmap in ../mcp/plan-aiReadyMostroCli.prompt.md.

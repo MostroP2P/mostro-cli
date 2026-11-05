@@ -64,7 +64,7 @@ Both renderers consume these fields, including human headings and filter summary
 | payment_method | string | Public untrusted text, possibly empty; preserve joined tag values |
 | premium_percent | decimal string | Signed i64 premium percentage, not a fractional multiplier |
 | created_at | string or null | Selected event time in UTC RFC3339 with `Z`; null if not representable |
-| created_at_unix | decimal string | Exact decoded signed i64 event timestamp in seconds, not order creation time |
+| created_at_unix | decimal string | Exact decoded signed i64 event timestamp in seconds, not order creation time; event times above i64::MAX saturate to 9223372036854775807 |
 
 Decimal strings are canonical base 10: `0`, positive digits without leading zeros,
 or minus followed by nonzero-leading digits. No plus, exponent, fraction or `-0`.

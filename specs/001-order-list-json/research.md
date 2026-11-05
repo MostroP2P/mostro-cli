@@ -85,6 +85,31 @@ The adapter must follow these constraints, which refine the decision above:
   first terminal signal; whether the SDK resubscribes after a reconnect was
   not tested.
 
+**T021 result (2026-10-23, source reading plus a throwaway prototype)**: four
+more constraints for T026, each pinned by an ignored contract test:
+
+- `Relay::notifications()` skips `broadcast` lag errors silently ("Skip errors
+  for now" in the SDK stream wrapper), so lag cannot be observed. No public
+  SDK API reports it: the SDK's own `stream_events` also stops at a lag. A
+  lagged receiver yields only the newest notifications in its channel. The
+  collector fails a relay that produces `ReadLimits::notification_capacity`
+  notifications before its EOSE, and the channel holds twice that many, so a
+  lag is caught unless the relay also sends more than
+  `notification_capacity` notifications after its EOSE, before the collector
+  reads them. That needs a relay that ignores the filter limit and floods on
+  purpose; closing it needs a lag-aware SDK API. The default of 2,048 is far
+  above the roughly 2 x 50 + 1 a compliant relay sends.
+- The SDK verifies signatures before emitting `RelayMessage::Event`, so forged
+  events never reach the collector. It does not check the subscription filter
+  unless `verify_subscriptions` is on, so the collector matches each event
+  against its filter itself.
+- `LocalRelay::add_event` verifies events; a forged fixture needs a
+  `nostr-memory` store passed to `LocalRelayBuilder::database`.
+  `LocalRelay::notify_event` reaches only live subscriptions, which are
+  registered after EOSE, so it produces a deterministic post-EOSE event.
+- Dropping the last `Client` handle closed the prototype's connections; the
+  cancellation test fails if the client is leaked.
+
 ## 3. Public Reads Without Identity
 
 **Evidence**: [startup](../../src/cli.rs) initializes full Context;
@@ -134,7 +159,10 @@ optionality for other callers. Map explicit public fields, premium, fixed/range
 amounts and time. Monetary i64 values are decimal strings; zero sats means
 market-priced. Pair nullable UTC RFC3339 created_at with lossless signed
 created_at_unix. Invalid calendar conversion retains the integer, adds one safe
-warning and keeps the human Invalid date display.
+warning and keeps the human Invalid date display. Nostr event times are
+unsigned; decoding saturates values above i64::MAX instead of wrapping, so a
+far-future event stays the latest state and renders as Invalid date (decided
+2026-10-22, T020).
 
 **Rationale**: Filter invariants resolve missing status without inventing active
 status in JSON or exposing future secret-bearing core fields.

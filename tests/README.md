@@ -25,10 +25,11 @@ This directory contains comprehensive unit and integration tests for the Mostro 
    - Path check
    - String manipulation
 
-4. **`parser_orders.rs`** (11 tests)
+4. **`parser_orders.rs`** (97 tests: 39 run, 58 ignored)
    - Order event parsing
    - Filter validation
    - Table display formatting
+   - `list_contract`: `order.list` DTO and selection contract cases, ignored until T022-T028 implement them (`cargo test --test parser_orders -- --ignored` shows them red)
 
 5. **`parser_disputes.rs`** (9 tests)
    - Dispute event parsing

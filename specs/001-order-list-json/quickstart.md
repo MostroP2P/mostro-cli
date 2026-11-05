@@ -38,7 +38,7 @@ cargo test --locked --test order_list_process
 ```
 
 The first three targets already exist and will be extended; the process target
-is planned. Do not count existing passing tests as proof of unimplemented cases.
+exists since T013 and gains each pilot slice. Do not count existing passing tests as proof of unimplemented cases.
 Run newly added unit tests for the collector, pure renderers and discovery by
 their module filter during each increment, before broad gates.
 

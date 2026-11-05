@@ -4,6 +4,8 @@ use std::env::var;
 use std::sync::Once;
 use std::time::Duration;
 
+use crate::msg::{ephemeral_client, relay_entries};
+
 /// rustls 0.23 cannot auto-pick a process CryptoProvider when more than one
 /// backend feature is in the graph. Pin `ring` (same as tonic `tls-ring` and
 /// nostr-sdk's default) before any TLS handshake.
@@ -23,23 +25,12 @@ pub fn install_rustls_crypto_provider() {
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn connect_nostr() -> Result<Client> {
-    install_rustls_crypto_provider();
-    let my_keys = Keys::generate();
-
     let relays = var("RELAYS").map_err(|_| anyhow::anyhow!("RELAYS is not set"))?;
-    // Trim each entry and drop empty ones so stray whitespace or trailing commas
-    // (e.g. `RELAYS="wss://a, ,wss://b,"`) don't reach `add_relay` and fail.
-    let relays = relays
-        .split(',')
-        .map(str::trim)
-        .filter(|r| !r.is_empty())
-        .collect::<Vec<&str>>();
+    let relays: Vec<&str> = relay_entries(&relays).collect();
     if relays.is_empty() {
         return Err(anyhow::anyhow!("RELAYS is not set"));
     }
-    let client = Client::builder()
-        .authenticator(SignerAuthenticator::new(my_keys))
-        .build();
+    let client = ephemeral_client();
     for r in relays.into_iter() {
         client.add_relay(r).await?;
     }

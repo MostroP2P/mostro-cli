@@ -7,6 +7,8 @@
 
 use serde::Serialize;
 
+pub mod order;
+
 /// Contract version, independent of the executable version.
 pub const SCHEMA_VERSION: &str = "1";
 /// Exit status for argument and unsupported-output errors.

@@ -112,6 +112,9 @@ rstest = "0.27.0"
 # In-process loopback relays (LocalRelay/MockRelay) for process tests; never
 # enabled in the shipped binary.
 nostr-sdk = { version = "0.45.3", features = ["local-relay"] }
+# Store for a LocalRelay fixture that serves a forged event, which
+# `LocalRelay::add_event` would refuse; already in the graph via local-relay.
+nostr-memory = "0.45.2"
 # Loopback WebSocket upgrade in front of LocalRelay, so the harness owns an
 # OS-assigned port instead of the SDK's probe-then-bind port pick.
 hyper = { version = "1.8.1", features = ["server", "http1"] }
