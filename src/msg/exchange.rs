@@ -26,7 +26,8 @@ pub struct ExchangeLimits {
     pub connect: Duration,
     /// Reading the node's advertised information, best effort.
     pub probe: Duration,
-    /// From publishing the request to the reply.
+    /// From publishing the request to the reply, including the wait for the
+    /// relays' acknowledgements.
     pub reply: Duration,
     /// Unsubscribing and disconnecting.
     pub cleanup: Duration,
@@ -218,16 +219,19 @@ async fn run(
         return Err(ExchangeFailure::unsent(ErrorCode::RelayReadFailed));
     }
 
-    if let Err(unconfirmed) = publish(client, event).await {
-        let publication = match unconfirmed {
-            Unconfirmed::Rejected => Publication::NotAttempted,
-            Unconfirmed::Ambiguous => Publication::Unknown,
-        };
-        return Err(ExchangeFailure::new(
-            ErrorCode::RequestRejected,
-            publication,
-        ));
-    }
+    // One deadline from publication to the reply: waiting for the relays'
+    // acknowledgements spends the reply budget.
+    let deadline = Instant::now() + limits.reply;
+    let confirmed = match publish(client, event, deadline).await {
+        Ok(()) => true,
+        Err(Unconfirmed::Ambiguous) => false,
+        Err(Unconfirmed::Rejected) => {
+            return Err(ExchangeFailure::new(
+                ErrorCode::RequestRejected,
+                Publication::NotAttempted,
+            ));
+        }
+    };
 
     let wait = Wait {
         identity: outbound.signer,
@@ -235,10 +239,15 @@ async fn run(
         sent: event.id,
         expected,
         subscription,
-        deadline: Instant::now() + limits.reply,
+        deadline,
     };
     match armed.wait(&wait).await {
+        // The answer proves the request was published, acknowledged or not.
         Waited::Reply(reply) => Ok(*reply),
+        _ if !confirmed => Err(ExchangeFailure::new(
+            ErrorCode::RequestRejected,
+            Publication::Unknown,
+        )),
         Waited::Lost => Err(ExchangeFailure::published(ErrorCode::RelayReadFailed)),
         Waited::Timeout => {
             // A node silently drops under-mined events, so an advertisement of
