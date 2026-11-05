@@ -1798,3 +1798,99 @@ async fn a_missing_acknowledgement_without_a_reply_stays_unknown_within_the_budg
     assert_eq!(fake.received().len(), 1);
     assert!(elapsed < exchange_bound(), "{elapsed:?}");
 }
+
+// --- A relay that asks for authentication before accepting -----------------
+
+/// Forwards each connection on `listener` to `to`, holding every chunk the
+/// client sends for `lag`, so this relay answers well after a direct one.
+async fn lagging_proxy(listener: tokio::net::TcpListener, to: std::net::SocketAddr, lag: Duration) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    while let Ok((client, _)) = listener.accept().await {
+        tokio::spawn(async move {
+            let Ok(relay) = tokio::net::TcpStream::connect(to).await else {
+                return;
+            };
+            let (mut client_rx, mut client_tx) = client.into_split();
+            let (mut relay_rx, mut relay_tx) = relay.into_split();
+            let up = async move {
+                let mut buffer = vec![0u8; 64 * 1024];
+                while let Ok(read) = client_rx.read(&mut buffer).await {
+                    if read == 0 {
+                        break;
+                    }
+                    tokio::time::sleep(lag).await;
+                    if relay_tx.write_all(&buffer[..read]).await.is_err() {
+                        break;
+                    }
+                }
+            };
+            let down = async move {
+                let _ = tokio::io::copy(&mut relay_rx, &mut client_tx).await;
+            };
+            tokio::join!(up, down);
+        });
+    }
+}
+
+#[tokio::test]
+async fn a_relay_that_asks_for_authentication_still_receives_the_request() {
+    // The node reads only relay A, which answers the first EVENT with
+    // `auth-required:` and is reached through a lagging link; relay B, where
+    // the node does not read, accepts at once.
+    let node = Keys::generate();
+    let front = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let back = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let a_url = format!("ws://{}", front.local_addr().unwrap());
+    // NIP-42 checks the relay URL inside the AUTH event: the public one.
+    let a = LocalRelay::builder()
+        .port(front.local_addr().unwrap().port())
+        .nip42(nostr_sdk::prelude::LocalRelayBuilderNip42::write())
+        .build();
+    a.add_event(info_event(&node, Some(2), Some(0), None, None))
+        .await
+        .unwrap();
+    let back_addr = back.local_addr().unwrap();
+    let served = tokio::spawn(harness::accept_loop(
+        back,
+        Backend::Relay(Box::new(a.clone())),
+        harness::Sessions {
+            accepted: Arc::new(AtomicUsize::new(0)),
+            open: Arc::new(AtomicUsize::new(0)),
+            ended: Arc::new(tokio::sync::Notify::new()),
+        },
+    ));
+    let proxied = tokio::spawn(lagging_proxy(front, back_addr, Duration::from_millis(50)));
+    let b = LoopbackRelay::start(Backend::Relay(Box::new(LocalRelay::new())))
+        .await
+        .unwrap();
+    let fake = FakeMostro::start(&a_url, node.clone(), always_orders(Vec::new())).await;
+    let config = PublicReadConfig::new(node.public_key(), &format!("{},{}", a_url, b.url)).unwrap();
+    let identity = Keys::generate();
+
+    let result = exchange(
+        &config,
+        plain_outbound(&identity, node.public_key()),
+        &expect_orders(),
+        &limits(),
+    )
+    .await;
+
+    let exchanged = result.unwrap_or_else(|failed| {
+        panic!(
+            "expected the reply, got {:?}",
+            (failed.code(), failed.publication())
+        )
+    });
+    assert_eq!(
+        exchanged.reply().get_inner_message_kind().action,
+        Action::Orders
+    );
+    assert_eq!(fake.received().len(), 1, "the node got the request once");
+    served.abort();
+    proxied.abort();
+    a.shutdown();
+}

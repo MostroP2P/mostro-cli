@@ -1,11 +1,12 @@
 //! Wrapping and publishing one request. Private to `msg`: the wrapper only
 //! ever sees the result of an exchange.
 
-use std::future::IntoFuture;
+use std::convert::Infallible;
 
+use futures::future::{pending, BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use mostro_core::prelude::{wrap_message_with, Transport, WrapOptions};
-use nostr_sdk::prelude::{Client, Event, MachineReadablePrefix};
+use nostr_sdk::prelude::{Event, MachineReadablePrefix, Relay};
 use tokio::time::{timeout_at, Instant};
 
 use super::exchange::Outbound;
@@ -57,28 +58,55 @@ pub(super) fn classify<'a>(failures: impl IntoIterator<Item = &'a str>) -> Uncon
     }
 }
 
-/// Publish `event` once to every relay. `Ok` as soon as one relay accepts it;
-/// a relay that has not answered by `deadline` counts as ambiguous.
-pub(super) async fn publish(
-    client: &Client,
-    event: &Event,
-    deadline: Instant,
-) -> Result<(), Unconfirmed> {
-    // Per relay, so the first acceptance is seen even while another relay
-    // still owes its acknowledgement.
-    let relays = client.relays().await;
-    let mut sends: FuturesUnordered<_> = relays
-        .values()
-        .map(|relay| relay.send_event(event).into_future())
+/// The request on its way to every relay.
+pub(super) struct Publishing<'a> {
+    sends: FuturesUnordered<BoxFuture<'a, Result<(), String>>>,
+    failures: Vec<String>,
+}
+
+/// Send `event` once to each of `relays` (a relay that asks for
+/// authentication first is sent it again once authenticated, as the SDK
+/// does). Nothing is sent until the result is polled.
+pub(super) fn publish<'a>(relays: &'a [Relay], event: &'a Event) -> Publishing<'a> {
+    let sends = relays
+        .iter()
+        .map(|relay| {
+            async move {
+                relay
+                    .send_event(event)
+                    .await
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }
+            .boxed()
+        })
         .collect();
-    let mut failures = Vec::new();
-    loop {
-        match timeout_at(deadline, sends.next()).await {
-            Ok(Some(Ok(_))) => return Ok(()),
-            Ok(Some(Err(error))) => failures.push(error.to_string()),
-            Ok(None) => return Err(classify(failures.iter().map(String::as_str))),
-            Err(_) => return Err(Unconfirmed::Ambiguous),
+    Publishing {
+        sends,
+        failures: Vec::new(),
+    }
+}
+
+impl Publishing<'_> {
+    /// `Ok` as soon as one relay accepts. Otherwise the verdict once every
+    /// relay has answered, or ambiguous if `deadline` passes first.
+    pub(super) async fn confirmed(&mut self, deadline: Instant) -> Result<(), Unconfirmed> {
+        loop {
+            match timeout_at(deadline, self.sends.next()).await {
+                Ok(Some(Ok(()))) => return Ok(()),
+                Ok(Some(Err(failure))) => self.failures.push(failure),
+                Ok(None) => return Err(classify(self.failures.iter().map(String::as_str))),
+                Err(_) => return Err(Unconfirmed::Ambiguous),
+            }
         }
+    }
+
+    /// Drive the relays that have not answered yet, then wait forever. Polled
+    /// beside the reply wait, so a relay that accepts late, or is still
+    /// authenticating, is not cut off by an earlier acceptance.
+    pub(super) async fn drive(&mut self) -> Infallible {
+        while self.sends.next().await.is_some() {}
+        pending().await
     }
 }
 
