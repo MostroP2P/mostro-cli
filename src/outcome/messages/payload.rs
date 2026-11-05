@@ -1,6 +1,7 @@
 //! The summary of a message payload: a typed record for the variants the flow
 //! needs, the variant name only for the rest. Text from the node is bounded
-//! here and escaped by the human renderer.
+//! here and escaped by the human renderer. An invoice is kept whole: a cut
+//! invoice loses its checksum and cannot be paid.
 
 use mostro_core::order::SmallOrder;
 use mostro_core::prelude::{CantDoReason, Payload};
@@ -108,7 +109,7 @@ pub(super) fn summarize(
         },
         Payload::PaymentRequest(order, invoice, amount) => MessagePayload::PaymentRequest {
             order: order.as_ref().and_then(|order| record(order, warnings)),
-            invoice: bounded(invoice, TEXT_BYTES),
+            invoice: invoice.clone(),
             amount: amount.map(|amount| amount.to_string()),
         },
         Payload::BondPayoutRequest(request) => match record(&request.order, warnings) {
