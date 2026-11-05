@@ -75,6 +75,7 @@
         "request_rejected",
         "node_refused",
         "order_declined",
+        "store_unwritable",
         "order_unknown",
         "reply_timeout",
         "reply_malformed"
@@ -234,6 +235,7 @@
                 "request_rejected",
                 "node_refused",
                 "order_declined",
+                "store_unwritable",
                 "order_unknown"
               ]
             },

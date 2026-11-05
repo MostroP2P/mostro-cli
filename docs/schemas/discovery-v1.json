@@ -171,11 +171,7 @@
           },
           "yes": {
             "description": "Send the invoice without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -261,6 +257,7 @@
               "request_rejected",
               "node_refused",
               "order_declined",
+              "store_unwritable",
               "order_unknown",
               "reply_timeout",
               "reply_malformed"
@@ -420,6 +417,7 @@
                       "request_rejected",
                       "node_refused",
                       "order_declined",
+                      "store_unwritable",
                       "order_unknown"
                     ]
                   },
@@ -790,11 +788,7 @@
           },
           "yes": {
             "description": "Send the invoice without asking (required with --output json)",
-            "enum": [
-              "true",
-              "false"
-            ],
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [

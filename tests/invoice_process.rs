@@ -1710,6 +1710,7 @@ mod operation {
         EmptyUsers,
         NoUsersTable,
         NullMnemonic,
+        NoOrdersTable,
         ReadOnly,
     }
 
@@ -1731,6 +1732,7 @@ mod operation {
             Tweak::EmptyUsers => sql("DELETE FROM users").await,
             Tweak::NoUsersTable => sql("DROP TABLE users").await,
             Tweak::NullMnemonic => sql("UPDATE users SET mnemonic = NULL").await,
+            Tweak::NoOrdersTable => sql("DROP TABLE orders").await,
             Tweak::ReadOnly => {
                 let mut permissions = std::fs::metadata(&path).unwrap().permissions();
                 permissions.set_readonly(true);
@@ -1907,6 +1909,17 @@ mod operation {
             let holder = plain().await;
             check_failure(case, &holder).await;
         }
+    }
+
+    #[tokio::test]
+    async fn an_unqueryable_orders_table_fails_both_commands_within_their_schemas() {
+        // The identity stays readable, but the order's key cannot be looked up.
+        let holder = plain().await;
+        check_failure(
+            &Failing::new("no orders table", Tweak::NoOrdersTable, "store_unwritable"),
+            &holder,
+        )
+        .await;
     }
 
     #[tokio::test]
