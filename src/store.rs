@@ -214,7 +214,7 @@ impl Store {
     /// such order, it has no key or the key is unusable. Writes nothing. The
     /// secret never leaves this module except as the key itself.
     pub async fn order_keys(&self, id: Uuid) -> Result<Option<Keys>, StoreError> {
-        let pool = self.open().await?;
+        let pool = self.open_read_only().await?;
         let stored: Result<Option<Option<String>>, _> =
             sqlx::query_scalar("SELECT trade_keys FROM orders WHERE id = ?1")
                 .bind(id.to_string())
