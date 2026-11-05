@@ -24,7 +24,7 @@ amount is given; take-sell sends the invoice (with the amount inside the same pa
 | `side` | the side of the order taken: `sell` (take-sell) or `buy` (take-buy) |
 | `next_step` | `add_invoice` (the taker must send a buyer invoice), `wait_for_seller_payment` (the invoice was accepted), `pay_hold_invoice` (the taker, as seller, must pay `payment_request`), `pay_bond_invoice` (the taker must pay the bond in `payment_request`; the node continues the take afterwards) |
 | `order` | the node's order as `OrderRecord`, or null when the reply carried none (`wait_for_seller_payment`) |
-| `payment_request` | the hold invoice, only with `pay_hold_invoice`, else null |
+| `payment_request` | the invoice to pay: the hold invoice with `pay_hold_invoice`, the bond invoice with `pay_bond_invoice`, else null |
 | `trade_index` | decimal string |
 | `trade_pubkey` | 64 lowercase hex; the private key is derivable from the mnemonic and the index and is never shown |
 
