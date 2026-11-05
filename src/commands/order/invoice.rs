@@ -52,7 +52,9 @@ pub async fn order_add_invoice(
         (Action::HoldInvoicePaymentAccepted, Some(Payload::Order(order))) => {
             Answered::PaymentAccepted(Box::new(order.clone()))
         }
-        (Action::InvoiceUpdated, None) => Answered::InvoiceUpdated,
+        (Action::InvoiceUpdated, None) if kind.id == Some(input.order()) => {
+            Answered::InvoiceUpdated
+        }
         _ => return malformed(command),
     };
     let Some((data, status, mut warnings)) = OrderInvoiceData::from_answer(
