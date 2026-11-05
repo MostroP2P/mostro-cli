@@ -316,3 +316,32 @@ filter with many recipient keys beyond two, and what limit they apply, is unprob
 
 No scenario above is marked complete by documentation alone. Still open: the probe, the MCP DM tools (broken until migrated), a cursor for slow flows, peer chat as
 a command of its own, and a smoother solver-key flow for disputes (`getdm` used to save the solver's key; `message list` returns it as data).
+
+## Trade Steps: Requirement Evidence
+
+Reconciliation of the [specification](../specs/007-trade-steps-json/spec.md) with the entries in
+[TEST_SUMMARY.md](TEST_SUMMARY.md) (slices 1-6), as of 2026-11-02. **Automated verification on Linux with loopback relays and a scripted node
+only**; CI (with the CI-hosted Windows runner) is checked after the push. Probed once on a real node (below); the daemon behavior the fake encodes is read from the v0.20.1 source. NIP-42 AUTH is never exercised. Contracts:
+[CLI](../specs/007-trade-steps-json/contracts/cli.md), [data model](../specs/007-trade-steps-json/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json), [fiat-sent](../docs/schemas/order-fiat-sent-v1.json),
+[release](../docs/schemas/order-release-v1.json) and [cancel](../docs/schemas/order-cancel-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 options, removed spellings | `trade_step_grammar`, `invalid_input_is_an_argument_error_...` | Verified on Linux |
+| FR-002 existing identity only, key from the store, `order_unknown`, nothing created | the identity cases of `failures_before_any_request_...`, the `store` tests, `an_unknown_order_...` | Verified on Linux |
+| FR-003 `--yes` in JSON, prompt in human | `json_without_yes_does_nothing_...`, `the_prompt_accepts_y_and_blank_...` | Verified on Linux |
+| FR-004 one request, no retry, no index | the operation tests (one publication, index unchanged), the refusal and failure cases | Verified on Linux |
+| FR-005 correlation by request id, deadline, cleanup | `util::reply` unit tests, the decoy tests, `a_reply_without_the_request_id_...` | Verified on Linux; the spec's "order id fallback" was dropped because the node echoes the request id |
+| FR-006 statuses and stages per case | `outcome::step` schema tests, the operation tests, the binary scenarios | Verified on Linux |
+| FR-007 data, next step, range warning | `outcome::step` unit tests, the range tests | Verified on Linux; `next_trade_index` stays null until spec 008 |
+| FR-008 one document, own schemas, fixtures, examples, drift | `integration_tests` (fixtures, 16 examples, 17 invalid variants) | Verified on Linux |
+| FR-009 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel sweeps | Verified on Linux |
+| FR-010 legacy arms removed | the removed-spelling cases, `cli/send_msg.rs` serving only `dispute` and the admin commands | Verified on Linux |
+| SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted node |
+| SC-006 no claim about a daemon | probe of 2026-11-02 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for a whole trade, the refusals, plain and cooperative cancel; **open** for a range order, `uncertain` and a disputed order |
+
+No scenario above is marked complete by documentation alone. Still open: the rest of the regtest probe (a range order, `uncertain`), spec 008 (range children:
+continuing a range order, which these commands do not do), the MCP `fiat_sent`, `release` and `cancel` migration (they stay broken until then),
+and the duplicate-send risk of an `uncertain` run, which only the caller can check with `order info --order <id>`.
+

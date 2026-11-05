@@ -89,24 +89,6 @@ pub enum Commands {
         #[arg(short, long, num_args = 1..)]
         message: Vec<String>,
     },
-    /// Send fiat sent message to confirm payment to other user
-    FiatSent {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-    },
-    /// Settle the hold invoice and pay to buyer.
-    Release {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-    },
-    /// Cancel a pending order
-    Cancel {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-    },
     /// Rate counterpart after a successful trade
     Rate {
         /// Order id
@@ -263,6 +245,31 @@ pub enum OrderCommands {
     /// request and updates the order's local status. JSON output requires --yes
     #[command(name = "add-invoice")]
     AddInvoice(AddInvoiceArgs),
+    /// Tell the node you sent the fiat for an order you are buying. Needs an
+    /// existing local identity (it never creates one), publishes one signed
+    /// request and updates the order's local status. JSON output requires --yes
+    #[command(name = "fiat-sent")]
+    FiatSent(StepArgs),
+    /// Release the sats of an order you are selling: the node settles the hold
+    /// invoice and pays the buyer. Irreversible. Needs an existing local
+    /// identity (it never creates one), publishes one signed request and
+    /// updates the order's local status. JSON output requires --yes
+    Release(StepArgs),
+    /// Cancel an order, or start or confirm a cooperative cancel of an active
+    /// trade: the node decides which and the result says so. Needs an existing
+    /// local identity (it never creates one), publishes one signed request and
+    /// updates the order's local status. JSON output requires --yes
+    Cancel(StepArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct StepArgs {
+    /// Id of the order
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// Send the request without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Subcommand, Clone)]

@@ -45,10 +45,7 @@ impl Commands {
     pub async fn run(&self, ctx: &Context) -> Result<()> {
         match self {
             // Simple order message commands
-            Commands::FiatSent { order_id }
-            | Commands::Release { order_id }
-            | Commands::Dispute { order_id }
-            | Commands::Cancel { order_id } => {
+            Commands::Dispute { order_id } => {
                 run_simple_order_msg(self.clone(), Some(*order_id), ctx).await
             }
             // Last trade index commands

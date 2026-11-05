@@ -25,6 +25,10 @@ pub enum Stages {
     /// One published request with no local write at all: persistence is always
     /// `not_attempted`.
     Delivery,
+    /// One published request on an order the user holds: as [`Stages::Update`],
+    /// and an unconfirmed request on a range order also records the trade index
+    /// it reserved (`applied` or `failed`).
+    Step,
 }
 
 /// The stage combinations (publication, node acceptance, persistence) allowed
@@ -117,6 +121,19 @@ impl<'a> OutcomeRules<'a> {
         }
     }
 
+    /// Rules of the trade steps (`Stages::Step`).
+    pub fn step(
+        command: &'static str,
+        errors: &'a [ErrorCode],
+        uncertain: &'a [ErrorCode],
+        warnings: &'a [WarningCode],
+    ) -> Self {
+        Self {
+            stages: Stages::Step,
+            ..Self::write(command, errors, uncertain, warnings)
+        }
+    }
+
     /// Stage combinations allowed on success, failure and uncertainty of the
     /// resolved command.
     pub(super) fn combos(&self) -> Combos {
@@ -153,8 +170,8 @@ impl<'a> OutcomeRules<'a> {
                     ["published", "accepted", "failed"],
                 ],
             },
-            Stages::Update | Stages::Delivery => Combos {
-                success: if self.stages == Stages::Update {
+            Stages::Update | Stages::Delivery | Stages::Step => Combos {
+                success: if self.stages != Stages::Delivery {
                     vec![
                         ["published", "accepted", "applied"],
                         ["published", "accepted", "failed"],
@@ -169,10 +186,21 @@ impl<'a> OutcomeRules<'a> {
                 ],
                 // The node may hold the invoice: no reply, an unusable reply
                 // or an unconfirmed publication.
-                uncertain: vec![
-                    ["published", "unknown", "not_attempted"],
-                    ["unknown", "unknown", "not_attempted"],
-                ],
+                uncertain: if self.stages == Stages::Step {
+                    vec![
+                        ["published", "unknown", "not_attempted"],
+                        ["published", "unknown", "applied"],
+                        ["published", "unknown", "failed"],
+                        ["unknown", "unknown", "not_attempted"],
+                        ["unknown", "unknown", "applied"],
+                        ["unknown", "unknown", "failed"],
+                    ]
+                } else {
+                    vec![
+                        ["published", "unknown", "not_attempted"],
+                        ["unknown", "unknown", "not_attempted"],
+                    ]
+                },
             },
         }
     }

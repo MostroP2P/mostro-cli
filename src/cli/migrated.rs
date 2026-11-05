@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
-use super::{invoice, message, order_new, order_take};
+use super::{invoice, message, order_new, order_take, step};
 use super::{
     offline_discovery, BondCommands, Cli, Commands, DiscoveryData, MessageCommands, OrderCommands,
 };
@@ -19,6 +19,7 @@ use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::identity::{load_identity_keys, IdentityError};
 use crate::msg::{ExchangeLimits, PublicReadConfig, ReadLimits};
 use crate::outcome::info::OrderInfoInput;
+use crate::outcome::step::StepKind;
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Publication, Warnings, RUNTIME_ERROR_EXIT,
 };
@@ -113,6 +114,19 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
             command: BondCommands::AddInvoice(args),
         }) => return Some(invoice::bond(cli, args, output).await),
         _ => {}
+    }
+
+    // A step on an order already held: one signed request with its stored key.
+    if let Some(Commands::Order { command }) = &cli.command {
+        let chosen = match command {
+            OrderCommands::FiatSent(args) => Some((StepKind::FiatSent, args)),
+            OrderCommands::Release(args) => Some((StepKind::Release, args)),
+            OrderCommands::Cancel(args) => Some((StepKind::Cancel, args)),
+            _ => None,
+        };
+        if let Some((kind, args)) = chosen {
+            return Some(step::run(cli, kind, args, output).await);
+        }
     }
 
     // Reading the node's messages: an existing identity and store, read-only.

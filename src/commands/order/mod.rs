@@ -2,6 +2,7 @@ pub mod info;
 pub mod invoice;
 pub mod list;
 pub mod new;
+pub mod step;
 pub mod take;
 mod write;
 

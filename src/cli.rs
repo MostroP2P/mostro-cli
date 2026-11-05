@@ -27,12 +27,13 @@ mod order_new;
 mod order_take;
 mod registry;
 mod schema;
+mod step;
 mod write;
 
 pub use args::Cli;
 pub use commands::{
     AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, ListMessagesArgs, MessageCommands,
-    NewArgs, OrderCommands, TakeBuyArgs, TakeSellArgs,
+    NewArgs, OrderCommands, StepArgs, TakeBuyArgs, TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

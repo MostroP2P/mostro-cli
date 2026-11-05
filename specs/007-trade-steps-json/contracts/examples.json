@@ -1,0 +1,382 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "fiat_sent",
+      "stdout": {
+        "command": "order.fiat-sent",
+        "data": {
+          "next_step": "wait_for_release",
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "fiat_sent",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "fiat_sent_range_not_continued",
+      "stdout": {
+        "command": "order.fiat-sent",
+        "data": {
+          "next_step": "wait_for_release",
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "fiat_sent",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": [
+          {
+            "code": "range_not_continued",
+            "message": "The range order was not continued: the node creates no order for the rest of the range."
+          }
+        ]
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "release_released",
+      "stdout": {
+        "command": "order.release",
+        "data": {
+          "next_step": null,
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "released",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "release_stale_status",
+      "stdout": {
+        "command": "order.release",
+        "data": {
+          "next_step": null,
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "released",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "failed",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": [
+          {
+            "code": "local_status_stale",
+            "message": "The node accepted the invoice but the local order status could not be updated."
+          }
+        ]
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "cancel_canceled",
+      "stdout": {
+        "command": "order.cancel",
+        "data": {
+          "next_step": null,
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "canceled",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "cancel_requested",
+      "stdout": {
+        "command": "order.cancel",
+        "data": {
+          "next_step": "wait_for_peer_cancel",
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "cancel_requested",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "cancel_accepted",
+      "stdout": {
+        "command": "order.cancel",
+        "data": {
+          "next_step": null,
+          "next_trade_index": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "result": "cancel_accepted",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "fiat_sent_node_refused",
+      "stdout": {
+        "command": "order.fiat-sent",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "invalid_pubkey"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "release_node_refused",
+      "stdout": {
+        "command": "order.release",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "invalid_peer"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "cancel_node_refused",
+      "stdout": {
+        "command": "order.cancel",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "order_already_canceled"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "release_reply_timeout_uncertain",
+      "stdout": {
+        "command": "order.release",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "cancel_reply_malformed_uncertain",
+      "stdout": {
+        "command": "order.cancel",
+        "data": null,
+        "error": {
+          "code": "reply_malformed",
+          "message": "The reply from the node could not be used."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "release_unknown",
+      "stdout": {
+        "command": "order.release",
+        "data": null,
+        "error": {
+          "code": "order_unknown",
+          "message": "No local order has this id, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "cancel_declined",
+      "stdout": {
+        "command": "order.cancel",
+        "data": null,
+        "error": {
+          "code": "order_declined",
+          "message": "The order was not confirmed, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "fiat_sent_yes_required",
+      "stdout": {
+        "command": "order.fiat-sent",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "removed_spelling",
+      "stdout": {
+        "command": null,
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

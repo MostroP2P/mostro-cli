@@ -18,6 +18,7 @@ pub mod new;
 pub mod order;
 mod rules;
 pub mod schema;
+pub mod step;
 pub mod take;
 
 /// Contract version, independent of the executable version.
@@ -209,6 +210,10 @@ impl<D, S> Envelope<D, S> {
     }
 
     /// The node's refusal reason, only on `node_refused`.
+    pub fn warnings(&self) -> &Warnings {
+        &self.warnings
+    }
+
     pub fn reason(&self) -> Option<&str> {
         self.error.as_ref().and_then(ErrorInfo::reason)
     }
@@ -311,11 +316,12 @@ mod tests {
         // And for `message.list`.
         ErrorCode::StoreUnreadable,
     ];
-    const NEW_WARNING_CODES: [WarningCode; 4] = [
+    const NEW_WARNING_CODES: [WarningCode; 5] = [
         WarningCode::OrdersNotReturned,
         WarningCode::InvalidOrderTimestamp,
         WarningCode::LocalStatusStale,
         WarningCode::TradeKeysLimited,
+        WarningCode::RangeNotContinued,
     ];
 
     type Json = Envelope<Value, Value>;
@@ -384,6 +390,7 @@ mod tests {
             WarningCode::InvalidOrderTimestamp => "invalid_order_timestamp",
             WarningCode::LocalStatusStale => "local_status_stale",
             WarningCode::TradeKeysLimited => "trade_keys_limited",
+            WarningCode::RangeNotContinued => "range_not_continued",
         }
     }
 

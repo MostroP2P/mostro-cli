@@ -76,9 +76,6 @@ pub const REGISTRY: &[CommandEntry] = &[
     legacy(&["getadmindm"], "admin.message-list"),
     legacy(&["senddm"], "message.send"),
     legacy(&["dmtouser"], "chat.send"),
-    legacy(&["fiatsent"], "order.fiat-sent"),
-    legacy(&["release"], "order.release"),
-    legacy(&["cancel"], "order.cancel"),
     legacy(&["rate"], "order.rate"),
     legacy(&["restore"], "account.restore"),
     legacy(&["dispute"], "dispute.open"),
@@ -119,6 +116,21 @@ pub const REGISTRY: &[CommandEntry] = &[
     CommandEntry {
         path: &["order", "add-invoice"],
         canonical: "order.add-invoice",
+        json: JsonSupport::Write,
+    },
+    CommandEntry {
+        path: &["order", "fiat-sent"],
+        canonical: "order.fiat-sent",
+        json: JsonSupport::Write,
+    },
+    CommandEntry {
+        path: &["order", "release"],
+        canonical: "order.release",
+        json: JsonSupport::Write,
+    },
+    CommandEntry {
+        path: &["order", "cancel"],
+        canonical: "order.cancel",
         json: JsonSupport::Write,
     },
     CommandEntry {

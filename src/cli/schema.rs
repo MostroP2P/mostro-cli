@@ -25,6 +25,7 @@ use crate::outcome::messages::{
 use crate::outcome::new::OrderNewData;
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules, Stages};
+use crate::outcome::step::{StepData, STEP_ERRORS, STEP_UNCERTAIN, STEP_WARNINGS};
 use crate::outcome::take::{OrderTakeData, TakeSide};
 use crate::outcome::{ErrorCode, WarningCode};
 
@@ -124,9 +125,8 @@ fn descriptor(entry: &CommandEntry, schemas: Option<CommandSchemas>) -> CommandD
 fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
-        | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | MESSAGE_LIST => {
-            Some(LISTING_CONFIGURATION.to_vec())
-        }
+        | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
+        | MESSAGE_LIST => Some(LISTING_CONFIGURATION.to_vec()),
         SCHEMA_COMMAND => Some(Vec::new()),
         _ => None,
     }
@@ -197,6 +197,9 @@ const NEW_ERRORS: [ErrorCode; 14] = [
 const MESSAGE_LIST: &str = "message.list";
 const ORDER_ADD_INVOICE: &str = "order.add-invoice";
 const BOND_ADD_INVOICE: &str = "bond.add-invoice";
+const ORDER_FIAT_SENT: &str = "order.fiat-sent";
+const ORDER_RELEASE: &str = "order.release";
+const ORDER_CANCEL: &str = "order.cancel";
 const ORDER_TAKE_SELL: &str = "order.take-sell";
 const ORDER_TAKE_BUY: &str = "order.take-buy";
 
@@ -256,6 +259,14 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &INVOICE_UNCERTAIN,
             &INVOICE_ORDER_WARNINGS,
         )),
+        ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL => {
+            output_schema::<StepData, ()>(&OutcomeRules::step(
+                entry.canonical,
+                &STEP_ERRORS,
+                &STEP_UNCERTAIN,
+                &STEP_WARNINGS,
+            ))
+        }
         BOND_ADD_INVOICE => output_schema::<BondInvoiceData, ()>(&OutcomeRules::invoice(
             BOND_ADD_INVOICE,
             Stages::Delivery,
@@ -483,13 +494,13 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|command| command["name"] == "order.fiat-sent")
+            .find(|command| command["name"] == "order.rate")
             .unwrap();
         assert_eq!(
             legacy,
             &json!({
-                "name": "order.fiat-sent",
-                "cli_path": ["fiatsent"],
+                "name": "order.rate",
+                "cli_path": ["rate"],
                 "output_modes": ["human"],
                 "input_schema": null,
                 "output_schema": null,
@@ -594,7 +605,7 @@ mod tests {
         assert_eq!(output["title"], "order.list outcome");
         assert!(output.contains_key("$defs") && output.contains_key("oneOf"));
         assert!(listing.input_schema.is_some());
-        let legacy = by_name(&data, "order.fiat-sent");
+        let legacy = by_name(&data, "order.rate");
         assert_eq!(
             (&legacy.input_schema, &legacy.output_schema),
             (&None, &None)
