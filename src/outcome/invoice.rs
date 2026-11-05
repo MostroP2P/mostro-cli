@@ -41,8 +41,9 @@ pub const ORDER_ERRORS: [ErrorCode; 15] = [
     ErrorCode::OrderUnknown,
 ];
 
-/// The same for `bond.add-invoice`, which writes nothing locally.
-pub const BOND_ERRORS: [ErrorCode; 14] = [
+/// The same for `bond.add-invoice`. It writes nothing locally, but it still
+/// reads the order's key, so a store that cannot be queried is `store_unwritable`.
+pub const BOND_ERRORS: [ErrorCode; 15] = [
     ErrorCode::InvalidArguments,
     ErrorCode::ConfigurationMissing,
     ErrorCode::ConfigurationInvalid,
@@ -56,6 +57,7 @@ pub const BOND_ERRORS: [ErrorCode; 14] = [
     ErrorCode::RequestRejected,
     ErrorCode::NodeRefused,
     ErrorCode::OrderDeclined,
+    ErrorCode::StoreUnwritable,
     ErrorCode::OrderUnknown,
 ];
 
@@ -684,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn the_bond_command_has_no_store_code_and_the_order_command_has_no_share() {
+    fn both_commands_report_a_broken_store_and_only_the_bond_has_a_share() {
         let codes = |schema: &Value| -> Vec<String> {
             schema["$defs"]["ErrorCode"]["enum"]
                 .as_array()
@@ -694,7 +696,8 @@ mod tests {
                 .collect()
         };
         assert!(codes(&order_schema()).contains(&"store_unwritable".to_string()));
-        assert!(!codes(&bond_schema()).contains(&"store_unwritable".to_string()));
+        // The bond payout writes nothing, but it reads the order's key.
+        assert!(codes(&bond_schema()).contains(&"store_unwritable".to_string()));
         assert!(codes(&bond_schema()).contains(&"order_unknown".to_string()));
         assert!(order_schema()["$defs"].get("BondInvoiceData").is_none());
     }

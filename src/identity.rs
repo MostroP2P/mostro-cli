@@ -59,20 +59,44 @@ pub async fn load_identity_keys() -> Result<Keys, IdentityError> {
     load_identity_keys_from(&dir).await
 }
 
-/// Whether `path` is a WAL-mode database with no `-wal` or `-shm` file beside it.
-fn is_wal_without_sidecars(path: &Path) -> bool {
+/// How the store is opened so that SQLite creates and deletes no file beside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OpenMode {
+    /// An ordinary read-only open: a rollback-journal store without a `-wal`
+    /// file, or a store whose `-wal` and `-shm` files both exist.
+    ReadOnly,
+    /// The main file alone, as immutable: a WAL store without a `-wal` file
+    /// holds everything in the main file, and an ordinary open would create the
+    /// `-wal` and `-shm` files.
+    Immutable,
+    /// The main file alone, as immutable, of a store whose `-wal` file has no
+    /// `-shm` file: an ordinary open would create the `-shm` file to read the
+    /// WAL. The mnemonic never changes once written, so a key found in the main
+    /// file is the right one; a user row that may exist only in the WAL is
+    /// reported unreadable, not missing.
+    MainFileOnly,
+}
+
+/// How `path` can be read without a file appearing or disappearing beside it.
+/// `None` when it is too short to hold a database header: SQLite would delete
+/// the `-wal` file of an empty main file.
+pub(crate) fn open_mode(path: &Path) -> Option<OpenMode> {
     let sidecar = |suffix: &str| {
         let mut name = path.as_os_str().to_owned();
         name.push(suffix);
         PathBuf::from(name).exists()
     };
     let mut header = [0u8; 20];
-    let wal_mode = std::fs::File::open(path)
+    std::fs::File::open(path)
         .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut header))
-        .is_ok()
-        && header[18] == 2
-        && header[19] == 2;
-    wal_mode && !sidecar("-wal") && !sidecar("-shm")
+        .ok()?;
+    let wal_mode = header[18] == 2 && header[19] == 2;
+    Some(match (sidecar("-wal"), sidecar("-shm")) {
+        (true, true) => OpenMode::ReadOnly,
+        (true, false) => OpenMode::MainFileOnly,
+        (false, _) if wal_mode => OpenMode::Immutable,
+        (false, _) => OpenMode::ReadOnly,
+    })
 }
 
 /// The identity key from `dir/mcli.db`, opened read-only.
@@ -86,15 +110,15 @@ pub async fn load_identity_keys_from(dir: &Path) -> Result<Keys, IdentityError> 
         }
         Err(_) => return Err(IdentityError::Unreadable),
     }
-    // A read-only open of a WAL store makes SQLite create `-wal` and `-shm`
-    // files. When none exist yet, open it as immutable instead, which touches
-    // nothing. The mnemonic never changes after the first run, so a reader that
-    // ignores a live WAL cannot return a wrong key; with sidecars present a
-    // normal read-only open creates nothing new.
+    // A read-only open of a WAL store makes SQLite create a missing `-wal` or
+    // `-shm` file, so a store without both is read as immutable, which touches
+    // nothing (see `OpenMode`). The mnemonic never changes after the first run,
+    // so a reader that ignores a WAL cannot return a wrong key.
+    let mode = open_mode(&path).ok_or(IdentityError::Unreadable)?;
     let options = SqliteConnectOptions::new()
         .filename(&path)
         .read_only(true)
-        .immutable(is_wal_without_sidecars(&path))
+        .immutable(mode != OpenMode::ReadOnly)
         .create_if_missing(false);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -107,6 +131,7 @@ pub async fn load_identity_keys_from(dir: &Path) -> Result<Keys, IdentityError> 
     pool.close().await;
     match row {
         Err(_) | Ok(Some(None)) => Err(IdentityError::Unreadable),
+        Ok(None) if mode == OpenMode::MainFileOnly => Err(IdentityError::Unreadable),
         Ok(None) => Err(IdentityError::Missing),
         Ok(Some(Some(mnemonic))) if mnemonic.trim().is_empty() => Err(IdentityError::Unreadable),
         Ok(Some(Some(mnemonic))) => identity_keys_from_mnemonic(&mnemonic),
@@ -338,6 +363,130 @@ mod tests {
         }
 
         assert_eq!(dir.snapshot(), before);
+    }
+
+    /// Copies `names` from a live store into a new directory while its writer
+    /// is still open, as a backup that skipped the `-shm` file would.
+    fn copy_of(live: &Dir, names: &[&str]) -> Dir {
+        let copy = Dir::new();
+        for name in names {
+            fs::write(copy.0.join(name), fs::read(live.0.join(name)).unwrap()).unwrap();
+        }
+        copy
+    }
+
+    /// A WAL store copied without its `-shm` file, whose user row lives only in
+    /// `mcli.db-wal`: an ordinary read-only open would create `mcli.db-shm`,
+    /// and the main file alone has no user row. The store is reported
+    /// unreadable, not missing, and left exactly as it was.
+    #[tokio::test]
+    async fn a_wal_file_without_its_shm_file_is_unreadable_when_the_row_is_only_in_the_wal() {
+        let live = Dir::new();
+        let pool = store_in(&live, USERS, SqliteJournalMode::Wal).await;
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mnemonic = bip39::Mnemonic::generate(bip39::WordCount::Words12)
+            .unwrap()
+            .to_string();
+        User::new(mnemonic, &pool).await.unwrap();
+        let copy = copy_of(&live, &["mcli.db", "mcli.db-wal"]);
+        pool.close().await;
+        let before = copy.snapshot();
+
+        let result = load_identity_keys_from(&copy.0).await;
+
+        assert_eq!(copy.snapshot(), before, "loading changed the directory");
+        assert_eq!(result.unwrap_err(), IdentityError::Unreadable);
+    }
+
+    /// The same copy when the user row was already checkpointed into the main
+    /// file and the WAL holds only later writes: the key is read from the main
+    /// file and nothing is created.
+    #[tokio::test]
+    async fn a_wal_file_without_its_shm_file_yields_the_key_in_the_main_file() {
+        let live = Dir::new();
+        let pool = store_in(&live, USERS, SqliteJournalMode::Wal).await;
+        let mnemonic = bip39::Mnemonic::generate(bip39::WordCount::Words12)
+            .unwrap()
+            .to_string();
+        User::new(mnemonic, &pool).await.unwrap();
+        let expected = User::get_identity_keys(&pool).await.unwrap();
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE users SET last_trade_index = 5")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let copy = copy_of(&live, &["mcli.db", "mcli.db-wal"]);
+        pool.close().await;
+        let before = copy.snapshot();
+        assert!(before[1].1 > 0, "the WAL holds no frame: {before:?}");
+
+        let keys = load_identity_keys_from(&copy.0).await.unwrap();
+
+        assert_eq!(keys.public_key(), expected.public_key());
+        assert_eq!(copy.snapshot(), before, "loading changed the directory");
+    }
+
+    /// An empty `-wal` file without its `-shm` file, beside a WAL-mode or a
+    /// rollback-journal store: the key is read and nothing is created.
+    #[tokio::test]
+    async fn an_empty_wal_file_without_its_shm_file_is_read_without_changes() {
+        for mode in [SqliteJournalMode::Wal, SqliteJournalMode::Delete] {
+            let dir = Dir::new();
+            let expected = valid_store_in(&dir, mode).await;
+            fs::write(dir.0.join("mcli.db-wal"), b"").unwrap();
+            let before = dir.snapshot();
+
+            let keys = load_identity_keys_from(&dir.0).await.unwrap();
+
+            assert_eq!(keys.public_key(), expected.public_key(), "{mode:?}");
+            assert_eq!(
+                dir.snapshot(),
+                before,
+                "{mode:?}: loading changed the directory"
+            );
+        }
+    }
+
+    /// A `-shm` file without its `-wal` file: nothing lives outside the main
+    /// file, which is read as immutable. An ordinary read-only open would
+    /// create `mcli.db-wal` and rewrite the `-shm` file.
+    #[tokio::test]
+    async fn a_shm_file_without_its_wal_file_is_read_without_creating_one() {
+        let dir = Dir::new();
+        let expected = valid_store_in(&dir, SqliteJournalMode::Wal).await;
+        fs::write(dir.0.join("mcli.db-shm"), [0u8; 32768]).unwrap();
+        let before = dir.snapshot();
+
+        let keys = load_identity_keys_from(&dir.0).await.unwrap();
+
+        assert_eq!(keys.public_key(), expected.public_key());
+        assert_eq!(dir.snapshot(), before, "loading changed the directory");
+    }
+
+    /// SQLite deletes the `-wal` file of an empty main file when it opens it,
+    /// so such a store is reported unreadable without being opened.
+    #[tokio::test]
+    async fn an_empty_main_file_keeps_its_wal_file() {
+        let live = Dir::new();
+        let pool = store_in(&live, USERS, SqliteJournalMode::Wal).await;
+        let wal = fs::read(live.0.join("mcli.db-wal")).unwrap();
+        pool.close().await;
+        let dir = Dir::new();
+        fs::write(dir.db(), b"").unwrap();
+        fs::write(dir.0.join("mcli.db-wal"), wal).unwrap();
+        fs::write(dir.0.join("mcli.db-shm"), [0u8; 32768]).unwrap();
+        let before = dir.snapshot();
+
+        let result = load_identity_keys_from(&dir.0).await;
+
+        assert_eq!(dir.snapshot(), before, "loading changed the directory");
+        assert_eq!(result.unwrap_err(), IdentityError::Unreadable);
     }
 
     /// While another process has the store open, its `-wal` and `-shm` files

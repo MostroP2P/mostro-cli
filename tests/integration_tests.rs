@@ -2496,8 +2496,8 @@ mod schema_fixtures {
             ),
             (
                 "bond_unknown",
-                "a store error on a bond",
-                Box::new(|o| o["error"]["code"] = json!("store_unwritable")),
+                "a save failure on a bond, which saves nothing",
+                Box::new(|o| o["error"]["code"] = json!("order_not_saved")),
             ),
         ];
         for (case, label, edit) in variants {

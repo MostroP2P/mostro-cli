@@ -386,6 +386,8 @@ mod output_intent {
     use mostro_client::outcome::order::{SIDES, STATUSES};
     use mostro_client::outcome::ErrorCode;
     use std::ffi::OsString;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStringExt;
 
     const PUBKEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
     const ORDER: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
@@ -799,7 +801,6 @@ mod output_intent {
     #[cfg(unix)]
     #[test]
     fn non_unicode_values_keep_json_intent() {
-        use std::os::unix::ffi::OsStringExt;
         let invalid = || OsString::from_vec(vec![b'U', 0xff, b'D']);
         let args = |items: &[&str]| -> Vec<OsString> { items.iter().map(OsString::from).collect() };
 
