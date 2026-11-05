@@ -26,13 +26,13 @@ Both commands return the standard envelope (v1) with `meta.publication`, `meta.d
 | --- | --- | --- | --- |
 | accepted, row updated | `ok` | | published / accepted / applied (`bond`: not_attempted) |
 | accepted, row update failed (`order`) | `ok` + warning `local_status_stale` | | published / accepted / failed |
-| `cant-do(r)` | `error` | `node_refused` + reason `r` | published / refused / not_attempted |
+| `cant-do(r)` | `error` | `node_refused` + reason `r` | published / rejected / not_attempted |
 | no reply (`order`) / no reply (`bond`) | `uncertain` | `reply_timeout` | published / unknown / not_attempted |
 | unusable or wrong-shaped reply | `uncertain` | `reply_malformed` | published / unknown / not_attempted |
 | relay read failure after publish | `uncertain` | `relay_read_failed` | published / unknown / not_attempted |
-| unknown order or no key | `error` | `order_unknown` (new) | not_published / not_attempted / not_attempted |
-| the store cannot be queried for the order's key (both commands) | `error` | `store_unwritable` | not_published / not_attempted / not_attempted |
-| declined at the prompt | `error` | `order_declined` | not_published |
-| argument, configuration, identity, protocol, relay, work failures | `error` | as `order take` | not_published |
+| unknown order or no key | `error` | `order_unknown` (new) | not_attempted / unknown / not_attempted |
+| the store cannot be queried for the order's key (both commands) | `error` | `store_unwritable` | not_attempted / unknown / not_attempted |
+| declined at the prompt | `error` | `order_declined` | not_attempted / unknown / not_attempted |
+| argument, configuration, identity, protocol, relay, work failures | `error` | as `order take` | not_attempted / unknown / not_attempted |
 
 Statuses, exits (0 ok, 2 `invalid_arguments`, 1 otherwise) and the stable codes are those of `order take`, plus `order_unknown`.

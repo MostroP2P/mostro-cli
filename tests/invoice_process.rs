@@ -1923,6 +1923,22 @@ mod operation {
     }
 
     #[tokio::test]
+    async fn the_human_preview_reports_a_broken_store_not_an_unknown_order() {
+        // Without --yes the order's key is looked up for the preview; a store
+        // that cannot be queried gives the same code as the send path.
+        let holder = plain().await;
+        tweak(&holder, Tweak::NoOrdersTable).await;
+
+        let run = run(&holder, &order_args(&[], &[])).await;
+
+        let stderr = run.stderr_text();
+        assert_eq!(run.code(), Some(1), "{stderr}");
+        assert!(stderr.contains("cannot be written"), "{stderr}");
+        assert!(!stderr.contains("No local order"), "{stderr}");
+        assert!(holder.fake.received().is_empty(), "nothing was sent");
+    }
+
+    #[tokio::test]
     async fn only_the_order_invoice_needs_a_writable_store() {
         let holder = plain().await;
         tweak(&holder, Tweak::ReadOnly).await;
