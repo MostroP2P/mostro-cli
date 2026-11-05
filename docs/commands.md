@@ -42,6 +42,8 @@ settable via the matching env var):
     - `--invoice <STRING>`: Optional Lightning invoice.
     - `--expiration-days <i64>`: Expiration time in days for pending orders.
   - **Handler**: `execute_new_order(...)` in `src/cli/new_order.rs`.
+  - **Confirmation**: `y` (case-insensitive) or a real blank Enter approves the preview. Closed stdin/EOF is not approval. Rejection (`n`) and unrecognized answers return an error before publication; the CLI reports the error on stderr and exits 1.
+  - **Market fiat**: With a zero sats amount, a currency absent from Yadio's list returns an error with an explicit-amount (`-a`) hint, rather than exiting successfully. A nonzero amount retains the existing fixed-rate bypass.
 
 - **`takesell`**
   - **Description**: Take a sell order from a Mostro pubkey.

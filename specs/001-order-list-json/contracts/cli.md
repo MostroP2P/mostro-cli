@@ -54,7 +54,6 @@ No prompt or stdin read in listing, discovery or unsupported-JSON handling.
 | Configuration/read/internal runtime error | 1 | error envelope when possible before stdout write |
 | Valid help/version request | 0 | Conventional text even when JSON was selected |
 | Invalid/missing/duplicate output selection | 2 | Empty; safe stderr diagnostic |
-| Ambiguous output recovery on malformed argv | 2 | Empty; safe stderr diagnostic |
 | Serialization failure before writing | 1 | Safe internal_error envelope if it can be encoded, otherwise empty with stderr diagnostic |
 | Broken/partial stdout write | 1 | May be incomplete; never append another envelope |
 | Crash/external kill | OS-dependent | No final-document guarantee |
@@ -63,6 +62,34 @@ Clap decides help/version precedence; only its actual display-help/version resul
 gets the text exception. No tokens are removed or reparsed into an executable
 command by bootstrap recovery. In human mode failures remain nonzero and use safe
 stderr. No TTY-based output switching.
+
+Output selection on malformed argv follows these rules, after Clap's actual
+help/version result has been checked:
+
+- Recognize output declarations only in option positions according to Clap metadata; respect argument scopes, arities, attached values and `--`. Never search inside value text.
+- Exactly one declaration with value `json` requires a JSON error for invalid arguments elsewhere, even if the command name cannot be resolved. Use command null when unresolved; do not discard known JSON intent.
+- A missing or invalid output value, or multiple declarations (even identical ones), means exit 2, empty stdout and a safe stderr diagnostic. Do not choose the first or last declaration.
+- No declaration means default human; one valid `human` declaration means human. Other argument errors then use safe stderr and exit 2.
+- Parsing failure, unresolved command identity or a recovery-helper limitation is not an additional stderr-only exception. A helper that cannot satisfy the cases below must be corrected before the parser gate passes.
+
+The following invocation suffixes follow `mostro-cli`. All error rows require
+safe diagnostics without raw argument values and no command execution, network
+access or identity initialization.
+
+| Invocation suffix | Expected result |
+| --- | --- |
+| `--output json order list --side invalid` | Exit 2; JSON invalid_arguments, command order.list |
+| `order --output=json list --status invalid` | Exit 2; JSON invalid_arguments, command order.list |
+| `order list --output json --unknown` | Exit 2; JSON invalid_arguments, command order.list |
+| `--output json unknown` | Exit 2; JSON invalid_arguments, command null |
+| `order list --output unknown` | Exit 2; empty stdout, safe stderr |
+| `order list --output` | Exit 2; empty stdout, safe stderr |
+| `--output json order list --output=json` | Exit 2; empty stdout, safe stderr, despite identical values |
+| `--output json order list --output human` | Exit 2; empty stdout, safe stderr |
+| `order list --currency=--output=json --side invalid` | Exit 2; human-mode error on stderr, empty stdout; currency value does not select JSON |
+| `order list -- --output json` | Exit 2; human-mode error on stderr, empty stdout; terminator prevents output selection |
+| `--output json order list -- --output human` | Exit 2; JSON invalid_arguments, command order.list; terminator does not cancel prior JSON selection |
+| `--output json --help` | Exit 0; conventional help text, not a JSON error |
 
 Human listing preserves familiar fields, empty-book wording and readable tables.
 Human schema presentation is pretty-printed raw DiscoveryData, as appropriate for
@@ -128,10 +155,18 @@ Generate input metadata from Clap; share status/default/normalization validation
 and test semantic rules that JSON Schema cannot express. Preserve decimal-string
 patterns, nullable versus required fields and status/data/error constraints.
 
-During implementation, check generated command/schema fixtures into the existing
-documentation tree and compare generation in CI. The proposed examples here test
-semantic conformance, not byte-for-byte identity with generated schema formatting.
-Do not call these hand-authored examples source-generated output.
+During implementation, `docs/schemas/discovery-v1.json` is the pilot's generated
+machine-readable command reference: raw DiscoveryData, without an outcome
+envelope. `docs/schemas/order-list-v1.json` is the generated listing output schema.
+Both use the same registry/Clap/DTO generation code as offline schema. T045 owns
+their generation and drift checks; T051 runs those checks in CI, comparing parsed
+JSON and failing on stale fixtures without rewriting checked-in files.
+
+`docs/commands.md` and `README.md` remain manually maintained explanatory and
+migration documentation, linking to the generated command reference. No separate
+generated Markdown reference is required for this pilot. The proposed examples
+here test semantic conformance, not byte-for-byte identity with generated schema
+formatting. Do not call these hand-authored examples source-generated output.
 
 Contract version `1` is independent of CLI package version. Consumers reject
 unsupported schema versions and incompatible command coverage. Only optional

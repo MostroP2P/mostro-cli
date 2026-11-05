@@ -1,5 +1,241 @@
+use mostro_client::cli::new_order::{confirm_new_order, validate_market_fiat, FiatNames};
+use mostro_client::cli::take_order::{accepted_take_local_save_failed, save_taken_sell_order};
+use mostro_client::cli::Context;
 use mostro_core::prelude::*;
+use nostr_sdk::prelude::*;
+use rstest::rstest;
+use sqlx::SqlitePool;
+use std::env::{current_exe, temp_dir, var, var_os};
+use std::fs::{create_dir, read_dir, remove_dir_all};
+use std::io::stdin;
+use std::path::PathBuf;
+use std::process::{exit, Stdio};
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+use tokio::time::timeout;
 use uuid::Uuid;
+
+struct PreflightSandbox(PathBuf);
+
+impl Drop for PreflightSandbox {
+    fn drop(&mut self) {
+        let _ = remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn new_order_preflight_child() {
+    let Ok(scenario) = var("MOSTRO_TEST_PREFLIGHT") else {
+        return;
+    };
+    let fiat_names = FiatNames::from([("USD".to_string(), "US Dollar".to_string())]);
+    let result = match scenario.as_str() {
+        "confirm" => confirm_new_order(stdin().lock()),
+        "known-fiat" => validate_market_fiat("USD", &fiat_names),
+        "unknown-fiat" => validate_market_fiat("UNKNOWN", &fiat_names),
+        _ => panic!("unexpected preflight scenario"),
+    };
+    match result {
+        Ok(()) => println!("PREFLIGHT_APPROVED"),
+        Err(error) => {
+            eprintln!("{error}");
+            exit(1);
+        }
+    }
+}
+
+#[rstest]
+#[case::closed_stdin("confirm", None, Some("confirmation"))]
+#[case::empty_pipe("confirm", Some(""), Some("confirmation"))]
+#[case::blank_enter("confirm", Some("\n"), None)]
+#[case::windows_enter("confirm", Some("\r\n"), None)]
+#[case::yes("confirm", Some("y\n"), None)]
+#[case::uppercase_yes("confirm", Some("Y\n"), None)]
+#[case::rejection("confirm", Some("n\n"), Some("cancelled"))]
+#[case::uppercase_rejection("confirm", Some("N\n"), Some("cancelled"))]
+#[case::invalid_answer("confirm", Some("maybe\n"), Some("confirmation"))]
+#[case::known_fiat("known-fiat", None, None)]
+#[case::unknown_fiat("unknown-fiat", None, Some("-a"))]
+#[tokio::test]
+async fn new_order_preflight_process(
+    #[case] scenario: &str,
+    #[case] input: Option<&str>,
+    #[case] expected_error: Option<&str>,
+) {
+    let sandbox_path = temp_dir().join(format!("mostro-preflight-{}", Uuid::new_v4()));
+    create_dir(&sandbox_path).unwrap();
+    let sandbox = PreflightSandbox(sandbox_path);
+    let mut command = Command::new(current_exe().unwrap());
+    command
+        .args(["--exact", "new_order_preflight_child", "--nocapture"])
+        .env_clear()
+        .env("MOSTRO_TEST_PREFLIGHT", scenario)
+        .env("HOME", &sandbox.0)
+        .env("USERPROFILE", &sandbox.0)
+        .env("MCLI_DIR", &sandbox.0)
+        .current_dir(&sandbox.0)
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    for name in ["SYSTEMROOT", "WINDIR"] {
+        if let Some(value) = var_os(name) {
+            command.env(name, value);
+        }
+    }
+    let mut child = command.spawn().unwrap();
+    if let Some(input) = input {
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .await
+            .unwrap();
+    }
+    if timeout(Duration::from_secs(40), child.wait())
+        .await
+        .is_err()
+    {
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        panic!("preflight child exceeded its deadline");
+    }
+    let output = child.wait_with_output().await.unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(read_dir(&sandbox.0).unwrap().next().is_none());
+    assert_eq!(
+        output.status.code(),
+        Some(if expected_error.is_some() { 1 } else { 0 }),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_eq!(
+        stdout.contains("PREFLIGHT_APPROVED"),
+        expected_error.is_none()
+    );
+    if let Some(message) = expected_error {
+        assert!(stderr.contains(message), "stderr: {stderr}");
+    }
+}
+
+const TAKEN_SELL_ORDER: &str = "61bd0415-a9bc-4c9c-a1fc-bb2c305cf3b0";
+
+fn taken_sell_order_id() -> Uuid {
+    Uuid::parse_str(TAKEN_SELL_ORDER).unwrap()
+}
+
+async fn take_save_pool(last_trade_index: i64) -> SqlitePool {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::query(
+        r#"
+        CREATE TABLE orders (
+            id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
+            amount INTEGER NOT NULL, min_amount INTEGER, max_amount INTEGER,
+            fiat_code TEXT NOT NULL, fiat_amount INTEGER NOT NULL,
+            payment_method TEXT NOT NULL, premium INTEGER NOT NULL,
+            trade_keys TEXT, counterparty_pubkey TEXT, is_mine BOOLEAN,
+            buyer_invoice TEXT, request_id INTEGER, created_at INTEGER,
+            expires_at INTEGER, solver_pubkey TEXT
+        );
+        CREATE TABLE users (
+            i0_pubkey char(64) PRIMARY KEY, mnemonic TEXT,
+            last_trade_index INTEGER, created_at INTEGER
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO users VALUES (?, 'test', ?, 0)")
+        .bind("ab".repeat(32))
+        .bind(last_trade_index)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
+fn offline_take_ctx(pool: SqlitePool, trade: &Keys, trade_index: i64) -> Context {
+    Context {
+        client: Client::builder()
+            .authenticator(SignerAuthenticator::new(trade.clone()))
+            .build(),
+        identity_keys: trade.clone(),
+        trade_keys: trade.clone(),
+        trade_index,
+        pool,
+        context_keys: None,
+        mostro_pubkey: Keys::generate().public_key(),
+    }
+}
+
+#[tokio::test]
+async fn takesell_post_accept_save_keeps_accepted_status_and_order_cause() {
+    let pool = take_save_pool(3).await;
+    sqlx::query(
+        "CREATE TRIGGER refuse_orders BEFORE INSERT ON orders \
+         BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let order_id = taken_sell_order_id();
+    let ctx = offline_take_ctx(pool, &Keys::generate(), 4);
+
+    let error = accepted_take_local_save_failed(
+        &order_id,
+        save_taken_sell_order(&order_id, None, 77, &ctx)
+            .await
+            .expect_err("a refused order insert must not report success"),
+    );
+    let text = format!("{error:#}");
+
+    assert!(
+        text.contains(&format!("Mostro accepted the take of {order_id}")),
+        "{text}"
+    );
+    assert!(text.contains("disk full"), "{text}");
+    assert!(
+        mostro_client::db::Order::get_by_id(&ctx.pool, TAKEN_SELL_ORDER)
+            .await
+            .is_err(),
+        "no local row after a refused insert"
+    );
+}
+
+#[tokio::test]
+async fn takesell_post_accept_save_keeps_accepted_status_and_index_cause() {
+    let pool = take_save_pool(3).await;
+    sqlx::query("DROP TABLE users")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let order_id = taken_sell_order_id();
+    let ctx = offline_take_ctx(pool, &Keys::generate(), 4);
+
+    let error = accepted_take_local_save_failed(
+        &order_id,
+        save_taken_sell_order(&order_id, None, 77, &ctx)
+            .await
+            .expect_err("a missing user row must not report success"),
+    );
+    let text = format!("{error:#}");
+
+    assert!(
+        text.contains(&format!("Mostro accepted the take of {order_id}")),
+        "{text}"
+    );
+    assert!(
+        text.contains("trade index") || text.contains("local user") || text.contains("user"),
+        "{text}"
+    );
+}
 
 // Test rate_user helper function
 #[test]

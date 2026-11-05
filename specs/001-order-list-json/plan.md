@@ -20,7 +20,7 @@ context initialization or other effects. MCP stays a separate, unchanged client.
 
 ## Technical Context
 
-**Language/Version**: Rust 2021; declared minimum 1.86; pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
+**Language/Version**: Rust 2021; declared minimum 1.94 (raised from 1.86 after T009 showed the locked graph needs it); pinned development toolchain 1.97.0. Planning does not verify MSRV or platform compatibility.
 
 **Primary Dependencies**: Existing Clap 4.6.7, mostro-core =0.17.3, resolved nostr-sdk 0.45.4 / nostr 0.45.5, Tokio, futures, Serde/serde_json, chrono, UUID, comfy-table and rustls. Explicitly enable Serde derive. Proposed addition: schemars 1.2.3, defaults disabled, only `derive` and `std`, for source-generated DTO schemas. Verify the resolved graph against MSRV.
 
@@ -75,7 +75,9 @@ they are not pilot acceptance.
 6. Run focused/required gates and native Windows/Linux acceptance; record actual evidence.
 
 The [task list](tasks.md) assigns test-first dependencies and carries these
-baseline prerequisites explicitly. Its tasks remain unexecuted.
+baseline prerequisites explicitly. Setup T001-T003 and baseline checkpoints
+T004-T010 are recorded in [the test summary](../../tests/TEST_SUMMARY.md#t010-baseline-gate-decision-2026-10-20);
+the baseline gate is closed with recorded exceptions and T011-T055 remain pending.
 
 ## Execution Design
 
@@ -84,8 +86,11 @@ baseline prerequisites explicitly. Its tasks remain unexecuted.
 Use `args_os()` and fallible Clap parsing. `--output` is a global value enum,
 default human regardless of TTY. On parse failure recover intent through a small
 Clap-metadata-led bootstrap, not substring scans or token removal. Respect scopes,
-arities, attached/hyphen values and `--`. Invalid/ambiguous output selection has
-a safe stderr fallback; help/version remain text exceptions.
+arities, attached/hyphen values and `--`. Follow the malformed-argv decision table
+in [the CLI contract](contracts/cli.md#streams-and-exit-codes): invalid/missing/
+duplicate output selection uses safe stderr; unrelated argument errors preserve
+clear JSON intent, even with unresolved command identity. Helper limitations do
+not create fallback exceptions. Help/version remain text exceptions.
 
 Dispatch: parse, capability guard, offline schema, public listing, legacy human.
 Validate filters/config before networking. Schema and rejection precede
@@ -163,7 +168,8 @@ specs/001-order-list-json/
   checklists/requirements.md
 ```
 
-The task list is generated; its checkboxes track execution, not design approval.
+The task list records T001-T010 as complete; its checkboxes track
+execution, not design approval or completion of the pilot.
 
 ### Planned Source Changes (Repository Root)
 

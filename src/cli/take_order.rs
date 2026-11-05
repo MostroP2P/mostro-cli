@@ -145,16 +145,28 @@ pub async fn execute_take_order(
     if action == Action::TakeSell && invoice.is_some() {
         save_taken_sell_order(order_id, amount, request_id, ctx)
             .await
-            .map_err(|e| anyhow::anyhow!("Mostro accepted the take of {order_id}, but {e}"))?;
+            .map_err(|error| accepted_take_local_save_failed(order_id, error))?;
     }
 
     Ok(())
 }
 
+/// Error after Mostro accepted a takesell: the trade exists remotely, but the
+/// local row or trade index was not written. Callers must not retry blindly.
+pub fn accepted_take_local_save_failed(
+    order_id: &Uuid,
+    cause: impl Into<anyhow::Error>,
+) -> anyhow::Error {
+    anyhow::anyhow!(
+        "Mostro accepted the take of {order_id}, but {}",
+        cause.into()
+    )
+}
+
 /// Saves a sell order this client has just taken with its invoice, unless a
 /// row for it exists already (a bond-invoice reply saves it first). Like the
 /// other takes, this records the take's trade index as the last one used.
-async fn save_taken_sell_order(
+pub async fn save_taken_sell_order(
     order_id: &Uuid,
     fiat_amount: Option<u32>,
     request_id: u64,
@@ -368,39 +380,5 @@ mod tests {
         let row = Order::get_by_id(&ctx.pool, ORDER).await.unwrap();
         assert_eq!(row.trade_keys, Some(first.secret_key().to_secret_hex()));
         assert_eq!(row.request_id, Some(77));
-    }
-
-    #[tokio::test]
-    async fn a_trade_index_that_cannot_advance_is_an_error() {
-        // The order row is written, but no user row can take the index: the
-        // next take would reuse it, so this take must not report success.
-        let pool = pool_with_user(3).await;
-        sqlx::query("DROP TABLE users")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let ctx = offline_ctx(pool, &Keys::generate(), 4);
-
-        let result = save_taken_sell_order(&order_id(), None, 77, &ctx).await;
-
-        assert!(result.is_err(), "{result:?}");
-    }
-
-    #[tokio::test]
-    async fn an_order_that_cannot_be_written_is_an_error() {
-        // The row is missing, as after any such take, and the insert fails.
-        let pool = pool_with_user(3).await;
-        sqlx::query(
-            "CREATE TRIGGER refuse_orders BEFORE INSERT ON orders \
-             BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let ctx = offline_ctx(pool, &Keys::generate(), 4);
-
-        let result = save_taken_sell_order(&order_id(), None, 77, &ctx).await;
-
-        assert!(result.is_err(), "{result:?}");
     }
 }

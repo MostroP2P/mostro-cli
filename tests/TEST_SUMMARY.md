@@ -1,6 +1,544 @@
 # Test Suite Summary
 
-This document provides a comprehensive overview of the unit tests generated for the changes in this branch compared to `main`.
+This document records current refactor evidence followed by the historical test
+inventory. Historical totals and coverage descriptions are not verification of
+the current checkout or the planned JSON pilot.
+
+## Refactor Baseline Intake: 2026-10-16
+
+**Scope**: T001 of the [order-list task list](../specs/001-order-list-json/tasks.md).
+This is a documentation and source-inspection checkpoint, not a Cargo test run.
+
+### Checkout Snapshot Before T001 Edits
+
+Git status was checked in both repositories on native Windows using Git Bash.
+Both remain on `develop`; no branch switch, staging, commit or remote operation
+was performed during this intake.
+
+| Repository | Observed working tree |
+| --- | --- |
+| mostro-cli | Seven modified, unstaged files below; no staged or untracked files |
+| mcp | No staged changes; three untracked files: AGENTS.md, mostro-cli-mcp.code-workspace, plan-aiReadyMostroCli.prompt.md |
+
+CLI files already modified at intake:
+
+- [src/parser/dms.rs](../src/parser/dms.rs)
+- [spec.md](../specs/001-order-list-json/spec.md)
+- [plan.md](../specs/001-order-list-json/plan.md)
+- [tasks.md](../specs/001-order-list-json/tasks.md)
+- [research.md](../specs/001-order-list-json/research.md)
+- [quickstart.md](../specs/001-order-list-json/quickstart.md)
+- [contracts/cli.md](../specs/001-order-list-json/contracts/cli.md)
+
+Preserve these changes. The feature-document edits include the approved A1
+output-selection clarification and U1 generated-command-reference decision.
+This snapshot predates the T001 summary and task-status edits themselves.
+
+### Prior Evidence And Current Inspection
+
+Earlier session results, also recorded in the
+[cross-repository roadmap](../../mcp/plan-aiReadyMostroCli.prompt.md), are inherited
+evidence only: native Windows `cargo test --locked` passed 151 tests, followed by
+successful formatting, all-target/all-feature Clippy with warnings denied, and
+debug build checks. After the earlier import cleanup, 18 parser unit cases,
+formatting and Clippy were reported passing again. These results predate this
+intake and later user edits; none has been rerun as part of T001.
+
+Current source inspection of [dms.rs](../src/parser/dms.rs) confirms that
+WaitingSellerToPay propagates a failed local status save and LastTradeIndex
+rejects missing data/user or failed persistence before printing success. The
+two waiting-seller cases, three trade-index persistence cases and missing-index
+case remain present with in-memory failure injection. Presence is not runtime
+verification; T004 must rerun them against the then-current checkout. No Rust
+source was edited during this intake.
+
+The earlier native Windows MCP test-compilation failure remains an unverified
+baseline blocker: its stdio fixture uses Unix-only PermissionsExt/from_mode.
+It was not rerun or repaired here. Linux runtime, declared MSRVs, the full
+command/output/post-state matrix and CLI/core/daemon regtest compatibility remain
+unverified. No live relays, trades, real identity databases or secrets were used.
+
+### Intake Checks And Next Gate
+
+- Spec Kit prerequisite discovery passed with `--json --require-tasks --include-tasks` and resolved the existing order-list feature; its feature identifier is not the Git branch name.
+- The specification-quality checklist has 16 checked items and none unchecked. It is a requirements-review gate, not implementation acceptance.
+- Existing ignore files cover the Cargo target directory, local environment/editor files, Spec Kit feature pointer and Python caches; no ignore-file change was needed for this documentation-only task.
+- No extension hooks were found. Before editing, this historical summary already had 93 Markdown diagnostics; unrelated formatting is left unchanged.
+- Next are T002 (production-size/import inventory) and T003 (listing characterization). T004-T010 still govern the baseline gate before pilot production work; no JSON command is implemented by T001.
+
+## T002 And T003 Verification: 2026-10-16
+
+**Scope**: Production-size/import inventory and existing listing behavior, not
+the JSON pilot. See the [measured architecture inventory](../docs/architecture.md#production-inventory-2026-10-16)
+for all 42 source files, five oversized modules and planned ownership splits.
+
+Characterization reuses [parser_orders.rs](parser_orders.rs) and
+[integration_tests.rs](integration_tests.rs): 38 parser cases and 12 integration
+cases now pass, up from 11 and 4 respectively (35 additional cases).
+
+| Behavior | Evidence |
+| --- | --- |
+| Latest state before status/side/currency filtering | Older matching events cannot resurrect an order whose newest state no longer matches |
+| Duplicates and timestamp ties | Deduplicated event IDs; lowest event ID wins same-order equal-time ties; cross-order ties assert membership, not unstable order |
+| Decoder permissiveness | Missing/invalid identity or side skips; absent status differs from invalid status; missing/bad numeric fields, partial/reversed ranges and signed i64 extremes retain existing behavior |
+| Filters and defaults | Real command helper defaults to pending, accepts status case variants and rejects padding; reducer currency matching remains exact, including empty strings |
+| Query construction | Injected UTC clock verifies the exact seven-day boundary; actual create_filter path verifies author, kind 38383, z=order, limit 50 and absence of extra fields such as until |
+| Human output | Empty-book wording, ID, side, status, sats/market, currency, fixed/range fiat, joined payment method, premium and UTC event date/time |
+
+Two behavior-preserving testability extractions were made:
+`parse_status_filter` is used by the existing list command, and
+`create_seven_days_filter_at` receives the clock while existing order/dispute
+query paths continue to pass `Utc::now()`. No new command, dependency, transport,
+storage effect or JSON interface was introduced. The DM parser's existing edits
+were not changed. New fixtures use generated signing keys, fixed timestamps and
+in-memory contexts without relay connections or identity initialization.
+
+The first reducer characterization passed on existing behavior. Initial new
+table assertions failed because the tests assumed a uniform border separator,
+then because they treated colored cells as plain strings. Only those assertions
+were corrected against the existing comfy-table preset and colored output;
+these were test defects, not production bugs.
+
+Executed on native Windows, host `x86_64-pc-windows-msvc`, with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0 (c980f4866), from Git Bash:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test parser_orders --test integration_tests` | PASS: 38 + 12 = 50 cases |
+| `cargo fmt --all -- --check` | PASS after formatting only the four touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 186 tests; no failed or ignored cases |
+| `cargo build --locked` | PASS |
+
+The full run includes the six existing DM persistence regression cases. At the
+T003 handoff, T004 remained pending as the next explicit checkpoint; its fresh
+focused results follow below. Linux, MSRV, MCP fixture migration, the complete command/state matrix and
+regtest compatibility remain outside this increment. T010's baseline gate is
+still open. No commits, public-node trades or real identity reads were performed.
+
+## T004 Persistence Checkpoint: 2026-10-16
+
+**Scope**: Rerun the existing WaitingSellerToPay and LastTradeIndex regressions
+against the current checkout after the T003 handoff and subsequent user edits.
+The current handlers and fixtures in [dms.rs](../src/parser/dms.rs) were inspected
+before execution. All six cases passed without modifying Rust source or tests.
+
+Executed on native Windows (`x86_64-pc-windows-msvc`) using rustc/Cargo 1.97.0
+from Git Bash. The repository remains on `develop`, with existing unstaged
+changes preserved. The fixtures use generated keys, in-memory SQLite and
+synthetic user data; their clients are constructed without connecting to relays.
+Save failures are injected with SQLite BEFORE UPDATE triggers. No real identity
+database, private credentials or live trades are involved.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --lib parser::dms::tests::waiting_seller_to_pay_reports_persistence_result` | PASS: 2 cases, 0 failures |
+| `cargo test --locked --lib parser::dms::tests::last_trade_index` | PASS: 4 cases, 0 failures |
+
+| Regression case | Verified assertion |
+| --- | --- |
+| WaitingSellerToPay successful save | Returns success and stores waiting-payment status |
+| WaitingSellerToPay rejected save | Returns an error retaining the injected cause; stored status stays pending |
+| LastTradeIndex successful save | Returns success and changes the stored index from 3 to 7 |
+| LastTradeIndex rejected save | Returns an error retaining the injected cause; stored index stays 3 |
+| LastTradeIndex missing user | Returns an explicit local-user error instead of success |
+| LastTradeIndex missing index | Returns an explicit trade-index error instead of success |
+
+These are passing regressions for already-correct fixes, not newly reproduced
+production defects. T004 does not alter the recent listing-test/query-helper
+edits, add tests or repeat the historical fixes. Only evidence and task/plan
+status are updated. The T003 full-suite/fmt/Clippy/build results remain historical
+to that increment; they were not rerun or claimed as fresh checks for this
+documentation-only checkpoint. Linux, MSRV and daemon compatibility remain
+unverified. T005 is next and T010's baseline gate is still open.
+
+## T005 New-Order Preflight: 2026-10-16
+
+**Scope**: Bounded confirmation and unknown-market-fiat repair in
+[new_order.rs](../src/cli/new_order.rs), tested through
+[cli_functions.rs](cli_functions.rs). Started from clean CLI commit `443dc56`
+on `develop`; no Git mutations, MCP changes or new dependencies were made.
+
+The real handler now delegates to `confirm_new_order` and
+`validate_market_fiat`. An initial behavior-preserving extraction exposed the
+existing checks to an isolated subprocess: 6 of 11 cases failed because closed
+stdin and an empty pipe were approved, while rejection, invalid input and unknown
+fiat terminated with exit 0. Real LF/CRLF Enter, lowercase/uppercase `y`, and
+known fiat already passed. After the repair the same 11 cases passed; they
+passed again after tightening fixture cleanup and checking for filesystem effects.
+
+| Input | Verified preflight result after repair |
+| --- | --- |
+| Closed stdin and an empty, closed pipe | Error containing confirmation context; child exits 1 without approval |
+| Real blank Enter, both LF and CRLF | Returns success and reaches the approval marker |
+| `y` and `Y` | Returns success and reaches the approval marker |
+| `n` and `N` | Cancellation error; child exits 1 without approval |
+| Unrecognized answer | Confirmation error; child exits 1 without approval |
+| Known synthetic market fiat | Returns success |
+| Unknown synthetic market fiat | Error retaining the explicit-amount `-a` hint; child exits 1 without approval |
+
+The confirmation helper checks the zero-byte EOF result before interpreting the
+answer. Both helpers return errors rather than terminating the process. Source
+inspection confirms the handler calls them with `?` before publication,
+`Commands::run` propagates the handler result, and `main` prints errors to stderr
+and exits 1. The existing nonzero-amount bypass is unchanged. The production file
+has 198 physical/production lines, below the 400-line limit.
+
+The child is the existing integration-test executable running only its preflight
+entrypoint, not the full CLI. It has an allow-listed environment (only necessary
+Windows system paths plus fixture values), a unique temporary cwd/HOME/USERPROFILE/
+MCLI_DIR, captured streams, a 40-second watchdog, kill/reap cleanup and no shell.
+Each child leaves its fixture directory empty, and the parent removes that
+directory after completion. The fiat list is in memory; no HTTP server, Yadio
+request, Nostr client, real identity, invoice, DB or publication is involved.
+This does not establish full-command startup, network or persistence behavior.
+
+Executed on native Windows (`x86_64-pc-windows-msvc`) with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0 (c980f4866), from Git Bash:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions new_order_preflight_process` before repair | Expected RED: 6 failed, 5 passed |
+| Same focused command immediately after repair and after fixture cleanup changes | PASS: 11 cases on each run |
+| `cargo fmt --all -- --check` | PASS after formatting only the two touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 198 tests, including 42 CLI cases (11 new regressions and one child entrypoint); no failures or ignored cases |
+| `cargo build --locked` | PASS |
+
+No `--yes`, write JSON, retry, transport or persistence-model changes were added.
+T001-T005 are complete; T006 follows below. Linux, MSRV, the complete command/state
+matrix and daemon compatibility remain unverified; T010's baseline gate remains
+open. The JSON pilot is still unimplemented.
+
+## T006 Takesell Post-Accept Save: 2026-10-16
+
+**Scope**: Spec Kit alignment for take-sell-with-invoice post-accept-save failure
+coverage in [cli_functions.rs](cli_functions.rs) against
+[take_order.rs](../src/cli/take_order.rs). The production defect (success after a
+failed local save) was already fixed on `main` (#205); this increment does not
+change the persistence model.
+
+`save_taken_sell_order` and `accepted_take_local_save_failed` are public so the
+integration tests can exercise the same path `execute_take_order` uses after a
+correlated reply. Two synthetic in-memory cases refuse the order insert (`disk
+full` trigger) or drop the `users` table before the index write. Each wraps the
+save error with the accepted-take helper and asserts both the
+`Mostro accepted the take of …` status and the original cause. No Nostr publish,
+real invoice, retry or live node is involved. The book is unreachable (offline
+client), so the helper saves id and trade keys only — the same post-accept path.
+
+Focused regressions previously living only under `take_order`'s `#[cfg(test)]`
+were moved into `cli_functions` to match the task path; successful-save unit
+cases remain in `take_order.rs`.
+
+Executed on native Linux (`x86_64-unknown-linux-gnu`) with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0, after rebasing `develop` onto `origin/main`:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test cli_functions takesell_post_accept` | PASS: 2 cases |
+| `cargo test --locked --lib take_order` | PASS: 5 remaining unit cases |
+| `cargo fmt --all -- --check` | PASS after formatting the two touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 215 tests across lib and integration suites; no failures or ignored cases |
+| `cargo build --locked` | PASS |
+
+T001-T006 are complete; T007 is next. Linux/WSL regtest, MSRV and the full
+command/state matrix remain unverified; T010's baseline gate remains open. The
+JSON pilot is still unimplemented.
+
+## T007 Unrelated-Kind-14 Reply Correlation: 2026-10-19
+
+**Scope**: Prove that the reply wait in [messaging.rs](../src/util/messaging.rs)
+skips an unrelated kind-14 reaching the trade key before the correlated reply,
+through new coverage in [integration_tests.rs](integration_tests.rs). This is a
+baseline-gate prerequisite, not JSON-pilot work.
+
+The two wait paths were compared. The correlating path (`wait_for_dm_matching`
+→ `wait_for_reply`, used by `getuserinfo`) keeps the REQ open for the full
+window and filters each event by `is_mostro_reply` then
+`event_matches_expected_reply` (decrypt → `message_matches_expected_reply`:
+request_id first, then action allow-list). Its message-level predicates were
+already unit-tested, but the event-level path (decrypt + parse) had no isolated
+test. The per-event decision was extracted, behavior-preserving, into a public
+`select_reply_event` helper (composing the existing predicates); `ExpectedReply`
+gained a public `new` constructor. The wait loop now calls the extracted
+helper, so the integration tests exercise the exact production decision.
+
+Two synthetic tests build real NIP-44 kind-14 events (Mostro authors/signs and
+addresses them to a generated trade key) and assert:
+
+| Scenario | Result |
+| --- | --- |
+| Unrelated Mostro kind-14 (wrong request_id) arriving first | Skipped; correlated reply that follows is accepted |
+| Same unrelated event under the non-correlating path (`expected = None`) | Accepted (documents why id-bearing flows must correlate) |
+| NIP-17 peer chat from a stranger with a matching id | Skipped (not authored by Mostro) |
+| Our own echoed request (admin-as-Mostro) | Skipped by event id; identical event accepted when not our echo |
+
+The path is already correct, so these are passing characterization tests, not a
+reproduced defect. No production behavior changed. No Nostr client, relay, real
+identity or live node is involved; events are built in memory with generated
+keys.
+
+**Deferred finding (not a T007 change)**: the non-correlating `wait_for_dm`
+closes after the first `is_mostro_reply` kind-14. If an unrelated Mostro kind-14
+to the same trade key arrived first, `validate_response(request_id)` in
+`print_dm_events` rejects it — a safe error, not a false success — and per-order
+trade keys make the collision unlikely. Converting those id-bearing callers
+(`take_order`, `new_order`, `add_invoice`, …) to `wait_for_dm_matching` is a
+cross-command change that belongs with the later write-executor migration, so it
+is recorded here rather than attempted now. End-to-end coverage of the live wait
+loop (notification ordering, EOSE, subscription close) needs the SDK local-relay
+harness built in T013/T015, also outside this baseline checkpoint.
+
+Executed on native Linux (`x86_64-unknown-linux-gnu`) with rustc 1.97.0
+(2d8144b78) and Cargo 1.97.0:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test integration_tests correlating_wait` | PASS: 2 cases |
+| `cargo test --locked` | PASS: 217 tests (integration 12 → 14); no failures or ignored cases |
+| `cargo fmt --all -- --check` | PASS after formatting the two touched Rust files |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo build --locked` | PASS |
+
+T001-T007 are complete; T008 is next. Linux/WSL regtest, MSRV and the full
+command/state matrix remain unverified; T010's baseline gate remains open. The
+JSON pilot is still unimplemented.
+
+## T008 Existing-Command State Matrix: 2026-10-19
+
+**Scope**: Catalogue every existing `Commands` variant against the
+success/failure/human-output/post-state dimensions and mark each unverified cell
+explicitly, as a baseline-gate input for T010. Documentation checkpoint — no
+code changed; the evidence basis is the T007 run (`cargo test --locked`, 217
+passing). No live node, real identity or relay was used.
+
+**Inventory source**: `docs/commands.md` plus the authoritative Clap `Commands`
+enum in `src/cli.rs` (33 variants). The roadmap inventory
+`../mcp/plan-aiReadyMostroCli.prompt.md` is **absent on this Linux checkout** and
+could not be cross-referenced; recorded as a known limitation. The enum includes
+`addbondinvoice`, `admsetmaintenance` and `admmaintenancestatus`, which are not
+yet in `docs/commands.md` (doc drift to fix in T049).
+
+**Legend**
+- `F` — isolated-fixture evidence (in-memory SQLite, synthetic signed events,
+  subprocess, or parser fixtures).
+- `P` — payload/parse-only: message construction or argument parsing is
+  verified, but the full request→reply flow is not exercised.
+- `RO` — read-only command; no local writes, covered by pure parser/reducer
+  fixtures.
+- `—` — unverified: no isolated evidence yet (needs the T013 process/transport
+  harness).
+
+| Command | Success | Failure | Human output | Post-state | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| `listorders` | F | F (status validation) | F | RO | `parser_orders.rs` (38); `integration_tests.rs` listing/filter |
+| `neworder` | P + F (preflight) | F (closed-stdin/EOF/`n`/unknown/unknown-fiat) | — | F (no publish/fs effect pre-approval) | `cli_functions.rs` `new_order_preflight_process`, `test_new_order_message_with_trade_index` |
+| `takesell` | P + F (save) | F (post-accept save order/index failure) | — | F | `cli_functions.rs` `takesell_post_accept_*`, take-sell payloads; lib `take_order` |
+| `takebuy` | P | — | — | P (shared `save_order` path) | `cli_functions.rs` `test_take_buy_payload_with_amount`; lib `take_order` |
+| `addinvoice` | — | — | — | — | none |
+| `addbondinvoice` | P (no-reply=success logic) | P (`WaitForDmTimeout` vs `PowRequirementUnmet`) | — | — | lib `messaging` `pow_requirement_unmet_*` |
+| `fiatsent` | P | — | — | — | `cli_functions.rs` `test_send_msg_fiat_sent_action` |
+| `release` | P | — | — | — | `cli_functions.rs` `test_send_msg_release_action` |
+| `cancel` | P | — | — | — | `cli_functions.rs` `test_send_msg_cancel_action` |
+| `ordersinfo` | P | F (empty order-ids) | — | — | `cli_functions.rs` `test_orders_info_*` |
+| `dispute` | P | — | — | — | `cli_functions.rs` `test_send_msg_dispute_action` |
+| `listdisputes` | F | — | F | RO | `parser_disputes.rs` (9) |
+| `getdm` | F (parse) | — | F | RO | `parser_dms.rs` (19) |
+| `getdmuser` | F (kind-14 parse) | — | F | RO | `parser_dms.rs` `parse_dm_events_accepts_wrap_message_output` |
+| `senddm` | P | — | — | — | `cli_functions.rs` `test_dm_message_creation` |
+| `dmtouser` | P (wrap/parse) | — | — | — | lib `messaging` roundtrip; `parser_dms.rs` accepts-wrap |
+| `disputechat` | P (shared kind-14 wrap/parse) | — | — | — | lib `messaging` roundtrip; `parser_dms.rs` |
+| `getadmindm` | F (parse) | — | F | RO | `parser_dms.rs` (shared `execute_get_dm` display) |
+| `admsenddm` | — | — | — | — | none |
+| `sendadmindmattach` | — | — | — | — | none |
+| `conversationkey` | — | — | — | — | none |
+| `getlasttradeindex` | P | F (reply persistence failure) | — | F | `cli_functions.rs` `test_last_trade_index_message`; lib `parser::dms` `last_trade_index` (4) |
+| `getlasttradeprivkey` | — | — | — | — | none |
+| `getuserinfo` | F (id/action correlation, first-contact PoW) | F (PoW unmet, uncorrelated skip) | — | — | `integration_tests.rs` `correlating_wait_*`; lib `messaging` correlation + PoW |
+| `restore` | P | — | P (payload display) | — (known gap, issue #188) | `cli_functions.rs` restore msgs; `parser_dms.rs` restore payload |
+| `admcancel` | P | — | — | — | `cli_functions.rs` `test_dispute_message_cancel` |
+| `admsettle` | P | — | — | — | `cli_functions.rs` `test_dispute_message_settle` |
+| `admcancelpending` | F (pre-context RPC routing) | — | — | — | `cli_functions.rs` `rpc_commands_are_routed_before_the_nostr_context` |
+| `admaddsolver` | P + F (own-echo skip) | — | — | — | `cli_functions.rs` `test_dispute_message_creation_add_solver`; lib `messaging` own-echo skip |
+| `admtakedispute` | P | — | — | — | `cli_functions.rs` `test_dispute_message_take` |
+| `admsetmaintenance` | F (parse + routing) | F (requires `enabled` value) | — | — | `cli_functions.rs` `admsetmaintenance_*`, RPC routing |
+| `admmaintenancestatus` | F (parse + routing) | — | — | — | `cli_functions.rs` `admmaintenancestatus_parses_without_arguments` |
+| `rate` | P | F (rating out of range) | — | — | `cli_functions.rs` rating/payload tests |
+
+**Findings for the T010 gate**
+1. **Systemic gap**: there is no fake-transport harness yet (that is T011-phase
+   T013), so end-to-end request→reply **success** and relay/read **failure** are
+   unverified for essentially every mutating and RPC command. Coverage today is
+   strong at the payload/parse and parser/human-output layers, thin at the
+   full-flow layer.
+2. **Human output** is fixture-verified only for the read/display commands
+   (`listorders`, `listdisputes`, `getdm`/`getdmuser`/`getadmindm`); mutating
+   commands' reply rendering is unverified.
+3. **Post-state** is fixture-verified only where isolated SQLite fixtures exist:
+   takesell post-accept save (success and failure), last-trade-index persistence
+   (via the DM handler) and new-order preflight no-publish/no-fs-effect.
+4. **Known defect**: `restore` does not persist recovered orders (issue #188);
+   its post-state remains an open gap, not a verified row.
+5. **Doc drift**: `docs/commands.md` omits `addbondinvoice`,
+   `admsetmaintenance`, `admmaintenancestatus`; reconcile in T049.
+
+T001-T008 are complete; T009 is next (native Windows/Linux baseline, declared
+MSRV and CLI/core/daemon compatibility). The matrix above shows most
+mutating-command rows stay explicitly unverified until the T013 harness lands;
+T010's baseline gate remains open and the JSON pilot is unimplemented.
+
+## T009 Platform, MSRV And Compatibility Baseline: 2026-10-20
+
+**Scope**: Record the native platform baseline, the declared-MSRV check and a
+CLI/core/daemon compatibility check, as a T010 input. No Rust source, MCP code,
+dependency or MSRV declaration was changed.
+
+### Linux Baseline (Pinned Toolchain)
+
+Native Linux (`x86_64-unknown-linux-gnu`), rustc/Cargo 1.97.0 from
+`rust-toolchain.toml`, on the T008 checkout (`66bf573`):
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests; no failures or ignored cases |
+| `cargo build --locked` | PASS |
+
+### Windows Baseline
+
+**Blocked**: no native Windows host is available in this environment. The
+earlier Windows results (T001-T005, `x86_64-pc-windows-msvc`) predate T006-T008
+and are not a current Windows baseline. The known MCP Windows test-compilation
+blocker (Unix-only `PermissionsExt` in its stdio fixture) remains unverified.
+
+### Declared MSRV
+
+`Cargo.toml` declares `rust-version = "1.86"`. The locked dependency graph does
+not support it:
+
+| Command | Result |
+| --- | --- |
+| `cargo +1.86.0 check --locked --all-targets --all-features` | **FAIL** at dependency resolution |
+| `cargo +1.93.0 check --locked --all-targets --all-features` | **FAIL** at dependency resolution |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+Packages that reject 1.86.0: `sqlx`, `sqlx-core`, `sqlx-macros`,
+`sqlx-macros-core` and `sqlx-sqlite` 0.9.0 (require 1.94.0); dev-dependencies
+`serial_test`/`serial_test_derive` 4.0.1 (require 1.93.1); `tonic`/`tonic-prost`
+0.14.6 (require 1.88). The effective minimum of the locked graph is therefore
+**1.94.0**. The declaration was not changed and no dependency was downgraded;
+whether to raise `rust-version` or pin older dependencies is an open maintainer
+decision, not something this checkpoint may do to make the check pass.
+
+### CLI/Core/Daemon Compatibility (Isolated Regtest)
+
+Stack: `../mcp/regtest/compose.yml` (mostrod **v0.19.3** checksum-verified
+release binary, LND 0.18.3, bitcoind 27.0, nostr-rs-relay 0.9.0) started with
+`devenv.sh up` from a fresh state (no prior containers, volumes or `.state`).
+CLI: this checkout's debug build (mostro-core `=0.17.3`), run as the throwaway
+regtest user `alice` via `devenv.sh cli` with `MCLI_DIR` under the regtest
+`.state` directory and closed stdin except where an answer was piped. Every key
+and coin is a regtest fixture; no public relay, mainnet node or real identity
+was touched.
+
+| Step | Command | Observed result |
+| --- | --- | --- |
+| 1 | `-v listorders` | Exit 0; relay connected; `Transport: nip44 (auto-detected protocol v2)`; empty-book table. First run created `mcli.db` and a new identity. |
+| 2 | `neworder -k sell -a 10000 -c USD -f 10 -m bank` (stdin `y`) | Exit 0; mostrod replied with the new order `ab8f4f36-…`; status Pending; trade index 1; order saved locally |
+| 3 | `listorders` | Exit 0; the order listed as `sell`/`pending`/10000 sats/USD 10/bank |
+| 4 | `cancel -o ab8f4f36-…` | Exit 0; mostrod confirmed `Canceled`; local row deleted, as `Action::Canceled` handling intends |
+| 5 | `listorders` / `listorders -s canceled` | Pending book empty; order listed as `canceled` |
+| Post-state | `sqlite3` on alice's `mcli.db` | `orders` empty; `users.last_trade_index` = 1 |
+
+This shows the current CLI and mostro-core 0.17.3 interoperate with mostrod
+v0.19.3 for transport auto-detection, public listing, order creation, request/
+reply correlation and cancellation. It does **not** cover take/invoice/payment,
+dispute, admin, RPC or restore flows; those remain unverified against a daemon.
+The stack was then stopped with `devenv.sh down` (containers removed, volumes and
+regtest identities kept); no `clean`/volume wipe was performed. The MCP
+repository's working tree is unchanged.
+
+**Pilot-relevant observation**: today's `listorders` initializes the local
+database and creates an identity on first use (step 1). The pilot requires
+listing and discovery to run without identity or DB creation (FR-006/007,
+SC-003), so this is baseline behavior the pilot must change, not a defect fixed
+here.
+
+**Additional doc drift for T049**: actual flags are `--fiatcode`,
+`--fiatamount`, `--paymentmethod` and `--orderid`, while `docs/commands.md`
+documents `--fiat-code`, `--fiat-amount`, `--payment-method` and `--order-id`.
+
+**MSRV follow-up (maintainer decision, 2026-10-20)**: the declared minimum was
+raised to `rust-version = "1.94"` to match the locked graph; no dependency
+changed and `Cargo.lock` is unchanged. The CI `msrv` job previously ran the
+1.97.0 development toolchain (and `rust-toolchain.toml` would override an
+installed toolchain anyway); it now runs `cargo +1.94.0 build --locked
+--all-features`. Re-verified on native Linux:
+
+| Command | Result |
+| --- | --- |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+| `cargo +1.94.0 build --locked --all-features` (CI command) | PASS |
+| `cargo +1.93.0 check --locked --all-targets --all-features` | Rejected: `mostro-cli@0.16.3 requires rustc 1.94` |
+| `cargo test --locked` (1.97.0) | PASS: 217 tests |
+
+**Open items carried to T010**: native Windows baseline (blocked, no host);
+daemon compatibility verified only for the listing/create/cancel subset. The
+MSRV item is resolved by the follow-up above.
+
+T001-T009 are complete; T010 (baseline-gate review) is next. The JSON pilot is
+still unimplemented.
+
+## T010 Baseline Gate Decision: 2026-10-20
+
+**Decision: GO for pilot foundations (T011+), with the recorded exceptions
+below.** This closes the inherited Phase-1 baseline gate for the read-only
+order-list pilot only; it is not acceptance of the pilot or of any write flow.
+
+**Limitation**: the roadmap's own Phase-1 gate text
+(`../mcp/plan-aiReadyMostroCli.prompt.md`) is absent on this checkout, so the
+review uses the criteria restated in T010 and the constitution.
+
+| Criterion | Evidence | Status |
+| --- | --- | --- |
+| Persistence regressions (WaitingSellerToPay, LastTradeIndex) | T004: 6 cases pass | Met |
+| Closed-stdin / EOF confirmation | T005: 11 cases, red before fix, green after | Met |
+| Take-with-invoice post-accept save | T006: 2 failure cases + save unit cases | Met |
+| Correlated reply wait | T007: unrelated kind-14 skipped; non-correlating `wait_for_dm` finding deferred to the write-executor migration | Met |
+| Size/import inventory | T002, `docs/architecture.md` | Met |
+| Command/state matrix | T008: all 33 commands, unverified cells explicit | Met as a record; full-flow rows stay unverified until T013 |
+| Linux baseline, pinned 1.97.0 | T009 and below | Met |
+| Declared MSRV | Raised to 1.94; 1.94.0 check passes, CI now tests it | Met |
+| CLI/core/daemon compatibility | T009 regtest vs mostrod v0.19.3: listing, create, cancel | Met for the pilot's read path; other flows unverified |
+| Native Windows baseline | No Windows host available | **Deferred** (user decision) to T051-T052 |
+
+Code gates on `96aeb77`, native Linux, rustc 1.97.0:
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --locked` | PASS: 217 tests, 0 failed |
+| `cargo build --locked` | PASS |
+| `cargo +1.94.0 check --locked --all-targets --all-features` | PASS |
+
+**Recorded exceptions carried forward**
+1. Native Windows baseline is deferred by user decision; it must be run before
+   pilot acceptance in T051-T052 and stays a blocker for SC-005.
+2. Daemon compatibility covers listing, order creation and cancellation only;
+   take/invoice/payment/dispute/admin/RPC/restore remain unverified against a
+   daemon and are outside this read-only pilot.
+3. End-to-end success/failure/post-state for mutating commands remains
+   unverified until the T013 process/transport harness exists.
+4. `restore` post-state is a known defect (issue #188), outside pilot scope.
+5. `listorders` currently creates a DB and identity on first use; the pilot
+   must remove this (FR-006/007, SC-003).
+
+T001-T010 are complete and the baseline gate is closed for the pilot. T011
+(split `src/cli.rs`) is next. The JSON pilot is still unimplemented.
 
 ## Overview
 

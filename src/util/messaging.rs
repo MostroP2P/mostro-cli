@@ -296,9 +296,20 @@ fn is_mostro_reply(
 /// Correlation criteria for [`wait_for_dm_matching`]: exact `request_id`, and
 /// optionally an allow-list of actions (empty = any action).
 #[derive(Clone, Debug)]
-struct ExpectedReply {
+pub struct ExpectedReply {
     request_id: u64,
     allowed_actions: Vec<Action>,
+}
+
+impl ExpectedReply {
+    /// Build correlation criteria that match `request_id` and, when
+    /// `allowed_actions` is non-empty, one of those actions.
+    pub fn new(request_id: u64, allowed_actions: Vec<Action>) -> Self {
+        Self {
+            request_id,
+            allowed_actions,
+        }
+    }
 }
 
 /// True when `message` echoes `expected.request_id` and (if the allow-list is
@@ -323,6 +334,30 @@ async fn event_matches_expected_reply(
     messages
         .first()
         .is_some_and(|(msg, _, _)| message_matches_expected_reply(msg, expected))
+}
+
+/// Decide whether `event` is the reply [`wait_for_reply`] should return.
+///
+/// Accepts only a Mostro-authored kind-14 tagged to our trade key that is not
+/// the echo of our own request ([`is_mostro_reply`]). When `expected` is set,
+/// the event's decrypted message must also echo the request_id and an allowed
+/// action. Any unrelated kind-14 — NIP-17 peer chat, our own echo, or a stale
+/// push with a different id/action arriving before the real reply — returns
+/// `false`, so the caller keeps waiting instead of racing on the first kind-14.
+pub async fn select_reply_event(
+    event: &Event,
+    trade_keys: &Keys,
+    mostro_pubkey: PublicKey,
+    sent_event_id: Option<EventId>,
+    expected: Option<&ExpectedReply>,
+) -> bool {
+    if !is_mostro_reply(event, trade_keys.public_key(), mostro_pubkey, sent_event_id) {
+        return false;
+    }
+    match expected {
+        Some(expected) => event_matches_expected_reply(event, trade_keys, expected).await,
+        None => true,
+    }
 }
 
 async fn wait_for_reply<F>(
@@ -384,18 +419,22 @@ where
         loop {
             match notifications.next().await {
                 Some(ClientNotification::Event { event, .. }) => {
-                    // Rejects other kinds, kind-14s not authored by Mostro
-                    // (e.g. NIP-17 peer chat tagged to this trade key) and
-                    // the echo of our own request.
-                    if !is_mostro_reply(&event, trade_pubkey, mostro_pubkey, sent_event_id) {
-                        continue;
+                    // Skip other kinds, kind-14s not authored by Mostro (e.g.
+                    // NIP-17 peer chat tagged to this trade key), the echo of
+                    // our own request, and — when correlating — replies that
+                    // do not echo the expected request_id/action, so an
+                    // unrelated kind-14 arriving first cannot win the wait.
+                    if select_reply_event(
+                        &event,
+                        &trade_keys,
+                        mostro_pubkey,
+                        sent_event_id,
+                        expected_reply.as_ref(),
+                    )
+                    .await
+                    {
+                        return Ok(*event);
                     }
-                    if let Some(ref expected) = expected_reply {
-                        if !event_matches_expected_reply(&event, &trade_keys, expected).await {
-                            continue;
-                        }
-                    }
-                    return Ok(*event);
                 }
                 Some(_) => continue,
                 None => {
