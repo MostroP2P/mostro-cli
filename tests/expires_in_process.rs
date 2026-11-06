@@ -1,5 +1,6 @@
 //! Tests for `order new --expires-in` (spec 012) against the scripted node.
 
+use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -66,11 +67,11 @@ impl Maker {
     }
 
     fn snapshot(&self) -> Vec<(PathBuf, Vec<u8>)> {
-        let mut files: Vec<_> = std::fs::read_dir(self.sandbox.mcli_dir())
+        let mut files: Vec<_> = fs::read_dir(self.sandbox.mcli_dir())
             .unwrap()
             .map(|entry| {
                 let path = entry.unwrap().path();
-                let bytes = std::fs::read(&path).unwrap_or_default();
+                let bytes = fs::read(&path).unwrap_or_default();
                 (path, bytes)
             })
             .collect();

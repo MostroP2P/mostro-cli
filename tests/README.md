@@ -406,11 +406,12 @@ Reconciliation of the [specification](../specs/010-invoice-stdin/spec.md) with t
 | Requirement | Evidence | Status |
 | --- | --- | --- |
 | FR-001 `-` reads stdin on the four commands, a literal value is unchanged | `the_invoice_on_stdin_is_the_one_sent_by_every_command`, `a_literal_invoice_is_unchanged`, `any_other_value_is_kept_as_it_is_...` | Verified on Linux |
-| FR-002 bounded, strict, `invalid_arguments` before any effect | `invalid_input_on_stdin_is_an_argument_error_before_any_effect` (empty, blank, two lines, more than 8 KiB, invalid UTF-8; both modes; nothing sent; store byte-identical), the `cli::stdin` unit tests (the 8192-byte limit, at most 8193 bytes read) | Verified on Linux |
+| FR-002 bounded, strict, `invalid_arguments` before any effect | `invalid_input_on_stdin_is_an_argument_error_before_any_effect` (empty, blank, two lines, more than 8 KiB, invalid UTF-8; both modes; nothing sent; store byte-identical), the `cli::stdin` unit tests (the 8192-byte limit, at most 8193 bytes read; a terminal as stdin refused at once without a read, `a_terminal_as_stdin_fails_at_once_without_being_read`) | Verified on Linux; the terminal case only with an injected flag (no pseudo-terminal in the harness) |
 | FR-003 `--yes` required, stdin untouched without it | `without_yes_stdin_is_never_read` (stdin held open), `the_dash_needs_yes_and_without_it_stdin_is_never_touched` | Verified on Linux |
 | FR-004 validation as for a literal value | `the_invoice_on_stdin_is_the_one_sent_by_every_command` (BOLT-11 and the bond payout invoice), `human_mode_with_yes_reads_one_trimmed_line` | Verified on Linux |
 | FR-005 never echoed | the sentinel sweeps of the process tests | Verified on Linux |
 | FR-006 discovery marker, regenerated discovery | `the_invoice_option_is_marked_as_readable_from_stdin`, `discovery_fixture_matches_the_generated_document` | Verified on Linux |
+| FR-007 `invalid_invoice` on a refused invoice value only (amended 2026-11-05 after review) | `an_invoice_the_client_refuses_carries_the_reason_invalid_invoice` (literal and stdin, JSON and human; `-` without `--yes` and other argument errors keep no reason), `the_schemas_tie_the_reason_to_its_code`, the output fixture drift tests and the 003-005 examples | Verified on Linux |
 | SC-001 to SC-005 | the tests above | Verified on Linux against the scripted node; the CI Windows runner is checked after the push |
 
 ## Order Mine, Expiry In Seconds, Dispute Open, Order Rate, Bond Flows: Requirement Evidence

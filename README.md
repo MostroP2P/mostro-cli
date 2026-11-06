@@ -205,7 +205,7 @@ source ~/.config/mostro/env.sh
 mostro-cli order list
 ```
 
-> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init` and `identity show` are the only exceptions).
+> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init`, `identity show` and `order mine` are the only exceptions).
 
 ### About `.env` files
 

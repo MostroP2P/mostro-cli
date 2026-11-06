@@ -7,6 +7,7 @@
 //! maps to explicit fields only.
 
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use mostro_core::order::{Kind, SmallOrder, Status};
 use nostr_sdk::prelude::PublicKey;
@@ -17,13 +18,13 @@ use uuid::Uuid;
 use super::info::OrderRecord;
 use super::{schema, Warnings};
 
-const CURRENCY_LENGTH: std::ops::RangeInclusive<usize> = 3..=6;
+const CURRENCY_LENGTH: RangeInclusive<usize> = 3..=6;
 const PAYMENT_METHOD_BYTES: usize = 200;
 const INVOICE_BYTES: usize = 4096;
-const PREMIUM_PERCENT: std::ops::RangeInclusive<i64> = -100..=100;
-const EXPIRATION_DAYS: std::ops::RangeInclusive<i64> = 0..=365;
+const PREMIUM_PERCENT: RangeInclusive<i64> = -100..=100;
+const EXPIRATION_DAYS: RangeInclusive<i64> = 0..=365;
 /// `--expires-in`: one second to 365 days.
-const EXPIRES_IN_SECONDS: std::ops::RangeInclusive<i64> = 1..=31_536_000;
+const EXPIRES_IN_SECONDS: RangeInclusive<i64> = 1..=31_536_000;
 const SECONDS_PER_DAY: i64 = 86_400;
 
 /// The option that failed validation. Its value is never part of the error.

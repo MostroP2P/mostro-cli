@@ -12,7 +12,8 @@ the push. Not run against a real node: reading the invoice changes nothing the n
 **Input**: An end-to-end harness (Mortsom) drives `mostro-cli` as a subprocess. An invoice on the command line is visible in the process list and
 in logs of the harness. `--invoice -` reads it from standard input instead, on every command that takes `--invoice`: `order add-invoice`,
 `bond add-invoice`, `order take-sell` and `order new`. Builds on [add invoice](../005-invoice-json/spec.md), [order take](../004-order-take-json/spec.md)
-and [order new](../003-order-new-json/spec.md); their behavior with a literal invoice does not change.
+and [order new](../003-order-new-json/spec.md); their behavior with a literal invoice does not change, except that a refused invoice value
+now carries a reason (FR-007).
 
 ## Clarifications
 
@@ -46,6 +47,9 @@ and [order new](../003-order-new-json/spec.md); their behavior with a literal in
 - **FR-005**: The invoice from stdin never reaches stdout, stderr or a JSON document; the secret sentinel tests cover it.
 - **FR-006**: `schema` documents the stdin form in the input schemas (`x-stdin`, description), regenerated `docs/schemas/discovery-v1.json`, drift
   tests.
+- **FR-007** (amended 2026-11-05 after review): on the four commands, an `invalid_arguments` caused by the invoice value itself, literal or from
+  stdin, carries `"reason": "invalid_invoice"`. `--invoice -` without `--yes` or with a terminal, and every other `invalid_arguments`, carry none.
+  The output schemas allow that reason only there.
 
 ## Success Criteria
 

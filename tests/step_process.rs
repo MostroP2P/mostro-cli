@@ -2016,6 +2016,35 @@ mod operation {
         }
     }
 
+    /// A store whose orders cannot be read is a broken store, not an unknown
+    /// order: the preview read gives the code of the send path.
+    #[tokio::test]
+    async fn an_unreadable_orders_table_is_store_unwritable_with_or_without_yes() {
+        let holder = ready(StepKind::FiatSent).await;
+        sql(&holder, "DROP TABLE orders").await;
+        let before = snapshot(&holder);
+
+        let human = run(&holder, &step_args(&[], "fiat-sent", &[])).await;
+        let json = run(
+            &holder,
+            &step_args(&["--output", "json"], "fiat-sent", &["--yes"]),
+        )
+        .await;
+
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty(), "no preview");
+        assert_eq!(
+            human.stderr_text(),
+            "error: The local store cannot be written, so nothing was sent.\n"
+        );
+        assert_eq!(json.code(), Some(1));
+        let outcome = document(&json);
+        conforms_to_the_checked_in_schema("fiat-sent", &outcome);
+        assert_eq!(outcome["error"]["code"], "store_unwritable");
+        assert!(holder.fake.received().is_empty(), "nothing is published");
+        assert_eq!(snapshot(&holder), before);
+    }
+
     #[tokio::test]
     async fn a_refusal_shows_its_reason_in_both_modes_and_changes_nothing() {
         // The seller cannot say fiat was sent.

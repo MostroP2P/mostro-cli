@@ -109,7 +109,7 @@ fn failed(code: ErrorCode) -> MineOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr_sdk::prelude::Keys;
+    use nostr_sdk::prelude::{Keys, PublicKey};
     use std::sync::Mutex;
     use uuid::Uuid;
 
@@ -164,6 +164,59 @@ mod tests {
             self.another_order();
             Ok(TradeKeys { keys, not_read: 0 })
         }
+    }
+
+    /// A store that returns fixed rows and keys.
+    struct Fixed {
+        keys: Vec<(i64, Keys)>,
+        rows: Vec<StoredOrder>,
+    }
+
+    impl OrderSource for Fixed {
+        async fn order_rows(&self) -> Result<Vec<StoredOrder>, StoreError> {
+            Ok(self.rows.clone())
+        }
+
+        async fn trade_keys(&self, _: usize) -> Result<TradeKeys, StoreError> {
+            Ok(TradeKeys {
+                keys: self.keys.clone(),
+                not_read: 0,
+            })
+        }
+    }
+
+    /// FR-002: a known index first, then the rows whose index is unknown,
+    /// newest `created_at` first, then by id.
+    #[tokio::test]
+    async fn unknown_indexes_follow_the_known_newest_first_then_by_id() {
+        let known = Keys::generate();
+        let row = |n: u128, key: Option<PublicKey>, created: i64| StoredOrder {
+            id: Uuid::from_u128(n).to_string(),
+            kind: "sell".to_string(),
+            status: "pending".to_string(),
+            trade_pubkey: key,
+            created_at: Some(created),
+        };
+        let source = Fixed {
+            keys: vec![(1, known.clone())],
+            rows: vec![
+                row(1, None, 10),
+                row(3, None, 20),
+                row(2, Some(Keys::generate().public_key()), 20),
+                row(4, Some(known.public_key()), 5),
+            ],
+        };
+
+        let outcome = list(&source).await;
+
+        let ids: Vec<_> = outcome
+            .data()
+            .expect("a listing")
+            .orders()
+            .iter()
+            .map(|order| order.id().to_string())
+            .collect();
+        assert_eq!(ids, [4, 2, 3, 1].map(|n| Uuid::from_u128(n).to_string()));
     }
 
     /// The index only grows and is reserved before the row is saved, so the

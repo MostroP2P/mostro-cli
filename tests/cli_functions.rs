@@ -1,7 +1,7 @@
 use mostro_core::prelude::*;
 use uuid::Uuid;
 
-// Test rate_user helper function
+// Rating range checks
 #[test]
 fn test_get_user_rate_valid_ratings() {
     let valid_ratings = vec![1u8, 2u8, 3u8, 4u8, 5u8];

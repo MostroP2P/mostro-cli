@@ -19,6 +19,7 @@ use crate::outcome::ErrorCode;
 use crate::parse_human::{
     render_dispute, render_dispute_preview, render_rate, render_rate_preview,
 };
+use crate::store::StoreError;
 
 const UNWRITABLE: &str = "error: the result could not be written";
 const QUESTION: &str = "Send this request?";
@@ -127,6 +128,8 @@ async fn prepare(
     }
     match base.store.order_keys(order).await {
         Ok(Some(keys)) => Ok((base, Some(keys.public_key().to_hex()))),
-        _ => Err(ErrorCode::OrderUnknown),
+        // The same codes as the send path: a broken store is not an unknown order.
+        Err(StoreError::Unwritable | StoreError::Unreadable) => Err(ErrorCode::StoreUnwritable),
+        Ok(None) | Err(StoreError::Missing) => Err(ErrorCode::OrderUnknown),
     }
 }

@@ -3910,7 +3910,7 @@ mod schema_fixtures {
                 "a warning of another command",
                 Box::new(|o| {
                     o["warnings"] = json!([{"code": "local_status_stale",
-                 "message": "The node accepted the invoice but the local order status could not be updated."}])
+                 "message": "The node accepted the request but the local order status could not be updated."}])
                 }),
             ),
         ];
