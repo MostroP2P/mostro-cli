@@ -19,6 +19,12 @@ settable via the matching env var):
   `protocol_version` tag on its kind-38385 info event (a node that advertises
   nothing is treated as `nip44`). A v1 node is an error.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
+- `--reply-timeout <SECONDS>` (spec 016): how long to wait for the node's reply, 5 to 300 seconds, default 15; accepted before, between or
+  after the command words, like `--output`. It is the deadline of the commands that wait for a reply: `order new`, `order take-sell`,
+  `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order info`, `dispute open`, `order rate` and
+  `bond add-invoice`. The connect, probe and cleanup budgets do not change; the public reads (`order list`, `message list`, `order sync`) keep
+  their own limits, and the legacy commands ignore it. A value out of range or not a number is `invalid_arguments` (exit 2). A reply after the
+  deadline is still `reply_timeout` (`uncertain` for a write), never retried: raise it for a slow node rather than repeating a write.
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
@@ -41,6 +47,10 @@ such as `error: unexpected argument found`, without echoing the arguments given.
   - **Output**: human mode (the default) prints the raw discovery document as pretty JSON; `--output json` wraps the same data in the standard outcome with command `schema`.
   - **Handler**: `cli::schema::offline_discovery()` dispatched from `cli::run`, before any context, logger or RPC work.
   - **Generated reference**: [docs/schemas/discovery-v1.json](schemas/discovery-v1.json) is this command's output, and [docs/schemas/order-list-v1.json](schemas/order-list-v1.json) the `order.list` output schema; every machine command has its own `docs/schemas/<noun>-<verb>-v1.json`. All are generated and drift-tested; this prose is maintained by hand. Regenerate them after an intended change with `cargo run -q -- schema > docs/schemas/discovery-v1.json` and, per command, `cargo run -q -- --output json schema | jq '.data.commands[] | select(.name=="order.list") | .output_schema' > docs/schemas/order-list-v1.json` (the drift test prints the full list).
+  - **Global options**: `global_options` (in the raw document and in `data` of the JSON outcome) lists the options accepted at any command
+    depth, generated from the grammar: `name`, `type`, `description`, `enum` and `default` when they exist, and `applies_to`, the canonical
+    names the option takes effect on. Today: `output` (every machine command) and `reply-timeout` (default `"15"`, the eleven commands that wait
+    for the node's reply). They are not part of any command's input schema.
   - **Input schemas** mark an option whose value `-` reads it from standard input with `"x-stdin": "-"`; today that is `invoice` on `order new`, `order take-sell`, `order add-invoice` and `bond add-invoice` (spec 010).
 
 ### Machine output (schema v1)

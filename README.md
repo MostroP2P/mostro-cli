@@ -679,6 +679,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
+- `--reply-timeout <SECONDS>` — how long the commands that wait for the node's reply (`order new`, the takes, `order add-invoice`, the trade steps, `order info`, `dispute open`, `order rate`, `bond add-invoice`) wait for it: 5 to 300, default 15. Like `--output`, it may also follow the command words. Raise it for a slow node instead of repeating a write that came back `uncertain`.
 - `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.

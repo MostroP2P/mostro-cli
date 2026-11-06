@@ -4518,3 +4518,21 @@ Same uncommitted working tree. Five review findings, each with a failing test fi
   spec, data model and contract and the architecture note are amended.
 - **Gates** (the trade-step refusal rule): fmt, clippy, `cargo test --locked` 977 passed and 0 failed, build, MSRV 1.94.0.
 
+## Reply Deadline (spec 016): --reply-timeout: 2026-11-05
+
+Same uncommitted working tree. The reason: a live harness run against a regtest mostrod (v0.20.2, SQLite in rollback-journal mode) got a
+`take-sell` answer after 24 s, which the fixed 15 s reply budget had already turned into `uncertain`.
+
+- **Failing first**: `tests/reply_timeout_process.rs` 0/4 (the option did not exist: every run was `invalid_arguments`).
+- **The change**: `--reply-timeout SECONDS`, a Clap global (any command depth) with `value_parser!(u64).range(5..=300)` and default 15;
+  `cli/write.rs::exchange_limits(cli)` sets `ExchangeLimits::reply` and keeps the connect, probe and cleanup budgets; the eight dispatch sites of
+  the eleven waiting commands use it. Public reads and legacy commands ignore it. Discovery gains `global_options` (generated in
+  `cli/input_schema.rs`: every global option of the root with its property document, `default` and `applies_to` from the registry);
+  global options are no longer command input. `docs/schemas/discovery-v1.json` regenerated (the `schema` output schema gains the field).
+- **Tests**: against a silent scripted node, all eleven commands (one sandbox each, run at once) stop between 5 and 12 s with
+  `--reply-timeout 5` placed after the command words (`uncertain`/`reply_timeout`; `error` for `order info`); a node answering after 16 s gives
+  `ok` with `--reply-timeout 20` and `uncertain` with the default; `4`, `301`, `0`, text and empty are `invalid_arguments` naming
+  `order.take-sell`, before and after the command words, nothing sent; `order list` accepts and ignores it; the unit test
+  `the_global_options_are_listed_with_what_they_apply_to` (exactly the eleven request and write commands, default `"15"`, not command input).
+- **Gates** (final tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 982 passed and 0 failed (no FAILED
+  line, none ignored; 977 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
