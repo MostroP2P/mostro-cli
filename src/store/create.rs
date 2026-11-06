@@ -7,6 +7,7 @@
 //! Nothing here prints, and no error carries the mnemonic, a key or a path.
 
 use std::fs::{self, OpenOptions};
+use std::future::Future;
 use std::io;
 use std::iter;
 #[cfg(unix)]
@@ -91,8 +92,9 @@ pub enum CreateError {
     Exists,
     /// The directory or the file could not be created; nothing was written.
     NotCreated,
-    /// The file was created but could not be completed; what this run created
-    /// was removed again.
+    /// The file was created but could not be completed; the file and any
+    /// companion SQLite left beside it were removed again (the data directory,
+    /// created or tightened by this run, stays).
     Failed,
 }
 
@@ -101,6 +103,17 @@ pub enum CreateError {
 /// return the identity public key. An existing store, or a companion file of
 /// one, is left alone.
 pub async fn create_store(dir: &Path) -> Result<PublicKey, CreateError> {
+    create_with(dir, |path| async move { fill(&path).await }).await
+}
+
+/// [`create_store`] with the step that completes the created file given as
+/// `fill`, which gets the path of the new, empty file and returns the identity
+/// public key, or `None` when the file could not be completed.
+async fn create_with<F, Fut>(dir: &Path, fill: F) -> Result<PublicKey, CreateError>
+where
+    F: FnOnce(PathBuf) -> Fut,
+    Fut: Future<Output = Option<PublicKey>>,
+{
     let path = dir.join(STORE_FILE);
     let companions: Vec<PathBuf> = COMPANIONS
         .iter()
@@ -122,7 +135,7 @@ pub async fn create_store(dir: &Path) -> Result<PublicKey, CreateError> {
         }
         Err(_) => return Err(CreateError::NotCreated),
     }
-    match fill(&path).await {
+    match fill(path.clone()).await {
         Some(identity) => Ok(identity),
         None => {
             discard(&path, &companions);
@@ -246,6 +259,32 @@ mod tests {
         fs::write(&file, b"x").unwrap();
         assert_eq!(create_store(&file).await, Err(CreateError::NotCreated));
         assert_eq!(dir.names(), ["file"]);
+    }
+
+    /// A fill that leaves a rollback journal beside the created file and fails.
+    async fn fail_with_journal(path: PathBuf) -> Option<PublicKey> {
+        assert_eq!(fs::read(&path).unwrap(), b"", "the created file is empty");
+        fs::write(sibling(&path, "-journal"), b"journal").unwrap();
+        None
+    }
+
+    #[tokio::test]
+    async fn a_store_that_cannot_be_completed_is_removed_and_failed() {
+        let empty = Dir::new();
+        assert_eq!(
+            create_with(&empty.0, fail_with_journal).await,
+            Err(CreateError::Failed)
+        );
+        assert_eq!(empty.names(), Vec::<String>::new());
+
+        let holding = Dir::new();
+        fs::write(holding.0.join("other"), b"kept").unwrap();
+        assert_eq!(
+            create_with(&holding.0, fail_with_journal).await,
+            Err(CreateError::Failed)
+        );
+        assert_eq!(holding.names(), ["other"]);
+        assert_eq!(fs::read(holding.0.join("other")).unwrap(), b"kept");
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! `order take-sell` through the real binary against the scripted node, and a
 //! range child adopted as `order sync` adopts it.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
@@ -28,6 +29,9 @@ use fake_mostro::{
 use harness::{run_with_watchdog, Backend, Captured, LoopbackRelay, Sandbox, WATCHDOG};
 use mostro_client::identity::trade_keys_from_mnemonic;
 use mostro_client::store::{Store, Trade};
+
+/// The human run's stderr line for `trade_keys_limited`.
+const KEYS_LIMITED: &str = "older than the newest 200";
 
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
@@ -79,7 +83,7 @@ fn conforms(outcome: &Value) {
         "{}/docs/schemas/order-mine-v1.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let schema: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     assert!(
         schema_check::conforms(&schema, &schema, outcome),
         "{outcome}"
@@ -87,12 +91,12 @@ fn conforms(outcome: &Value) {
 }
 
 fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    let mut files: Vec<_> = std::fs::read_dir(dir)
+    let mut files: Vec<_> = fs::read_dir(dir)
         .map(|entries| {
             entries
                 .map(|entry| {
                     let path = entry.unwrap().path();
-                    let bytes = std::fs::read(&path).unwrap_or_default();
+                    let bytes = fs::read(&path).unwrap_or_default();
                     (path, bytes)
                 })
                 .collect()
@@ -248,6 +252,11 @@ async fn lists_what_the_commands_saved_newest_first() {
     );
     assert_eq!(taker.fake.received()[0].author.to_hex(), key(2));
     assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+    assert!(
+        !human.stderr_text().contains(KEYS_LIMITED),
+        "{}",
+        human.stderr_text()
+    );
     let text = human.stdout_text();
     for order in outcome["data"]["orders"].as_array().unwrap() {
         assert!(text.contains(order["id"].as_str().unwrap()), "{text}");
@@ -324,7 +333,7 @@ async fn a_damaged_store_is_store_unreadable_and_left_alone() {
         seed_identity(&sandbox.mcli_dir()).await;
         let dir = sandbox.mcli_dir();
         if damage == "garbage" {
-            std::fs::write(dir.join("mcli.db"), b"not a database at all, only text").unwrap();
+            fs::write(dir.join("mcli.db"), b"not a database at all, only text").unwrap();
         } else {
             execute(
                 &dir,
@@ -368,8 +377,15 @@ async fn rows_whose_index_cannot_be_found_say_so() {
     .await;
     set_last_trade_index(&dir, 250).await;
 
+    let human = run(&sandbox, &["order", "mine"], None).await;
     let run = run(&sandbox, &["--output", "json", "order", "mine"], None).await;
 
+    assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+    assert!(
+        human.stderr_text().contains(KEYS_LIMITED),
+        "{}",
+        human.stderr_text()
+    );
     assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
     let outcome = document(&run);
     conforms(&outcome);

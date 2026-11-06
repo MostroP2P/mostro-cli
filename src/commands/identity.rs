@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use nostr_sdk::prelude::PublicKey;
+
 use crate::identity::{load_identity_from, IdentityError};
 use crate::outcome::identity::{IdentityInitData, IdentityShowData, INIT_COMMAND, SHOW_COMMAND};
 use crate::outcome::{Envelope, ErrorCode, ExecutionMeta, Persistence, Warnings};
@@ -17,10 +19,15 @@ pub type ShowOutcome = Envelope<IdentityShowData, ()>;
 /// Create the store in `dir` as the first run does. `None` means no data
 /// directory could be determined (no `MCLI_DIR` and no home directory).
 pub async fn identity_init(dir: Option<&Path>) -> InitOutcome {
-    let Some(dir) = dir else {
-        return init_failed(ErrorCode::StoreUnwritable, Persistence::NotAttempted);
-    };
-    match create_store(dir).await {
+    match dir {
+        None => init_failed(ErrorCode::StoreUnwritable, Persistence::NotAttempted),
+        Some(dir) => init_outcome(create_store(dir).await),
+    }
+}
+
+/// The outcome of one attempt to create the store.
+fn init_outcome(result: Result<PublicKey, CreateError>) -> InitOutcome {
+    match result {
         Ok(identity) => Envelope::ok(
             INIT_COMMAND,
             IdentityInitData::new(&identity),
@@ -70,4 +77,63 @@ fn init_failed(code: ErrorCode, persistence: Persistence) -> InitOutcome {
         Warnings::new(),
         ExecutionMeta::local(persistence),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr_sdk::prelude::Keys;
+    use serde_json::{json, to_value, Value};
+
+    /// The `status`, `error.code` and `meta.persistence` of an outcome.
+    fn row(outcome: InitOutcome) -> Value {
+        let value = to_value(outcome).unwrap();
+        json!([
+            value["status"],
+            value["error"]["code"],
+            value["meta"]["persistence"]
+        ])
+    }
+
+    #[test]
+    fn each_creation_result_maps_to_its_outcome_row() {
+        let identity = Keys::generate().public_key();
+        for (result, expected) in [
+            (
+                Err(CreateError::Exists),
+                json!(["error", "identity_exists", "not_attempted"]),
+            ),
+            (
+                Err(CreateError::NotCreated),
+                json!(["error", "store_unwritable", "not_attempted"]),
+            ),
+            (
+                Err(CreateError::Failed),
+                json!(["error", "store_unwritable", "failed"]),
+            ),
+            (Ok(identity), json!(["ok", null, "applied"])),
+        ] {
+            assert_eq!(row(init_outcome(result)), expected, "{result:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn no_data_directory_is_store_unwritable_for_init_and_identity_missing_for_show() {
+        assert_eq!(
+            row(identity_init(None).await),
+            json!(["error", "store_unwritable", "not_attempted"])
+        );
+        let show = to_value(identity_show(None).await).unwrap();
+        assert_eq!(show["status"], "error");
+        assert_eq!(show["error"]["code"], "identity_missing");
+        assert_eq!(
+            show["meta"],
+            json!({
+                "publication": "not_applicable",
+                "daemon_acceptance": "not_applicable",
+                "persistence": "not_applicable",
+                "snapshot": null
+            })
+        );
+    }
 }
