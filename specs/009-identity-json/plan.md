@@ -5,7 +5,7 @@ talks to a node.
 
 ## Summary
 
-Two local commands. `identity init` reuses the legacy first-run creation, extracted from `db.rs` into `db/create.rs` so both paths create the same
+Two local commands. `identity init` reuses the legacy first-run creation, extracted from `db.rs` into `store/create.rs` so both paths create the same
 store; `identity show` extends the read-only loader of `identity.rs`. Outcomes, schemas, discovery and rendering follow `order sync` (a local write
 that publishes nothing) and the pilot (a read).
 
@@ -17,7 +17,7 @@ lines (`db.rs` shrinks under its frozen cap); imports at the top; tests before c
 
 ## Design
 
-1. **Creation** (`db/create.rs`): the first-run `SCHEMA`, `create_private_db_file` (moved from `db.rs`, its `OpenOptionsExt` import now at the
+1. **Creation** (`store/create.rs`): the first-run `SCHEMA`, `create_private_db_file` (moved from `db.rs`, its `OpenOptionsExt` import now at the
    top under `#[cfg(unix)]`), `initialize` (tables, mnemonic, user) and `create_store(dir)` for `identity init`: refuse an existing store or
    companion file, `ensure_private_dir`, `create_new` 0600, open by file name, `initialize`, close; on failure remove what this run created.
    `db::connect` calls `create_private_db_file` and `initialize` with its existing prints.

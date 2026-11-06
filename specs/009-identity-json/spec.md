@@ -24,7 +24,7 @@ vocabulary of a command that writes locally and publishes nothing); none of thei
 - Q: What does `identity init` create? -> A: Exactly what the legacy first run creates: the data directory (`MCLI_DIR`, else `~/.mcli`) owner-only
   (0700 on Unix, created one level deep, an existing one tightened), `mcli.db` created owner-only (0600) with `create_new`, the same two tables and
   one user row with a fresh 12-word mnemonic and no trade index. The legacy first run and the new command share one implementation
-  (`db/create.rs`), so the two cannot drift.
+  (`store/create.rs`), so the two cannot drift.
 - Q: What does it never do? -> A: It contacts no relay or node, reads no Mostro configuration, never shows the mnemonic or any private key (in
   either mode), needs no `--yes` (it creates only local state and spends nothing) and asks nothing.
 - Q: What if a store is already there? -> A: `error` / `identity_exists` (new code, exit 1), nothing modified. "There" means `mcli.db` or one of
@@ -63,7 +63,7 @@ mnemonic, revealing secrets, changing the trade index, any network access, MCP.
 - **FR-006**: One versioned JSON document per run, generated output schemas (`docs/schemas/identity-init-v1.json`,
   `docs/schemas/identity-show-v1.json`), regenerated discovery, drift tests, `contracts/examples.json` reproduced by the owned constructors.
 - **FR-007**: The legacy first run keeps its behavior (it still creates the store when none exists and prints what it printed); its creation
-  code moves to `db/create.rs` without a change.
+  code moves to `store/create.rs` without a change.
 
 ## Success Criteria
 
