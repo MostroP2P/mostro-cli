@@ -92,8 +92,9 @@ pub enum CreateError {
     Exists,
     /// The directory or the file could not be created; nothing was written.
     NotCreated,
-    /// The file was created but could not be completed; what this run created
-    /// was removed again.
+    /// The file was created but could not be completed; the file and any
+    /// companion SQLite left beside it were removed again (the data directory,
+    /// created or tightened by this run, stays).
     Failed,
 }
 
