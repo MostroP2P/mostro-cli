@@ -4368,3 +4368,52 @@ Native Linux, on `pr/13-range-children` after `df27fa5` (local commit, not pushe
 - **The 32-way concurrency test depended on disk sync speed**: reproduced with `strace -f --seccomp-bpf -e inject=fsync:delay_exit=25ms` on the test binary: `Unwritable` after 5.74 s (2.72 s without the delay). With 8 reservations it takes 0.26 to 0.39 s, and 2.3 to 2.8 s, 4.2 to 4.4 s and 6.6 to 7.0 s with 25, 50 and 100 ms per `fsync`, all passing (3 runs each). **Mutation check**: a deferred `begin()` fails the 8-way test 10 times out of 10.
 - **Not verified**: a real node losing a take race; the CI Windows runner (after the push). The external JSON interface book does not list the new stage combination yet (follow-up in its own repository).
 - **Gates**: fmt, clippy `-D warnings`, `cargo test --locked --no-fail-fast` 893 passed and 0 failed, build, MSRV 1.94.0 build `--all-features`.
+
+## Identity Commands (spec 009): identity init And identity show: 2026-11-05
+
+Native Linux, rustc 1.97.0, on `main` at `6cff9b5` (identical to `develop`; uncommitted working tree, no Git mutation). Lean mode: the only
+evidence entry for the spec (slices 1-4). No node, relay or regtest: the commands are local; one test uses the scripted node to show that the new
+store is usable by `order new`.
+
+- **Why**: every migrated command that signs needs an existing identity and never creates one; only the legacy first run created it (needing
+  `MOSTRO_PUBKEY`, `RELAYS`, printing on stdout and connecting to relays). An end-to-end harness driving the CLI through `--output json` needs a
+  local, machine-readable way to create and inspect the identity.
+- **Failing first**: `tests/identity_process.rs` (14 tests) ran against the unchanged binary: 0 passed, 14 failed, every run exiting 2 with
+  "unrecognized subcommand". The reference for "the same store" was characterized on that binary: `getlasttradeindex` with `RELAYS=notarelay`
+  creates the store and then stops at the relay list without network access (exit 1): 0700 directory, 0600 file, rollback journal (header bytes
+  18-19 = 1, 1), tables `orders` and `users`, one user with a 64-hex key, a 12-word mnemonic and a NULL trade index.
+- **The change**: the first-run creation moved unchanged from `db.rs` to `store/create.rs` (`SCHEMA`, `create_private_db_file`, `initialize`;
+  `db::connect` keeps its prints) and `store::create_store(dir)` was added for `identity init`: refuse an existing `mcli.db` or a leftover
+  `-journal`/`-wal`/`-shm` (`identity_exists`, nothing touched), `ensure_private_dir`, `create_new` 0600, open by file name, `initialize`, close;
+  on failure the half-created file is removed (`store_unwritable`, persistence `failed`). `identity::load_identity_from` returns the key and the
+  last trade index (NULL is 0; a WAL without its `-shm` file or an index outside `0..=2^31-1` is unreadable). `outcome/identity.rs`
+  (`IdentityInitData`, `IdentityShowData`, the error lists), `ErrorCode::IdentityExists`, `Stages::Local`/`OutcomeRules::local`/
+  `ExecutionMeta::local`, an integer schema for the index; `commands/identity.rs`, `cli/identity.rs` (through `write::finish`),
+  `parse_human/identity.rs`, `Commands::Identity`, two registry entries (`JsonSupport::Read`, as `order sync`). `cli/schema.rs` crossed 400
+  production lines with the new schemas, so the Clap input-schema generator moved to `cli/input_schema.rs`. `db.rs` shrank from 704 to 629
+  production lines; its frozen cap was lowered to 629, and the stale `OpenOptionsExt` legacy-import exception removed (the import is now at the top
+  of `store/create.rs` under `#[cfg(unix)]`). Fixtures `docs/schemas/identity-init-v1.json` and `identity-show-v1.json` and
+  `discovery-v1.json` were regenerated with the binary; `specs/009-identity-json/contracts/examples.json` (10 cases) was written once from the
+  owned constructors by a temporary printer test, then the printer was removed.
+- **A boundary caught by the tests**: the first version called `crate::db::create_store` from `commands/identity.rs`;
+  `renderers_operations_and_outcomes_perform_no_io` refused it (operations go through `store` and `identity`), so the creation lives in `store`.
+- **Tests**: 14 process tests (the legacy comparison; JSON and human; a second init and leftover companions byte-identical; an uncreatable
+  directory and a data path that is a file; two inits at once create one store; show with index 0 and 7; missing, garbage, no user row, NULL
+  mnemonic and negative index; options rejected with read stages; root options ignored; unwritable stdout in both modes; `order new --yes`
+  against the scripted node with the new store, trade index 1), secret sweeps (mnemonic, its first three words, the identity secret in hex and
+  bech32) on every stream; unit tests in `store::create` (5), `commands::identity` (2), `identity` (4), `outcome::identity` (3),
+  `parse_human::identity` (1), `cli::schema` (1); fixture drift, 10 examples, 13 invalid variants; registry, grammar and machine lists
+  updated.
+- **Mutation spot checks**: checking only `mcli.db` (not its companions) failed `init_refuses_a_leftover_companion_file`; accepting any trade
+  index failed `show_on_a_damaged_store_reports_it_and_changes_nothing`. Both restored.
+- **Not verified**: Windows (CI after the push).
+- **Amended after review (2026-11-06)**: A write that fails after the file was created is covered by
+  `a_store_that_cannot_be_completed_is_removed_and_failed` (injected fill) and the mapping by `each_creation_result_maps_to_its_outcome_row`;
+  `no_data_directory_is_store_unwritable_for_init_and_identity_missing_for_show` covers the missing data directory. `create_store` hands its
+  fill step to a private `create_with`; behavior unchanged. Mutations, each restored: removing the `discard` call failed the first test
+  (`mcli.db` and `mcli.db-journal` left), `Failed` mapped to `not_attempted` the second, and `init` without a data directory as `failed` or
+  `show` as unreadable the third. Gates on `pr/14-identity-json` with these tests: fmt, clippy, `cargo test --locked` 930 passed and 0 failed,
+  build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Gates** (both specs, one working tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 938 passed and 0
+  failed (no FAILED line, none ignored; 893 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+

@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "DaemonAcceptance": {
+      "enum": [
+        "unknown",
+        "accepted",
+        "rejected",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_arguments",
+        "output_not_supported",
+        "configuration_missing",
+        "configuration_invalid",
+        "relay_connection_failed",
+        "relay_read_failed",
+        "read_timeout",
+        "read_limit_exceeded",
+        "internal_error",
+        "identity_missing",
+        "identity_unreadable"
+      ],
+      "type": "string"
+    },
+    "ErrorInfo": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ExecutionMeta": {
+      "description": "Execution stages and optional snapshot evidence of one outcome.",
+      "properties": {
+        "daemon_acceptance": {
+          "$ref": "#/$defs/DaemonAcceptance"
+        },
+        "persistence": {
+          "$ref": "#/$defs/Persistence"
+        },
+        "publication": {
+          "$ref": "#/$defs/Publication"
+        },
+        "snapshot": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "publication",
+        "daemon_acceptance",
+        "persistence",
+        "snapshot"
+      ],
+      "type": "object"
+    },
+    "IdentityShowData": {
+      "description": "The identity of the existing store.",
+      "properties": {
+        "identity_pubkey": {
+          "description": "The identity public key, lowercase hex.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "last_trade_index": {
+          "description": "The last trade index recorded in the store; `0` before the first trade.\nThe next order or take uses the one after it.",
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "identity_pubkey",
+        "last_trade_index"
+      ],
+      "type": "object"
+    },
+    "Persistence": {
+      "enum": [
+        "not_attempted",
+        "applied",
+        "failed",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "Publication": {
+      "enum": [
+        "not_attempted",
+        "unknown",
+        "published",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "Warning": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "enum": [
+        "invalid_event_timestamp",
+        "cleanup_incomplete"
+      ],
+      "type": "string"
+    },
+    "Warnings": {
+      "description": "Warnings of one outcome, at most one per code.",
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "command": {
+          "const": "identity.show"
+        },
+        "data": {
+          "$ref": "#/$defs/IdentityShowData"
+        },
+        "error": {
+          "type": "null"
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "not_applicable"
+            },
+            "persistence": {
+              "const": "not_applicable"
+            },
+            "publication": {
+              "const": "not_applicable"
+            },
+            "snapshot": {
+              "type": "null"
+            }
+          }
+        },
+        "status": {
+          "const": "ok"
+        }
+      },
+      "title": "success"
+    },
+    {
+      "properties": {
+        "command": {
+          "const": "identity.show"
+        },
+        "data": {
+          "type": "null"
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_arguments",
+                "internal_error",
+                "identity_missing",
+                "identity_unreadable"
+              ]
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "not_applicable"
+            },
+            "persistence": {
+              "const": "not_applicable"
+            },
+            "publication": {
+              "const": "not_applicable"
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "const": "error"
+        }
+      },
+      "title": "failure of the resolved command"
+    },
+    {
+      "properties": {
+        "command": {
+          "type": "null"
+        },
+        "data": {
+          "type": "null"
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "properties": {
+            "code": {
+              "const": "invalid_arguments"
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "unknown"
+            },
+            "persistence": {
+              "const": "not_attempted"
+            },
+            "publication": {
+              "const": "not_attempted"
+            },
+            "snapshot": {
+              "type": "null"
+            }
+          }
+        },
+        "status": {
+          "const": "error"
+        }
+      },
+      "title": "failure before the command was resolved"
+    }
+  ],
+  "properties": {
+    "command": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "meta": {
+      "$ref": "#/$defs/ExecutionMeta"
+    },
+    "schema_version": {
+      "const": "1"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "warnings": {
+      "$ref": "#/$defs/Warnings"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "status",
+    "data",
+    "error",
+    "warnings",
+    "meta"
+  ],
+  "title": "identity.show outcome",
+  "type": "object"
+}

@@ -20,6 +20,8 @@ mod args;
 mod command_args;
 mod commands;
 mod context;
+mod identity;
+mod input_schema;
 mod invoice;
 mod legacy;
 mod message;
@@ -34,8 +36,8 @@ mod write;
 
 pub use args::Cli;
 pub use commands::{
-    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, ListMessagesArgs, MessageCommands,
-    NewArgs, OrderCommands, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, IdentityCommands, ListMessagesArgs,
+    MessageCommands, NewArgs, OrderCommands, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
-use super::{invoice, message, order_new, order_take, step, sync};
+use super::{identity, invoice, message, order_new, order_take, step, sync};
 use super::{
     offline_discovery, BondCommands, Cli, Commands, DiscoveryData, MessageCommands, OrderCommands,
 };
@@ -46,6 +46,11 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
                 print_discovery(&data, &mut io::stdout().lock(), &mut io::stderr().lock())
             }
         });
+    }
+
+    // The local identity: no configuration, node, relay or legacy context.
+    if let Some(Commands::Identity { command }) = &cli.command {
+        return Some(identity::run(cli, command, output).await);
     }
 
     // Public listing needs no identity, database, environment mutation or RPC.

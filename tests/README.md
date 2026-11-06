@@ -375,3 +375,24 @@ No scenario above is marked complete by documentation alone. Still open: the reg
 maker's local `fiat_amount` is the creation value, so the key may be sent when the taken slice leaves no room (one index is spent); rows saved before
 the maker marker was exact keep their old marker; the MCP has no tool for these commands.
 
+
+## Identity Commands: Requirement Evidence
+
+Reconciliation of the [specification](../specs/009-identity-json/spec.md) with the entry in [TEST_SUMMARY.md](TEST_SUMMARY.md), as of
+2026-11-05. **Automated verification on Linux with isolated stores only.** The commands talk to no node or relay, so there is nothing to probe on
+regtest; the CI Windows runner is checked after the push (the 0600/0700 modes are Unix-only, as for the legacy path). Contracts:
+[CLI](../specs/009-identity-json/contracts/cli.md), [data model](../specs/009-identity-json/data-model.md); generated references:
+[discovery](../docs/schemas/discovery-v1.json), [identity init](../docs/schemas/identity-init-v1.json) and
+[identity show](../docs/schemas/identity-show-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 grammar, names, registry, discovery, root options ignored | `identity_grammar`, `registry`, `the_identity_commands_need_no_node_configuration`, `options_are_argument_errors_before_any_effect`, `root_options_are_ignored_and_no_node_configuration_is_needed` | Verified on Linux |
+| FR-002 the legacy store, no node, no secret | `init_creates_the_store_the_legacy_first_run_creates` (compared with a store made by the legacy first run), `init_in_json_reports_the_public_key_only_and_needs_no_node`, `store::create` unit tests | Verified on Linux |
+| FR-003 existing store or companion, unwritable directory, half-created file, two runs at once | `a_second_init_reports_identity_exists_and_changes_nothing`, `init_refuses_a_leftover_companion_file`, `a_directory_that_cannot_be_created_is_store_unwritable`, `two_inits_at_once_create_one_store`, `discarding_removes_the_store_and_its_companions_only` | Verified on Linux, except: a write that fails after the file was created (`failed`) has no process-level case, only the unit test of the removal |
+| FR-004 show, read-only, missing and damaged stores | `show_reports_the_key_and_the_last_trade_index_and_changes_nothing`, `show_without_a_store_...`, `show_on_a_damaged_store_...`, the `identity` unit tests (index range, WAL without its `-shm` file) | Verified on Linux |
+| FR-005 no mnemonic or private key on any stream, human and JSON agree | the secret sweeps of the process tests, `outcome::identity` and `parse_human::identity` unit tests | Verified on Linux |
+| FR-006 one document, schemas, fixtures, examples, drift | `identity_schema_fixtures_match_the_generated_schemas`, `proposed_identity_examples_...`, `identity_examples_are_reproduced_...`, `invalid_identity_variants_do_not_conform` | Verified on Linux |
+| FR-007 legacy first run unchanged | the db unit tests of `create_private_db_file`, the legacy run of the comparison test | Verified on Linux |
+| SC-001 to SC-005 | the process tests above, `a_store_from_identity_init_is_used_at_once_by_order_new` (scripted node) | Verified on Linux |
+| SC-006 Windows | none yet | Open until CI runs after the push |

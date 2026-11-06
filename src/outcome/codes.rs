@@ -37,6 +37,8 @@ pub enum ErrorCode {
     OrderUnknown,
     // Added for `message.list`.
     StoreUnreadable,
+    // Added for `identity.init`.
+    IdentityExists,
 }
 
 impl ErrorCode {
@@ -76,7 +78,8 @@ impl ErrorCode {
             | Self::OrderNotSaved
             | Self::StoreUnwritable
             | Self::OrderUnknown
-            | Self::StoreUnreadable => RUNTIME_ERROR_EXIT,
+            | Self::StoreUnreadable
+            | Self::IdentityExists => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -106,6 +109,7 @@ impl ErrorCode {
             Self::StoreUnwritable => "The local store cannot be written, so nothing was sent.",
             Self::OrderUnknown => "No local order has this id, so nothing was sent.",
             Self::StoreUnreadable => "The local store cannot be read.",
+            Self::IdentityExists => "A local identity already exists, so nothing was changed.",
         }
     }
 }

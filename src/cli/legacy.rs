@@ -99,6 +99,9 @@ impl Commands {
             Commands::Schema => unreachable!("discovery runs without a Context"),
             Commands::Bond { .. } => unreachable!("bond commands run without a Context"),
             Commands::Message { .. } => unreachable!("message commands run without a Context"),
+            Commands::Identity { .. } => {
+                unreachable!("identity commands run without a Context")
+            }
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 
             // DM retrieval commands

@@ -1,14 +1,13 @@
 use crate::identity::{identity_keys_from_mnemonic, trade_keys_from_mnemonic};
+use crate::store::{create_private_db_file, initialize};
 use crate::util::get_mcli_path;
 use anyhow::Result;
-use bip39::{Mnemonic, WordCount};
 use mostro_core::prelude::*;
 use nip06::FromMnemonic;
 use nostr_sdk::prelude::*;
 use sqlx::pool::Pool;
 use sqlx::Sqlite;
 use sqlx::SqlitePool;
-use std::io;
 use std::path::Path;
 
 pub async fn connect() -> Result<Pool<Sqlite>> {
@@ -20,54 +19,15 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
         // Create the database file with owner-only permissions (0600 on Unix)
         // *before* writing anything to it. This file stores the mnemonic that
         // derives the user's identity and trade keys, so it must not be readable
-        // by other local users under a permissive umask. See issue #179.
-        if let Err(res) = create_private_db_file(&mcli_db_path) {
+        // by other local users under a permissive umask. See issue #179. The
+        // creation is shared with `identity init` (`store/create.rs`).
+        if let Err(res) = create_private_db_file(Path::new(&mcli_db_path)) {
             println!("Error in creating db file: {}", res);
             return Err(res.into());
         }
         pool = SqlitePool::connect(&db_url).await?;
         println!("Creating database file with orders table...");
-        sqlx::query(
-            r#"
-          CREATE TABLE IF NOT EXISTS orders (
-              id TEXT PRIMARY KEY,
-              kind TEXT NOT NULL,
-              status TEXT NOT NULL,
-              amount INTEGER NOT NULL,
-              min_amount INTEGER,
-              max_amount INTEGER,
-              fiat_code TEXT NOT NULL,
-              fiat_amount INTEGER NOT NULL,
-              payment_method TEXT NOT NULL,
-              premium INTEGER NOT NULL,
-              trade_keys TEXT,
-              counterparty_pubkey TEXT,
-              is_mine BOOLEAN,
-              buyer_invoice TEXT,
-              request_id INTEGER,
-              created_at INTEGER,
-              expires_at INTEGER,
-              solver_pubkey TEXT
-          );
-          CREATE TABLE IF NOT EXISTS users (
-              i0_pubkey char(64) PRIMARY KEY,
-              mnemonic TEXT,
-              last_trade_index INTEGER,
-              created_at INTEGER
-          );
-          "#,
-        )
-        .execute(&pool)
-        .await?;
-
-        let mnemonic = match Mnemonic::generate(WordCount::Words12) {
-            Ok(m) => m.to_string(),
-            Err(e) => {
-                println!("Error generating mnemonic: {}", e);
-                return Err(e.into());
-            }
-        };
-        let user = User::new(mnemonic, &pool).await?;
+        let user = initialize(&pool).await?;
         println!("User created with pubkey: {}", user.i0_pubkey);
     } else {
         // Defensively re-tighten the permissions of a database that an older
@@ -92,29 +52,6 @@ pub async fn connect() -> Result<Pool<Sqlite>> {
     }
 
     Ok(pool)
-}
-
-/// Create the SQLite database file restricted to the owner (mode `0600` on
-/// Unix). On non-Unix platforms this falls back to a plain create.
-///
-/// Uses `create_new` so the file is created atomically with the right
-/// permissions instead of being created world-readable and tightened
-/// afterwards, which would leave a brief window where another local user could
-/// open it.
-fn create_private_db_file(path: &str) -> io::Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-
-    // The owner-only mode bit is Unix-specific; `create_new` (fail on existing)
-    // applies on every platform so a second create never truncates an existing
-    // database.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-
-    options.open(path).map(|_| ())
 }
 
 /// Add `solver_pubkey` to databases created before dispute chat existed.

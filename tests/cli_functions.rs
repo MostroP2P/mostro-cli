@@ -1076,7 +1076,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 35] = [
+    const APPROVED: [(&[&str], &str); 37] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1112,6 +1112,8 @@ mod registry {
         (&["order", "cancel"], "order.cancel"),
         (&["order", "sync"], "order.sync"),
         (&["bond", "add-invoice"], "bond.add-invoice"),
+        (&["identity", "init"], "identity.init"),
+        (&["identity", "show"], "identity.show"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1171,7 +1173,8 @@ mod registry {
     fn only_the_migrated_commands_support_json() {
         for entry in REGISTRY {
             match entry.canonical {
-                "order.list" | "schema" | "message.list" | "order.sync" => {
+                "order.list" | "schema" | "message.list" | "order.sync" | "identity.init"
+                | "identity.show" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1258,7 +1261,9 @@ mod registry {
                 "order.release",
                 "order.cancel",
                 "order.sync",
-                "bond.add-invoice"
+                "bond.add-invoice",
+                "identity.init",
+                "identity.show"
             ]
         );
     }
@@ -1895,5 +1900,47 @@ mod order_sync_grammar {
         let entry = lookup(&["order".to_string(), "sync".to_string()]).expect("registered");
         assert_eq!(entry.canonical, "order.sync");
         assert_eq!(entry.json, JsonSupport::Read);
+    }
+}
+
+/// The grammar of `identity init` and `identity show` (spec 009).
+mod identity_grammar {
+    use clap::Parser;
+    use mostro_client::cli::{lookup, Cli, Commands, IdentityCommands, JsonSupport};
+
+    fn parse(args: &[&str]) -> Result<IdentityCommands, clap::Error> {
+        let argv = ["mostro-cli", "identity"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Identity { command }) => Ok(command),
+            _ => panic!("not identity"),
+        }
+    }
+
+    #[test]
+    fn both_commands_take_no_options() {
+        assert!(matches!(parse(&["init"]), Ok(IdentityCommands::Init)));
+        assert!(matches!(parse(&["show"]), Ok(IdentityCommands::Show)));
+        for bad in [
+            &["init", "--yes"][..],
+            &["show", "--reveal"],
+            &["init", "extra"],
+            &["new"],
+            &[],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn both_are_registered_reads_with_the_approved_names() {
+        for (verb, canonical) in [("init", "identity.init"), ("show", "identity.show")] {
+            let entry = lookup(&["identity".to_string(), verb.to_string()]).expect(canonical);
+            assert_eq!(entry.canonical, canonical);
+            // Publishes nothing, like `order sync`: rejected invocations report
+            // read stages.
+            assert_eq!(entry.json, JsonSupport::Read, "{canonical}");
+        }
     }
 }

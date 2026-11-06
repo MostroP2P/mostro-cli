@@ -35,6 +35,13 @@ pub enum Stages {
     /// `applied` when a row was saved, `not_attempted` when nothing was to be
     /// saved or the command stopped first, `failed` when a save failed.
     Sync,
+    /// A command that only writes local state and talks to nobody
+    /// (`identity.init`): publication and node acceptance are `not_applicable`;
+    /// persistence is `applied` on success, `not_attempted` when nothing was
+    /// written, `failed` when a write began and could not be completed, and
+    /// `not_applicable` for an invocation rejected before it ran, as for
+    /// [`Stages::Sync`].
+    Local,
 }
 
 /// The stage combinations (publication, node acceptance, persistence) allowed
@@ -145,6 +152,19 @@ impl<'a> OutcomeRules<'a> {
         }
     }
 
+    /// Rules of a local write that publishes nothing (`Stages::Local`).
+    pub fn local(command: &'static str, errors: &'a [ErrorCode]) -> Self {
+        Self {
+            command,
+            errors,
+            uncertain: &[],
+            warnings: &[],
+            snapshot_on_success: false,
+            reason: false,
+            stages: Stages::Local,
+        }
+    }
+
     /// Rules of the trade steps (`Stages::Step`).
     pub fn step(
         command: &'static str,
@@ -208,6 +228,17 @@ impl<'a> OutcomeRules<'a> {
                 ],
                 // A save failed after others succeeded.
                 uncertain: vec![["not_applicable", "not_applicable", "failed"]],
+            },
+            Stages::Local => Combos {
+                success: vec![["not_applicable", "not_applicable", "applied"]],
+                // Rejected before it ran, ran and wrote nothing, or began a
+                // write that could not be completed.
+                failure: vec![
+                    ["not_applicable", "not_applicable", "not_applicable"],
+                    ["not_applicable", "not_applicable", "not_attempted"],
+                    ["not_applicable", "not_applicable", "failed"],
+                ],
+                uncertain: Vec::new(),
             },
             Stages::Update | Stages::Delivery | Stages::Step => Combos {
                 success: if self.stages != Stages::Delivery {

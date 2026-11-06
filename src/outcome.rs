@@ -11,6 +11,7 @@ use serde::Serialize;
 pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings};
 
 mod codes;
+pub mod identity;
 pub mod info;
 pub mod invoice;
 pub mod messages;
@@ -97,6 +98,12 @@ impl<S> ExecutionMeta<S> {
             persistence,
             snapshot,
         }
+    }
+
+    /// A command that writes only local state and talks to nobody
+    /// (`identity.init`): `persistence` says what happened to the write.
+    pub fn local(persistence: Persistence) -> Self {
+        Self::sync(None, persistence)
     }
 
     /// A command that publishes one request and writes nothing locally: the

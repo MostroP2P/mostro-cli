@@ -9,23 +9,27 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 
 ### Connection and initialization
 
-- Implemented in `src/db.rs`:
+- Implemented in `src/db.rs`, with the creation of a new store in `src/store/create.rs` (shared with `identity init`, spec 009, so both create
+  the same store):
   - `connect()`:
     - Builds `mcli_db_path = format!("{}/mcli.db", get_mcli_path())`.
     - If the file does not exist:
-      - Creates the file.
+      - Creates the file owner-only (`create_private_db_file`, `create_new`, 0600 on Unix).
       - Initializes a `SqlitePool`.
-      - Runs a SQL batch that creates `orders` and `users` tables.
-      - Generates a fresh 12-word mnemonic, derives the identity keys, and inserts a `User` row.
+      - `initialize`: runs the SQL batch that creates the `orders` and `users` tables, generates a fresh 12-word mnemonic and inserts a `User`
+        row (no trade index).
     - If the file exists:
       - Connects with `SqlitePool::connect(&db_url)`.
       - Runs `migrate_remove_token_columns` to remove legacy `buyer_token` and `seller_token` columns if present.
+  - `store::create_store(dir)` (`identity init`): the same steps without printing, after refusing an existing `mcli.db` or a leftover
+    `mcli.db-journal`, `-wal` or `-shm`, creating the directory owner-only (0700) like `get_mcli_path`, and removing a half-created file
+    again on failure.
 
 ### Tables
 
 #### `orders`
 
-- **DDL (from `db.rs`)**:
+- **DDL (from `store/create.rs`)**:
 
   ```sql
   CREATE TABLE IF NOT EXISTS orders (
@@ -88,7 +92,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 
 #### `users`
 
-- **DDL (from `db.rs`)**:
+- **DDL (from `store/create.rs`)**:
 
   ```sql
   CREATE TABLE IF NOT EXISTS users (
@@ -147,14 +151,14 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 ### Extension guidelines
 
 - When adding a new column to `orders` or `users`:
-  - Update the `CREATE TABLE` statement in `connect()`.
+  - Update the `CREATE TABLE` statement in `store/create.rs` (`SCHEMA`), which `connect()` and `identity init` share.
   - Extend the corresponding struct fields in `Order` or `User`.
   - Update `insert_db`, `update_db`, and `save` statements.
   - Add a migration helper if the change is not backward compatible with existing databases.
   - Update this `database.md` file.
 
 - When introducing a new table:
-  - Add a `CREATE TABLE` clause to the initialization block in `connect()`.
+  - Add a `CREATE TABLE` clause to `SCHEMA` in `store/create.rs`.
   - Create a new model struct with `sqlx::FromRow`.
   - Provide CRUD helpers similar to `Order` and `User`.
   - Document it here for clarity.
