@@ -3818,6 +3818,30 @@ mod ci_wiring {
     }
 
     #[test]
+    fn releases_and_ci_build_the_macos_binaries() {
+        let path = format!("{}/archs", env!("CARGO_MANIFEST_DIR"));
+        let archs = read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+        for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"] {
+            assert!(
+                archs.lines().any(|line| line.trim() == target),
+                "archs lacks {target}"
+            );
+        }
+        let release = workflow("rust.yml");
+        assert!(job(&release, "matrix").contains("macos-latest"));
+        let build = job(&release, "build");
+        assert!(build.contains("runs-on: ${{ matrix.os }}"));
+        assert!(build.contains("rustup target add ${{ matrix.target }}"));
+        let ci = workflow("ci.yml");
+        let macos = job(&ci, "macos");
+        assert!(macos.contains("runs-on: macos-latest"));
+        assert!(macos.contains("--target aarch64-apple-darwin"));
+        assert!(macos.contains("--target x86_64-apple-darwin"));
+        // The job runs third-party build scripts: they must not reach the checkout token.
+        assert!(macos.contains("persist-credentials: false"));
+    }
+
+    #[test]
     fn existing_required_checks_are_kept() {
         let ci = workflow("ci.yml");
         for id in ["fmt", "clippy", "test", "build", "msrv"] {
