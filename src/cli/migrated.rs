@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
+use super::write::exchange_limits;
 use super::{held, identity, invoice, message, mine, order_new, order_take, step, sync};
 use super::{
     offline_discovery, BondCommands, Cli, Commands, DiscoveryData, DisputeCommands,
@@ -18,7 +19,7 @@ use super::{
 use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::identity::{load_identity_keys, IdentityError};
-use crate::msg::{ExchangeLimits, PublicReadConfig, ReadLimits};
+use crate::msg::{PublicReadConfig, ReadLimits};
 use crate::outcome::info::OrderInfoInput;
 use crate::outcome::step::StepKind;
 use crate::outcome::{
@@ -220,7 +221,7 @@ async fn info_outcome(cli: &Cli, orders: &[Uuid]) -> InfoOutcome {
         &config,
         &identity,
         options,
-        &ExchangeLimits::default(),
+        &exchange_limits(cli),
     )
     .await
 }

@@ -6,6 +6,7 @@ use clap::{Command, CommandFactory};
 use schemars::JsonSchema;
 use serde::Serialize;
 
+use super::input_schema::global_options;
 pub use super::input_schema::input_schema;
 use super::registry::{CommandEntry, JsonSupport, REGISTRY};
 use super::Cli;
@@ -86,6 +87,10 @@ pub struct DiscoveryData {
     pub executable_version: &'static str,
     pub schema_dialect: &'static str,
     pub commands: Vec<CommandDescriptor>,
+    /// The options accepted at any command depth, sorted by name: `name`, the
+    /// option's schema property (`type`, `enum`, `description`), `default` when
+    /// it has one and `applies_to`, the canonical names it takes effect on.
+    pub global_options: Vec<SchemaDocument>,
 }
 
 /// Discovery for every registered command. `schemas` supplies the generated
@@ -108,6 +113,7 @@ fn describe(
         executable_version: env!("CARGO_PKG_VERSION"),
         schema_dialect: SCHEMA_DIALECT,
         commands,
+        global_options: global_options(&Cli::command(), entries),
     }
 }
 
@@ -515,6 +521,43 @@ mod tests {
             .unwrap()
             .contains("31536000"));
         assert!(!strings(&input["required"]).contains(&"expires-in"));
+    }
+
+    /// `--reply-timeout` is discoverable: its default and range, and exactly
+    /// the commands that wait for the node's reply; `--output` is listed too.
+    #[test]
+    fn the_global_options_are_listed_with_what_they_apply_to() {
+        let data = discovery(schemas);
+        let names: Vec<&str> = data
+            .global_options
+            .iter()
+            .map(|option| option["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["output", "reply-timeout"]);
+        let reply = &data.global_options[1];
+        assert_eq!(reply["type"], "string");
+        assert_eq!(reply["default"], "15");
+        assert!(reply["description"].as_str().unwrap().contains("5 to 300"));
+        let waiting: Vec<&str> = {
+            let mut names: Vec<&str> = REGISTRY
+                .iter()
+                .filter(|entry| matches!(entry.json, JsonSupport::Request | JsonSupport::Write))
+                .map(|entry| entry.canonical)
+                .collect();
+            names.sort_unstable();
+            names
+        };
+        assert_eq!(reply["applies_to"], json!(waiting));
+        assert_eq!(waiting.len(), 11);
+        for read in ["order.list", "message.list", "order.sync", "schema"] {
+            assert!(!waiting.contains(&read), "{read}");
+        }
+        assert_eq!(data.global_options[0]["enum"], json!(["human", "json"]));
+        let input = input_schema(&Cli::command(), &["order", "take-sell"]).unwrap();
+        assert!(
+            input["properties"].get("reply-timeout").is_none(),
+            "not command input"
+        );
     }
 
     #[test]

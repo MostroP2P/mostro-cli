@@ -1,7 +1,12 @@
-use clap::Parser;
+use clap::{value_parser, Parser};
 
 use super::commands::Commands;
 use super::invocation::{OutputMode, OUTPUT_LONG};
+
+/// The long name of the reply deadline option.
+pub const REPLY_TIMEOUT_LONG: &str = "reply-timeout";
+/// The reply deadline when the option is not given, in seconds.
+pub const DEFAULT_REPLY_TIMEOUT: u64 = 15;
 
 #[derive(Parser)]
 #[command(
@@ -44,4 +49,15 @@ pub struct Cli {
     /// only migrated commands support `json`.
     #[arg(long = OUTPUT_LONG, global = true, value_enum)]
     pub output: Option<OutputMode>,
+    /// Seconds to wait for the node's reply (5 to 300, default 15), accepted at
+    /// any command depth. Applies to the commands that wait for a reply; the
+    /// public reads keep their own limits
+    #[arg(
+        long = REPLY_TIMEOUT_LONG,
+        global = true,
+        value_name = "SECONDS",
+        default_value_t = DEFAULT_REPLY_TIMEOUT,
+        value_parser = value_parser!(u64).range(5..=300)
+    )]
+    pub reply_timeout: u64,
 }

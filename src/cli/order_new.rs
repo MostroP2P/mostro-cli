@@ -10,11 +10,11 @@ use super::commands::NewArgs;
 use super::invocation::OutputMode;
 use super::stdin;
 use super::write::{
-    confirmed, finish, needs_yes, preview_trade, refuse, refuse_invoice, resolve_base,
+    confirmed, exchange_limits, finish, needs_yes, preview_trade, refuse, refuse_invoice,
+    resolve_base,
 };
 use super::Cli;
 use crate::commands::order::new::{order_new, NewOutcome, COMMAND};
-use crate::msg::ExchangeLimits;
 use crate::outcome::new::{InvalidOrder, OrderNewInput, OrderRequest};
 use crate::outcome::ErrorCode;
 use crate::parse_human::{render_new, render_preview};
@@ -66,7 +66,7 @@ async fn outcome(cli: &Cli, args: &NewArgs, output: OutputMode) -> NewOutcome {
         &base.identity,
         &base.store,
         base.options,
-        &ExchangeLimits::default(),
+        &exchange_limits(cli),
     )
     .await
 }
