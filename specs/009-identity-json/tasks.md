@@ -12,7 +12,7 @@ authorization.
 
 - [x] **1. Characterize and extract.** (done 2026-11-05; evidence in `tests/TEST_SUMMARY.md`) Failing process tests first: `identity init` and
   `identity show` do not exist, and a store created by the legacy first run (`getlasttradeindex` with an unusable relay list) is the reference.
-  Move the first-run creation from `db.rs` to `db/create.rs` unchanged and add `create_store`; extend `identity.rs` with `load_identity_from`.
+  Move the first-run creation from `db.rs` to `store/create.rs` unchanged and add `create_store`; extend `identity.rs` with `load_identity_from`.
 - [x] **2. Outcomes and schemas.** (done 2026-11-05) `outcome/identity.rs`, `identity_exists`, `Stages::Local`, the index schema, output
   schemas for both names, registry entries, discovery.
 - [x] **3. The commands.** (done 2026-11-05) Grammar, `commands/identity.rs`, `cli/identity.rs`, `parse_human/identity.rs`, dispatch; binary
