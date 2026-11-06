@@ -5,6 +5,7 @@
 //! `order take-sell` through the real binary against the scripted node, and a
 //! range child adopted as `order sync` adopts it.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
@@ -82,7 +83,7 @@ fn conforms(outcome: &Value) {
         "{}/docs/schemas/order-mine-v1.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let schema: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     assert!(
         schema_check::conforms(&schema, &schema, outcome),
         "{outcome}"
@@ -90,12 +91,12 @@ fn conforms(outcome: &Value) {
 }
 
 fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    let mut files: Vec<_> = std::fs::read_dir(dir)
+    let mut files: Vec<_> = fs::read_dir(dir)
         .map(|entries| {
             entries
                 .map(|entry| {
                     let path = entry.unwrap().path();
-                    let bytes = std::fs::read(&path).unwrap_or_default();
+                    let bytes = fs::read(&path).unwrap_or_default();
                     (path, bytes)
                 })
                 .collect()
@@ -332,7 +333,7 @@ async fn a_damaged_store_is_store_unreadable_and_left_alone() {
         seed_identity(&sandbox.mcli_dir()).await;
         let dir = sandbox.mcli_dir();
         if damage == "garbage" {
-            std::fs::write(dir.join("mcli.db"), b"not a database at all, only text").unwrap();
+            fs::write(dir.join("mcli.db"), b"not a database at all, only text").unwrap();
         } else {
             execute(
                 &dir,
