@@ -134,6 +134,17 @@ impl Holder {
         pool.close().await;
     }
 
+    /// Leave the store in WAL mode with a `-wal` file and no `-shm` file: the
+    /// identity still loads from the main file, but the order's key cannot be
+    /// read without creating the `-shm` file, so the store is unreadable.
+    async fn wal_without_shm(&self) {
+        // Closing the last connection removes the `-wal` and `-shm` files.
+        self.sql("PRAGMA journal_mode = WAL").await;
+        let dir = self.sandbox.mcli_dir();
+        fs::write(dir.join("mcli.db-wal"), b"").unwrap();
+        assert!(!dir.join("mcli.db-shm").exists(), "no -shm file");
+    }
+
     fn snapshot(&self) -> Vec<(PathBuf, Vec<u8>)> {
         let mut files: Vec<_> = fs::read_dir(self.sandbox.mcli_dir())
             .unwrap()
@@ -628,6 +639,41 @@ mod rate {
         assert_eq!(missing.code(), Some(2));
         assert!(holder.fake.received().is_empty());
         assert_eq!(holder.snapshot(), before);
+    }
+
+    /// A store that cannot be read is a broken store, not an unknown order:
+    /// the preview read gives the code of the send path, with or without
+    /// `--yes`. `order rate` needs no writable store, so this read is its
+    /// first look at the store.
+    #[tokio::test]
+    async fn an_unreadable_store_is_store_unwritable_with_or_without_yes() {
+        let holder = holder(Status::Success).await;
+        holder.wal_without_shm().await;
+        let before = holder.snapshot();
+        let rate = ["order", "rate", "--order", ORDER, "--rating", "5"];
+
+        let human = holder.run(&rate).await;
+        let human_yes = holder.run(&[&rate[..], &["--yes"]].concat()).await;
+        let json = holder
+            .run(&[&["--output", "json"][..], &rate, &["--yes"]].concat())
+            .await;
+
+        let line = "error: The local store cannot be written, so nothing was sent.\n";
+        assert_eq!(human.code(), Some(1));
+        assert!(human.stdout.is_empty(), "no preview");
+        assert_eq!(human.stderr_text(), line);
+        assert_eq!(human_yes.code(), Some(1));
+        assert_eq!(human_yes.stderr_text(), line, "the same line with --yes");
+        assert_eq!(json.code(), Some(1));
+        let outcome = document(&json);
+        conforms("order-rate", &outcome);
+        assert_eq!(outcome["error"]["code"], "store_unwritable");
+        assert_eq!(
+            outcome["meta"],
+            meta("not_attempted", "unknown", "not_attempted")
+        );
+        assert!(holder.fake.received().is_empty(), "nothing is published");
+        assert_eq!(holder.snapshot(), before, "no file created or changed");
     }
 
     #[tokio::test]
