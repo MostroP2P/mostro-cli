@@ -1,6 +1,7 @@
 pub mod info;
 pub mod invoice;
 pub mod list;
+pub mod mine;
 pub mod new;
 pub mod step;
 pub mod sync;

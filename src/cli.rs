@@ -26,6 +26,7 @@ mod invoice;
 mod legacy;
 mod message;
 mod migrated;
+mod mine;
 mod order_new;
 mod order_take;
 mod registry;

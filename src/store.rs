@@ -26,10 +26,12 @@ pub use create::{create_store, CreateError};
 pub(crate) use reserve::raise_index_in;
 pub use reserve::Reservation;
 use reserve::{release_in, reserve_in};
+pub use rows::StoredOrder;
 use save::{save_in, Existing};
 
 mod create;
 mod reserve;
+mod rows;
 mod save;
 
 /// `is_mine`, `min_amount`, `max_amount`, `fiat_amount` and `kind` of a stored order.

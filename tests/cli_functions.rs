@@ -1076,7 +1076,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 37] = [
+    const APPROVED: [(&[&str], &str); 38] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1114,6 +1114,7 @@ mod registry {
         (&["bond", "add-invoice"], "bond.add-invoice"),
         (&["identity", "init"], "identity.init"),
         (&["identity", "show"], "identity.show"),
+        (&["order", "mine"], "order.mine"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1174,7 +1175,7 @@ mod registry {
         for entry in REGISTRY {
             match entry.canonical {
                 "order.list" | "schema" | "message.list" | "order.sync" | "identity.init"
-                | "identity.show" => {
+                | "identity.show" | "order.mine" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1263,7 +1264,8 @@ mod registry {
                 "order.sync",
                 "bond.add-invoice",
                 "identity.init",
-                "identity.show"
+                "identity.show",
+                "order.mine"
             ]
         );
     }

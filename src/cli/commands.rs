@@ -276,6 +276,10 @@ pub enum OrderCommands {
     /// order the store does not know and publishes nothing. Needs an existing
     /// local identity (it never creates one)
     Sync(SyncArgs),
+    /// List the orders of the local store (made, taken or adopted), newest
+    /// first, with their trade index and key. Reads the local store only;
+    /// needs no node, relay or network
+    Mine,
 }
 
 #[derive(Subcommand, Clone)]

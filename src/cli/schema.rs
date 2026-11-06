@@ -25,6 +25,9 @@ use crate::outcome::invoice::{
 use crate::outcome::messages::{
     MessageListData, ERRORS as MESSAGE_ERRORS, WARNINGS as MESSAGE_WARNINGS,
 };
+use crate::outcome::mine::{
+    OrderMineData, COMMAND as ORDER_MINE, ERRORS as MINE_ERRORS, WARNINGS as MINE_WARNINGS,
+};
 use crate::outcome::new::OrderNewData;
 use crate::outcome::order::{ListData, Snapshot};
 use crate::outcome::schema::{output_schema, OutcomeRules, Stages};
@@ -134,7 +137,7 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
         | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
         | MESSAGE_LIST | ORDER_SYNC => Some(LISTING_CONFIGURATION.to_vec()),
         // Local only: the data directory, which has a default, is all they read.
-        SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW => Some(Vec::new()),
+        SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW | ORDER_MINE => Some(Vec::new()),
         _ => None,
     }
 }
@@ -303,6 +306,10 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &SYNC_UNCERTAIN,
             &SYNC_WARNINGS,
         )),
+        ORDER_MINE => output_schema::<OrderMineData, ()>(&OutcomeRules {
+            warnings: &MINE_WARNINGS,
+            ..OutcomeRules::read(ORDER_MINE, &MINE_ERRORS, false)
+        }),
         IDENTITY_INIT => {
             output_schema::<IdentityInitData, ()>(&OutcomeRules::local(IDENTITY_INIT, &INIT_ERRORS))
         }
