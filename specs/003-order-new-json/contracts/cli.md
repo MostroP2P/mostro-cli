@@ -13,7 +13,7 @@ mostro-cli order new --side buy|sell --currency CODE --fiat-amount N [--fiat-amo
 
 `neworder` and its short flags (`-k -c -f -m -a -p -i -e`), the `100-200` range syntax and a positional form are removed with
 no alias. `--yes` is local to this command for now (the roadmap's global `--yes` waits for a command that needs it elsewhere).
-Canonical JSON name: `order.new`. Stdin is never read in JSON mode.
+Canonical JSON name: `order.new`. Stdin is never read in JSON mode. (Amended 2026-11-05 by [spec 010](../../010-invoice-stdin/contracts/cli.md): except the invoice of `--invoice -`, which requires `--yes` in both modes.)
 
 ## Confirmation
 
@@ -42,3 +42,7 @@ arguments or the invoice.
 Inherited: `invalid_arguments`, `configuration_*`, `identity_missing`, `identity_unreadable`, `protocol_unsupported`,
 `pow_required`, `request_rejected`, `node_refused` (+ reason), `reply_timeout`, `reply_malformed`, `relay_*`, `internal_error`.
 Added (all exit 1, scoped to this command's schema): `order_declined`, `order_not_saved`, `store_unwritable`.
+
+Amended 2026-11-05 (review of spec 010): an `invalid_arguments` caused by the invoice value itself carries `"reason": "invalid_invoice"`
+(`order take-sell` only among the takes); every other `invalid_arguments` carries no reason. See the
+[command reference](../../../docs/commands.md#machine-output-schema-v1).

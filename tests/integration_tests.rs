@@ -18,6 +18,7 @@ use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
 use mostro_client::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Warnings,
+    INVALID_INVOICE,
 };
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
@@ -288,6 +289,7 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 // --- Generated schema fixtures and proposed examples (T045) ---------------
 
 mod schema_fixtures {
+    use super::INVALID_INVOICE;
     use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
         Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, OrderNewData,
@@ -1282,6 +1284,17 @@ mod schema_fixtures {
                 2,
             ),
             (
+                "invalid_invoice",
+                to_value(NewEnvelope::invalid_input(
+                    Some("order.new"),
+                    INVALID_INVOICE,
+                    Warnings::new(),
+                    unsent_write(),
+                ))
+                .unwrap(),
+                2,
+            ),
+            (
                 "removed_spelling",
                 to_value(NewEnvelope::error(
                     None,
@@ -1299,7 +1312,7 @@ mod schema_fixtures {
     fn proposed_new_examples_conform_to_the_checked_in_schema() {
         let schema = read_json(NEW_FIXTURE);
         let examples = new_examples();
-        assert_eq!(examples.len(), 10);
+        assert_eq!(examples.len(), 11);
         for (name, exit, outcome) in examples {
             assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
             let expected = match (
@@ -1636,6 +1649,17 @@ mod schema_fixtures {
                 2,
             ),
             (
+                "sell_invalid_invoice",
+                to_value(TakeEnvelope::invalid_input(
+                    Some(sell),
+                    INVALID_INVOICE,
+                    Warnings::new(),
+                    unsent_write(),
+                ))
+                .unwrap(),
+                2,
+            ),
+            (
                 "removed_spelling",
                 to_value(TakeEnvelope::error(
                     None,
@@ -1652,7 +1676,7 @@ mod schema_fixtures {
     #[test]
     fn proposed_take_examples_conform_to_the_checked_in_schemas() {
         let examples = take_examples();
-        assert_eq!(examples.len(), 11);
+        assert_eq!(examples.len(), 12);
         for (name, exit, outcome) in examples {
             if outcome["command"].is_null() {
                 continue; // no command resolved: both schemas allow it
@@ -2600,6 +2624,19 @@ mod schema_fixtures {
     fn invoice_cases() -> Vec<(&'static str, Value, i32)> {
         let order = "order.add-invoice";
         let bond = "bond.add-invoice";
+        let invalid_invoice = |command| {
+            to_value(Envelope::<Value, ()>::invalid_input(
+                Some(command),
+                INVALID_INVOICE,
+                Warnings::new(),
+                write(
+                    Publication::NotAttempted,
+                    DaemonAcceptance::Unknown,
+                    Persistence::NotAttempted,
+                ),
+            ))
+            .unwrap()
+        };
         let meta =
             |publication, acceptance, persistence| write(publication, acceptance, persistence);
         let accepted = |persistence| {
@@ -2712,6 +2749,8 @@ mod schema_fixtures {
                 error(order, ErrorCode::InvalidArguments),
                 2,
             ),
+            ("order_invalid_invoice", invalid_invoice(order), 2),
+            ("bond_invalid_invoice", invalid_invoice(bond), 2),
             (
                 "bond_invoice_accepted",
                 ok(
@@ -2746,7 +2785,7 @@ mod schema_fixtures {
     #[test]
     fn proposed_invoice_examples_conform_to_the_checked_in_schemas() {
         let examples = invoice_examples();
-        assert_eq!(examples.len(), 15);
+        assert_eq!(examples.len(), 17);
         for (name, exit, outcome) in examples {
             if outcome["command"].is_null() {
                 continue; // no command resolved: both schemas allow it

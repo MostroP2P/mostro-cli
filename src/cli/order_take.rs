@@ -5,11 +5,14 @@
 
 use super::commands::{TakeBuyArgs, TakeSellArgs};
 use super::invocation::OutputMode;
-use super::write::{confirmed, finish, needs_yes, preview_trade, refuse, resolve_base};
+use super::stdin;
+use super::write::{
+    confirmed, finish, needs_yes, preview_trade, refuse, refuse_invoice, resolve_base,
+};
 use super::Cli;
 use crate::commands::order::take::{order_take, TakeOutcome};
 use crate::msg::ExchangeLimits;
-use crate::outcome::take::{OrderTakeInput, TakeRequest, TakeSide};
+use crate::outcome::take::{InvalidTake, OrderTakeInput, TakeRequest, TakeSide};
 use crate::outcome::ErrorCode;
 use crate::parse_human::{render_take_preview, render_taken};
 
@@ -50,8 +53,16 @@ async fn outcome(cli: &Cli, request: TakeRequest, yes: bool, output: OutputMode)
     if needs_yes(output, yes) {
         return refuse(command, ErrorCode::InvalidArguments);
     }
-    let Ok(input) = OrderTakeInput::validate(request) else {
-        return refuse(command, ErrorCode::InvalidArguments);
+    // `--invoice -`: read it now, before anything else can fail or ask.
+    let invoice = match stdin::invoice(request.invoice, yes) {
+        Ok(invoice) => invoice,
+        Err(refusal) => return refusal.outcome(command),
+    };
+    let request = TakeRequest { invoice, ..request };
+    let input = match OrderTakeInput::validate(request) {
+        Ok(input) => input,
+        Err(InvalidTake::Invoice) => return refuse_invoice(command),
+        Err(_) => return refuse(command, ErrorCode::InvalidArguments),
     };
     let base = match resolve_base(cli, true).await {
         Ok(base) => base,

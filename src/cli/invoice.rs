@@ -6,7 +6,8 @@
 
 use super::commands::{AddBondInvoiceArgs, AddInvoiceArgs};
 use super::invocation::OutputMode;
-use super::write::{confirmed, finish, needs_yes, refuse, resolve_base, Base};
+use super::stdin;
+use super::write::{confirmed, finish, needs_yes, refuse, refuse_invoice, resolve_base, Base};
 use super::Cli;
 use crate::commands::order::invoice::{bond_add_invoice, order_add_invoice};
 use crate::msg::ExchangeLimits;
@@ -82,9 +83,9 @@ pub(super) async fn bond(cli: &Cli, args: &AddBondInvoiceArgs, output: OutputMod
 }
 
 /// Everything that can fail before the request: the confirmation rule, the
-/// input, configuration, identity and store (writable only for the order
-/// invoice, which updates the local status), the order and the question. The
-/// error side is the finished outcome.
+/// invoice from stdin when it is `-`, the input, configuration, identity and
+/// store (writable only for the order invoice, which updates the local
+/// status), the order and the question. The error side is the finished outcome.
 async fn prepare<D>(
     cli: &Cli,
     request: InvoiceRequest,
@@ -96,8 +97,14 @@ async fn prepare<D>(
     if needs_yes(output, yes) {
         return Err(refuse(command, ErrorCode::InvalidArguments));
     }
+    // `--invoice -`: read it now, before anything else can fail or ask.
+    let invoice = stdin::invoice(Some(request.invoice), yes)
+        .map_err(|refusal| refusal.outcome(command))?
+        .unwrap_or_default();
+    let request = InvoiceRequest { invoice, ..request };
+    // The invoice is the only value checked here: a failure is the invoice's.
     let Ok(input) = InvoiceInput::validate(request) else {
-        return Err(refuse(command, ErrorCode::InvalidArguments));
+        return Err(refuse_invoice(command));
     };
     let base = resolve_base(cli, kind == InvoiceKind::Order)
         .await

@@ -30,6 +30,7 @@ mod order_new;
 mod order_take;
 mod registry;
 mod schema;
+mod stdin;
 mod step;
 mod sync;
 mod write;

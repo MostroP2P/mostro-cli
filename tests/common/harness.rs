@@ -26,9 +26,9 @@ use hyper::upgrade::{self, OnUpgrade};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use nostr_sdk::prelude::{Keys, LocalRelay};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Notify;
 use tokio::task::{JoinHandle, JoinSet};
@@ -306,6 +306,59 @@ pub async fn run_with_watchdog(mut command: Command, limit: Duration) -> io::Res
         Ok(status) => Some(status?),
         Err(_) => {
             // `kill` waits for the exit, so the process is reaped here.
+            child.kill().await?;
+            None
+        }
+    };
+    let reaped = child.id().is_none();
+    Ok(Captured {
+        status,
+        stdout: stdout.await.map_err(io::Error::other)??,
+        stderr: stderr.await.map_err(io::Error::other)??,
+        reaped,
+    })
+}
+
+/// Run a child with `input` as the whole of its stdin: written, then closed.
+/// A child that exits before reading everything is not an error.
+pub async fn run_with_input(
+    mut command: Command,
+    input: Vec<u8>,
+    limit: Duration,
+) -> io::Result<Captured> {
+    command.stdin(Stdio::piped());
+    let mut child = command.spawn()?;
+    let stdin = child.stdin.take();
+    let writer = tokio::spawn(async move {
+        if let Some(mut stdin) = stdin {
+            let _ = stdin.write_all(&input).await;
+            let _ = stdin.shutdown().await;
+        }
+    });
+    let captured = wait_with_watchdog(child, limit).await;
+    let _ = writer.await;
+    captured
+}
+
+/// Run a child whose stdin stays open and is never written until it exits:
+/// a child that reads stdin waits until the watchdog kills it.
+pub async fn run_with_open_stdin(mut command: Command, limit: Duration) -> io::Result<Captured> {
+    command.stdin(Stdio::piped());
+    let mut child = command.spawn()?;
+    let held = child.stdin.take();
+    let captured = wait_with_watchdog(child, limit).await;
+    drop(held);
+    captured
+}
+
+/// Collect the streams and status of a spawned child, or kill and reap it once
+/// `limit` elapses.
+async fn wait_with_watchdog(mut child: Child, limit: Duration) -> io::Result<Captured> {
+    let stdout = read_all(child.stdout.take());
+    let stderr = read_all(child.stderr.take());
+    let status = match timeout(limit, child.wait()).await {
+        Ok(status) => Some(status?),
+        Err(_) => {
             child.kill().await?;
             None
         }

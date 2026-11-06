@@ -7,6 +7,7 @@ use clap::{Arg, ArgAction, Command};
 use serde_json::{json, Map, Value};
 
 use super::invocation::OUTPUT_LONG;
+use super::stdin::{STDIN_OPTIONS, STDIN_VALUE};
 use crate::outcome::order::ListOrdersInput;
 use crate::outcome::schema::{SchemaDocument, DIALECT as SCHEMA_DIALECT};
 
@@ -49,6 +50,8 @@ fn is_input(arg: &Arg) -> bool {
         && arg.get_long().is_some()
 }
 
+/// The schema property of one option: its type, allowed values, case rule,
+/// stdin marker and help text.
 fn property(arg: &Arg) -> Value {
     let mut value = Map::new();
     if is_flag(arg) {
@@ -67,6 +70,13 @@ fn property(arg: &Arg) -> Value {
         }
         if arg.is_ignore_case_set() {
             value.insert("x-case-insensitive".into(), json!(true));
+        }
+        // `--invoice -` reads the value from standard input (spec 010).
+        if arg
+            .get_long()
+            .is_some_and(|name| STDIN_OPTIONS.contains(&name))
+        {
+            value.insert("x-stdin".into(), json!(STDIN_VALUE));
         }
     }
     // A repeatable option takes a list: each occurrence is one item.

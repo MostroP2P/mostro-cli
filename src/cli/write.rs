@@ -18,7 +18,7 @@ use crate::identity::{load_identity_keys, IdentityError};
 use crate::msg::PublicReadConfig;
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Status,
-    Warnings, RUNTIME_ERROR_EXIT,
+    Warnings, INVALID_INVOICE, RUNTIME_ERROR_EXIT,
 };
 use crate::parse_machine::emit;
 use crate::store::{Store, StoreError, Trade};
@@ -106,6 +106,21 @@ pub(super) fn refuse<D>(command: &'static str, code: ErrorCode) -> Envelope<D, (
     Envelope::error(
         Some(command),
         code,
+        Warnings::new(),
+        ExecutionMeta::write(
+            Publication::NotAttempted,
+            DaemonAcceptance::Unknown,
+            Persistence::NotAttempted,
+        ),
+    )
+}
+
+/// An `invalid_arguments` caused by the invoice value itself, before anything
+/// was published or written: it carries the reason `invalid_invoice`.
+pub(super) fn refuse_invoice<D>(command: &'static str) -> Envelope<D, ()> {
+    Envelope::invalid_input(
+        Some(command),
+        INVALID_INVOICE,
         Warnings::new(),
         ExecutionMeta::write(
             Publication::NotAttempted,

@@ -626,6 +626,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order take-sell --order <id> [--invoice <invoice>] [--amount <fiat>] [--yes]` — buyer takes a sell order (supports `--output json`, which requires `--yes`). Replaces `takesell`.
 - `order take-buy --order <id> [--amount <fiat>] [--yes]` — seller takes a buy order (supports `--output json`, which requires `--yes`). Replaces `takebuy`.
 - `order add-invoice --order <id> --invoice <invoice> [--yes]` — buyer sends the invoice the node asked for after a take (supports `--output json`, which requires `--yes`). Replaces `addinvoice`; uses the order's stored key, spends no trade index.
+- `--invoice -` (on `order add-invoice`, `bond add-invoice`, `order take-sell` and `order new`) reads the invoice from standard input instead of the command line, so it stays out of the process list: one line, at most 8 KiB, and then standard input must be closed (the program reads to the end); `--yes` is required in every mode (stdin cannot also answer the question), and a terminal as stdin is refused at once. Example: `printf '%s\n' "$INVOICE" | mostro-cli order add-invoice --order <id> --invoice - --yes`.
 
 ### Trade lifecycle
 - `order fiat-sent --order <id> [--yes]` — buyer confirms fiat sent (supports `--output json`, which requires `--yes`). Replaces `fiatsent`; uses the order's stored key, spends no trade index.

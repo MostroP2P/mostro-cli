@@ -8,7 +8,10 @@ use mostro_core::order::Kind;
 
 use super::commands::NewArgs;
 use super::invocation::OutputMode;
-use super::write::{confirmed, finish, needs_yes, preview_trade, refuse, resolve_base};
+use super::stdin;
+use super::write::{
+    confirmed, finish, needs_yes, preview_trade, refuse, refuse_invoice, resolve_base,
+};
 use super::Cli;
 use crate::commands::order::new::{order_new, NewOutcome, COMMAND};
 use crate::msg::ExchangeLimits;
@@ -29,8 +32,15 @@ async fn outcome(cli: &Cli, args: &NewArgs, output: OutputMode) -> NewOutcome {
     if needs_yes(output, args.yes) {
         return refuse(COMMAND, ErrorCode::InvalidArguments);
     }
-    let Ok(input) = validate(args) else {
-        return refuse(COMMAND, ErrorCode::InvalidArguments);
+    // `--invoice -`: read it now, before anything else can fail or ask.
+    let invoice = match stdin::invoice(args.invoice.clone(), args.yes) {
+        Ok(invoice) => invoice,
+        Err(refusal) => return refusal.outcome(COMMAND),
+    };
+    let input = match validate(args, invoice) {
+        Ok(input) => input,
+        Err(InvalidOrder::Invoice) => return refuse_invoice(COMMAND),
+        Err(_) => return refuse(COMMAND, ErrorCode::InvalidArguments),
     };
     let base = match resolve_base(cli, true).await {
         Ok(base) => base,
@@ -61,7 +71,8 @@ async fn outcome(cli: &Cli, args: &NewArgs, output: OutputMode) -> NewOutcome {
     .await
 }
 
-fn validate(args: &NewArgs) -> Result<OrderNewInput, InvalidOrder> {
+/// `invoice` is `--invoice` after `-` was resolved from stdin.
+fn validate(args: &NewArgs, invoice: Option<String>) -> Result<OrderNewInput, InvalidOrder> {
     OrderNewInput::validate(OrderRequest {
         side: if args.side.eq_ignore_ascii_case("buy") {
             Kind::Buy
@@ -74,7 +85,7 @@ fn validate(args: &NewArgs) -> Result<OrderNewInput, InvalidOrder> {
         payment_method: args.payment_method.clone(),
         sats: args.sats,
         premium: args.premium,
-        invoice: args.invoice.clone(),
+        invoice,
         expiration_days: args.expiration_days,
     })
 }

@@ -191,10 +191,7 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
             "command": {"const": command},
             "status": {"const": "error"},
             "data": {"type": "null"},
-            "error": {
-                "allOf": [error.clone()],
-                "properties": failure_error_properties(rules),
-            },
+            "error": failure_error(rules, &error),
             "meta": meta_rule(&meta, &combos.failure, failure_snapshot.clone()),
         },
     });
@@ -280,17 +277,39 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
     document
 }
 
-/// The properties a failure of the resolved command may have on `error`.
-fn failure_error_properties(rules: &OutcomeRules) -> Value {
+/// The `error` of a failure of the resolved command: its codes, and a `reason`
+/// only where one can occur: any snake-case word on `node_refused`, one of the
+/// command's input reasons on `invalid_arguments`, none on any other code.
+fn failure_error(rules: &OutcomeRules, error: &Value) -> Value {
     let mut properties = json!({"code": {"enum": code_names(rules.errors)}});
-    if rules.reason {
+    let mut rule = json!({"allOf": [error]});
+    if rules.reason || !rules.input_reasons.is_empty() {
+        let description = if rules.input_reasons.is_empty() {
+            "The node's refusal reason; present only on node_refused."
+        } else {
+            "The node's refusal reason on node_refused; on invalid_arguments, \
+             invalid_invoice when the program refused the invoice value itself."
+        };
         properties["reason"] = json!({
             "type": "string",
             "pattern": REASON_PATTERN,
-            "description": "The node's refusal reason; present only on node_refused.",
+            "description": description,
         });
+        let mut allowed = Vec::new();
+        if rules.reason {
+            allowed.push(json!({"properties": {"code": {"const": ErrorCode::NodeRefused}}}));
+        }
+        if !rules.input_reasons.is_empty() {
+            allowed.push(json!({"properties": {
+                "code": {"const": ErrorCode::InvalidArguments},
+                "reason": {"enum": rules.input_reasons},
+            }}));
+        }
+        allowed.push(json!({"properties": {"reason": false}}));
+        rule["anyOf"] = Value::Array(allowed);
     }
-    properties
+    rule["properties"] = properties;
+    rule
 }
 
 /// Replace the `enum` of the shared definition `name`, when it exists.

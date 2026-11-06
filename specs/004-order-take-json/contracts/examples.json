@@ -332,6 +332,28 @@
         "status": "error",
         "warnings": []
       }
+    },
+    {
+      "exit_code": 2,
+      "name": "sell_invalid_invoice",
+      "stdout": {
+        "command": "order.take-sell",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid.",
+          "reason": "invalid_invoice"
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
     }
   ],
   "contract_status": "proposed"

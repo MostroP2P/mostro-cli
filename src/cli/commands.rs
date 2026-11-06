@@ -315,7 +315,8 @@ pub struct TakeSellArgs {
     #[arg(long = "order", value_name = "UUID")]
     pub order: Uuid,
     /// Your invoice (BOLT-11 or Lightning address) for the sats; without one
-    /// the node asks for it next
+    /// the node asks for it next. `-` reads it from standard input: one line,
+    /// then close standard input; needs --yes, and stdin must not be a terminal
     #[arg(long)]
     pub invoice: Option<String>,
     /// Fiat amount to buy, for a range order
@@ -362,7 +363,9 @@ pub struct NewArgs {
     /// Premium on the price, in percent
     #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
     pub premium: i64,
-    /// Lightning invoice, when the order needs one
+    /// Lightning invoice, when the order needs one; `-` reads it from standard
+    /// input: one line, then close standard input; needs --yes, and stdin must
+    /// not be a terminal
     #[arg(long)]
     pub invoice: Option<String>,
     /// Days until the pending order expires; 0 uses the node's default

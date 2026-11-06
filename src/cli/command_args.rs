@@ -9,7 +9,9 @@ pub struct AddInvoiceArgs {
     /// Id of the order the node asked an invoice for
     #[arg(long = "order", value_name = "UUID")]
     pub order: Uuid,
-    /// Your invoice (BOLT-11 or Lightning address) for the sats
+    /// Your invoice (BOLT-11 or Lightning address) for the sats; `-` reads it
+    /// from standard input: one line, then close standard input; needs --yes,
+    /// and stdin must not be a terminal
     #[arg(long)]
     pub invoice: String,
     /// Send the invoice without asking (required with --output json)
@@ -22,7 +24,9 @@ pub struct AddBondInvoiceArgs {
     /// Id of the order whose bond was slashed
     #[arg(long = "order", value_name = "UUID")]
     pub order: Uuid,
-    /// A BOLT-11 invoice for exactly your share of the slashed bond
+    /// A BOLT-11 invoice for exactly your share of the slashed bond; `-` reads
+    /// it from standard input: one line, then close standard input; needs
+    /// --yes, and stdin must not be a terminal
     #[arg(long)]
     pub invoice: String,
     /// Send the invoice without asking (required with --output json)

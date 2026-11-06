@@ -67,6 +67,9 @@ pub struct OutcomeRules<'a> {
     pub snapshot_on_success: bool,
     /// Whether `node_refused` may carry a `reason`.
     pub reason: bool,
+    /// The reasons an `invalid_arguments` may carry (`invalid_invoice` for the
+    /// commands that take an invoice); empty for none.
+    pub input_reasons: &'a [&'static str],
     pub stages: Stages,
 }
 
@@ -80,6 +83,7 @@ impl<'a> OutcomeRules<'a> {
             warnings: &[],
             snapshot_on_success,
             reason: false,
+            input_reasons: &[],
             stages: Stages::Read,
         }
     }
@@ -97,6 +101,7 @@ impl<'a> OutcomeRules<'a> {
             warnings,
             snapshot_on_success: false,
             reason: true,
+            input_reasons: &[],
             stages: Stages::Request,
         }
     }
@@ -115,6 +120,7 @@ impl<'a> OutcomeRules<'a> {
             warnings,
             snapshot_on_success: false,
             reason: true,
+            input_reasons: &[],
             stages: Stages::Write,
         }
     }
@@ -148,6 +154,7 @@ impl<'a> OutcomeRules<'a> {
             warnings,
             snapshot_on_success: true,
             reason: false,
+            input_reasons: &[],
             stages: Stages::Sync,
         }
     }
@@ -161,6 +168,7 @@ impl<'a> OutcomeRules<'a> {
             warnings: &[],
             snapshot_on_success: false,
             reason: false,
+            input_reasons: &[],
             stages: Stages::Local,
         }
     }

@@ -33,7 +33,7 @@ use crate::outcome::sync::{
     SyncData, ERRORS as SYNC_ERRORS, UNCERTAIN as SYNC_UNCERTAIN, WARNINGS as SYNC_WARNINGS,
 };
 use crate::outcome::take::{OrderTakeData, TakeSide};
-use crate::outcome::{ErrorCode, WarningCode};
+use crate::outcome::{ErrorCode, WarningCode, INVALID_INVOICE};
 
 pub use crate::outcome::schema::{SchemaDocument, DIALECT as SCHEMA_DIALECT};
 pub use crate::outcome::SCHEMA_VERSION;
@@ -211,6 +211,10 @@ const ORDER_CANCEL: &str = "order.cancel";
 const ORDER_TAKE_SELL: &str = "order.take-sell";
 const ORDER_TAKE_BUY: &str = "order.take-buy";
 
+/// The reason an `invalid_arguments` of a command that takes an invoice may
+/// carry when the invoice value itself was refused.
+const INVOICE_REASONS: [&str; 1] = [INVALID_INVOICE];
+
 /// Warnings of `order.new` beyond the pilot pair.
 const NEW_WARNINGS: [WarningCode; 1] = [WarningCode::InvalidOrderTimestamp];
 
@@ -241,32 +245,36 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &INFO_ERRORS,
             &INFO_WARNINGS,
         )),
-        ORDER_NEW => output_schema::<OrderNewData, ()>(&OutcomeRules::write(
-            ORDER_NEW,
-            &NEW_ERRORS,
-            &UNCERTAIN_CODES,
-            &NEW_WARNINGS,
-        )),
+        ORDER_NEW => output_schema::<OrderNewData, ()>(&OutcomeRules {
+            input_reasons: &INVOICE_REASONS,
+            ..OutcomeRules::write(ORDER_NEW, &NEW_ERRORS, &UNCERTAIN_CODES, &NEW_WARNINGS)
+        }),
         name @ (ORDER_TAKE_SELL | ORDER_TAKE_BUY) => {
             let side = if name == ORDER_TAKE_SELL {
                 TakeSide::Sell
             } else {
                 TakeSide::Buy
             };
-            output_schema::<OrderTakeData, ()>(&OutcomeRules::write(
-                side.command(),
-                &NEW_ERRORS,
-                &UNCERTAIN_CODES,
-                &NEW_WARNINGS,
-            ))
+            // Only take-sell takes an invoice.
+            let input_reasons: &[&str] = match side {
+                TakeSide::Sell => &INVOICE_REASONS,
+                TakeSide::Buy => &[],
+            };
+            output_schema::<OrderTakeData, ()>(&OutcomeRules {
+                input_reasons,
+                ..OutcomeRules::write(side.command(), &NEW_ERRORS, &UNCERTAIN_CODES, &NEW_WARNINGS)
+            })
         }
-        ORDER_ADD_INVOICE => output_schema::<OrderInvoiceData, ()>(&OutcomeRules::invoice(
-            ORDER_ADD_INVOICE,
-            Stages::Update,
-            &INVOICE_ORDER_ERRORS,
-            &INVOICE_UNCERTAIN,
-            &INVOICE_ORDER_WARNINGS,
-        )),
+        ORDER_ADD_INVOICE => output_schema::<OrderInvoiceData, ()>(&OutcomeRules {
+            input_reasons: &INVOICE_REASONS,
+            ..OutcomeRules::invoice(
+                ORDER_ADD_INVOICE,
+                Stages::Update,
+                &INVOICE_ORDER_ERRORS,
+                &INVOICE_UNCERTAIN,
+                &INVOICE_ORDER_WARNINGS,
+            )
+        }),
         ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL => {
             output_schema::<StepData, ()>(&OutcomeRules::step(
                 entry.canonical,
@@ -275,13 +283,16 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
                 &STEP_WARNINGS,
             ))
         }
-        BOND_ADD_INVOICE => output_schema::<BondInvoiceData, ()>(&OutcomeRules::invoice(
-            BOND_ADD_INVOICE,
-            Stages::Delivery,
-            &INVOICE_BOND_ERRORS,
-            &INVOICE_UNCERTAIN,
-            &[],
-        )),
+        BOND_ADD_INVOICE => output_schema::<BondInvoiceData, ()>(&OutcomeRules {
+            input_reasons: &INVOICE_REASONS,
+            ..OutcomeRules::invoice(
+                BOND_ADD_INVOICE,
+                Stages::Delivery,
+                &INVOICE_BOND_ERRORS,
+                &INVOICE_UNCERTAIN,
+                &[],
+            )
+        }),
         MESSAGE_LIST => output_schema::<MessageListData, Snapshot>(&OutcomeRules {
             warnings: &MESSAGE_WARNINGS,
             ..OutcomeRules::read(MESSAGE_LIST, &MESSAGE_ERRORS, true)
@@ -433,6 +444,39 @@ mod tests {
         let input = input_schema(&Cli::command(), &["identity", "init"]).unwrap();
         assert_eq!(input["properties"], json!({}));
         assert_eq!(input["required"], json!([]));
+    }
+
+    /// `--invoice -` (spec 010): exactly the four commands that take an
+    /// invoice say that `-` reads it from standard input; no other option does.
+    #[test]
+    fn the_invoice_option_is_marked_as_readable_from_stdin() {
+        let root = Cli::command();
+        let mut marked = Vec::new();
+        for entry in REGISTRY
+            .iter()
+            .filter(|e| e.json != JsonSupport::Unsupported)
+        {
+            let input = input_schema(&root, entry.path).unwrap();
+            for (name, property) in input["properties"].as_object().unwrap() {
+                if let Some(value) = property.get("x-stdin") {
+                    assert_eq!(value, "-", "{}", entry.canonical);
+                    let help = property["description"].as_str().unwrap();
+                    assert!(help.contains("`-` reads it from standard input"), "{help}");
+                    marked.push((entry.canonical, name.clone()));
+                }
+            }
+        }
+        marked.sort();
+        let invoice = |command| (command, "invoice".to_string());
+        assert_eq!(
+            marked,
+            [
+                invoice("bond.add-invoice"),
+                invoice("order.add-invoice"),
+                invoice("order.new"),
+                invoice("order.take-sell"),
+            ]
+        );
     }
 
     #[test]

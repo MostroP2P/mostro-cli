@@ -114,12 +114,18 @@ impl ErrorCode {
     }
 }
 
+/// The reason of an `invalid_arguments` caused by the invoice value itself
+/// (the program refused it before anything was sent), as a node refusal
+/// carries its own reason.
+pub const INVALID_INVOICE: &str = "invalid_invoice";
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ErrorInfo {
     code: ErrorCode,
     message: &'static str,
-    /// The node's refusal reason, only on `node_refused`. Omitted otherwise, and
-    /// left out of the derived schema so the pilot documents do not change; the
+    /// The node's refusal reason on `node_refused`, or [`INVALID_INVOICE`] on an
+    /// `invalid_arguments` caused by the invoice. Omitted otherwise, and left
+    /// out of the derived schema so the pilot documents do not change; the
     /// commands that can emit it add the property themselves.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
