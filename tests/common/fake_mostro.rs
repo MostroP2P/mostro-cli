@@ -55,6 +55,8 @@ pub struct Received {
     pub invoice: Option<String>,
     /// The next trade key and index a `fiat-sent` or `release` carries.
     pub next_trade: Option<(String, u32)>,
+    /// The rating a `rate-user` carries.
+    pub rating: Option<u8>,
 }
 
 /// Who signs an outgoing message.
@@ -612,6 +614,8 @@ pub struct Traded {
     pub fiat_amount: i64,
     /// The dispute the node opened for the order, if any.
     pub dispute: Option<Uuid>,
+    /// The parties who rated the trade.
+    pub rated_by: Vec<PublicKey>,
 }
 
 /// The id the scripted node gives the dispute of `order`.
@@ -638,6 +642,7 @@ impl Traded {
             range: None,
             fiat_amount: 15,
             dispute: None,
+            rated_by: Vec::new(),
         }
     }
 
@@ -662,6 +667,7 @@ impl Traded {
             range: None,
             fiat_amount: 15,
             dispute: None,
+            rated_by: Vec::new(),
         }
     }
 
@@ -811,6 +817,7 @@ pub fn step_daemon(trades: Vec<Traded>) -> (Respond, Arc<Mutex<Vec<Traded>>>) {
             }
             Action::Cancel => cancel_reply(trade, request, to_sender, notice),
             Action::Dispute => dispute_reply(trade, request, to_sender),
+            Action::RateUser => rate_reply(trade, request, to_sender),
             _ => refuse(CantDoReason::InvalidAction),
         };
         trades.extend(spawned);
@@ -949,6 +956,37 @@ fn dispute_reply(
     ))
     .addressed_to(other);
     vec![peer, to_sender(Action::DisputeInitiatedByYou, payload())]
+}
+
+/// `update_user_reputation_action`: a successful order, or a settled one when
+/// the seller rates. The rater hears `rate-received` with the rating, echoing
+/// the request id. A side that already rated, and a sender who is neither
+/// party, get no answer at all.
+fn rate_reply(
+    trade: &mut Traded,
+    request: &Received,
+    to_sender: impl Fn(Action, Option<Payload>) -> Outgoing,
+) -> Vec<Outgoing> {
+    let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+    let sender = request.author;
+    let seller_rates = Some(sender) == trade.seller;
+    let party = seller_rates || Some(sender) == trade.buyer;
+    if !(trade.status == Status::Success
+        || (trade.status == Status::SettledHoldInvoice && seller_rates))
+    {
+        return refuse(CantDoReason::InvalidOrderStatus);
+    }
+    if !party || trade.rated_by.contains(&sender) {
+        return Vec::new();
+    }
+    let Some(rating) = request.rating.filter(|rating| (1..=5).contains(rating)) else {
+        return Vec::new();
+    };
+    trade.rated_by.push(sender);
+    vec![to_sender(
+        Action::RateReceived,
+        Some(Payload::RatingUser(rating)),
+    )]
 }
 
 // --- The mailbox: messages the node volunteers --------------------------------
@@ -1146,6 +1184,10 @@ impl FakeMostro {
                         invoice,
                         next_trade: match &inner.payload {
                             Some(Payload::NextTrade(key, index)) => Some((key.clone(), *index)),
+                            _ => None,
+                        },
+                        rating: match &inner.payload {
+                            Some(Payload::RatingUser(rating)) => Some(*rating),
                             _ => None,
                         },
                     };

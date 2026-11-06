@@ -17,6 +17,7 @@ use mostro_client::outcome::messages::{MessageListData, MessageListInput, Messag
 use mostro_client::outcome::mine::{MineOrder, OrderMineData, COMMAND as ORDER_MINE};
 use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
+use mostro_client::outcome::rate::{RateData, RateInput, COMMAND as ORDER_RATE};
 use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
 use mostro_client::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, WarningCode,
@@ -303,8 +304,8 @@ mod schema_fixtures {
         OrderInvoiceData, Payload,
     };
     use super::{
-        DisputeOpenData, MineOrder, OrderMineData, WarningCode, DISPUTE_OPEN, INVALID_INVOICE,
-        ORDER_MINE,
+        DisputeOpenData, MineOrder, OrderMineData, RateData, RateInput, WarningCode, DISPUTE_OPEN,
+        INVALID_INVOICE, ORDER_MINE, ORDER_RATE,
     };
     use super::{IdentityInitData, IdentityShowData, IDENTITY_INIT, IDENTITY_SHOW};
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
@@ -373,6 +374,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-mine-v1.json"
     );
+    const ORDER_RATE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-rate-v1.json"
+    );
     const DISPUTE_OPEN_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/dispute-open-v1.json"
@@ -394,7 +399,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine dispute.open; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -518,9 +523,10 @@ mod schema_fixtures {
     }
 
     #[test]
-    fn mine_and_dispute_schema_fixtures_match_the_generated_schemas() {
+    fn mine_rate_and_dispute_schema_fixtures_match_the_generated_schemas() {
         for (name, fixture) in [
             ("order.mine", ORDER_MINE_FIXTURE),
+            ("order.rate", ORDER_RATE_FIXTURE),
             ("dispute.open", DISPUTE_OPEN_FIXTURE),
         ] {
             assert_eq!(
@@ -600,6 +606,7 @@ mod schema_fixtures {
                 "order.list",
                 "order.mine",
                 "order.new",
+                "order.rate",
                 "order.release",
                 "order.sync",
                 "order.take-buy",
@@ -3534,7 +3541,7 @@ mod schema_fixtures {
         }
     }
 
-    // --- Order mine, dispute open (specs 011, 013) ---
+    // --- Order mine, dispute open, order rate (specs 011, 013, 014) ---
 
     fn examples_of(feature: &str) -> Vec<(String, i32, Value)> {
         let path = format!(
@@ -3711,15 +3718,87 @@ mod schema_fixtures {
         ]
     }
 
+    fn rate_cases() -> Vec<(&'static str, Value, i32)> {
+        let trade = PublicKey::from_hex(TRADE).unwrap();
+        let input = RateInput::validate(id(1), 5).unwrap();
+        let data = RateData::from_reply(
+            &node(),
+            &input,
+            (&Action::RateReceived, &Some(Payload::RatingUser(5))),
+            &trade,
+        )
+        .unwrap();
+        vec![
+            (
+                "rating_received",
+                to_value(Envelope::<_, ()>::ok(
+                    ORDER_RATE,
+                    data,
+                    Warnings::new(),
+                    written_write(
+                        Publication::Published,
+                        DaemonAcceptance::Accepted,
+                        Persistence::NotAttempted,
+                    ),
+                ))
+                .unwrap(),
+                0,
+            ),
+            (
+                "node_refused",
+                to_value(Envelope::<RateData, ()>::refused(
+                    Some(ORDER_RATE),
+                    "invalid_order_status",
+                    Warnings::new(),
+                    written_write(
+                        Publication::Published,
+                        DaemonAcceptance::Rejected,
+                        Persistence::NotAttempted,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "no_answer_uncertain",
+                to_value(Envelope::<RateData, ()>::uncertain(
+                    ORDER_RATE,
+                    ErrorCode::ReplyTimeout,
+                    None,
+                    Warnings::new(),
+                    written_write(
+                        Publication::Published,
+                        DaemonAcceptance::Unknown,
+                        Persistence::NotAttempted,
+                    ),
+                ))
+                .unwrap(),
+                1,
+            ),
+            (
+                "rating_out_of_range",
+                to_value(Envelope::<RateData, ()>::error(
+                    Some(ORDER_RATE),
+                    ErrorCode::InvalidArguments,
+                    Warnings::new(),
+                    not_sent(),
+                ))
+                .unwrap(),
+                2,
+            ),
+        ]
+    }
+
     type Cases = fn() -> Vec<(&'static str, Value, i32)>;
 
-    const NEW_COMMAND_EXAMPLES: [(&str, &str, Cases); 2] = [
+    const NEW_COMMAND_EXAMPLES: [(&str, &str, Cases); 3] = [
         ("011-order-mine", ORDER_MINE_FIXTURE, mine_cases),
         ("013-dispute-open", DISPUTE_OPEN_FIXTURE, dispute_cases),
+        ("014-order-rate", ORDER_RATE_FIXTURE, rate_cases),
     ];
 
     #[test]
-    fn mine_and_dispute_examples_conform_and_are_reproduced() {
+    fn mine_dispute_and_rate_examples_conform_and_are_reproduced() {
         for (feature, fixture, cases) in NEW_COMMAND_EXAMPLES {
             let schema = read_json(fixture);
             let examples = examples_of(feature);
@@ -3745,7 +3824,7 @@ mod schema_fixtures {
     }
 
     #[test]
-    fn invalid_mine_and_dispute_variants_do_not_conform() {
+    fn invalid_mine_dispute_and_rate_variants_do_not_conform() {
         type Edit = Box<dyn Fn(&mut Value)>;
         let variants: Vec<(&str, &str, &str, Edit)> = vec![
             (
@@ -3805,6 +3884,33 @@ mod schema_fixtures {
                 "no_answer_uncertain",
                 "uncertain with a local write",
                 Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "014-order-rate",
+                "rating_received",
+                "a rating of six",
+                Box::new(|o| o["data"]["rating"] = json!(6)),
+            ),
+            (
+                "014-order-rate",
+                "rating_received",
+                "a rating as text",
+                Box::new(|o| o["data"]["rating"] = json!("5")),
+            ),
+            (
+                "014-order-rate",
+                "rating_received",
+                "a local write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "014-order-rate",
+                "node_refused",
+                "a warning of another command",
+                Box::new(|o| {
+                    o["warnings"] = json!([{"code": "local_status_stale",
+                 "message": "The node accepted the invoice but the local order status could not be updated."}])
+                }),
             ),
         ];
         for (feature, case, label, edit) in variants {

@@ -15,7 +15,6 @@ use super::list_disputes::execute_list_disputes;
 use super::maintenance::{
     execute_cancel_pending, execute_maintenance_status, execute_set_maintenance,
 };
-use super::rate_user::execute_rate_user;
 use super::restore::execute_restore;
 use super::send_admin_dm_attach::execute_send_admin_dm_attach;
 use super::send_dm::execute_send_dm;
@@ -100,7 +99,6 @@ impl Commands {
             Commands::Dispute { .. } => {
                 unreachable!("dispute commands run without a Context")
             }
-            Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 
             // DM retrieval commands
             Commands::GetDmUser {

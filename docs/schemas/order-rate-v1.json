@@ -1,0 +1,456 @@
+{
+  "$defs": {
+    "DaemonAcceptance": {
+      "enum": [
+        "unknown",
+        "accepted",
+        "rejected",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_arguments",
+        "output_not_supported",
+        "configuration_missing",
+        "configuration_invalid",
+        "relay_connection_failed",
+        "relay_read_failed",
+        "read_timeout",
+        "read_limit_exceeded",
+        "internal_error",
+        "identity_missing",
+        "identity_unreadable",
+        "protocol_unsupported",
+        "pow_required",
+        "request_rejected",
+        "node_refused",
+        "order_declined",
+        "store_unwritable",
+        "order_unknown",
+        "reply_timeout",
+        "reply_malformed"
+      ],
+      "type": "string"
+    },
+    "ErrorInfo": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ExecutionMeta": {
+      "description": "Execution stages and optional snapshot evidence of one outcome.",
+      "properties": {
+        "daemon_acceptance": {
+          "$ref": "#/$defs/DaemonAcceptance"
+        },
+        "persistence": {
+          "$ref": "#/$defs/Persistence"
+        },
+        "publication": {
+          "$ref": "#/$defs/Publication"
+        },
+        "snapshot": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "publication",
+        "daemon_acceptance",
+        "persistence",
+        "snapshot"
+      ],
+      "type": "object"
+    },
+    "Persistence": {
+      "enum": [
+        "not_attempted",
+        "applied",
+        "failed",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "Publication": {
+      "enum": [
+        "not_attempted",
+        "unknown",
+        "published",
+        "not_applicable"
+      ],
+      "type": "string"
+    },
+    "RateData": {
+      "description": "The rating the node received.",
+      "properties": {
+        "node_pubkey": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "order_id": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "rating": {
+          "description": "The rating, from 1 to 5, as the node acknowledged it.",
+          "maximum": 5,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "trade_pubkey": {
+          "description": "The public key of the order's trade key.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_pubkey",
+        "order_id",
+        "rating",
+        "trade_pubkey"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "enum": [
+        "invalid_event_timestamp",
+        "cleanup_incomplete"
+      ],
+      "type": "string"
+    },
+    "Warnings": {
+      "description": "Warnings of one outcome, at most one per code.",
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "command": {
+          "const": "order.rate"
+        },
+        "data": {
+          "$ref": "#/$defs/RateData"
+        },
+        "error": {
+          "type": "null"
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "accepted"
+            },
+            "persistence": {
+              "const": "not_attempted"
+            },
+            "publication": {
+              "const": "published"
+            },
+            "snapshot": {
+              "type": "null"
+            }
+          }
+        },
+        "status": {
+          "const": "ok"
+        }
+      },
+      "title": "success"
+    },
+    {
+      "properties": {
+        "command": {
+          "const": "order.rate"
+        },
+        "data": {
+          "type": "null"
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "anyOf": [
+            {
+              "properties": {
+                "code": {
+                  "const": "node_refused"
+                }
+              }
+            },
+            {
+              "properties": {
+                "reason": false
+              }
+            }
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_arguments",
+                "configuration_missing",
+                "configuration_invalid",
+                "relay_connection_failed",
+                "relay_read_failed",
+                "internal_error",
+                "identity_missing",
+                "identity_unreadable",
+                "protocol_unsupported",
+                "pow_required",
+                "request_rejected",
+                "node_refused",
+                "order_declined",
+                "store_unwritable",
+                "order_unknown"
+              ]
+            },
+            "reason": {
+              "description": "The node's refusal reason; present only on node_refused.",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "anyOf": [
+            {
+              "properties": {
+                "daemon_acceptance": {
+                  "const": "unknown"
+                },
+                "persistence": {
+                  "const": "not_attempted"
+                },
+                "publication": {
+                  "const": "not_attempted"
+                }
+              }
+            },
+            {
+              "properties": {
+                "daemon_acceptance": {
+                  "const": "rejected"
+                },
+                "persistence": {
+                  "const": "not_attempted"
+                },
+                "publication": {
+                  "const": "published"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "const": "error"
+        }
+      },
+      "title": "failure of the resolved command"
+    },
+    {
+      "properties": {
+        "command": {
+          "const": "order.rate"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RateData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "reply_timeout",
+                "reply_malformed",
+                "request_rejected",
+                "relay_read_failed",
+                "pow_required"
+              ]
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "anyOf": [
+            {
+              "properties": {
+                "daemon_acceptance": {
+                  "const": "unknown"
+                },
+                "persistence": {
+                  "const": "not_attempted"
+                },
+                "publication": {
+                  "const": "published"
+                }
+              }
+            },
+            {
+              "properties": {
+                "daemon_acceptance": {
+                  "const": "unknown"
+                },
+                "persistence": {
+                  "const": "not_attempted"
+                },
+                "publication": {
+                  "const": "unknown"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "const": "uncertain"
+        }
+      },
+      "title": "uncertain outcome of the resolved command"
+    },
+    {
+      "properties": {
+        "command": {
+          "type": "null"
+        },
+        "data": {
+          "type": "null"
+        },
+        "error": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            }
+          ],
+          "properties": {
+            "code": {
+              "const": "invalid_arguments"
+            }
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/ExecutionMeta",
+          "properties": {
+            "daemon_acceptance": {
+              "const": "unknown"
+            },
+            "persistence": {
+              "const": "not_attempted"
+            },
+            "publication": {
+              "const": "not_attempted"
+            },
+            "snapshot": {
+              "type": "null"
+            }
+          }
+        },
+        "status": {
+          "const": "error"
+        }
+      },
+      "title": "failure before the command was resolved"
+    }
+  ],
+  "properties": {
+    "command": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "meta": {
+      "$ref": "#/$defs/ExecutionMeta"
+    },
+    "schema_version": {
+      "const": "1"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error",
+        "uncertain"
+      ]
+    },
+    "warnings": {
+      "$ref": "#/$defs/Warnings"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "status",
+    "data",
+    "error",
+    "warnings",
+    "meta"
+  ],
+  "title": "order.rate outcome",
+  "type": "object"
+}

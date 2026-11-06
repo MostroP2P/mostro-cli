@@ -5,6 +5,7 @@ pub mod invoice;
 pub mod list;
 pub mod mine;
 pub mod new;
+pub mod rate;
 pub mod step;
 pub mod sync;
 pub mod take;

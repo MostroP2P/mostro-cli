@@ -62,11 +62,14 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
     }
 
     // A request on an order already held, with no trade index.
-    if let Some(Commands::Dispute {
-        command: DisputeCommands::Open(args),
-    }) = &cli.command
-    {
-        return Some(held::dispute(cli, args, output).await);
+    match &cli.command {
+        Some(Commands::Dispute {
+            command: DisputeCommands::Open(args),
+        }) => return Some(held::dispute(cli, args, output).await),
+        Some(Commands::Order {
+            command: OrderCommands::Rate(args),
+        }) => return Some(held::rate(cli, args, output).await),
+        _ => {}
     }
 
     // Public listing needs no identity, database, environment mutation or RPC.

@@ -134,3 +134,16 @@ pub struct NewArgs {
     #[arg(long)]
     pub yes: bool,
 }
+
+#[derive(Args, Clone, Debug)]
+pub struct RateArgs {
+    /// Id of the finished order whose counterparty you rate
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// The rating, from 1 to 5
+    #[arg(long, value_name = "1-5")]
+    pub rating: u8,
+    /// Send the rating without asking (required with --output json)
+    #[arg(long)]
+    pub yes: bool,
+}

@@ -1,5 +1,6 @@
-//! Tests for `dispute open` (spec 013) against the scripted node, which
-//! applies the source's `dispute_action` rules.
+//! Tests for `dispute open` (spec 013) and `order rate` (spec 014) against the
+//! scripted node, which applies the source's `dispute_action` and
+//! `update_user_reputation_action` rules.
 //!
 //! The user holds order 1 under one trade key; the scripted node knows the
 //! trade with that key as the buyer and another key as the seller.
@@ -353,23 +354,177 @@ async fn a_refusal_that_names_another_order_or_none_is_uncertain() {
             })
         })
         .await;
-        let run = holder
-            .run(&[
-                "--output", "json", "dispute", "open", "--order", ORDER, "--yes",
-            ])
-            .await;
-        let outcome = document(&run);
-        conforms("dispute-open", &outcome);
-        assert_eq!(outcome["status"], "uncertain", "{label}");
-        assert_eq!(outcome["error"]["code"], "reply_malformed", "{label}");
-        assert_eq!(
-            outcome["meta"],
-            meta("published", "unknown", "not_attempted")
-        );
+        for (args, schema) in [
+            (
+                &[
+                    "--output", "json", "dispute", "open", "--order", ORDER, "--yes",
+                ][..],
+                "dispute-open",
+            ),
+            (
+                &[
+                    "--output", "json", "order", "rate", "--order", ORDER, "--rating", "5", "--yes",
+                ],
+                "order-rate",
+            ),
+        ] {
+            let run = holder.run(args).await;
+            let outcome = document(&run);
+            conforms(schema, &outcome);
+            assert_eq!(outcome["status"], "uncertain", "{label}: {args:?}");
+            assert_eq!(outcome["error"]["code"], "reply_malformed", "{label}");
+            assert_eq!(
+                outcome["meta"],
+                meta("published", "unknown", "not_attempted")
+            );
+        }
         assert_eq!(
             holder.status().await,
             "active",
             "{label}: nothing changed locally"
         );
+    }
+}
+
+mod rate {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_successful_trade_is_rated_and_nothing_is_written_locally() {
+        let holder = holder(Status::Success).await;
+        let before = holder.snapshot();
+
+        let run = holder
+            .run(&[
+                "--output",
+                "json",
+                "--verbose",
+                "order",
+                "rate",
+                "--order",
+                ORDER,
+                "--rating",
+                "5",
+                "--yes",
+            ])
+            .await;
+
+        assert_eq!(
+            run.code(),
+            Some(0),
+            "{} {}",
+            run.stdout_text(),
+            run.stderr_text()
+        );
+        assert_eq!(run.stderr_text(), "verbose: order.rate ok\n");
+        let outcome = document(&run);
+        conforms("order-rate", &outcome);
+        assert_eq!(
+            outcome["data"],
+            json!({"node_pubkey": holder.node().to_hex(), "order_id": ORDER, "rating": 5,
+                   "trade_pubkey": holder.buyer.public_key().to_hex()})
+        );
+        assert_eq!(
+            outcome["meta"],
+            meta("published", "accepted", "not_attempted")
+        );
+        let received = holder.fake.received();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].action, Action::RateUser);
+        assert_eq!(received[0].rating, Some(5));
+        assert_eq!(received[0].author, holder.buyer.public_key());
+        assert_eq!(holder.snapshot(), before, "a rating writes nothing");
+    }
+
+    #[tokio::test]
+    async fn the_human_prompt_and_a_refusal_for_a_trade_not_finished() {
+        let holder = holder(Status::Active).await;
+        let human = holder
+            .answering(&["order", "rate", "--order", ORDER, "--rating", "4"], "y\n")
+            .await;
+        assert_eq!(human.code(), Some(1));
+        assert!(
+            human.stdout_text().contains("Rate Counterparty Preview"),
+            "{}",
+            human.stdout_text()
+        );
+        assert!(
+            human
+                .stderr_text()
+                .contains("(reason: invalid_order_status)"),
+            "{}",
+            human.stderr_text()
+        );
+        let json = holder
+            .run(&[
+                "--output", "json", "order", "rate", "--order", ORDER, "--rating", "4", "--yes",
+            ])
+            .await;
+        let outcome = document(&json);
+        conforms("order-rate", &outcome);
+        assert_eq!(outcome["error"]["reason"], "invalid_order_status");
+    }
+
+    #[tokio::test]
+    async fn a_second_rating_is_uncertain() {
+        let holder = holder(Status::Success).await;
+        let args = [
+            "--output", "json", "order", "rate", "--order", ORDER, "--rating", "3", "--yes",
+        ];
+        assert_eq!(holder.run(&args).await.code(), Some(0));
+
+        let second = holder.run(&args).await;
+
+        let outcome = document(&second);
+        conforms("order-rate", &outcome);
+        assert_eq!(outcome["status"], "uncertain");
+        assert_eq!(outcome["error"]["code"], "reply_timeout");
+    }
+
+    #[tokio::test]
+    async fn a_rating_outside_one_to_five_is_an_argument_error_and_nothing_is_sent() {
+        let holder = holder(Status::Success).await;
+        let before = holder.snapshot();
+        for rating in ["0", "6", "255", "five"] {
+            let json = holder
+                .run(&[
+                    "--output", "json", "order", "rate", "--order", ORDER, "--rating", rating,
+                    "--yes",
+                ])
+                .await;
+            let human = holder
+                .run(&[
+                    "order", "rate", "--order", ORDER, "--rating", rating, "--yes",
+                ])
+                .await;
+            assert_eq!(json.code(), Some(2), "{rating}");
+            let outcome = document(&json);
+            assert_eq!(outcome["command"], "order.rate", "{rating}");
+            assert_eq!(outcome["error"]["code"], "invalid_arguments", "{rating}");
+            assert_eq!(human.code(), Some(2), "{rating}");
+        }
+        let missing = holder
+            .run(&[
+                "--output", "json", "order", "rate", "--order", ORDER, "--yes",
+            ])
+            .await;
+        assert_eq!(missing.code(), Some(2));
+        assert!(holder.fake.received().is_empty());
+        assert_eq!(holder.snapshot(), before);
+    }
+
+    #[tokio::test]
+    async fn the_legacy_command_is_gone_with_no_alias() {
+        let holder = holder(Status::Success).await;
+        for args in [
+            &["rate", "--order-id", ORDER, "--rating", "5"][..],
+            &["rate", "--orderid", ORDER, "--rating", "5"],
+            &["rate", "-o", ORDER, "-r", "5"],
+            &["order", "rate", "-o", ORDER, "-r", "5"],
+        ] {
+            let run = holder.run(args).await;
+            assert_eq!(run.code(), Some(2), "{args:?}");
+        }
+        assert!(holder.fake.received().is_empty());
     }
 }

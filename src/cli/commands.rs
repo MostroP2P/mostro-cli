@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub use super::command_args::{
-    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, NewArgs, StepArgs, SyncArgs, TakeBuyArgs,
-    TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, NewArgs, RateArgs, StepArgs, SyncArgs,
+    TakeBuyArgs, TakeSellArgs,
 };
 use crate::outcome::order::{SIDES, STATUSES};
 
@@ -105,15 +105,6 @@ pub enum Commands {
         /// Message to send (spaces allowed; use quotes or multiple -m/--message)
         #[arg(short, long, num_args = 1..)]
         message: Vec<String>,
-    },
-    /// Rate counterpart after a successful trade
-    Rate {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-        /// Rating from 1 to 5
-        #[arg(short, long)]
-        rating: u8,
     },
     /// Restore session to recover all pending orders and disputes
     Restore {},
@@ -281,6 +272,10 @@ pub enum OrderCommands {
     /// first, with their trade index and key. Reads the local store only;
     /// needs no node, relay or network
     Mine,
+    /// Rate the counterparty of a finished trade you hold, from 1 to 5. Needs
+    /// an existing local identity (it never creates one) and publishes one
+    /// signed request. JSON output requires --yes
+    Rate(RateArgs),
 }
 
 #[derive(Subcommand, Clone)]

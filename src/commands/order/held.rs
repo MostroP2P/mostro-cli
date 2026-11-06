@@ -4,7 +4,7 @@
 //! sender, so the reply is selected by it; the order it names is checked
 //! afterwards, for a refusal as for an acceptance. An accepted reply may set
 //! the local status; a failed update is a warning, not a failure, because the
-//! node already acted. Never retried. Used by `dispute open`.
+//! node already acted. Never retried. Used by `dispute open` and `order rate`.
 
 use mostro_core::order::Status;
 use mostro_core::prelude::{Action, Message, MessageKind, Payload};

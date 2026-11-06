@@ -1,4 +1,4 @@
-//! Human presentation of `dispute open`: the preview shown
+//! Human presentation of `dispute open` and `order rate`: the preview shown
 //! before the request and the result after it. Built from the typed input and
 //! outcome only; nothing secret is shown.
 
@@ -7,6 +7,7 @@ use std::fmt::Write;
 use uuid::Uuid;
 
 use crate::outcome::dispute::DisputeOpenData;
+use crate::outcome::rate::{RateData, RateInput};
 
 const RULE: &str = "═══════════════════════════════════════";
 
@@ -34,5 +35,25 @@ pub fn render_dispute(data: &DisputeOpenData) -> String {
         out,
         "💡 Wait for a solver; `message list --order <id>` shows when one takes it."
     );
+    out
+}
+
+/// What `order rate` is about to send.
+pub fn render_rate_preview(input: &RateInput, trade_pubkey: &str) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "⭐ Rate Counterparty Preview\n{RULE}");
+    let _ = writeln!(out, "📋 Order ID: {}", input.order());
+    let _ = writeln!(out, "⭐ Rating: {}/5", input.rating());
+    let _ = writeln!(out, "🔑 Trade Key: {trade_pubkey}");
+    out
+}
+
+/// The rating the node received.
+pub fn render_rate(data: &RateData) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "⭐ Rating Received\n{RULE}");
+    let _ = writeln!(out, "📋 Order ID: {}", data.order_id());
+    let _ = writeln!(out, "⭐ Rating: {}/5", data.rating());
+    let _ = writeln!(out, "🔑 Trade Key: {}", data.trade_pubkey());
     out
 }

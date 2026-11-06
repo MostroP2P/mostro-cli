@@ -1,4 +1,4 @@
-//! Dispatch of `dispute open`: a request on an order the user
+//! Dispatch of `dispute open` and `order rate`: a request on an order the user
 //! holds, signed by its stored key, with no trade index. The same shape as the
 //! trade steps: everything that can fail locally fails before the question,
 //! the question is asked in human mode only, and exactly one request is
@@ -6,21 +6,27 @@
 
 use uuid::Uuid;
 
-use super::commands::StepArgs;
+use super::commands::{RateArgs, StepArgs};
 use super::invocation::OutputMode;
 use super::step::warn;
 use super::write::{confirmed, finish, needs_yes, refuse, resolve_base, Base};
 use super::Cli;
 use crate::commands::order::dispute::{dispute_open, DisputeOutcome};
+use crate::commands::order::rate::{order_rate, RateOutcome};
 use crate::msg::ExchangeLimits;
 use crate::outcome::dispute::COMMAND as DISPUTE;
+use crate::outcome::rate::{RateInput, COMMAND as RATE};
 use crate::outcome::ErrorCode;
-use crate::parse_human::{render_dispute, render_dispute_preview};
+use crate::parse_human::{
+    render_dispute, render_dispute_preview, render_rate, render_rate_preview,
+};
 
 const UNWRITABLE: &str = "error: the result could not be written";
 const QUESTION: &str = "Send this request?";
 const DISPUTE_ADVICE: &str = "The node may have opened the dispute; it answers a second request \
                               with silence. Check `order info --order <id>` before trying again.";
+const RATE_ADVICE: &str = "The node may have recorded the rating; it answers a second one with \
+                           silence. Do not send it again.";
 
 /// Run `dispute open` and return its exit status.
 pub(super) async fn dispute(cli: &Cli, args: &StepArgs, output: OutputMode) -> i32 {
@@ -37,6 +43,22 @@ pub(super) async fn dispute(cli: &Cli, args: &StepArgs, output: OutputMode) -> i
     )
 }
 
+/// Run `order rate` and return its exit status.
+pub(super) async fn rate(cli: &Cli, args: &RateArgs, output: OutputMode) -> i32 {
+    let outcome = rate_outcome(cli, args, output).await;
+    // No warning applies to a rating today; a future one must not be lost.
+    if output == OutputMode::Human {
+        warn(&outcome);
+    }
+    finish(
+        cli,
+        output,
+        &outcome,
+        render_rate,
+        (UNWRITABLE, RATE_ADVICE),
+    )
+}
+
 async fn dispute_outcome(cli: &Cli, args: &StepArgs, output: OutputMode) -> DisputeOutcome {
     let (base, question) = match prepare(cli, args.order, args.yes, output, true).await {
         Ok(prepared) => prepared,
@@ -49,6 +71,34 @@ async fn dispute_outcome(cli: &Cli, args: &StepArgs, output: OutputMode) -> Disp
     }
     dispute_open(
         args.order,
+        &base.config,
+        &base.identity,
+        &base.store,
+        base.options,
+        &ExchangeLimits::default(),
+    )
+    .await
+}
+
+async fn rate_outcome(cli: &Cli, args: &RateArgs, output: OutputMode) -> RateOutcome {
+    if needs_yes(output, args.yes) {
+        return refuse(RATE, ErrorCode::InvalidArguments);
+    }
+    let Ok(input) = RateInput::validate(args.order, args.rating) else {
+        return refuse(RATE, ErrorCode::InvalidArguments);
+    };
+    // A rating writes nothing locally, so the store need not be writable.
+    let (base, question) = match prepare(cli, args.order, args.yes, output, false).await {
+        Ok(prepared) => prepared,
+        Err(code) => return refuse(RATE, code),
+    };
+    if let Some(trade) = question {
+        if !confirmed(&render_rate_preview(&input, &trade), QUESTION) {
+            return refuse(RATE, ErrorCode::OrderDeclined);
+        }
+    }
+    order_rate(
+        &input,
         &base.config,
         &base.identity,
         &base.store,

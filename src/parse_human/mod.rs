@@ -13,7 +13,7 @@ pub mod step;
 pub mod sync;
 pub mod table;
 
-pub use held::{render_dispute, render_dispute_preview};
+pub use held::{render_dispute, render_dispute_preview, render_rate, render_rate_preview};
 pub use identity::{render_identity_init, render_identity_show};
 pub use invoice::{render_bond_invoice, render_invoice_preview, render_order_invoice};
 pub use message::render_messages;

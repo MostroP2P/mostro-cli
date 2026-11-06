@@ -551,8 +551,8 @@ async fn json_intent_gets_one_error_envelope_before_any_effect() {
             "invalid_arguments",
         ),
         (
-            &["--output", "json", "rate", &unknown_flag],
-            json!("order.rate"),
+            &["--output", "json", "admcancel", &unknown_flag],
+            json!("admin.cancel"),
             "invalid_arguments",
         ),
         (&["--output", "json"], Value::Null, "invalid_arguments"),
@@ -1881,7 +1881,6 @@ fn valid_legacy_args(canonical: &str, key: &str) -> Vec<String> {
         | "maintenance.cancel-pending" => order.to_vec(),
         "order.add-invoice" | "bond.add-invoice" => [&order[..], &invoice[..]].concat(),
         "chat.history" | "message.send" | "chat.send" => [&peer[..], &order[..]].concat(),
-        "order.rate" => [&order[..], &["--rating", "5"][..]].concat(),
         "maintenance.set" => vec!["--enabled", "true"],
         "admin.add-solver" => vec!["--npubkey", key],
         "admin.take-dispute" => vec!["--disputeid", ORDER_ID],
@@ -1909,8 +1908,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 17,
-        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine and dispute open are machine-capable"
+        REGISTRY.len() - 18,
+        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine, order rate and dispute open are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];

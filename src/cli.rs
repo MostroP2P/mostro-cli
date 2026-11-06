@@ -8,7 +8,6 @@ pub mod invocation;
 pub mod last_trade_index;
 pub mod list_disputes;
 pub mod maintenance;
-pub mod rate_user;
 pub mod restore;
 pub mod send_admin_dm_attach;
 pub mod send_dm;
@@ -39,8 +38,8 @@ mod write;
 pub use args::Cli;
 pub use commands::{
     AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, DisputeCommands, IdentityCommands,
-    ListMessagesArgs, MessageCommands, NewArgs, OrderCommands, StepArgs, SyncArgs, TakeBuyArgs,
-    TakeSellArgs,
+    ListMessagesArgs, MessageCommands, NewArgs, OrderCommands, RateArgs, StepArgs, SyncArgs,
+    TakeBuyArgs, TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

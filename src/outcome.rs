@@ -19,6 +19,7 @@ pub mod messages;
 pub mod mine;
 pub mod new;
 pub mod order;
+pub mod rate;
 mod rules;
 pub mod schema;
 pub mod step;
