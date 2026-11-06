@@ -4401,11 +4401,19 @@ store is usable by `order new`.
   directory and a data path that is a file; two inits at once create one store; show with index 0 and 7; missing, garbage, no user row, NULL
   mnemonic and negative index; options rejected with read stages; root options ignored; unwritable stdout in both modes; `order new --yes`
   against the scripted node with the new store, trade index 1), secret sweeps (mnemonic, its first three words, the identity secret in hex and
-  bech32) on every stream; unit tests in `store::create` (4), `identity` (4), `outcome::identity` (3), `parse_human::identity` (1),
-  `cli::schema` (1); fixture drift, 10 examples, 13 invalid variants; registry, grammar and machine lists updated.
+  bech32) on every stream; unit tests in `store::create` (5), `commands::identity` (2), `identity` (4), `outcome::identity` (3),
+  `parse_human::identity` (1), `cli::schema` (1); fixture drift, 10 examples, 13 invalid variants; registry, grammar and machine lists
+  updated.
 - **Mutation spot checks**: checking only `mcli.db` (not its companions) failed `init_refuses_a_leftover_companion_file`; accepting any trade
   index failed `show_on_a_damaged_store_reports_it_and_changes_nothing`. Both restored.
-- **Not verified**: a write that fails after the file was created has only the unit test of the removal; Windows (CI after the push).
+- **Not verified**: Windows (CI after the push).
+- **Amended after review (2026-11-06)**: A write that fails after the file was created is covered by
+  `a_store_that_cannot_be_completed_is_removed_and_failed` (injected fill) and the mapping by `each_creation_result_maps_to_its_outcome_row`;
+  `no_data_directory_is_store_unwritable_for_init_and_identity_missing_for_show` covers the missing data directory. `create_store` hands its
+  fill step to a private `create_with`; behavior unchanged. Mutations, each restored: removing the `discard` call failed the first test
+  (`mcli.db` and `mcli.db-journal` left), `Failed` mapped to `not_attempted` the second, and `init` without a data directory as `failed` or
+  `show` as unreadable the third. Gates on `pr/14-identity-json` with these tests: fmt, clippy, `cargo test --locked` 930 passed and 0 failed,
+  build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Gates** (both specs, one working tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 938 passed and 0
   failed (no FAILED line, none ignored; 893 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
 
