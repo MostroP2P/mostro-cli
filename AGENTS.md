@@ -29,7 +29,8 @@ are verified against the scripted node only; `order add-invoice`, `message list`
 The newest features are `identity init` and `identity show` ([spec](specs/009-identity-json/spec.md), [tasks.md](specs/009-identity-json/tasks.md)),
 local commands verified on Linux with isolated stores (no node involved), and `--invoice -`, the invoice read from standard input by the four
 commands that take one ([spec](specs/010-invoice-stdin/spec.md), [tasks.md](specs/010-invoice-stdin/tasks.md)), verified against the scripted node.
-After them: `order mine` ([spec](specs/011-order-mine/spec.md)), verified on Linux against isolated stores only.
+After them: `order mine` ([spec](specs/011-order-mine/spec.md)) and `order new --expires-in` ([spec](specs/012-order-expires-in/spec.md)),
+verified on Linux against isolated stores and the scripted node only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

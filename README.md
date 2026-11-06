@@ -281,7 +281,7 @@ mostro-cli --output json message list --since 60   # the same for a script: read
 
 Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
 
-Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` to `order new` to request a different window.
+Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` (or `--expires-in SECONDS`, 1 to 31536000) to `order new` to request a different window; the node lowers it to its own maximum.
 
 ---
 
@@ -301,7 +301,7 @@ This is the seller flow when you create the order (maker, sell).
    - `-m "wise,strike"` — comma-separated payment methods.
    - `-a 0` — sats amount (`0` = market price at trade time).
    - `-p 2` — optional price premium percentage.
-   - `--expiration-days N` — optional custom expiration.
+   - `--expiration-days N` — optional custom expiration; `--expires-in SECONDS` asks for seconds instead (the two cannot be combined).
 
 2. **Mostro replies with a hold invoice.** Pay it with your Lightning wallet. Funds are locked, not transferred yet.
 
@@ -620,7 +620,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order list [--side buy|sell] [--currency <code>] [--status <status>]` — list open orders (read-only; supports `--output json`). Replaces `listorders`.
 - `schema` — describe the machine interface offline (supports `--output json`).
 - `order info --order <uuid> [--order <uuid> ...]` — ask the node for its record of your own orders (supports `--output json`). Replaces `ordersinfo`.
-- `order new --side <buy|sell> --currency <fiat> --fiat-amount <N> [--fiat-amount-max <M>] --payment-method <text> [--sats <N>] [--premium <P>] [--invoice <BOLT11>] [--expiration-days N] [--yes]` — create an order (supports `--output json`, which requires `--yes`). Replaces `neworder`.
+- `order new --side <buy|sell> --currency <fiat> --fiat-amount <N> [--fiat-amount-max <M>] --payment-method <text> [--sats <N>] [--premium <P>] [--invoice <BOLT11>] [--expiration-days N | --expires-in SECONDS] [--yes]` — create an order (supports `--output json`, which requires `--yes`). Replaces `neworder`.
 
 ### Taking orders
 - `order take-sell --order <id> [--invoice <invoice>] [--amount <fiat>] [--yes]` — buyer takes a sell order (supports `--output json`, which requires `--yes`). Replaces `takesell`.
