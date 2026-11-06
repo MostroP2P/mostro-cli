@@ -147,7 +147,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ### What this means in practice
 
-- **Your first identity-using command (e.g. `getadmindm`; `order info`, `order new`, `message list` and the other migrated commands need an existing one) creates your user** — no separate "init" step needed. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
+- **Create your user with `mostro-cli identity init`** (or let the first legacy identity-using command, e.g. `getadmindm`, create it): `order info`, `order new`, `message list` and the other migrated commands need an existing one and never create it. `identity init` needs no node or relay, never shows the mnemonic and refuses to touch an existing store; `mostro-cli identity show` prints your identity public key and last trade index. `order list` and `schema` are public and offline-safe: they never create or read the database or an identity.
 - **You can derive the same keys on another machine** by restoring the mnemonic (see [Backup, recovery and multi-device](#backup-recovery-and-multi-device)).
 - **An `nsec` alone is not enough** to regenerate the trade keys: you need the full mnemonic, because BIP32 needs the chain code that a leaf `nsec` doesn't carry.
 
@@ -205,7 +205,7 @@ source ~/.config/mostro/env.sh
 mostro-cli order list
 ```
 
-> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help` and the offline `schema` are the only exceptions).
+> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init` and `identity show` are the only exceptions).
 
 ### About `.env` files
 
@@ -664,6 +664,8 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `sendadmindmattach -p <pubkey> -o <id> -f <file>` — send an encrypted file attachment (uploaded to a Blossom server) over the order's trade key.
 
 ### Identity / recovery
+- `identity init` — create the local identity store (`MCLI_DIR`, else `~/.mcli`) with a fresh mnemonic, exactly as the first run of a legacy command does; no node, relay or `--yes`, and the mnemonic is never shown (supports `--output json`). Fails with `identity_exists` if a store is already there.
+- `identity show` — the identity public key and last trade index of the local store, read-only (supports `--output json`).
 - `restore` — re-sync active orders and disputes from Mostro.
 - `getlasttradeindex` — fetch your last known trade index from Mostro.
 - `getlasttradeprivkey` — show the private key for the last trade index (advanced).
@@ -675,7 +677,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice` and `message list` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -689,7 +691,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Thirteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync` and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Fifteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr
