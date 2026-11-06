@@ -50,8 +50,9 @@ pub struct Cli {
     #[arg(long = OUTPUT_LONG, global = true, value_enum)]
     pub output: Option<OutputMode>,
     /// Seconds to wait for the node's reply (5 to 300, default 15), accepted at
-    /// any command depth. Applies to the commands that wait for a reply; the
-    /// public reads keep their own limits
+    /// any command depth. Applies to the migrated commands that wait for a
+    /// reply; the public reads keep their own limits and the legacy commands
+    /// ignore it
     #[arg(
         long = REPLY_TIMEOUT_LONG,
         global = true,
