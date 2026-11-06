@@ -9,7 +9,7 @@ All commands are part of the `Commands` enum and are dispatched via `Commands::r
 These flags apply to every subcommand (parsed on the top-level `Cli`; each also
 settable via the matching env var):
 
-- `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`, `identity init` and `identity show`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
+- `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`, `identity init`, `identity show` and `order mine`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
 - `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
 - `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice`, `message list`, `identity init` and `identity show` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `bond add-invoice`, `message list`, `identity init` and `identity show` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -45,7 +45,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read for an answer; the only read of stdin is the invoice of `--invoice -` (spec 010), which requires `--yes`.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -142,6 +142,12 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Args**: `--since MINUTES` (1 to 10080, default 10080).
   - **Output**: `data.adopted` lists the orders added (the order, the trade index and key); `messages_read`, `messages_ignored`, `keys_read`, `keys_not_read` and `truncated` say what was looked at. When nothing is due the run is a success with an empty list and persistence `not_attempted`. A save that fails stops the run and is `uncertain` (`order_not_saved`) with the rows already saved; run it again. For a buy range order the child exists only after the seller releases, so run it then.
   - **Handler**: `commands::order::sync::order_sync` through `msg::inbox` and `store`; dispatch in `cli/sync.rs`.
+
+- **`order mine`** (new; spec 011)
+  - **Description**: The orders of the local store (made, taken, or adopted by `order sync`, range children included), newest first, read-only. No node, relay or Mostro key.
+  - **Args**: none.
+  - **Output**: `data.orders[]` with `id`, `side`, `status` (the local status), `trade_index` (decimal string) and `trade_pubkey` (hex). The store keeps a row's trade key, not its index, so the index is found by deriving the newest 200 recorded indexes (as `message list` does); a key older than those, or a row without a key, has `trade_index: null` (and `trade_pubkey: null` without a key), with the warning `trade_keys_limited` when older keys were not derived. Newest first means the highest index first, then the rows whose index is unknown by creation time. No store or user is `identity_missing`; a store or a row that cannot be read is `store_unreadable`.
+  - **Handler**: `commands::order::mine::order_mine` through `Store::order_rows` (`store/rows.rs`) and `Store::trade_keys`; dispatch in `cli/mine.rs`.
 
 - **`order info`** (replaces `ordersinfo`)
   - **Description**: Asks the node for its record of your own orders. It publishes one signed request using your identity key, waits for the reply to that request, and writes nothing locally. It needs an existing local identity (`mcli.db`) and never creates one. Orders that are not yours or unknown to the node are not returned; they are listed as not returned.
