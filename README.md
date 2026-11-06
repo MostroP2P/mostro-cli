@@ -205,7 +205,7 @@ source ~/.config/mostro/env.sh
 mostro-cli order list
 ```
 
-> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init` and `identity show` are the only exceptions).
+> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init`, `identity show` and `order mine` are the only exceptions).
 
 ### About `.env` files
 
@@ -281,7 +281,7 @@ mostro-cli --output json message list --since 60   # the same for a script: read
 
 Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
 
-Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` to `order new` to request a different window.
+Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` (or `--expires-in SECONDS`, 1 to 31536000) to `order new` to request a different window; the node lowers it to its own maximum.
 
 ---
 
@@ -301,7 +301,7 @@ This is the seller flow when you create the order (maker, sell).
    - `-m "wise,strike"` — comma-separated payment methods.
    - `-a 0` — sats amount (`0` = market price at trade time).
    - `-p 2` — optional price premium percentage.
-   - `--expiration-days N` — optional custom expiration.
+   - `--expiration-days N` — optional custom expiration; `--expires-in SECONDS` asks for seconds instead (the two cannot be combined).
 
 2. **Mostro replies with a hold invoice.** Pay it with your Lightning wallet. Funds are locked, not transferred yet.
 
@@ -620,7 +620,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order list [--side buy|sell] [--currency <code>] [--status <status>]` — list open orders (read-only; supports `--output json`). Replaces `listorders`.
 - `schema` — describe the machine interface offline (supports `--output json`).
 - `order info --order <uuid> [--order <uuid> ...]` — ask the node for its record of your own orders (supports `--output json`). Replaces `ordersinfo`.
-- `order new --side <buy|sell> --currency <fiat> --fiat-amount <N> [--fiat-amount-max <M>] --payment-method <text> [--sats <N>] [--premium <P>] [--invoice <BOLT11>] [--expiration-days N] [--yes]` — create an order (supports `--output json`, which requires `--yes`). Replaces `neworder`.
+- `order new --side <buy|sell> --currency <fiat> --fiat-amount <N> [--fiat-amount-max <M>] --payment-method <text> [--sats <N>] [--premium <P>] [--invoice <BOLT11>] [--expiration-days N | --expires-in SECONDS] [--yes]` — create an order (supports `--output json`, which requires `--yes`). Replaces `neworder`.
 
 ### Taking orders
 - `order take-sell --order <id> [--invoice <invoice>] [--amount <fiat>] [--yes]` — buyer takes a sell order (supports `--output json`, which requires `--yes`). Replaces `takesell`.
@@ -635,6 +635,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order cancel --order <id> [--yes]` — cancel a pending order, or start or confirm a cooperative cancel of an active trade; the node decides which and the result says so (supports `--output json`, which requires `--yes`). Replaces `cancel`.
 - `rate -o <id> -r <1-5>` — rate counterpart.
 - `dispute -o <id>` — open a dispute.
+- `order mine` — the orders of the local store, newest first, with their trade index and key; read-only, no node or relay (supports `--output json`).
 - `bond add-invoice --order <id> --invoice <bolt11> [--yes]` — reply to a bond payout request with an invoice for your share of a slashed bond (supports `--output json`, which requires `--yes`; BOLT-11 only). Replaces `addbondinvoice`; without a confirmation from the node the result is `uncertain`, not success.
 
 ### Messaging
@@ -678,7 +679,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -692,7 +693,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Fifteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Sixteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

@@ -156,6 +156,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "identity.show",
         json: JsonSupport::Read,
     },
+    // Reads the local store only.
+    CommandEntry {
+        path: &["order", "mine"],
+        canonical: "order.mine",
+        json: JsonSupport::Read,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

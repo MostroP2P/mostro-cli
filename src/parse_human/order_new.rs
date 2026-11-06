@@ -44,7 +44,9 @@ pub fn render_preview(input: &OrderNewInput, trade_index: &str, trade_pubkey: &s
     if input.has_invoice() {
         let _ = writeln!(out, "🧾 Invoice: provided");
     }
-    if input.expiration_days() > 0 {
+    if let Some(seconds) = input.expires_in() {
+        let _ = writeln!(out, "⏰ Expires in: {seconds} seconds");
+    } else if input.expiration_days() > 0 {
         let _ = writeln!(out, "⏰ Expires in: {} day(s)", input.expiration_days());
     }
     let _ = writeln!(out, "🔢 Trade Index: {trade_index}");

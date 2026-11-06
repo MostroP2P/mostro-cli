@@ -1,0 +1,163 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "orders_newest_first",
+      "stdout": {
+        "command": "order.mine",
+        "data": {
+          "orders": [
+            {
+              "id": "00000000-0000-0000-0000-000000000005",
+              "side": "sell",
+              "status": "pending",
+              "trade_index": "3",
+              "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "side": "buy",
+              "status": "waiting-payment",
+              "trade_index": "1",
+              "trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+            }
+          ]
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "a_key_older_than_the_derived_ones",
+      "stdout": {
+        "command": "order.mine",
+        "data": {
+          "orders": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "side": "sell",
+              "status": "success",
+              "trade_index": null,
+              "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000003",
+              "side": "sell",
+              "status": "canceled",
+              "trade_index": null,
+              "trade_pubkey": null
+            }
+          ]
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": [
+          {
+            "code": "trade_keys_limited",
+            "message": "Trade keys older than the newest 200 were not read."
+          }
+        ]
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "no_orders",
+      "stdout": {
+        "command": "order.mine",
+        "data": {
+          "orders": []
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "identity_missing",
+      "stdout": {
+        "command": "order.mine",
+        "data": null,
+        "error": {
+          "code": "identity_missing",
+          "message": "No local identity exists."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "store_unreadable",
+      "stdout": {
+        "command": "order.mine",
+        "data": null,
+        "error": {
+          "code": "store_unreadable",
+          "message": "The local store cannot be read."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "invalid_arguments",
+      "stdout": {
+        "command": "order.mine",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

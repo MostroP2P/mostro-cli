@@ -7,6 +7,7 @@
 //! maps to explicit fields only.
 
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use mostro_core::order::{Kind, SmallOrder, Status};
 use nostr_sdk::prelude::PublicKey;
@@ -17,11 +18,13 @@ use uuid::Uuid;
 use super::info::OrderRecord;
 use super::{schema, Warnings};
 
-const CURRENCY_LENGTH: std::ops::RangeInclusive<usize> = 3..=6;
+const CURRENCY_LENGTH: RangeInclusive<usize> = 3..=6;
 const PAYMENT_METHOD_BYTES: usize = 200;
 const INVOICE_BYTES: usize = 4096;
-const PREMIUM_PERCENT: std::ops::RangeInclusive<i64> = -100..=100;
-const EXPIRATION_DAYS: std::ops::RangeInclusive<i64> = 0..=365;
+const PREMIUM_PERCENT: RangeInclusive<i64> = -100..=100;
+const EXPIRATION_DAYS: RangeInclusive<i64> = 0..=365;
+/// `--expires-in`: one second to 365 days.
+const EXPIRES_IN_SECONDS: RangeInclusive<i64> = 1..=31_536_000;
 const SECONDS_PER_DAY: i64 = 86_400;
 
 /// The option that failed validation. Its value is never part of the error.
@@ -35,6 +38,7 @@ pub enum InvalidOrder {
     Premium,
     Invoice,
     ExpirationDays,
+    ExpiresIn,
 }
 
 impl InvalidOrder {
@@ -49,6 +53,7 @@ impl InvalidOrder {
             Self::Premium => "--premium",
             Self::Invoice => "--invoice",
             Self::ExpirationDays => "--expiration-days",
+            Self::ExpiresIn => "--expires-in",
         }
     }
 }
@@ -73,6 +78,8 @@ pub struct OrderRequest {
     pub premium: i64,
     pub invoice: Option<String>,
     pub expiration_days: i64,
+    /// Seconds until the order expires, instead of days (spec 012).
+    pub expires_in: Option<i64>,
 }
 
 /// A validated order request.
@@ -87,6 +94,7 @@ pub struct OrderNewInput {
     premium: i64,
     invoice: Option<String>,
     expiration_days: i64,
+    expires_in: Option<i64>,
 }
 
 impl OrderNewInput {
@@ -131,6 +139,11 @@ impl OrderNewInput {
         if !EXPIRATION_DAYS.contains(&request.expiration_days) {
             return Err(InvalidOrder::ExpirationDays);
         }
+        if request.expires_in.is_some_and(|seconds| {
+            !EXPIRES_IN_SECONDS.contains(&seconds) || request.expiration_days != 0
+        }) {
+            return Err(InvalidOrder::ExpiresIn);
+        }
         Ok(Self {
             side: request.side,
             currency,
@@ -141,12 +154,14 @@ impl OrderNewInput {
             premium: request.premium,
             invoice,
             expiration_days: request.expiration_days,
+            expires_in: request.expires_in,
         })
     }
 
     /// The order as the node expects it in a `new-order`: pending, no id, a
     /// fixed amount in `fiat_amount` or a range in `min`/`max` with
-    /// `fiat_amount` 0, and an absolute expiry `now + days` when days are given.
+    /// `fiat_amount` 0, and an absolute expiry `now + days` when days are given,
+    /// or `now + seconds` with `--expires-in`.
     pub fn small_order(&self, now: i64) -> SmallOrder {
         let (fiat_amount, min, max) = match self.fiat_amount_max {
             Some(max) => (0, Some(self.fiat_amount), Some(max)),
@@ -167,7 +182,9 @@ impl OrderNewInput {
             None,
             self.invoice.clone(),
             Some(0),
-            (self.expiration_days > 0).then(|| now + self.expiration_days * SECONDS_PER_DAY),
+            self.expires_in.map(|seconds| now + seconds).or_else(|| {
+                (self.expiration_days > 0).then(|| now + self.expiration_days * SECONDS_PER_DAY)
+            }),
         )
     }
 
@@ -205,6 +222,10 @@ impl OrderNewInput {
 
     pub fn expiration_days(&self) -> i64 {
         self.expiration_days
+    }
+
+    pub fn expires_in(&self) -> Option<i64> {
+        self.expires_in
     }
 }
 
@@ -335,6 +356,7 @@ mod tests {
             premium: 2,
             invoice: None,
             expiration_days: 0,
+            expires_in: None,
         }
     }
 
@@ -460,6 +482,32 @@ mod tests {
         assert_eq!(range.fiat_amount, 0, "a range carries no single amount");
         assert_eq!((range.min_amount, range.max_amount), (Some(100), Some(300)));
         assert_eq!(range.expires_at, None, "zero days is the node's default");
+    }
+
+    /// `--expires-in` (spec 012): seconds from now, 1 to 365 days, never
+    /// together with `--expiration-days`.
+    #[test]
+    fn expires_in_is_seconds_from_now_within_its_range_and_alone() {
+        for seconds in [1, 60, 31_536_000] {
+            let mut raw = request();
+            raw.expires_in = Some(seconds);
+            let input = OrderNewInput::validate(raw).unwrap();
+            assert_eq!(input.expires_in(), Some(seconds));
+            assert_eq!(input.small_order(1_000).expires_at, Some(1_000 + seconds));
+        }
+        for seconds in [0, -1, 31_536_001] {
+            assert_eq!(
+                invalid(|r| r.expires_in = Some(seconds)),
+                InvalidOrder::ExpiresIn,
+                "{seconds}"
+            );
+        }
+        let both = invalid(|r| {
+            r.expires_in = Some(60);
+            r.expiration_days = 2;
+        });
+        assert_eq!(both, InvalidOrder::ExpiresIn);
+        assert_eq!(both.to_string(), "invalid value for --expires-in");
     }
 
     fn created(id: Option<Uuid>) -> SmallOrder {

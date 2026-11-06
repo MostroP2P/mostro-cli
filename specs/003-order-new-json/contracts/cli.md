@@ -8,8 +8,11 @@ diagnostics on stderr) and the [pilot envelope](../../001-order-list-json/contra
 ```text
 mostro-cli order new --side buy|sell --currency CODE --fiat-amount N [--fiat-amount-max M]
                      --payment-method TEXT [--sats N] [--premium N] [--invoice BOLT11]
-                     [--expiration-days N] [--yes] [--output human|json]
+                     [--expiration-days N | --expires-in SECONDS] [--yes] [--output human|json]
 ```
+
+(Amended 2026-11-05 by [spec 012](../../012-order-expires-in/contracts/cli.md): `--expires-in SECONDS`, 1 to 31536000, asks for
+`expires_at = now + SECONDS` and conflicts with `--expiration-days`.)
 
 `neworder` and its short flags (`-k -c -f -m -a -p -i -e`), the `100-200` range syntax and a positional form are removed with
 no alias. `--yes` is local to this command for now (the roadmap's global `--yes` waits for a command that needs it elsewhere).

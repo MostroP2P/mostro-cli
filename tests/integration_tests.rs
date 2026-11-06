@@ -13,12 +13,13 @@ use mostro_client::outcome::invoice::{
     Answered, BondInvoiceData, InvoiceInput, InvoiceKind, InvoiceRequest, OrderInvoiceData,
 };
 use mostro_client::outcome::messages::{MessageListData, MessageListInput, MessageRecord};
+use mostro_client::outcome::mine::{MineOrder, OrderMineData, COMMAND as ORDER_MINE};
 use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
 use mostro_client::outcome::{
-    DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Warnings,
-    INVALID_INVOICE,
+    DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, WarningCode,
+    Warnings, INVALID_INVOICE,
 };
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
@@ -289,7 +290,6 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 // --- Generated schema fixtures and proposed examples (T045) ---------------
 
 mod schema_fixtures {
-    use super::INVALID_INVOICE;
     use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
         Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, OrderNewData,
@@ -302,6 +302,7 @@ mod schema_fixtures {
         OrderInvoiceData, Payload,
     };
     use super::{IdentityInitData, IdentityShowData, IDENTITY_INIT, IDENTITY_SHOW};
+    use super::{MineOrder, OrderMineData, WarningCode, INVALID_INVOICE, ORDER_MINE};
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
     const DISCOVERY_FIXTURE: &str = concat!(
@@ -364,6 +365,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/identity-show-v1.json"
     );
+    const ORDER_MINE_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-mine-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -380,7 +385,9 @@ mod schema_fixtures {
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"message.list\\\") | \
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
-    select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done";
+    select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
+    for NAME in order.mine; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -503,6 +510,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn mine_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.mine"),
+            read_json(ORDER_MINE_FIXTURE),
+            "stale {ORDER_MINE_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn identity_schema_fixtures_match_the_generated_schemas() {
         for (name, fixture) in [
             ("identity.init", IDENTITY_INIT_FIXTURE),
@@ -568,6 +584,7 @@ mod schema_fixtures {
                 "order.fiat-sent",
                 "order.info",
                 "order.list",
+                "order.mine",
                 "order.new",
                 "order.release",
                 "order.sync",
@@ -1152,6 +1169,7 @@ mod schema_fixtures {
             premium: 2,
             invoice: None,
             expiration_days: 1,
+            expires_in: None,
         })
         .unwrap();
         let mut order = input.small_order(1_792_108_800);
@@ -1174,6 +1192,7 @@ mod schema_fixtures {
             premium: 2,
             invoice: None,
             expiration_days: 1,
+            expires_in: None,
         })
         .unwrap();
         let mut order = input.small_order(1_792_108_800);
@@ -3497,6 +3516,169 @@ mod schema_fixtures {
             assert!(
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label} on {case}"
+            );
+        }
+    }
+
+    // --- Order mine (spec 011) ---
+
+    fn examples_of(feature: &str) -> Vec<(String, i32, Value)> {
+        let path = format!(
+            "{}/specs/{feature}/contracts/examples.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let document = read_json(&path);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn mine_cases() -> Vec<(&'static str, Value, i32)> {
+        let trade = PublicKey::from_hex(TRADE).unwrap();
+        let ok = |orders: Vec<MineOrder>, warnings: Warnings| {
+            to_value(Envelope::<_, ()>::ok(
+                ORDER_MINE,
+                OrderMineData::new(orders),
+                warnings,
+                ExecutionMeta::read(None),
+            ))
+            .unwrap()
+        };
+        let error = |code| {
+            to_value(Envelope::<OrderMineData, ()>::error(
+                Some(ORDER_MINE),
+                code,
+                Warnings::new(),
+                ExecutionMeta::read(None),
+            ))
+            .unwrap()
+        };
+        let row = |n: u128, side, status, key: Option<(&PublicKey, Option<i64>)>| {
+            MineOrder::from_row(&id(n).to_string(), side, status, key).unwrap()
+        };
+        let mut limited = Warnings::new();
+        limited.add(WarningCode::TradeKeysLimited);
+        vec![
+            (
+                "orders_newest_first",
+                ok(
+                    vec![
+                        row(5, "sell", "pending", Some((&trade, Some(3)))),
+                        row(1, "buy", "waiting-payment", Some((&node(), Some(1)))),
+                    ],
+                    Warnings::new(),
+                ),
+                0,
+            ),
+            (
+                "a_key_older_than_the_derived_ones",
+                ok(
+                    vec![
+                        row(2, "sell", "success", Some((&trade, None))),
+                        row(3, "sell", "canceled", None),
+                    ],
+                    limited,
+                ),
+                0,
+            ),
+            ("no_orders", ok(Vec::new(), Warnings::new()), 0),
+            ("identity_missing", error(ErrorCode::IdentityMissing), 1),
+            ("store_unreadable", error(ErrorCode::StoreUnreadable), 1),
+            ("invalid_arguments", error(ErrorCode::InvalidArguments), 2),
+        ]
+    }
+
+    type Cases = fn() -> Vec<(&'static str, Value, i32)>;
+
+    const NEW_COMMAND_EXAMPLES: [(&str, &str, Cases); 1] =
+        [("011-order-mine", ORDER_MINE_FIXTURE, mine_cases)];
+
+    #[test]
+    fn mine_examples_conform_and_are_reproduced() {
+        for (feature, fixture, cases) in NEW_COMMAND_EXAMPLES {
+            let schema = read_json(fixture);
+            let examples = examples_of(feature);
+            let built = cases();
+            assert_eq!(examples.len(), built.len(), "{feature}");
+            for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+                examples.iter().zip(&built)
+            {
+                assert_eq!(name, built_name, "{feature}");
+                assert_eq!(outcome, built_outcome, "{feature}: {name}");
+                assert_eq!(exit, built_exit, "{feature}: {name}");
+                assert!(
+                    schema_check::conforms(&schema, &schema, outcome),
+                    "{feature}: {name}"
+                );
+                assert_eq!(
+                    outcome["data"].is_null(),
+                    outcome["status"] != "ok",
+                    "{feature}: {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_mine_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, &str, Edit)> = vec![
+            (
+                "011-order-mine",
+                "orders_newest_first",
+                "a numeric index",
+                Box::new(|o| o["data"]["orders"][0]["trade_index"] = json!(3)),
+            ),
+            (
+                "011-order-mine",
+                "orders_newest_first",
+                "an unknown status",
+                Box::new(|o| o["data"]["orders"][0]["status"] = json!("lost")),
+            ),
+            (
+                "011-order-mine",
+                "orders_newest_first",
+                "an unknown side",
+                Box::new(|o| o["data"]["orders"][0]["side"] = json!("both")),
+            ),
+            (
+                "011-order-mine",
+                "orders_newest_first",
+                "a local write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "011-order-mine",
+                "identity_missing",
+                "a code of another command",
+                Box::new(|o| o["error"]["code"] = json!("order_unknown")),
+            ),
+        ];
+        for (feature, case, label, edit) in variants {
+            let (_, fixture, _) = NEW_COMMAND_EXAMPLES
+                .iter()
+                .find(|(name, ..)| *name == feature)
+                .unwrap();
+            let schema = read_json(fixture);
+            let (_, _, mut outcome) = examples_of(feature)
+                .into_iter()
+                .find(|(name, ..)| name == case)
+                .unwrap();
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {feature}/{case}"
             );
         }
     }

@@ -5502,6 +5502,389 @@
       ]
     },
     {
+      "name": "order.mine",
+      "cli_path": [
+        "order",
+        "mine"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "store_unreadable"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "MineOrder": {
+            "description": "One order row of the local store.",
+            "properties": {
+              "id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "description": "The local status, as the store records it.",
+                "enum": [
+                  "active",
+                  "canceled",
+                  "canceled-by-admin",
+                  "settled-by-admin",
+                  "completed-by-admin",
+                  "dispute",
+                  "expired",
+                  "fiat-sent",
+                  "settled-hold-invoice",
+                  "pending",
+                  "success",
+                  "waiting-buyer-invoice",
+                  "waiting-payment",
+                  "waiting-taker-bond",
+                  "waiting-maker-bond",
+                  "cooperatively-canceled",
+                  "in-progress"
+                ],
+                "type": "string"
+              },
+              "trade_index": {
+                "description": "The index of the order's trade key; null when it is not among the\nderived indexes or the row has no key.",
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "trade_pubkey": {
+                "description": "The public key of the order's trade key; null when the row has none.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "side",
+              "status",
+              "trade_index",
+              "trade_pubkey"
+            ],
+            "type": "object"
+          },
+          "OrderMineData": {
+            "description": "The orders of the local store, newest first.",
+            "properties": {
+              "orders": {
+                "items": {
+                  "$ref": "#/$defs/MineOrder"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "orders"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "trade_keys_limited"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.mine"
+              },
+              "data": {
+                "$ref": "#/$defs/OrderMineData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.mine"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "internal_error",
+                      "identity_missing",
+                      "store_unreadable"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.mine outcome",
+        "type": "object"
+      },
+      "required_configuration": []
+    },
+    {
       "name": "order.new",
       "cli_path": [
         "order",
@@ -5521,6 +5904,10 @@
           },
           "expiration-days": {
             "description": "Days until the pending order expires; 0 uses the node's default",
+            "type": "string"
+          },
+          "expires-in": {
+            "description": "Seconds until the pending order expires (1 to 31536000), instead of --expiration-days; the node lowers it to its own maximum",
             "type": "string"
           },
           "fiat-amount": {

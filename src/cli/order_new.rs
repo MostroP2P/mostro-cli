@@ -87,5 +87,6 @@ fn validate(args: &NewArgs, invoice: Option<String>) -> Result<OrderNewInput, In
         premium: args.premium,
         invoice,
         expiration_days: args.expiration_days,
+        expires_in: args.expires_in,
     })
 }

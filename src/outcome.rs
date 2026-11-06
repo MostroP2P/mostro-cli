@@ -15,6 +15,7 @@ pub mod identity;
 pub mod info;
 pub mod invoice;
 pub mod messages;
+pub mod mine;
 pub mod new;
 pub mod order;
 mod rules;

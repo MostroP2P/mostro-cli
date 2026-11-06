@@ -3,6 +3,7 @@
 pub mod identity;
 pub mod invoice;
 pub mod message;
+pub mod mine;
 pub mod order;
 pub mod order_info;
 pub mod order_new;
@@ -14,6 +15,7 @@ pub mod table;
 pub use identity::{render_identity_init, render_identity_show};
 pub use invoice::{render_bond_invoice, render_invoice_preview, render_order_invoice};
 pub use message::render_messages;
+pub use mine::render_mine;
 pub use order::render_list;
 pub use order_info::render_info;
 pub use order_new::{render_new, render_preview};
