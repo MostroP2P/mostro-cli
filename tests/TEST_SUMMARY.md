@@ -4414,7 +4414,8 @@ store is usable by `order new`.
 Native Linux, rustc 1.97.0, same working tree as the entry above. Lean mode: the only evidence entry for the spec (slices 1-3). Scripted node on a
 loopback relay; no real node.
 
-- **Failing first**: `tests/invoice_stdin_process.rs` (5 tests) against the code before the change: 1 passed (the literal invoice) and 4 failed.
+- **Failing first**: `tests/invoice_stdin_process.rs` (5 tests then, 7 after the review) against the code before the change: 1 passed (the
+  literal invoice) and 4 failed.
   `-` was taken as the invoice itself: `order add-invoice` refused it as invalid; `order take-sell` **published it to the scripted node**, which
   refused it (`node_refused`, `invalid_invoice`); and without `--yes` the human prompt of `order take-sell` waited on the open stdin until the
   10 s limit. The discovery test failed with no marked option.
@@ -4422,7 +4423,8 @@ loopback relay; no real node.
   is; `-` without `--yes` is `invalid_arguments` before stdin is touched; with `--yes` at most 8193 bytes are read and exactly one non-empty
   UTF-8 line after trimming ASCII whitespace is required. `cli/invoice.rs`, `cli/order_take.rs` and `cli/order_new.rs` call it right after the
   JSON `--yes` rule and before validation, which is unchanged. The `--invoice` help of the four commands names the form, and
-  `cli/input_schema.rs` adds `"x-stdin": "-"` to it; `discovery-v1.json` regenerated (the output schemas did not change).
+  `cli/input_schema.rs` adds `"x-stdin": "-"` to it; `discovery-v1.json` regenerated (the output schemas did not change in this step; the
+  review regenerated them, see the amendment below).
 - **Tests**: the four commands send exactly the stdin invoice in JSON (the bond payout invoice for `bond add-invoice`); human mode with `--yes`
   trims ` \t...\r\n`; empty, blank, two lines, a line after a blank one, more than 8 KiB and invalid UTF-8 are each `invalid_arguments` (exit 2,
   write-command stages `not_attempted`/`unknown`/`not_attempted`) in both modes for all four commands, nothing sent, the store byte-identical, the
@@ -4430,7 +4432,21 @@ loopback relay; no real node.
   works. Unit tests (6) for the reader: trimming, rejections, the 8192-byte limit and that a larger input is not read past 8193 bytes, UTF-8,
   the `--yes` rule with a reader that panics if touched. Harness: `run_with_input` and `run_with_open_stdin`.
 - **Mutation spot check**: removing the `--yes` guard failed `without_yes_stdin_is_never_read` ("it waited for stdin"); restored.
-- **Not verified**: a terminal as stdin (the program then waits for the line and end of input, as any filter); Windows (CI after the push).
+- **Amended 2026-11-06 after review**: this entry described the code before the review changes that the same branch carries. A terminal as
+  stdin is refused at once with `invalid_arguments`, without a read (`std::io::IsTerminal`); it does not wait. An `invalid_arguments` caused by
+  the invoice value itself, literal or from stdin, carries `"reason": "invalid_invoice"` (`(reason: invalid_invoice)` on the human line); `-`
+  without `--yes` or with a terminal, and every other argument error, carry none (`StdinRefusal::outcome`, `cli/write.rs::refuse_invoice`).
+  The output schemas were regenerated: the four commands allow that reason on `invalid_arguments` and the node's reason on `node_refused`
+  only; `order info`, `order cancel`, `order fiat-sent`, `order release` and `order take-buy` allow a reason on `node_refused` only. New
+  examples: `invalid_invoice` (003), `sell_invalid_invoice` (004), `order_invalid_invoice` and `bond_invalid_invoice` (005). The process file
+  now holds 7 tests (the review added `an_invoice_the_client_refuses_carries_the_reason_invalid_invoice` and
+  `the_schemas_tie_the_reason_to_its_code`) and the reader 7 unit tests (it added `a_terminal_as_stdin_fails_at_once_without_being_read`).
+  Checks run for this amendment on `pr/15-invoice-stdin` at `2cdc05e` with the spec 010 documents corrected (rustc 1.97.0): the 7 process
+  tests and the 7 unit tests pass; dropping `|| terminal` from the guard failed `a_terminal_as_stdin_fails_at_once_without_being_read`
+  ("stdin was read"), restored; fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 942 passed and 0
+  failed (no FAILED line, none ignored).
+- **Not verified**: a real terminal as stdin (the refusal is covered only by the unit test with an injected flag: the harness has no
+  pseudo-terminal); Windows (CI after the push).
 - **Gates** (both specs, one working tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 938 passed and 0
   failed (no FAILED line, none ignored; 893 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
 
