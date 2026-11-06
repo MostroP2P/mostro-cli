@@ -396,3 +396,19 @@ regtest; the CI Windows runner is checked after the push (the 0600/0700 modes ar
 | FR-007 legacy first run unchanged | the db unit tests of `create_private_db_file`, the legacy run of the comparison test | Verified on Linux |
 | SC-001 to SC-005 | the process tests above, `a_store_from_identity_init_is_used_at_once_by_order_new` (scripted node) | Verified on Linux |
 | SC-006 Windows | none yet | Open until CI runs after the push |
+
+## Invoice From Stdin: Requirement Evidence
+
+Reconciliation of the [specification](../specs/010-invoice-stdin/spec.md) with the entry in [TEST_SUMMARY.md](TEST_SUMMARY.md), as of 2026-11-05.
+**Automated verification on Linux against the scripted node only.** Contracts: [CLI](../specs/010-invoice-stdin/contracts/cli.md),
+[data model](../specs/010-invoice-stdin/data-model.md); generated reference: [discovery](../docs/schemas/discovery-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 `-` reads stdin on the four commands, a literal value is unchanged | `the_invoice_on_stdin_is_the_one_sent_by_every_command`, `a_literal_invoice_is_unchanged`, `any_other_value_is_kept_as_it_is_...` | Verified on Linux |
+| FR-002 bounded, strict, `invalid_arguments` before any effect | `invalid_input_on_stdin_is_an_argument_error_before_any_effect` (empty, blank, two lines, more than 8 KiB, invalid UTF-8; both modes; nothing sent; store byte-identical), the `cli::stdin` unit tests (the 8192-byte limit, at most 8193 bytes read) | Verified on Linux |
+| FR-003 `--yes` required, stdin untouched without it | `without_yes_stdin_is_never_read` (stdin held open), `the_dash_needs_yes_and_without_it_stdin_is_never_touched` | Verified on Linux |
+| FR-004 validation as for a literal value | `the_invoice_on_stdin_is_the_one_sent_by_every_command` (BOLT-11 and the bond payout invoice), `human_mode_with_yes_reads_one_trimmed_line` | Verified on Linux |
+| FR-005 never echoed | the sentinel sweeps of the process tests | Verified on Linux |
+| FR-006 discovery marker, regenerated discovery | `the_invoice_option_is_marked_as_readable_from_stdin`, `discovery_fixture_matches_the_generated_document` | Verified on Linux |
+| SC-001 to SC-005 | the tests above | Verified on Linux against the scripted node; the CI Windows runner is checked after the push |

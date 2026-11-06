@@ -4409,3 +4409,28 @@ store is usable by `order new`.
 - **Gates** (both specs, one working tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 938 passed and 0
   failed (no FAILED line, none ignored; 893 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
 
+## Invoice From Stdin (spec 010): --invoice -: 2026-11-05
+
+Native Linux, rustc 1.97.0, same working tree as the entry above. Lean mode: the only evidence entry for the spec (slices 1-3). Scripted node on a
+loopback relay; no real node.
+
+- **Failing first**: `tests/invoice_stdin_process.rs` (5 tests) against the code before the change: 1 passed (the literal invoice) and 4 failed.
+  `-` was taken as the invoice itself: `order add-invoice` refused it as invalid; `order take-sell` **published it to the scripted node**, which
+  refused it (`node_refused`, `invalid_invoice`); and without `--yes` the human prompt of `order take-sell` waited on the open stdin until the
+  10 s limit. The discovery test failed with no marked option.
+- **The change**: `cli/stdin.rs` (`STDIN_VALUE`, `STDIN_LIMIT` = 8192, `STDIN_OPTIONS`, `read_line`, `invoice`): a literal value is kept as it
+  is; `-` without `--yes` is `invalid_arguments` before stdin is touched; with `--yes` at most 8193 bytes are read and exactly one non-empty
+  UTF-8 line after trimming ASCII whitespace is required. `cli/invoice.rs`, `cli/order_take.rs` and `cli/order_new.rs` call it right after the
+  JSON `--yes` rule and before validation, which is unchanged. The `--invoice` help of the four commands names the form, and
+  `cli/input_schema.rs` adds `"x-stdin": "-"` to it; `discovery-v1.json` regenerated (the output schemas did not change).
+- **Tests**: the four commands send exactly the stdin invoice in JSON (the bond payout invoice for `bond add-invoice`); human mode with `--yes`
+  trims ` \t...\r\n`; empty, blank, two lines, a line after a blank one, more than 8 KiB and invalid UTF-8 are each `invalid_arguments` (exit 2,
+  write-command stages `not_attempted`/`unknown`/`not_attempted`) in both modes for all four commands, nothing sent, the store byte-identical, the
+  invoice never on a stream; without `--yes` a held-open stdin is never read in either mode; a literal invoice with the human question still
+  works. Unit tests (6) for the reader: trimming, rejections, the 8192-byte limit and that a larger input is not read past 8193 bytes, UTF-8,
+  the `--yes` rule with a reader that panics if touched. Harness: `run_with_input` and `run_with_open_stdin`.
+- **Mutation spot check**: removing the `--yes` guard failed `without_yes_stdin_is_never_read` ("it waited for stdin"); restored.
+- **Not verified**: a terminal as stdin (the program then waits for the line and end of input, as any filter); Windows (CI after the push).
+- **Gates** (both specs, one working tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 938 passed and 0
+  failed (no FAILED line, none ignored; 893 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+
