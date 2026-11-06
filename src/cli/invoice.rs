@@ -7,10 +7,11 @@
 use super::commands::{AddBondInvoiceArgs, AddInvoiceArgs};
 use super::invocation::OutputMode;
 use super::stdin;
-use super::write::{confirmed, finish, needs_yes, refuse, refuse_invoice, resolve_base, Base};
+use super::write::{
+    confirmed, exchange_limits, finish, needs_yes, refuse, refuse_invoice, resolve_base, Base,
+};
 use super::Cli;
 use crate::commands::order::invoice::{bond_add_invoice, order_add_invoice};
-use crate::msg::ExchangeLimits;
 use crate::outcome::invoice::{InvoiceInput, InvoiceKind, InvoiceRequest};
 use crate::outcome::{Envelope, ErrorCode};
 use crate::parse_human::{render_bond_invoice, render_invoice_preview, render_order_invoice};
@@ -37,7 +38,7 @@ pub(super) async fn order(cli: &Cli, args: &AddInvoiceArgs, output: OutputMode) 
                 &base.identity,
                 &base.store,
                 base.options,
-                &ExchangeLimits::default(),
+                &exchange_limits(cli),
             )
             .await
         }
@@ -67,7 +68,7 @@ pub(super) async fn bond(cli: &Cli, args: &AddBondInvoiceArgs, output: OutputMod
                 &base.identity,
                 &base.store,
                 base.options,
-                &ExchangeLimits::default(),
+                &exchange_limits(cli),
             )
             .await
         }

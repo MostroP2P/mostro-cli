@@ -874,12 +874,28 @@ fn cancel_reply(
         .find(|key| *key != sender);
     match trade.status {
         Status::Pending | Status::WaitingTakerBond => {
-            if sender == trade.maker || Some(sender) == trade.taker() {
+            if sender == trade.maker {
                 trade.status = Status::Canceled;
+                vec![to_sender(Action::Canceled, None)]
+            } else if Some(sender) == trade.taker() {
+                // The taker backs out: its bond is released, the order goes
+                // back to the book for other takers (`cancel_order_by_taker`).
+                let buys = trade.kind() == OrderKind::Buy;
+                trade.status = Status::Pending;
+                trade.buyer = buys.then_some(trade.maker);
+                trade.seller = (!buys).then_some(trade.maker);
                 vec![to_sender(Action::Canceled, None)]
             } else {
                 refuse(CantDoReason::IsNotYourOrder)
             }
+        }
+        // Never published: only the maker closes it (`cancel_waiting_maker_bond_order`).
+        Status::WaitingMakerBond => {
+            if sender != trade.maker {
+                return refuse(CantDoReason::IsNotYourOrder);
+            }
+            trade.status = Status::Canceled;
+            vec![to_sender(Action::Canceled, None)]
         }
         Status::WaitingPayment | Status::WaitingBuyerInvoice => {
             if Some(sender) != trade.buyer && Some(sender) != trade.seller {
@@ -1077,6 +1093,19 @@ pub fn mail_bond_payout_request(order: &SmallOrder, slashed_at: i64) -> Message 
                 slashed_at,
             },
         )),
+    )
+}
+
+/// A bond notice with an order payload, no request id: `bond-invoice-accepted`
+/// and `bond-payout-completed` (the order's amount is the share) and
+/// `bond-slashed` (the amount is the slashed bond, the status absent).
+pub fn mail_bond_notice(action: Action, order: &SmallOrder) -> Message {
+    Message::new_order(
+        order.id,
+        None,
+        None,
+        action,
+        Some(Payload::Order(order.clone())),
     )
 }
 

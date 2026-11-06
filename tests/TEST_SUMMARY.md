@@ -4458,3 +4458,105 @@ loopback relay; no real node.
 - **Gates** (both specs, one working tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 938 passed and 0
   failed (no FAILED line, none ignored; 893 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
 
+## Order Mine, Expiry In Seconds, Dispute Open, Order Rate, Bond Flows (specs 011-015): 2026-11-05
+
+Native Linux, rustc 1.97.0, same uncommitted working tree on `main` (`6cff9b5`) as the two entries above. Lean mode: one evidence entry for the
+batch. Isolated stores, the scripted node and the scripted mailbox; no real node, relay or regtest.
+
+- **Scripted node** (`tests/common/fake_mostro.rs`): `step_daemon` gains `dispute` (an `active` or `fiat-sent` order, by its buyer or seller;
+  `dispute-initiated-by-you` with `Payload::Dispute(id)` to the initiator and `dispute-initiated-by-peer` to the other, both echoing the request
+  id; a second dispute is silent, as the internal error of mostrod's `dispute_action`) and `rate-user` (`success`, or `settled-hold-invoice` for
+  the seller; `rate-received` with the rating; a side that rated before, or a non-party, gets silence), `cancel` at `waiting-maker-bond` (only
+  the maker) and the taker's back-out at `waiting-taker-bond` (the order returns to `pending`), all read from mostrod v0.20.2
+  (`src/app/dispute.rs`, `rate_user.rs`, `cancel.rs`, `bond/flow.rs`, `src/app.rs` `manage_errors`). `Received.rating`, `Traded.dispute` and
+  `Traded.rated_by`, `dispute_id`, `mail_bond_notice`.
+- **Failing first** (unchanged binary): `order_mine_process` 0/6 (no such command), `expires_in_process` 1/4 (the option did not exist; the
+  refusal test passed trivially), `dispute_rate_process` 0/10. `bond_flows_process` passed 4/4 at once: the bond flows already held, so spec
+  015 is verification only, with no production change.
+- **The changes**: `order mine` (`store/rows.rs` `Store::order_rows`, read-only, public key only; `commands/order/mine.rs` matches each key to
+  the newest 200 derived indexes, sorts by index then creation time; `outcome/mine.rs`; `cli/mine.rs`; `parse_human/mine.rs`). `--expires-in`
+  (`NewArgs.expires_in` with a Clap conflict on `--expiration-days`, `OrderRequest.expires_in`, `InvalidOrder::ExpiresIn` for 1..=31536000 and
+  for both at once, `small_order` sends `now + seconds`, the preview line). `dispute open` and `order rate` (`commands/order/held.rs`: the
+  request on a held order shared by both, by request id, the reply must name the order; `commands/order/{dispute,rate}.rs`;
+  `outcome/{dispute,rate}.rs`; `cli/held.rs`; `parse_human/held.rs`); the trade steps now reuse its refusal and unusable-reply outcomes. The
+  legacy `dispute` and `rate` were removed with no alias, with `cli/rate_user.rs`, `cli/send_msg.rs` (it served only `dispute` by then) and
+  `util::run_simple_order_msg`. Grammar: `Commands::Dispute { Open }`, `OrderCommands::{Mine, Rate}`; `NewArgs`, `TakeSellArgs` and
+  `TakeBuyArgs` moved to `cli/command_args.rs` to keep `commands.rs` under the limit. Registry: `order.mine` (read), `order.rate` and
+  `dispute.open` (write; canonical names unchanged from the legacy entries). Schemas `order-mine-v1.json`, `dispute-open-v1.json`,
+  `order-rate-v1.json` and `discovery-v1.json` regenerated with the binary; examples (6, 6 and 4 cases) written once from the owned constructors
+  by a temporary printer test, then the printer was removed.
+- **Tests**: the 24 process tests named in `tests/README.md`; unit tests in `outcome::{mine,dispute,rate,new}` and `cli::schema`
+  (`order_new_lists_expires_in`); fixture drift, examples reproduced by the constructors, 13 invalid variants; registry, machine lists and the
+  legacy-command examples of older tests switched from `rate` to `admcancel`/`dispute.list`.
+- **Deviations from the harness contract**: `order mine` `trade_index` and `trade_pubkey` are nullable (a key older than the newest 200 derived
+  indexes, or a row without a key); `order rate` `rating` is a JSON integer (the contract named no type); a second dispute or rating is
+  `uncertain` (`reply_timeout`) because the node answers it with silence.
+- **Not verified**: a real node; the CI Windows runner (after the push).
+- **Gates**: fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 971 passed and 0 failed (no FAILED line, none
+  ignored; 938 before this batch), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+
+### Review Follow-Up Of Specs 009-015: 2026-11-05
+
+Same uncommitted working tree. Five review findings, each with a failing test first where it changes behavior.
+
+- **`order mine` read the keys before the rows** (`commands/order/mine.rs`): an order saved between the two reads had a key newer than the
+  ones derived, so its `trade_index` came back null. **Failing first**: `an_order_saved_between_the_reads_never_lacks_its_index`, a unit test
+  through a private `OrderSource` seam whose double saves another order (index reserved, then row) right after each read: on the old order the
+  new row "has no index". **The fix**: rows first, then keys; an index is reserved before its row is saved and only grows, so the later keys
+  cover every row read. The six process tests still pass.
+- **A `cant-do` for another order was taken as this order's refusal** (`commands/order/held.rs`): it is now a refusal only when the reply
+  names the order, otherwise `uncertain` / `reply_malformed`, like an unusable acceptance. **Failing first**:
+  `a_refusal_that_names_another_order_or_none_is_uncertain` (both commands, another order and no order): the dispute came back `error`.
+  The scripted node's `refusal` now echoes the request's order id, as mostrod's `manage_errors` does (`enqueue_cant_do_msg(request_id,
+  inner_message.id, ...)`); every other suite still passes with it. The trade steps (`commands/order/step.rs`) still accept any `cant-do`
+  matched by request id; they were not part of this finding and are left for a follow-up.
+- **`order rate` dropped warnings in human mode** (`cli/held.rs`): it now calls the same `warn` as `dispute open`. No warning applies to a
+  rating today, so there is no behavior to test.
+- **`--invoice -` and end of input**: the one-line rule is kept and now documented wherever `-` is described: the help of the four options
+  (and so the discovery descriptions, regenerated), the command reference, README and the spec 010 documents: the writer must close
+  standard input after the line. A terminal as stdin is refused at once with `invalid_arguments` (`std::io::IsTerminal`) instead of waiting.
+  **Failing first**: `a_terminal_as_stdin_fails_at_once_without_being_read` (a reader that panics when touched) failed with "stdin was read".
+  No process-level terminal test: the harness has no pseudo-terminal.
+- **Release notes**: the removed `dispute` and `rate` forms and their replacements are listed in `docs/commands.md` ("Removed legacy
+  commands"), since `CHANGELOG.md` is generated by git-cliff at release. The legacy long flag was `--orderid` (Clap `rename_all = "lower"`),
+  which older documents wrote `--order-id`; both, with `-o` and `-r`, are covered by the legacy-spelling tests.
+- **The invoice reason** (item added during the review): an `invalid_arguments` caused by the invoice value itself now carries
+  `"reason": "invalid_invoice"` on `order new`, `order take-sell`, `order add-invoice` and `bond add-invoice` (`Envelope::invalid_input`,
+  `outcome::INVALID_INVOICE`, `cli/write.rs::refuse_invoice`; `cli/stdin.rs` tells a refused content from a form that is not allowed);
+  every other `invalid_arguments` carries none. The schemas now tie the reason to its code (`OutcomeRules::input_reasons`, an `anyOf` in the
+  failure branch: any snake-case word on `node_refused`, `invalid_invoice` on `invalid_arguments` where allowed, `"reason": false`
+  otherwise); every schema with a reason was regenerated, the pilot listing schema did not change. **Failing first**:
+  `an_invoice_the_client_refuses_carries_the_reason_invalid_invoice` (four commands, literal and stdin, JSON and human; the other argument
+  errors keep no reason) and `the_schemas_tie_the_reason_to_its_code` failed, and the bad-stdin test (updated to expect the reason) failed with
+  `null`. Examples: `invalid_invoice` (003), `sell_invalid_invoice` (004), `order_invalid_invoice` and `bond_invalid_invoice` (005), written from
+  the constructors by a temporary printer test, then the printer was removed. The program does not decode a BOLT-11 or check its network;
+  the node's refusal of such an invoice stays `node_refused` with its reason.
+- **Gates** (review round and the invoice reason, final tree): fmt, clippy `--all-targets --all-features -D warnings` (a first run flagged
+  `type_complexity` in the new `order mine` test double; it now uses a named struct), `cargo test --locked` 976 passed and 0 failed (no FAILED
+  line, none ignored; 971 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **The refusal rule in the trade steps** (follow-up): `order fiat-sent`, `order release` and `order cancel` now apply the same rule as
+  `dispute open` and `order rate`, through the shared `held::refusal` (a `cant-do` is the node's refusal only when it names the order;
+  otherwise `uncertain` / `reply_malformed`, and a range continuation's reserved index stays spent, persistence `applied`, since the node may
+  hold the key; only a real refusal gives it back). **Failing first**: `a_refusal_that_names_another_order_or_none_is_uncertain_for_every_step`
+  (`tests/step_process.rs`: three steps, another order and none, plus a range release) failed with `error` for `fiat-sent`. The spec 007
+  spec, data model and contract and the architecture note are amended.
+- **Gates** (the trade-step refusal rule): fmt, clippy, `cargo test --locked` 977 passed and 0 failed, build, MSRV 1.94.0.
+
+## Reply Deadline (spec 016): --reply-timeout: 2026-11-05
+
+Same uncommitted working tree. The reason: a live harness run against a regtest mostrod (v0.20.2, SQLite in rollback-journal mode) got a
+`take-sell` answer after 24 s, which the fixed 15 s reply budget had already turned into `uncertain`.
+
+- **Failing first**: `tests/reply_timeout_process.rs` 0/4 (the option did not exist: every run was `invalid_arguments`).
+- **The change**: `--reply-timeout SECONDS`, a Clap global (any command depth) with `value_parser!(u64).range(5..=300)` and default 15;
+  `cli/write.rs::exchange_limits(cli)` sets `ExchangeLimits::reply` and keeps the connect, probe and cleanup budgets; the eight dispatch sites of
+  the eleven waiting commands use it. Public reads and legacy commands ignore it. Discovery gains `global_options` (generated in
+  `cli/input_schema.rs`: every global option of the root with its property document, `default` and `applies_to` from the registry);
+  global options are no longer command input. `docs/schemas/discovery-v1.json` regenerated (the `schema` output schema gains the field).
+- **Tests**: against a silent scripted node, all eleven commands (one sandbox each, run at once) stop between 5 and 12 s with
+  `--reply-timeout 5` placed after the command words (`uncertain`/`reply_timeout`; `error` for `order info`); a node answering after 16 s gives
+  `ok` with `--reply-timeout 20` and `uncertain` with the default; `4`, `301`, `0`, text and empty are `invalid_arguments` naming
+  `order.take-sell`, before and after the command words, nothing sent; `order list` accepts and ignores it; the unit test
+  `the_global_options_are_listed_with_what_they_apply_to` (exactly the eleven request and write commands, default `"15"`, not command input).
+- **Gates** (final tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 982 passed and 0 failed (no FAILED
+  line, none ignored; 977 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.

@@ -6,7 +6,9 @@
 use clap::{Arg, ArgAction, Command};
 use serde_json::{json, Map, Value};
 
+use super::args::REPLY_TIMEOUT_LONG;
 use super::invocation::OUTPUT_LONG;
+use super::registry::{CommandEntry, JsonSupport};
 use super::stdin::{STDIN_OPTIONS, STDIN_VALUE};
 use crate::outcome::order::ListOrdersInput;
 use crate::outcome::schema::{SchemaDocument, DIALECT as SCHEMA_DIALECT};
@@ -44,8 +46,11 @@ pub fn input_schema(root: &Command, path: &[&str]) -> Option<SchemaDocument> {
     Some(document)
 }
 
+/// An option of the command itself: not hidden, not help or version, and not a
+/// global option (`--output`, `--reply-timeout`), which discovery lists apart.
 fn is_input(arg: &Arg) -> bool {
     !arg.is_hide_set()
+        && !arg.is_global_set()
         && !matches!(arg.get_id().as_str(), "help" | "version" | OUTPUT_LONG)
         && arg.get_long().is_some()
 }
@@ -108,4 +113,42 @@ fn is_repeatable(arg: &Arg) -> bool {
         || arg
             .get_num_args()
             .is_some_and(|range| range.max_values() > 1)
+}
+
+/// The global options of the Clap root, each with the canonical names of
+/// `entries` it takes effect on: `--output` on every machine command,
+/// `--reply-timeout` on those that wait for a reply (a request or a write).
+pub(super) fn global_options(root: &Command, entries: &[CommandEntry]) -> Vec<SchemaDocument> {
+    let names = |wanted: &dyn Fn(JsonSupport) -> bool| -> Vec<&'static str> {
+        let mut names: Vec<_> = entries
+            .iter()
+            .filter(|entry| wanted(entry.json))
+            .map(|entry| entry.canonical)
+            .collect();
+        names.sort_unstable();
+        names
+    };
+    let mut options: Vec<SchemaDocument> = root
+        .get_arguments()
+        .filter(|arg| arg.is_global_set() && !arg.is_hide_set())
+        .filter_map(|arg| {
+            let name = arg.get_long()?;
+            let Value::Object(mut option) = property(arg) else {
+                return None;
+            };
+            option.insert("name".into(), json!(name));
+            if let Some(default) = arg.get_default_values().first() {
+                option.insert("default".into(), json!(default.to_string_lossy()));
+            }
+            let applies_to = if name == REPLY_TIMEOUT_LONG {
+                names(&|json| matches!(json, JsonSupport::Request | JsonSupport::Write))
+            } else {
+                names(&|json| json != JsonSupport::Unsupported)
+            };
+            option.insert("applies_to".into(), json!(applies_to));
+            Some(option)
+        })
+        .collect();
+    options.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    options
 }

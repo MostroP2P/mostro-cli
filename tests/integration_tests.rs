@@ -566,6 +566,7 @@ mod schema_fixtures {
             [
                 "commands",
                 "executable_version",
+                "global_options",
                 "schema_dialect",
                 "schema_version"
             ]

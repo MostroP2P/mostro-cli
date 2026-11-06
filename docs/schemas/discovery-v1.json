@@ -10629,6 +10629,14 @@
               "executable_version": {
                 "type": "string"
               },
+              "global_options": {
+                "description": "The options accepted at any command depth, sorted by name: `name`, the\noption's schema property (`type`, `enum`, `description`), `default` when\nit has one and `applies_to`, the canonical names it takes effect on.",
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "schema_dialect": {
                 "type": "string"
               },
@@ -10640,7 +10648,8 @@
               "schema_version",
               "executable_version",
               "schema_dialect",
-              "commands"
+              "commands",
+              "global_options"
             ],
             "type": "object"
           },
@@ -10922,6 +10931,56 @@
         "type": "object"
       },
       "required_configuration": []
+    }
+  ],
+  "global_options": [
+    {
+      "applies_to": [
+        "bond.add-invoice",
+        "dispute.open",
+        "identity.init",
+        "identity.show",
+        "message.list",
+        "order.add-invoice",
+        "order.cancel",
+        "order.fiat-sent",
+        "order.info",
+        "order.list",
+        "order.mine",
+        "order.new",
+        "order.rate",
+        "order.release",
+        "order.sync",
+        "order.take-buy",
+        "order.take-sell",
+        "schema"
+      ],
+      "description": "Output format, accepted at any command depth. Defaults to `human`; only migrated commands support `json`",
+      "enum": [
+        "human",
+        "json"
+      ],
+      "name": "output",
+      "type": "string"
+    },
+    {
+      "applies_to": [
+        "bond.add-invoice",
+        "dispute.open",
+        "order.add-invoice",
+        "order.cancel",
+        "order.fiat-sent",
+        "order.info",
+        "order.new",
+        "order.rate",
+        "order.release",
+        "order.take-buy",
+        "order.take-sell"
+      ],
+      "default": "15",
+      "description": "Seconds to wait for the node's reply (5 to 300, default 15), accepted at any command depth. Applies to the migrated commands that wait for a reply; the public reads keep their own limits and the legacy commands ignore it",
+      "name": "reply-timeout",
+      "type": "string"
     }
   ]
 }

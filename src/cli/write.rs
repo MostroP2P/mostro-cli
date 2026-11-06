@@ -6,6 +6,7 @@
 
 use std::env;
 use std::io::{self, BufRead, Write};
+use std::time::Duration;
 
 use nostr_sdk::prelude::Keys;
 use serde::Serialize;
@@ -15,7 +16,7 @@ use super::migrated::{code_name, diagnose, request_options};
 use super::Cli;
 use crate::commands::order::WriteOptions;
 use crate::identity::{load_identity_keys, IdentityError};
-use crate::msg::PublicReadConfig;
+use crate::msg::{ExchangeLimits, PublicReadConfig};
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, Status,
     Warnings, INVALID_INVOICE, RUNTIME_ERROR_EXIT,
@@ -93,6 +94,15 @@ fn store_code(error: StoreError) -> ErrorCode {
         StoreError::Missing => ErrorCode::IdentityMissing,
         StoreError::Unwritable => ErrorCode::StoreUnwritable,
         StoreError::Unreadable => ErrorCode::StoreUnreadable,
+    }
+}
+
+/// The budgets of a request that waits for the node's reply: the reply
+/// deadline of `--reply-timeout`, the other budgets as they are.
+pub(super) fn exchange_limits(cli: &Cli) -> ExchangeLimits {
+    ExchangeLimits {
+        reply: Duration::from_secs(cli.reply_timeout),
+        ..ExchangeLimits::default()
     }
 }
 

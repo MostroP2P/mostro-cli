@@ -7,11 +7,11 @@ use super::commands::{TakeBuyArgs, TakeSellArgs};
 use super::invocation::OutputMode;
 use super::stdin;
 use super::write::{
-    confirmed, finish, needs_yes, preview_trade, refuse, refuse_invoice, resolve_base,
+    confirmed, exchange_limits, finish, needs_yes, preview_trade, refuse, refuse_invoice,
+    resolve_base,
 };
 use super::Cli;
 use crate::commands::order::take::{order_take, TakeOutcome};
-use crate::msg::ExchangeLimits;
 use crate::outcome::take::{InvalidTake, OrderTakeInput, TakeRequest, TakeSide};
 use crate::outcome::ErrorCode;
 use crate::parse_human::{render_take_preview, render_taken};
@@ -88,7 +88,7 @@ async fn outcome(cli: &Cli, request: TakeRequest, yes: bool, output: OutputMode)
         &base.identity,
         &base.store,
         base.options,
-        &ExchangeLimits::default(),
+        &exchange_limits(cli),
     )
     .await
 }

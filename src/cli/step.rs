@@ -8,10 +8,9 @@
 use super::commands::StepArgs;
 use super::invocation::OutputMode;
 use super::migrated::diagnose;
-use super::write::{confirmed, finish, needs_yes, refuse, resolve_base, Base};
+use super::write::{confirmed, exchange_limits, finish, needs_yes, refuse, resolve_base, Base};
 use super::Cli;
 use crate::commands::order::step::order_step;
-use crate::msg::ExchangeLimits;
 use crate::outcome::step::{StepData, StepInput, StepKind};
 use crate::outcome::{Envelope, ErrorCode, WarningCode};
 use crate::parse_human::{render_step, render_step_preview};
@@ -31,7 +30,7 @@ pub(super) async fn run(cli: &Cli, kind: StepKind, args: &StepArgs, output: Outp
                 &base.identity,
                 &base.store,
                 base.options,
-                &ExchangeLimits::default(),
+                &exchange_limits(cli),
             )
             .await
         }

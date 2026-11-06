@@ -19,6 +19,12 @@ settable via the matching env var):
   `protocol_version` tag on its kind-38385 info event (a node that advertises
   nothing is treated as `nip44`). A v1 node is an error.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
+- `--reply-timeout <SECONDS>` (spec 016): how long to wait for the node's reply, 5 to 300 seconds, default 15; accepted before, between or
+  after the command words, like `--output`. It is the deadline of the commands that wait for a reply: `order new`, `order take-sell`,
+  `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order info`, `dispute open`, `order rate` and
+  `bond add-invoice`. The connect, probe and cleanup budgets do not change; the public reads (`order list`, `message list`, `order sync`) keep
+  their own limits, and the legacy commands ignore it. A value out of range or not a number is `invalid_arguments` (exit 2). A reply after the
+  deadline is still `reply_timeout` (`uncertain` for a write), never retried: raise it for a slow node rather than repeating a write.
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
@@ -41,6 +47,10 @@ such as `error: unexpected argument found`, without echoing the arguments given.
   - **Output**: human mode (the default) prints the raw discovery document as pretty JSON; `--output json` wraps the same data in the standard outcome with command `schema`.
   - **Handler**: `cli::schema::offline_discovery()` dispatched from `cli::run`, before any context, logger or RPC work.
   - **Generated reference**: [docs/schemas/discovery-v1.json](schemas/discovery-v1.json) is this command's output, and [docs/schemas/order-list-v1.json](schemas/order-list-v1.json) the `order.list` output schema; every machine command has its own `docs/schemas/<noun>-<verb>-v1.json`. All are generated and drift-tested; this prose is maintained by hand. Regenerate them after an intended change with `cargo run -q -- schema > docs/schemas/discovery-v1.json` and, per command, `cargo run -q -- --output json schema | jq '.data.commands[] | select(.name=="order.list") | .output_schema' > docs/schemas/order-list-v1.json` (the drift test prints the full list).
+  - **Global options**: `global_options` (in the raw document and in `data` of the JSON outcome) lists the options accepted at any command
+    depth, generated from the grammar: `name`, `type`, `description`, `enum` and `default` when they exist, and `applies_to`, the canonical
+    names the option takes effect on. Today: `output` (every machine command) and `reply-timeout` (default `"15"`, the eleven commands that wait
+    for the node's reply). They are not part of any command's input schema.
   - **Input schemas** mark an option whose value `-` reads it from standard input with `"x-stdin": "-"`; today that is `invoice` on `order new`, `order take-sell`, `order add-invoice` and `bond add-invoice` (spec 010).
 
 ### Machine output (schema v1)
@@ -149,6 +159,8 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Args**: none.
   - **Output**: `data.orders[]` with `id`, `side`, `status` (the local status), `trade_index` (decimal string) and `trade_pubkey` (hex). The store keeps a row's trade key, not its index, so the index is found by deriving the newest 200 recorded indexes (as `message list` does); a key older than those, or a row without a key, has `trade_index: null` (and `trade_pubkey: null` without a key), with the warning `trade_keys_limited` when older keys were not derived (in human mode, a warning line on stderr). Newest first means the highest index first, then the rows whose index is unknown by creation time. No store or user is `identity_missing`; a store or a row that cannot be read is `store_unreadable`.
   - **Handler**: `commands::order::mine::order_mine` through `Store::order_rows` (`store/rows.rs`) and `Store::trade_keys`; dispatch in `cli/mine.rs`.
+
+- **Bonds** (spec 015, verified against the scripted node): after a bonded `order take-*` or `order new` (`next_step` `pay_bond_invoice`), the local row holds the order the node sent (status `pending`) and the trade key, so `order cancel --order <id>` works for a taker whose take waits on its bond (the node releases the bond and puts the order back on the book) and for a maker whose order waits on its bond (never published; closed). Both answer `data.result` `canceled`, local status `canceled`. A maker bond that locked meanwhile is refused with `not_allowed_by_status` (`node_refused`); this comes from the mostrod v0.20.2 source (`cancel_waiting_maker_bond_order`) only: the scripted node does not produce it and no real node was probed. `message list --order <id>` reports `add-bond-invoice` (`next_step` `add_bond_invoice`, payload `bond_payout_request` with the share in `payload.order.sats_amount` and `slashed_at`) and `bond-invoice-accepted`, `bond-payout-completed` and `bond-slashed` with an `order` payload (the share, or the slashed amount; `bond-slashed` has no status).
 
 - **`order info`** (replaces `ordersinfo`)
   - **Description**: Asks the node for its record of your own orders. It publishes one signed request using your identity key, waits for the reply to that request, and writes nothing locally. It needs an existing local identity (`mcli.db`) and never creates one. Orders that are not yours or unknown to the node are not returned; they are listed as not returned.

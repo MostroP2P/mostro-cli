@@ -9,11 +9,10 @@ use uuid::Uuid;
 use super::commands::{RateArgs, StepArgs};
 use super::invocation::OutputMode;
 use super::step::warn;
-use super::write::{confirmed, finish, needs_yes, refuse, resolve_base, Base};
+use super::write::{confirmed, exchange_limits, finish, needs_yes, refuse, resolve_base, Base};
 use super::Cli;
 use crate::commands::order::dispute::{dispute_open, DisputeOutcome};
 use crate::commands::order::rate::{order_rate, RateOutcome};
-use crate::msg::ExchangeLimits;
 use crate::outcome::dispute::COMMAND as DISPUTE;
 use crate::outcome::rate::{RateInput, COMMAND as RATE};
 use crate::outcome::ErrorCode;
@@ -76,7 +75,7 @@ async fn dispute_outcome(cli: &Cli, args: &StepArgs, output: OutputMode) -> Disp
         &base.identity,
         &base.store,
         base.options,
-        &ExchangeLimits::default(),
+        &exchange_limits(cli),
     )
     .await
 }
@@ -104,7 +103,7 @@ async fn rate_outcome(cli: &Cli, args: &RateArgs, output: OutputMode) -> RateOut
         &base.identity,
         &base.store,
         base.options,
-        &ExchangeLimits::default(),
+        &exchange_limits(cli),
     )
     .await
 }
