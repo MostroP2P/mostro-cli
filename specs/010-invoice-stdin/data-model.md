@@ -1,7 +1,10 @@
 # Data Model: Invoice From Standard Input
 
-No output changes. The four commands keep their outcomes, schemas and examples
-([add invoice](../005-invoice-json/data-model.md), [take](../004-order-take-json/data-model.md), [new](../003-order-new-json/data-model.md)).
+The four commands keep their outcomes ([add invoice](../005-invoice-json/data-model.md), [take](../004-order-take-json/data-model.md),
+[new](../003-order-new-json/data-model.md)), with one addition (amended 2026-11-05 after review): an `invalid_arguments` caused by the invoice
+value itself, literal or from stdin, carries `"reason": "invalid_invoice"` (and `(reason: invalid_invoice)` on the human error line). Their
+output schemas were regenerated to allow it; every schema with an error reason now ties it to its code. New examples: `invalid_invoice` (003),
+`sell_invalid_invoice` (004), `order_invalid_invoice` and `bond_invalid_invoice` (005).
 
 ## Input
 

@@ -13,7 +13,8 @@ mostro-cli order new ... --invoice - --yes [--output human|json] < invoice.txt
 ```
 
 `--invoice -` (also `--invoice=-`) reads the invoice from standard input. `--yes` is required in both modes: without it the result is
-`invalid_arguments` (exit 2) and stdin is not read. A literal `--invoice VALUE` is unchanged, including the human prompt when `--yes` is absent.
+`invalid_arguments` (exit 2) and stdin is not read. A literal `--invoice VALUE` is unchanged, including the human prompt when `--yes` is absent,
+except for the reason of its refusal (see Errors).
 
 ## Standard input
 
