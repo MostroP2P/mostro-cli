@@ -5,6 +5,7 @@
 //! The user holds order 1 under one trade key; the scripted node knows the
 //! trade with that key as the buyer and another key as the seller.
 
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -13,7 +14,7 @@ use mostro_core::prelude::{Action, CantDoReason, Message, Payload};
 use nostr_sdk::prelude::{Keys, LocalRelay, PublicKey};
 use serde_json::{json, Value};
 use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::SqlitePool;
+use sqlx::{query, query_scalar, SqlitePool};
 use uuid::Uuid;
 
 #[path = "common/fake_mostro.rs"]
@@ -32,6 +33,9 @@ use harness::{
 use mostro_client::store::{Store, Trade};
 
 const ORDER: &str = "00000000-0000-0000-0000-000000000001";
+/// Every update of the local orders fails.
+const FREEZE: &str = "CREATE TRIGGER freeze BEFORE UPDATE ON orders \
+                      BEGIN SELECT RAISE(ABORT, 'frozen'); END";
 
 fn order_id() -> Uuid {
     Uuid::from_u128(1)
@@ -113,7 +117,7 @@ impl Holder {
             .filename(self.sandbox.mcli_dir().join("mcli.db"))
             .read_only(true);
         let pool = SqlitePool::connect_with(options).await.unwrap();
-        let status = sqlx::query_scalar("SELECT status FROM orders WHERE id = ?1")
+        let status = query_scalar("SELECT status FROM orders WHERE id = ?1")
             .bind(ORDER)
             .fetch_one(&pool)
             .await
@@ -122,12 +126,20 @@ impl Holder {
         status
     }
 
+    /// Run `statement` on the store, outside the command under test.
+    async fn sql(&self, statement: &'static str) {
+        let options = SqliteConnectOptions::new().filename(self.sandbox.mcli_dir().join("mcli.db"));
+        let pool = SqlitePool::connect_with(options).await.unwrap();
+        query(statement).execute(&pool).await.unwrap();
+        pool.close().await;
+    }
+
     fn snapshot(&self) -> Vec<(PathBuf, Vec<u8>)> {
-        let mut files: Vec<_> = std::fs::read_dir(self.sandbox.mcli_dir())
+        let mut files: Vec<_> = fs::read_dir(self.sandbox.mcli_dir())
             .unwrap()
             .map(|entry| {
                 let path = entry.unwrap().path();
-                let bytes = std::fs::read(&path).unwrap_or_default();
+                let bytes = fs::read(&path).unwrap_or_default();
                 (path, bytes)
             })
             .collect();
@@ -151,7 +163,7 @@ fn document(run: &Captured) -> Value {
 
 fn conforms(name: &str, outcome: &Value) {
     let path = format!("{}/docs/schemas/{name}-v1.json", env!("CARGO_MANIFEST_DIR"));
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let schema: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     assert!(
         schema_check::conforms(&schema, &schema, outcome),
         "{outcome}"
@@ -289,6 +301,49 @@ mod dispute {
         assert_eq!(holder.snapshot(), before);
     }
 
+    /// The node opened the dispute, so a local status that cannot follow is a
+    /// warning on an `ok` outcome, with exit 0 and no retry (FR-004).
+    #[tokio::test]
+    async fn a_failed_status_update_still_reports_the_dispute_with_a_warning() {
+        let in_json = holder(Status::Active).await;
+        let in_human = holder(Status::Active).await;
+        in_json.sql(FREEZE).await;
+        in_human.sql(FREEZE).await;
+
+        let json = in_json
+            .run(&[
+                "--output", "json", "dispute", "open", "--order", ORDER, "--yes",
+            ])
+            .await;
+        let human = in_human
+            .run(&["dispute", "open", "--order", ORDER, "--yes"])
+            .await;
+
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = document(&json);
+        conforms("dispute-open", &outcome);
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!(
+            outcome["data"]["dispute_id"],
+            dispute_id(order_id()).to_string()
+        );
+        assert_eq!(outcome["warnings"].as_array().map(Vec::len), Some(1));
+        assert_eq!(outcome["warnings"][0]["code"], "local_status_stale");
+        assert_eq!(outcome["meta"], meta("published", "accepted", "failed"));
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        assert!(
+            human
+                .stderr_text()
+                .contains("warning: the node accepted the request but the local order status"),
+            "{}",
+            human.stderr_text()
+        );
+        for holder in [&in_json, &in_human] {
+            assert_eq!(holder.status().await, "active", "the update failed");
+            assert_eq!(holder.fake.received().len(), 1, "never retried");
+        }
+    }
+
     #[tokio::test]
     async fn nothing_is_sent_without_yes_in_json_or_for_an_unknown_order() {
         let holder = holder(Status::Active).await;
@@ -378,6 +433,68 @@ async fn a_refusal_that_names_another_order_or_none_is_uncertain() {
                 meta("published", "unknown", "not_attempted")
             );
         }
+        assert_eq!(
+            holder.status().await,
+            "active",
+            "{label}: nothing changed locally"
+        );
+    }
+}
+
+/// An acceptance, like a refusal, counts only when it names the order
+/// (FR-003): a `dispute-initiated-by-you` or a `rate-received` for another
+/// order, or for none, is not a usable reply, so the node may have acted and
+/// nothing changes locally.
+#[tokio::test]
+async fn an_acceptance_that_names_another_order_or_none_is_uncertain() {
+    for (label, named) in [
+        ("another order", Some(Uuid::from_u128(99))),
+        ("no order", None),
+    ] {
+        let holder = holder_with(Status::Active, move |_| {
+            Arc::new(move |request| {
+                let (action, payload) = match request.action {
+                    Action::Dispute => (
+                        Action::DisputeInitiatedByYou,
+                        Payload::Dispute(Uuid::from_u128(0xd16), None),
+                    ),
+                    _ => (Action::RateReceived, Payload::RatingUser(5)),
+                };
+                vec![Outgoing::to_requester(Message::new_order(
+                    named,
+                    request.request_id,
+                    None,
+                    action,
+                    Some(payload),
+                ))]
+            })
+        })
+        .await;
+        for (args, schema) in [
+            (
+                &[
+                    "--output", "json", "dispute", "open", "--order", ORDER, "--yes",
+                ][..],
+                "dispute-open",
+            ),
+            (
+                &[
+                    "--output", "json", "order", "rate", "--order", ORDER, "--rating", "5", "--yes",
+                ],
+                "order-rate",
+            ),
+        ] {
+            let run = holder.run(args).await;
+            let outcome = document(&run);
+            conforms(schema, &outcome);
+            assert_eq!(outcome["status"], "uncertain", "{label}: {args:?}");
+            assert_eq!(outcome["error"]["code"], "reply_malformed", "{label}");
+            assert_eq!(
+                outcome["meta"],
+                meta("published", "unknown", "not_attempted")
+            );
+        }
+        assert_eq!(holder.fake.received().len(), 2, "{label}: one request each");
         assert_eq!(
             holder.status().await,
             "active",
