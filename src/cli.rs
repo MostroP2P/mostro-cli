@@ -20,6 +20,7 @@ mod args;
 mod command_args;
 mod commands;
 mod context;
+mod input_schema;
 mod invoice;
 mod legacy;
 mod message;
