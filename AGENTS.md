@@ -31,7 +31,9 @@ local commands verified on Linux with isolated stores (no node involved), and `-
 commands that take one ([spec](specs/010-invoice-stdin/spec.md), [tasks.md](specs/010-invoice-stdin/tasks.md)), verified against the scripted node.
 After them: `order mine` ([spec](specs/011-order-mine/spec.md)), `order new --expires-in` ([spec](specs/012-order-expires-in/spec.md)),
 `dispute open` ([spec](specs/013-dispute-open/spec.md)) and `order rate` ([spec](specs/014-order-rate/spec.md)), which replace `dispute` and
-`rate`, verified on Linux against isolated stores and the scripted node only.
+`rate`, and the bond flows of `order cancel` and `message list` ([spec](specs/015-bond-flows/spec.md)), all verified on Linux against isolated
+stores and the scripted node only. The global `--reply-timeout` ([spec](specs/016-reply-timeout/spec.md)) sets the reply deadline of the
+stores and the scripted node only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

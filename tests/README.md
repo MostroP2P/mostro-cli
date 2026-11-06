@@ -412,3 +412,31 @@ Reconciliation of the [specification](../specs/010-invoice-stdin/spec.md) with t
 | FR-005 never echoed | the sentinel sweeps of the process tests | Verified on Linux |
 | FR-006 discovery marker, regenerated discovery | `the_invoice_option_is_marked_as_readable_from_stdin`, `discovery_fixture_matches_the_generated_document` | Verified on Linux |
 | SC-001 to SC-005 | the tests above | Verified on Linux against the scripted node; the CI Windows runner is checked after the push |
+
+## Order Mine, Expiry In Seconds, Dispute Open, Order Rate, Bond Flows: Requirement Evidence
+
+Reconciliation of specs [011](../specs/011-order-mine/spec.md), [012](../specs/012-order-expires-in/spec.md),
+[013](../specs/013-dispute-open/spec.md), [014](../specs/014-order-rate/spec.md) and [015](../specs/015-bond-flows/spec.md) with the entry in
+[TEST_SUMMARY.md](TEST_SUMMARY.md), as of 2026-11-05. **Automated verification on Linux with isolated stores, the scripted node and the
+scripted mailbox only**; no real node; the CI Windows runner is checked after the push. Generated references:
+[discovery](../docs/schemas/discovery-v1.json), [order mine](../docs/schemas/order-mine-v1.json),
+[dispute open](../docs/schemas/dispute-open-v1.json), [order rate](../docs/schemas/order-rate-v1.json).
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| 011 FR-001 to FR-004 grammar, data, read-only, errors | `tests/order_mine_process.rs` (6: the rows `order new`, `order take-sell` and an adoption saved, newest first, with index and key; empty; no store; damaged store and unknown status; key without index and `trade_keys_limited`; options), `outcome::mine` unit test | Verified on Linux |
+| 011 FR-005 schema, examples, drift | `mine_rate_and_dispute_schema_fixtures_match_...`, `mine_dispute_and_rate_examples_conform_and_are_reproduced`, the invalid variants | Verified on Linux |
+| 012 FR-001 to FR-003 | `tests/expires_in_process.rs` (4: `now + 60` sent, the preview line, out of range and conflict refused before any effect, both limits accepted), `outcome::new` unit test, `order_new_lists_expires_in` | Verified on Linux against the scripted node |
+| 013 FR-001 to FR-004 | `tests/dispute_rate_process.rs` `mod dispute` (5: opened with the dispute id and local status `dispute`; preview, decline and refusal; a second dispute `uncertain`; no `--yes` and an unknown order send nothing; legacy spellings gone), `outcome::dispute` unit test | Verified on Linux against the scripted node |
+| 014 FR-001 to FR-004 | `mod rate` (5: rated with nothing written; prompt and refusal; a second rating `uncertain`; ratings 0, 6, 255, text and a missing one refused; legacy spellings gone), `outcome::rate` unit tests | Verified on Linux against the scripted node |
+| 013, 014 FR-005 | the schema fixtures, examples and invalid variants above | Verified on Linux |
+| 015 FR-001 | `tests/bond_flows_process.rs` (a taker cancels a bond-parked take, a maker cancels a bond-parked order, a stranger is refused) | Verified on Linux against the scripted node; passed on the unchanged code |
+| 015 FR-002 | `message_list_reports_the_bond_messages` | Verified on Linux against the scripted mailbox; passed on the unchanged code |
+
+No scenario above is marked complete by documentation alone. Open: a real node for all five (in particular the silence that answers a second
+dispute or rating, and a maker bond that locks during a cancel), the MCP.
+
+Review follow-up (2026-11-05): `an_order_saved_between_the_reads_never_lacks_its_index` (011, rows read before keys),
+`a_refusal_that_names_another_order_or_none_is_uncertain` (013, 014), `a_terminal_as_stdin_fails_at_once_without_being_read` (010); see the
+review entry in [TEST_SUMMARY.md](TEST_SUMMARY.md). The invoice reason (2026-11-05): `an_invoice_the_client_refuses_carries_the_reason_invalid_invoice`,
+`the_schemas_tie_the_reason_to_its_code` (`tests/invoice_stdin_process.rs`) and the `invalid_invoice` examples of specs 003-005.
