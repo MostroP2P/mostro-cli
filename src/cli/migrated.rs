@@ -10,9 +10,10 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
-use super::{identity, invoice, message, mine, order_new, order_take, step, sync};
+use super::{held, identity, invoice, message, mine, order_new, order_take, step, sync};
 use super::{
-    offline_discovery, BondCommands, Cli, Commands, DiscoveryData, MessageCommands, OrderCommands,
+    offline_discovery, BondCommands, Cli, Commands, DiscoveryData, DisputeCommands,
+    MessageCommands, OrderCommands,
 };
 use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
@@ -58,6 +59,14 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
             command: OrderCommands::Mine,
         }) => return Some(mine::run(cli, output).await),
         _ => {}
+    }
+
+    // A request on an order already held, with no trade index.
+    if let Some(Commands::Dispute {
+        command: DisputeCommands::Open(args),
+    }) = &cli.command
+    {
+        return Some(held::dispute(cli, args, output).await);
     }
 
     // Public listing needs no identity, database, environment mutation or RPC.

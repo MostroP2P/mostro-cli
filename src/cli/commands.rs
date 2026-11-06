@@ -39,6 +39,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: IdentityCommands,
     },
+    /// Disputes on orders you hold
+    #[command(arg_required_else_help = true)]
+    Dispute {
+        #[command(subcommand)]
+        command: DisputeCommands,
+    },
     /// Read both sides of the kind-14 chat for an order
     GetDmUser {
         /// Counterparty pubkey the conversation is derived from
@@ -110,12 +116,6 @@ pub enum Commands {
     },
     /// Restore session to recover all pending orders and disputes
     Restore {},
-    /// Start a dispute
-    Dispute {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-    },
     /// Cancel an order (only admin)
     AdmCancel {
         /// Order id
@@ -280,6 +280,15 @@ pub enum OrderCommands {
     /// first, with their trade index and key. Reads the local store only;
     /// needs no node, relay or network
     Mine,
+}
+
+#[derive(Subcommand, Clone)]
+#[clap(rename_all = "lower")]
+pub enum DisputeCommands {
+    /// Open a dispute on an active order you hold. Needs an existing local
+    /// identity (it never creates one), publishes one signed request and
+    /// updates the order's local status. JSON output requires --yes
+    Open(StepArgs),
 }
 
 #[derive(Subcommand, Clone)]

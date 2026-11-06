@@ -12,7 +12,6 @@ pub mod rate_user;
 pub mod restore;
 pub mod send_admin_dm_attach;
 pub mod send_dm;
-pub mod send_msg;
 pub mod take_dispute;
 pub mod user_info;
 
@@ -20,6 +19,7 @@ mod args;
 mod command_args;
 mod commands;
 mod context;
+mod held;
 mod identity;
 mod input_schema;
 mod invoice;
@@ -38,8 +38,9 @@ mod write;
 
 pub use args::Cli;
 pub use commands::{
-    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, IdentityCommands, ListMessagesArgs,
-    MessageCommands, NewArgs, OrderCommands, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, DisputeCommands, IdentityCommands,
+    ListMessagesArgs, MessageCommands, NewArgs, OrderCommands, StepArgs, SyncArgs, TakeBuyArgs,
+    TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

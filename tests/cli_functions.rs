@@ -1087,7 +1087,6 @@ mod registry {
         (&["dmtouser"], "chat.send"),
         (&["rate"], "order.rate"),
         (&["restore"], "account.restore"),
-        (&["dispute"], "dispute.open"),
         (&["admcancel"], "admin.cancel"),
         (&["admsettle"], "admin.settle"),
         (&["listdisputes"], "dispute.list"),
@@ -1115,6 +1114,7 @@ mod registry {
         (&["identity", "init"], "identity.init"),
         (&["identity", "show"], "identity.show"),
         (&["order", "mine"], "order.mine"),
+        (&["dispute", "open"], "dispute.open"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1190,7 +1190,8 @@ mod registry {
                     );
                 }
                 "order.new" | "order.take-sell" | "order.take-buy" | "order.add-invoice"
-                | "order.fiat-sent" | "order.release" | "order.cancel" | "bond.add-invoice" => {
+                | "order.fiat-sent" | "order.release" | "order.cancel" | "bond.add-invoice"
+                | "dispute.open" => {
                     assert_eq!(entry.json, JsonSupport::Write);
                     assert_eq!(
                         entry.stages::<()>(),
@@ -1265,7 +1266,8 @@ mod registry {
                 "bond.add-invoice",
                 "identity.init",
                 "identity.show",
-                "order.mine"
+                "order.mine",
+                "dispute.open"
             ]
         );
     }

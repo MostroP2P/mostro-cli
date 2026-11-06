@@ -24,7 +24,6 @@ use super::take_dispute::{
     execute_take_dispute,
 };
 use super::user_info::execute_user_info;
-use crate::util::run_simple_order_msg;
 
 impl Commands {
     /// Run a command that talks to `mostrod`'s admin gRPC directly. `None`
@@ -44,10 +43,6 @@ impl Commands {
 
     pub async fn run(&self, ctx: &Context) -> Result<()> {
         match self {
-            // Simple order message commands
-            Commands::Dispute { order_id } => {
-                run_simple_order_msg(self.clone(), Some(*order_id), ctx).await
-            }
             // Last trade index commands
             Commands::GetLastTradeIndex {} => {
                 execute_last_trade_index(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
@@ -101,6 +96,9 @@ impl Commands {
             Commands::Message { .. } => unreachable!("message commands run without a Context"),
             Commands::Identity { .. } => {
                 unreachable!("identity commands run without a Context")
+            }
+            Commands::Dispute { .. } => {
+                unreachable!("dispute commands run without a Context")
             }
             Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
 

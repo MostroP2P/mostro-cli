@@ -64,7 +64,7 @@ fn advice(kind: StepKind) -> &'static str {
 }
 
 /// The warnings a human cannot read in a document: fixed lines on stderr.
-fn warn(outcome: &Envelope<StepData, ()>) {
+pub(super) fn warn<D>(outcome: &Envelope<D, ()>) {
     let mut err = std::io::stderr().lock();
     if outcome.warnings().contains(WarningCode::LocalStatusStale) {
         diagnose(&mut err, STATUS_STALE);

@@ -1875,7 +1875,6 @@ fn valid_legacy_args(canonical: &str, key: &str) -> Vec<String> {
         | "order.fiat-sent"
         | "order.release"
         | "order.cancel"
-        | "dispute.open"
         | "admin.cancel"
         | "admin.settle"
         | "dispute.chat"
@@ -1910,8 +1909,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 16,
-        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands and order mine are machine-capable"
+        REGISTRY.len() - 17,
+        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine and dispute open are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];

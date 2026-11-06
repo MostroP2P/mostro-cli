@@ -12,6 +12,7 @@ use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
+use crate::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use crate::outcome::identity::{
     IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT, INIT_ERRORS,
     SHOW_COMMAND as IDENTITY_SHOW, SHOW_ERRORS,
@@ -135,7 +136,7 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
         | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
-        | MESSAGE_LIST | ORDER_SYNC => Some(LISTING_CONFIGURATION.to_vec()),
+        | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN => Some(LISTING_CONFIGURATION.to_vec()),
         // Local only: the data directory, which has a default, is all they read.
         SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW | ORDER_MINE => Some(Vec::new()),
         _ => None,
@@ -310,6 +311,13 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             warnings: &MINE_WARNINGS,
             ..OutcomeRules::read(ORDER_MINE, &MINE_ERRORS, false)
         }),
+        DISPUTE_OPEN => output_schema::<DisputeOpenData, ()>(&OutcomeRules::invoice(
+            DISPUTE_OPEN,
+            Stages::Update,
+            &STEP_ERRORS,
+            &STEP_UNCERTAIN,
+            &STEP_WARNINGS,
+        )),
         IDENTITY_INIT => {
             output_schema::<IdentityInitData, ()>(&OutcomeRules::local(IDENTITY_INIT, &INIT_ERRORS))
         }
