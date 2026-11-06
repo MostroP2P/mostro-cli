@@ -337,7 +337,7 @@ only**; CI (with the CI-hosted Windows runner) is checked after the push. Probed
 | FR-007 data, next step, the range key | `outcome::step` unit tests, the range tests of spec 008 | Verified on Linux; the warning `range_not_continued` was replaced by the key and index of spec 008 |
 | FR-008 one document, own schemas, fixtures, examples, drift | `integration_tests` (fixtures, 16 examples, 17 invalid variants) | Verified on Linux |
 | FR-009 transport boundary, untrusted text, diagnostics | `source_boundaries`, the sentinel sweeps | Verified on Linux |
-| FR-010 legacy arms removed | the removed-spelling cases, `cli/send_msg.rs` serving only `dispute` and the admin commands | Verified on Linux |
+| FR-010 legacy arms removed | the removed-spelling cases, `cli/send_msg.rs` serving only `dispute` and the admin commands (removed with `dispute` by spec 013, 2026-11-05) | Verified on Linux |
 | SC-001 to SC-005 | the process tests above | Verified on Linux against the scripted node |
 | SC-006 no claim about a daemon | probe of 2026-11-02 on the maintainer's local regtest node (see TEST_SUMMARY.md) | Verified on a real node for a whole trade, the refusals, plain and cooperative cancel; **open** for a range order, `uncertain` and a disputed order |
 

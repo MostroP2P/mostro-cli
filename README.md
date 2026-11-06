@@ -327,7 +327,7 @@ This is the seller flow when you create the order (maker, sell).
    mostro-cli rate -o <order-id> -r 5
    ```
 
-If something goes wrong before release, you can `order cancel --order <order-id>` (a pending order is canceled at once; an active trade needs both parties to agree) or `dispute`. See [Disputes](#disputes-as-a-user).
+If something goes wrong before release, you can `order cancel --order <order-id>` (a pending order is canceled at once; an active trade needs both parties to agree) or `dispute open`. See [Disputes](#disputes-as-a-user).
 
 ---
 
@@ -407,7 +407,7 @@ mostro-cli dmtouser -p <their-pubkey> -o <order-id> -m "hello"
 If your counterpart misbehaves (no fiat received, no release after fiat sent, etc.):
 
 ```bash
-mostro-cli dispute -o <order-id>
+mostro-cli dispute open --order <order-id>
 ```
 
 This puts the order in dispute. A solver will be assigned and contacts you over
@@ -606,7 +606,7 @@ Use this when the database is gone. It recovers your **identity**, not your loca
    sqlite3 ~/.mcli/mcli.db "UPDATE users SET i0_pubkey = '<pubkey printed by restore>';"
    ```
 
-> **Limitation: `restore` does not rebuild your local order cache.** It reports what Mostro knows, but it does not insert those orders into the local `orders` table. Commands that operate on a specific order — `order release`, `order cancel`, `order fiat-sent`, `order add-invoice`, `rate`, `senddm` — read that table first and will fail on an order that is not in it. So a mnemonic-only restore gets your identity and your ratings back and lets you trade again from scratch, but it cannot resume a trade that was already in flight. For that, copy the database (see above).
+> **Limitation: `restore` does not rebuild your local order cache.** It reports what Mostro knows, but it does not insert those orders into the local `orders` table. Commands that operate on a specific order — `order release`, `order cancel`, `order fiat-sent`, `order add-invoice`, `rate`, `dispute open`, `senddm` — read that table first and will fail on an order that is not in it. So a mnemonic-only restore gets your identity and your ratings back and lets you trade again from scratch, but it cannot resume a trade that was already in flight. For that, copy the database (see above).
 
 > A friendlier `import-mnemonic` subcommand may land in the future. Until then, the flow above is the supported path.
 
@@ -634,7 +634,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `order sync [--since MINUTES]` — give the orders the node announced to your trade keys a local row: the child order of a range order, or any order the store lost (supports `--output json`; no `--yes`, it publishes nothing and never replaces a row).
 - `order cancel --order <id> [--yes]` — cancel a pending order, or start or confirm a cooperative cancel of an active trade; the node decides which and the result says so (supports `--output json`, which requires `--yes`). Replaces `cancel`.
 - `rate -o <id> -r <1-5>` — rate counterpart.
-- `dispute -o <id>` — open a dispute.
+- `dispute open --order <id> [--yes]` — open a dispute on an active or fiat-sent order (supports `--output json`, which requires `--yes`). Replaces `dispute`; the result carries the dispute id and the local status becomes `dispute`. A second dispute gets no answer and is `uncertain`.
 - `order mine` — the orders of the local store, newest first, with their trade index and key; read-only, no node or relay (supports `--output json`).
 - `bond add-invoice --order <id> --invoice <bolt11> [--yes]` — reply to a bond payout request with an invoice for your share of a slashed bond (supports `--output json`, which requires `--yes`; BOLT-11 only). Replaces `addbondinvoice`; without a confirmation from the node the result is `uncertain`, not success.
 
@@ -679,7 +679,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -693,7 +693,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Sixteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, and `bond add-invoice` (the last eight need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Seventeen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `dispute open` and `bond add-invoice` (the last nine need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

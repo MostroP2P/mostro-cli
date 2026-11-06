@@ -22,7 +22,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `bond add-invoice`, `message list`, `identity init` and `identity show` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -45,7 +45,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read for an answer; the only read of stdin is the invoice of `--invoice -` (spec 010), which requires `--yes`.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -159,11 +159,12 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
 
 ### Disputes
 
-- **`dispute`**
-  - **Description**: Start a dispute for an order.
-  - **Args**:
-    - `--order-id <UUID>`: Order identifier.
-  - **Handler**: `util::run_simple_order_msg(Commands::Dispute { .. }, Some(order_id), ctx)`.
+- **`dispute open`** (replaces `dispute`; spec 013)
+  - **Description**: Open a dispute on an active or `fiat-sent` order you hold. Publishes one signed request (`dispute`, no payload) with the order's stored trade key and spends no trade index. The node answers `dispute-initiated-by-you` with the dispute id; the local status becomes `dispute`. Supports `--output json` (`dispute.open`), which requires `--yes`.
+  - **Args**: `--order <UUID>` (required), `--yes`.
+  - **Output**: `data.order_id`, `data.dispute_id`, `data.trade_pubkey`, `data.node_pubkey`. A refusal is `node_refused` with the node's reason (`not_allowed_by_status` for an order that is not active or fiat-sent, `invalid_pubkey` for a key that is neither party). The node answers a second dispute on the same order with **silence**, so that run is `uncertain` (`reply_timeout`); nothing is retried. A failed local status update is the warning `local_status_stale`.
+  - **Migration**: `dispute -o|--orderid <UUID>` (older documents wrote `--order-id`) is gone with no alias; use `dispute open --order <UUID> [--yes]`.
+  - **Handler**: `commands::order::dispute::dispute_open` through `commands::order::held` (the request on a held order); dispatch in `cli/held.rs`.
 
 - **`listdisputes`**
   - **Description**: Request open disputes from the Mostro pubkey.
