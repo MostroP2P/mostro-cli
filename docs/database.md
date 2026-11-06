@@ -18,12 +18,12 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
       - Initializes a `SqlitePool`.
       - `initialize`: runs the SQL batch that creates the `orders` and `users` tables, generates a fresh 12-word mnemonic and inserts a `User`
         row (no trade index).
-  - `store::create_store(dir)` (`identity init`): the same steps without printing, after refusing an existing `mcli.db` or a leftover
-    `mcli.db-journal`, `-wal` or `-shm`, creating the directory owner-only (0700) like `get_mcli_path`, and removing a half-created file
-    again on failure.
     - If the file exists:
       - Connects with `SqlitePool::connect(&db_url)`.
       - Runs `migrate_remove_token_columns` to remove legacy `buyer_token` and `seller_token` columns if present.
+  - `store::create_store(dir)` (`identity init`): the same steps without printing, after refusing an existing `mcli.db` or a leftover
+    `mcli.db-journal`, `-wal` or `-shm`, creating the directory owner-only (0700) like `get_mcli_path`, and removing a half-created file
+    again on failure.
 
 ### Tables
 
