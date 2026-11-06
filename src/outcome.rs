@@ -11,6 +11,7 @@ use serde::Serialize;
 pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings, INVALID_INVOICE};
 
 mod codes;
+pub mod dispute;
 pub mod identity;
 pub mod info;
 pub mod invoice;
@@ -18,6 +19,7 @@ pub mod messages;
 pub mod mine;
 pub mod new;
 pub mod order;
+pub mod rate;
 mod rules;
 pub mod schema;
 pub mod step;

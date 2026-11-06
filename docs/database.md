@@ -146,7 +146,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 - **`util::storage`**:
   - `save_order(order, trade_keys, request_id, trade_index, pool)`:
     - Central place for persisting `Order` and updating the `User` record.
-  - `run_simple_order_msg(...)` and `admin_send_dm(...)` are not strictly DB-related but are often used alongside order persistence.
+  - `admin_send_dm(...)` is not strictly DB-related but are often used alongside order persistence.
 
 ### Extension guidelines
 

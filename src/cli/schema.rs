@@ -12,6 +12,7 @@ use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
+use crate::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use crate::outcome::identity::{
     IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT, INIT_ERRORS,
     SHOW_COMMAND as IDENTITY_SHOW, SHOW_ERRORS,
@@ -30,6 +31,7 @@ use crate::outcome::mine::{
 };
 use crate::outcome::new::OrderNewData;
 use crate::outcome::order::{ListData, Snapshot};
+use crate::outcome::rate::{RateData, COMMAND as ORDER_RATE};
 use crate::outcome::schema::{output_schema, OutcomeRules, Stages};
 use crate::outcome::step::{StepData, STEP_ERRORS, STEP_UNCERTAIN, STEP_WARNINGS};
 use crate::outcome::sync::{
@@ -135,7 +137,9 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
         | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
-        | MESSAGE_LIST | ORDER_SYNC => Some(LISTING_CONFIGURATION.to_vec()),
+        | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN | ORDER_RATE => {
+            Some(LISTING_CONFIGURATION.to_vec())
+        }
         // Local only: the data directory, which has a default, is all they read.
         SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW | ORDER_MINE => Some(Vec::new()),
         _ => None,
@@ -310,6 +314,20 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             warnings: &MINE_WARNINGS,
             ..OutcomeRules::read(ORDER_MINE, &MINE_ERRORS, false)
         }),
+        DISPUTE_OPEN => output_schema::<DisputeOpenData, ()>(&OutcomeRules::invoice(
+            DISPUTE_OPEN,
+            Stages::Update,
+            &STEP_ERRORS,
+            &STEP_UNCERTAIN,
+            &STEP_WARNINGS,
+        )),
+        ORDER_RATE => output_schema::<RateData, ()>(&OutcomeRules::invoice(
+            ORDER_RATE,
+            Stages::Delivery,
+            &STEP_ERRORS,
+            &STEP_UNCERTAIN,
+            &[],
+        )),
         IDENTITY_INIT => {
             output_schema::<IdentityInitData, ()>(&OutcomeRules::local(IDENTITY_INIT, &INIT_ERRORS))
         }
@@ -506,13 +524,13 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|command| command["name"] == "order.rate")
+            .find(|command| command["name"] == "dispute.list")
             .unwrap();
         assert_eq!(
             legacy,
             &json!({
-                "name": "order.rate",
-                "cli_path": ["rate"],
+                "name": "dispute.list",
+                "cli_path": ["listdisputes"],
                 "output_modes": ["human"],
                 "input_schema": null,
                 "output_schema": null,
@@ -617,7 +635,7 @@ mod tests {
         assert_eq!(output["title"], "order.list outcome");
         assert!(output.contains_key("$defs") && output.contains_key("oneOf"));
         assert!(listing.input_schema.is_some());
-        let legacy = by_name(&data, "order.rate");
+        let legacy = by_name(&data, "dispute.list");
         assert_eq!(
             (&legacy.input_schema, &legacy.output_schema),
             (&None, &None)

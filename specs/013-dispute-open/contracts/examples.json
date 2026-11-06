@@ -1,0 +1,141 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "dispute_opened",
+      "stdout": {
+        "command": "dispute.open",
+        "data": {
+          "dispute_id": "00000000-0000-0000-0000-000000000d16",
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "applied",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "dispute_opened_status_stale",
+      "stdout": {
+        "command": "dispute.open",
+        "data": {
+          "dispute_id": "00000000-0000-0000-0000-000000000d16",
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "failed",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": [
+          {
+            "code": "local_status_stale",
+            "message": "The node accepted the request but the local order status could not be updated."
+          }
+        ]
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "node_refused",
+      "stdout": {
+        "command": "dispute.open",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "not_allowed_by_status"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "no_answer_uncertain",
+      "stdout": {
+        "command": "dispute.open",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_unknown",
+      "stdout": {
+        "command": "dispute.open",
+        "data": null,
+        "error": {
+          "code": "order_unknown",
+          "message": "No local order has this id, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "yes_required",
+      "stdout": {
+        "command": "dispute.open",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

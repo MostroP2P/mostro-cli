@@ -174,7 +174,7 @@ pub enum WarningCode {
     // Added for `order.info`; scoped to that command's schema.
     OrdersNotReturned,
     InvalidOrderTimestamp,
-    // Added for `order.add-invoice`.
+    // Added for `order.add-invoice`; shared by every write that sets the local status.
     LocalStatusStale,
     // Added for `message.list`.
     TradeKeysLimited,
@@ -196,7 +196,7 @@ impl WarningCode {
             }
             Self::TradeKeysLimited => "Trade keys older than the newest 200 were not read.",
             Self::LocalStatusStale => {
-                "The node accepted the invoice but the local order status could not be updated."
+                "The node accepted the request but the local order status could not be updated."
             }
         }
     }

@@ -34,9 +34,9 @@ its payload empty (a `peer` for `fiat-sent-ok`), otherwise the outcome is `reply
 | accepted, nothing to record (cancel request) | `ok` | | published / accepted / not_attempted |
 | accepted, row update failed | `ok` + warning `local_status_stale` | | published / accepted / failed |
 | range continuation (spec 008): the next trade index cannot be reserved (amended 2026-11-05 by spec 008) | `error` | `store_unwritable` | not_attempted / unknown / not_attempted |
-| `cant-do(r)` | `error` | `node_refused` + reason `r` | published / rejected / not_attempted |
+| `cant-do(r)` naming the order | `error` | `node_refused` + reason `r` | published / rejected / not_attempted |
 | no reply | `uncertain` | `reply_timeout` | published / unknown / not_attempted |
-| unusable reply | `uncertain` | `reply_malformed` | published / unknown / not_attempted |
+| unusable reply, including a `cant-do` that names another order or none (amended 2026-11-05 after review) | `uncertain` | `reply_malformed` | published / unknown / not_attempted |
 | relay read failure after publish | `uncertain` | `relay_read_failed` | published / unknown / not_attempted |
 | unknown order or no key | `error` | `order_unknown` | not_attempted / unknown / not_attempted |
 | declined at the prompt | `error` | `order_declined` | not_attempted |

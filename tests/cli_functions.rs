@@ -1,7 +1,7 @@
 use mostro_core::prelude::*;
 use uuid::Uuid;
 
-// Test rate_user helper function
+// Rating range checks
 #[test]
 fn test_get_user_rate_valid_ratings() {
     let valid_ratings = vec![1u8, 2u8, 3u8, 4u8, 5u8];
@@ -928,7 +928,7 @@ mod output_intent {
             &["getlasttradeindex"],
             &["restore"],
             &["admmaintenancestatus"],
-            &["rate", "--orderid", ORDER, "--rating", "5"],
+            &["admcancel", "--orderid", ORDER],
         ];
         for suffix in valid {
             let argv = [&["--output", "json"][..], suffix].concat();
@@ -938,10 +938,13 @@ mod output_intent {
             assert_eq!(entry.json, mostro_client::cli::JsonSupport::Unsupported);
         }
         check(&[
-            (&["--output", "json", "rate"], Expect::Json(Some(&["rate"]))),
             (
-                &["--output", "json", "rate", "--orderid", "not-a-uuid"],
-                Expect::Json(Some(&["rate"])),
+                &["--output", "json", "admcancel"],
+                Expect::Json(Some(&["admcancel"])),
+            ),
+            (
+                &["--output", "json", "admcancel", "--orderid", "not-a-uuid"],
+                Expect::Json(Some(&["admcancel"])),
             ),
             (
                 &["--output", "json", "getlasttradeindex", "--bogus"],
@@ -952,7 +955,7 @@ mod output_intent {
                 &["--output", "json", "nosuch", "--bogus"],
                 Expect::Json(None),
             ),
-            (&["rate"], Expect::Human),
+            (&["admcancel"], Expect::Human),
         ]);
     }
 
@@ -1085,9 +1088,7 @@ mod registry {
         (&["getadmindm"], "admin.message-list"),
         (&["senddm"], "message.send"),
         (&["dmtouser"], "chat.send"),
-        (&["rate"], "order.rate"),
         (&["restore"], "account.restore"),
-        (&["dispute"], "dispute.open"),
         (&["admcancel"], "admin.cancel"),
         (&["admsettle"], "admin.settle"),
         (&["listdisputes"], "dispute.list"),
@@ -1115,6 +1116,8 @@ mod registry {
         (&["identity", "init"], "identity.init"),
         (&["identity", "show"], "identity.show"),
         (&["order", "mine"], "order.mine"),
+        (&["order", "rate"], "order.rate"),
+        (&["dispute", "open"], "dispute.open"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1190,7 +1193,8 @@ mod registry {
                     );
                 }
                 "order.new" | "order.take-sell" | "order.take-buy" | "order.add-invoice"
-                | "order.fiat-sent" | "order.release" | "order.cancel" | "bond.add-invoice" => {
+                | "order.fiat-sent" | "order.release" | "order.cancel" | "bond.add-invoice"
+                | "order.rate" | "dispute.open" => {
                     assert_eq!(entry.json, JsonSupport::Write);
                     assert_eq!(
                         entry.stages::<()>(),
@@ -1265,7 +1269,9 @@ mod registry {
                 "bond.add-invoice",
                 "identity.init",
                 "identity.show",
-                "order.mine"
+                "order.mine",
+                "order.rate",
+                "dispute.open"
             ]
         );
     }

@@ -15,6 +15,7 @@ use crate::msg::ExchangeLimits;
 use crate::outcome::step::{StepData, StepInput, StepKind};
 use crate::outcome::{Envelope, ErrorCode, WarningCode};
 use crate::parse_human::{render_step, render_step_preview};
+use crate::store::StoreError;
 
 const UNWRITABLE: &str = "error: the result could not be written";
 const STATUS_STALE: &str = "warning: the node accepted the request but the local order status \
@@ -64,7 +65,7 @@ fn advice(kind: StepKind) -> &'static str {
 }
 
 /// The warnings a human cannot read in a document: fixed lines on stderr.
-fn warn(outcome: &Envelope<StepData, ()>) {
+pub(super) fn warn<D>(outcome: &Envelope<D, ()>) {
     let mut err = std::io::stderr().lock();
     if outcome.warnings().contains(WarningCode::LocalStatusStale) {
         diagnose(&mut err, STATUS_STALE);
@@ -91,7 +92,13 @@ async fn prepare(
     if !args.yes {
         let trade = match base.store.order_keys(input.order()).await {
             Ok(Some(keys)) => keys.public_key().to_hex(),
-            _ => return Err(refuse(command, ErrorCode::OrderUnknown)),
+            // The same codes as the send path: a broken store is not an unknown order.
+            Err(StoreError::Unwritable | StoreError::Unreadable) => {
+                return Err(refuse(command, ErrorCode::StoreUnwritable))
+            }
+            Ok(None) | Err(StoreError::Missing) => {
+                return Err(refuse(command, ErrorCode::OrderUnknown))
+            }
         };
         let preview = render_step_preview(&input, &trade);
         if !confirmed(&preview, "Send this request?") {

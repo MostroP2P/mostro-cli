@@ -58,7 +58,8 @@ did. Out of scope: creating or paying invoices, `rate`, `dispute`, admin command
   (as the node sends it), `cant-do`; `cancel` -> `canceled`, `cooperative-cancel-initiated-by-you`, `cooperative-cancel-accepted`, `cant-do`.
 - **FR-006**: Outcomes: `ok` when the node accepted; `error` when it provably refused (`node_refused` + reason, e.g. `invalid_pubkey`,
   `not_allowed_by_status`, `order_already_canceled`, `is_not_your_order`) or nothing was published; `uncertain` when published and the result
-  is unknown (no reply, malformed reply, relay read failure).
+  is unknown (no reply, malformed reply, relay read failure). A `cant-do` is a refusal only when it names the order (mostrod echoes it); one
+  that names another order or none is a malformed reply, `uncertain` (amended 2026-11-05 after review, as for `dispute open` and `order rate`).
 - **FR-007**: Data per command (see the plan): the order id, a `result` word (`fiat_sent`; `released`; `canceled`, `cancel_requested`,
   `cancel_accepted`), the trade public key, and, for a range order, the reserved `next_trade_index` (spec 008). A `next_step` names only commands that exist (for
   cancel_requested: wait for the peer, who answers with `order cancel`; for fiat-sent: wait for the seller to release).

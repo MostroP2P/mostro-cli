@@ -1,10 +1,11 @@
 use clap::builder::PossibleValuesParser;
-use clap::{ArgAction, Args, Subcommand};
+use clap::{ArgAction, Subcommand};
 use std::path::PathBuf;
 use uuid::Uuid;
 
 pub use super::command_args::{
-    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, StepArgs, SyncArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, NewArgs, RateArgs, StepArgs, SyncArgs,
+    TakeBuyArgs, TakeSellArgs,
 };
 use crate::outcome::order::{SIDES, STATUSES};
 
@@ -38,6 +39,12 @@ pub enum Commands {
     Identity {
         #[command(subcommand)]
         command: IdentityCommands,
+    },
+    /// Disputes on orders you hold
+    #[command(arg_required_else_help = true)]
+    Dispute {
+        #[command(subcommand)]
+        command: DisputeCommands,
     },
     /// Read both sides of the kind-14 chat for an order
     GetDmUser {
@@ -99,23 +106,8 @@ pub enum Commands {
         #[arg(short, long, num_args = 1..)]
         message: Vec<String>,
     },
-    /// Rate counterpart after a successful trade
-    Rate {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-        /// Rating from 1 to 5
-        #[arg(short, long)]
-        rating: u8,
-    },
     /// Restore session to recover all pending orders and disputes
     Restore {},
-    /// Start a dispute
-    Dispute {
-        /// Order id
-        #[arg(short, long)]
-        order_id: Uuid,
-    },
     /// Cancel an order (only admin)
     AdmCancel {
         /// Order id
@@ -280,6 +272,19 @@ pub enum OrderCommands {
     /// first, with their trade index and key. Reads the local store only;
     /// needs no node, relay or network
     Mine,
+    /// Rate the counterparty of a finished trade you hold, from 1 to 5. Needs
+    /// an existing local identity (it never creates one) and publishes one
+    /// signed request. JSON output requires --yes
+    Rate(RateArgs),
+}
+
+#[derive(Subcommand, Clone)]
+#[clap(rename_all = "lower")]
+pub enum DisputeCommands {
+    /// Open a dispute on an active order you hold. Needs an existing local
+    /// identity (it never creates one), publishes one signed request and
+    /// updates the order's local status. JSON output requires --yes
+    Open(StepArgs),
 }
 
 #[derive(Subcommand, Clone)]
@@ -311,75 +316,4 @@ pub enum BondCommands {
     /// and publishes one signed request. JSON output requires --yes
     #[command(name = "add-invoice")]
     AddInvoice(AddBondInvoiceArgs),
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct TakeSellArgs {
-    /// Id of the sell order to take
-    #[arg(long = "order", value_name = "UUID")]
-    pub order: Uuid,
-    /// Your invoice (BOLT-11 or Lightning address) for the sats; without one
-    /// the node asks for it next. `-` reads it from standard input: one line,
-    /// then close standard input; needs --yes, and stdin must not be a terminal
-    #[arg(long)]
-    pub invoice: Option<String>,
-    /// Fiat amount to buy, for a range order
-    #[arg(long)]
-    pub amount: Option<i64>,
-    /// Take the order without asking (required with --output json)
-    #[arg(long)]
-    pub yes: bool,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct TakeBuyArgs {
-    /// Id of the buy order to take
-    #[arg(long = "order", value_name = "UUID")]
-    pub order: Uuid,
-    /// Fiat amount to sell, for a range order
-    #[arg(long)]
-    pub amount: Option<i64>,
-    /// Take the order without asking (required with --output json)
-    #[arg(long)]
-    pub yes: bool,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct NewArgs {
-    /// The order's side: buy or sell (case-insensitive)
-    #[arg(long, ignore_case = true, value_parser = PossibleValuesParser::new(SIDES))]
-    pub side: String,
-    /// Fiat currency code, such as USD
-    #[arg(long)]
-    pub currency: String,
-    /// Fiat amount; with --fiat-amount-max, the range minimum
-    #[arg(long)]
-    pub fiat_amount: i64,
-    /// Range maximum: makes a range order at market price
-    #[arg(long)]
-    pub fiat_amount_max: Option<i64>,
-    /// Payment method text
-    #[arg(long)]
-    pub payment_method: String,
-    /// Sats amount; 0 means the market price
-    #[arg(long, default_value_t = 0)]
-    pub sats: i64,
-    /// Premium on the price, in percent
-    #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
-    pub premium: i64,
-    /// Lightning invoice, when the order needs one; `-` reads it from standard
-    /// input: one line, then close standard input; needs --yes, and stdin must
-    /// not be a terminal
-    #[arg(long)]
-    pub invoice: Option<String>,
-    /// Days until the pending order expires; 0 uses the node's default
-    #[arg(long, default_value_t = 0)]
-    pub expiration_days: i64,
-    /// Seconds until the pending order expires (1 to 31536000), instead of
-    /// --expiration-days; the node lowers it to its own maximum
-    #[arg(long, value_name = "SECONDS", conflicts_with = "expiration_days")]
-    pub expires_in: Option<i64>,
-    /// Create the order without asking (required with --output json)
-    #[arg(long)]
-    pub yes: bool,
 }

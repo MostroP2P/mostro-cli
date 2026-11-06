@@ -2,10 +2,8 @@ use anyhow::Result;
 use mostro_core::prelude::*;
 use nostr_sdk::prelude::*;
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
-use crate::cli::send_msg::execute_send_msg;
-use crate::cli::{Commands, Context};
+use crate::cli::Context;
 use crate::db::Order;
 use crate::store::{raise_index_in, StoreError};
 use crate::util::messaging::get_admin_keys;
@@ -51,14 +49,6 @@ pub async fn raise_trade_index(pool: &SqlitePool, index: i64) -> Result<i64> {
             }
             _ => anyhow::anyhow!("could not record trade index {index}"),
         })
-}
-
-pub async fn run_simple_order_msg(
-    command: Commands,
-    order_id: Option<Uuid>,
-    ctx: &Context,
-) -> Result<()> {
-    execute_send_msg(command, order_id, ctx, None).await
 }
 
 pub async fn admin_send_dm(ctx: &Context, msg: String) -> Result<()> {

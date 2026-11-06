@@ -41,4 +41,5 @@ relays or arguments.
 
 Those of `order add-invoice` (`invalid_arguments`, `configuration_*`, `identity_*`, `store_unwritable`, `protocol_unsupported`, `pow_required`,
 `relay_*`, `request_rejected`, `node_refused` with the node's reason, `order_declined`, `order_unknown`, `internal_error`) and, for `uncertain`,
-`reply_timeout`, `reply_malformed`, `request_rejected`, `relay_read_failed`, `pow_required`.
+`reply_timeout`, `reply_malformed`, `request_rejected`, `relay_read_failed`, `pow_required`. `node_refused` requires a `cant-do` that names the
+order; one that names another order or none is `reply_malformed` (amended 2026-11-05 after review).

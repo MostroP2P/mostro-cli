@@ -55,6 +55,8 @@ pub struct Received {
     pub invoice: Option<String>,
     /// The next trade key and index a `fiat-sent` or `release` carries.
     pub next_trade: Option<(String, u32)>,
+    /// The rating a `rate-user` carries.
+    pub rating: Option<u8>,
 }
 
 /// Who signs an outgoing message.
@@ -124,8 +126,9 @@ pub fn orders_reply(request: &Received, orders: Vec<SmallOrder>) -> Message {
 
 /// A refusal of `request` with `reason`.
 pub fn refusal(request: &Received, reason: CantDoReason) -> Message {
+    // `manage_errors` echoes the request's order id and request id.
     Message::cant_do(
-        None,
+        request.order_id,
         request.request_id,
         Some(Payload::CantDo(Some(reason))),
     )
@@ -609,6 +612,15 @@ pub struct Traded {
     pub range: Option<(i64, i64)>,
     /// The fiat amount of the slice that was taken.
     pub fiat_amount: i64,
+    /// The dispute the node opened for the order, if any.
+    pub dispute: Option<Uuid>,
+    /// The parties who rated the trade.
+    pub rated_by: Vec<PublicKey>,
+}
+
+/// The id the scripted node gives the dispute of `order`.
+pub fn dispute_id(order: Uuid) -> Uuid {
+    Uuid::from_u128(order.as_u128() + 0xd15)
 }
 
 /// The id the scripted node gives the child order of `parent`.
@@ -629,6 +641,8 @@ impl Traded {
             next_trade: None,
             range: None,
             fiat_amount: 15,
+            dispute: None,
+            rated_by: Vec::new(),
         }
     }
 
@@ -652,6 +666,8 @@ impl Traded {
             next_trade: None,
             range: None,
             fiat_amount: 15,
+            dispute: None,
+            rated_by: Vec::new(),
         }
     }
 
@@ -800,6 +816,8 @@ pub fn step_daemon(trades: Vec<Traded>) -> (Respond, Arc<Mutex<Vec<Traded>>>) {
                 out
             }
             Action::Cancel => cancel_reply(trade, request, to_sender, notice),
+            Action::Dispute => dispute_reply(trade, request, to_sender),
+            Action::RateUser => rate_reply(trade, request, to_sender),
             _ => refuse(CantDoReason::InvalidAction),
         };
         trades.extend(spawned);
@@ -899,6 +917,76 @@ fn cancel_reply(
         }
         _ => refuse(CantDoReason::NotAllowedByStatus),
     }
+}
+
+/// `dispute_action`: an active or fiat-sent order, by its buyer or seller. The
+/// initiator hears `dispute-initiated-by-you` with the dispute id, the other
+/// party `dispute-initiated-by-peer`, both echoing the request id. A second
+/// dispute on the order is an internal error in the source: no answer at all.
+fn dispute_reply(
+    trade: &mut Traded,
+    request: &Received,
+    to_sender: impl Fn(Action, Option<Payload>) -> Outgoing,
+) -> Vec<Outgoing> {
+    let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+    if trade.dispute.is_some() {
+        return Vec::new();
+    }
+    if !matches!(trade.status, Status::Active | Status::FiatSent) {
+        return refuse(CantDoReason::NotAllowedByStatus);
+    }
+    let sender = request.author;
+    let (Some(buyer), Some(seller)) = (trade.buyer, trade.seller) else {
+        return Vec::new();
+    };
+    if sender != buyer && sender != seller {
+        return refuse(CantDoReason::InvalidPubkey);
+    }
+    let other = if sender == buyer { seller } else { buyer };
+    let id = dispute_id(trade.id);
+    trade.dispute = Some(id);
+    trade.status = Status::Dispute;
+    let payload = || Some(Payload::Dispute(id, None));
+    let peer = Outgoing::to_requester(Message::new_order(
+        Some(trade.id),
+        request.request_id,
+        None,
+        Action::DisputeInitiatedByPeer,
+        payload(),
+    ))
+    .addressed_to(other);
+    vec![peer, to_sender(Action::DisputeInitiatedByYou, payload())]
+}
+
+/// `update_user_reputation_action`: a successful order, or a settled one when
+/// the seller rates. The rater hears `rate-received` with the rating, echoing
+/// the request id. A side that already rated, and a sender who is neither
+/// party, get no answer at all.
+fn rate_reply(
+    trade: &mut Traded,
+    request: &Received,
+    to_sender: impl Fn(Action, Option<Payload>) -> Outgoing,
+) -> Vec<Outgoing> {
+    let refuse = |reason| vec![Outgoing::to_requester(refusal(request, reason))];
+    let sender = request.author;
+    let seller_rates = Some(sender) == trade.seller;
+    let party = seller_rates || Some(sender) == trade.buyer;
+    if !(trade.status == Status::Success
+        || (trade.status == Status::SettledHoldInvoice && seller_rates))
+    {
+        return refuse(CantDoReason::InvalidOrderStatus);
+    }
+    if !party || trade.rated_by.contains(&sender) {
+        return Vec::new();
+    }
+    let Some(rating) = request.rating.filter(|rating| (1..=5).contains(rating)) else {
+        return Vec::new();
+    };
+    trade.rated_by.push(sender);
+    vec![to_sender(
+        Action::RateReceived,
+        Some(Payload::RatingUser(rating)),
+    )]
 }
 
 // --- The mailbox: messages the node volunteers --------------------------------
@@ -1096,6 +1184,10 @@ impl FakeMostro {
                         invoice,
                         next_trade: match &inner.payload {
                             Some(Payload::NextTrade(key, index)) => Some((key.clone(), *index)),
+                            _ => None,
+                        },
+                        rating: match &inner.payload {
+                            Some(Payload::RatingUser(rating)) => Some(*rating),
                             _ => None,
                         },
                     };

@@ -15,7 +15,6 @@ use super::list_disputes::execute_list_disputes;
 use super::maintenance::{
     execute_cancel_pending, execute_maintenance_status, execute_set_maintenance,
 };
-use super::rate_user::execute_rate_user;
 use super::restore::execute_restore;
 use super::send_admin_dm_attach::execute_send_admin_dm_attach;
 use super::send_dm::execute_send_dm;
@@ -24,7 +23,6 @@ use super::take_dispute::{
     execute_take_dispute,
 };
 use super::user_info::execute_user_info;
-use crate::util::run_simple_order_msg;
 
 impl Commands {
     /// Run a command that talks to `mostrod`'s admin gRPC directly. `None`
@@ -44,10 +42,6 @@ impl Commands {
 
     pub async fn run(&self, ctx: &Context) -> Result<()> {
         match self {
-            // Simple order message commands
-            Commands::Dispute { order_id } => {
-                run_simple_order_msg(self.clone(), Some(*order_id), ctx).await
-            }
             // Last trade index commands
             Commands::GetLastTradeIndex {} => {
                 execute_last_trade_index(&ctx.identity_keys, ctx.mostro_pubkey, ctx).await
@@ -102,7 +96,9 @@ impl Commands {
             Commands::Identity { .. } => {
                 unreachable!("identity commands run without a Context")
             }
-            Commands::Rate { order_id, rating } => execute_rate_user(order_id, rating, ctx).await,
+            Commands::Dispute { .. } => {
+                unreachable!("dispute commands run without a Context")
+            }
 
             // DM retrieval commands
             Commands::GetDmUser {
