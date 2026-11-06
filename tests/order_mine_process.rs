@@ -29,6 +29,9 @@ use harness::{run_with_watchdog, Backend, Captured, LoopbackRelay, Sandbox, WATC
 use mostro_client::identity::trade_keys_from_mnemonic;
 use mostro_client::store::{Store, Trade};
 
+/// The human run's stderr line for `trade_keys_limited`.
+const KEYS_LIMITED: &str = "older than the newest 200";
+
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }
@@ -248,6 +251,11 @@ async fn lists_what_the_commands_saved_newest_first() {
     );
     assert_eq!(taker.fake.received()[0].author.to_hex(), key(2));
     assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+    assert!(
+        !human.stderr_text().contains(KEYS_LIMITED),
+        "{}",
+        human.stderr_text()
+    );
     let text = human.stdout_text();
     for order in outcome["data"]["orders"].as_array().unwrap() {
         assert!(text.contains(order["id"].as_str().unwrap()), "{text}");
@@ -368,8 +376,15 @@ async fn rows_whose_index_cannot_be_found_say_so() {
     .await;
     set_last_trade_index(&dir, 250).await;
 
+    let human = run(&sandbox, &["order", "mine"], None).await;
     let run = run(&sandbox, &["--output", "json", "order", "mine"], None).await;
 
+    assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+    assert!(
+        human.stderr_text().contains(KEYS_LIMITED),
+        "{}",
+        human.stderr_text()
+    );
     assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
     let outcome = document(&run);
     conforms(&outcome);
