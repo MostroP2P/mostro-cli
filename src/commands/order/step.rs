@@ -23,7 +23,8 @@ use mostro_core::prelude::{Action, Message, Payload};
 use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
-use super::write::{reason, unsent};
+use super::held::{malformed, refusal};
+use super::write::unsent;
 use super::WriteOptions;
 use crate::msg::{exchange, ExchangeLimits, Expect, Outbound, PublicReadConfig};
 use crate::outcome::step::{StepData, StepInput};
@@ -110,10 +111,15 @@ pub async fn order_step(
     };
     let reply = exchanged.reply().get_inner_message_kind();
     if reply.action == Action::CantDo {
+        // Only a refusal that names the order is one; anything else may hide
+        // an action, so a key that was sent stays spent.
+        let Some(refused) = refusal(command, input.order(), reply) else {
+            return malformed(command, spent(next.as_ref()));
+        };
         // The node refuses before it acts (before it keeps a key or makes a
         // child), so the index is given back.
         give_back(store, next.as_ref()).await;
-        return refused(command, &reason(&reply.payload));
+        return refused;
     }
     let reserved = next.as_ref().map(|next| next.trade.index);
     let Some((data, status)) = StepData::from_reply(
@@ -183,33 +189,4 @@ async fn give_back(store: &Store, next: Option<&Reservation>) {
     if let Some(next) = next {
         store.release(next).await;
     }
-}
-
-/// The node refused: nothing changes locally.
-fn refused(command: &'static str, reason: &str) -> StepOutcome {
-    Envelope::refused(
-        Some(command),
-        reason,
-        Warnings::new(),
-        ExecutionMeta::write(
-            Publication::Published,
-            DaemonAcceptance::Rejected,
-            Persistence::NotAttempted,
-        ),
-    )
-}
-
-/// The node answered with something unusable: it may have acted.
-fn malformed(command: &'static str, persistence: Persistence) -> StepOutcome {
-    Envelope::uncertain(
-        command,
-        ErrorCode::ReplyMalformed,
-        None,
-        Warnings::new(),
-        ExecutionMeta::write(
-            Publication::Published,
-            DaemonAcceptance::Unknown,
-            persistence,
-        ),
-    )
 }

@@ -1403,6 +1403,64 @@ mod operation {
         holder.fake.received()[0].next_trade.clone()
     }
 
+    /// A `cant-do` counts as the node's refusal only when it names the order;
+    /// one naming another order, or none, is an unusable reply: the node may
+    /// have acted, so the outcome is `uncertain` and, on a range order, the
+    /// reserved index stays spent (amended 2026-11-05 after review).
+    #[tokio::test]
+    async fn a_refusal_that_names_another_order_or_none_is_uncertain_for_every_step() {
+        let refusing = |named: Option<Uuid>| -> Respond {
+            Arc::new(move |request: &Received| {
+                vec![Outgoing::to_requester(Message::cant_do(
+                    named,
+                    request.request_id,
+                    Some(Payload::CantDo(Some(CantDoReason::NotAllowedByStatus))),
+                ))]
+            })
+        };
+        for (label, named) in [("another order", Some(id(77))), ("no order", None)] {
+            for (kind, trades) in [
+                (
+                    StepKind::FiatSent,
+                    buying as fn(PublicKey, PublicKey) -> Vec<Traded>,
+                ),
+                (StepKind::Release, |me, other| {
+                    vec![Traded::active(id(1), me, other).with_status(Status::FiatSent)]
+                }),
+                (StepKind::Cancel, buying),
+            ] {
+                let holder = holder(trades, 0, move |_| refusing(named)).await;
+                let before = status_of(&holder, id(1)).await;
+
+                let outcome = take(&holder, kind, id(1)).await;
+
+                assert_eq!(outcome.status(), Outcome::Uncertain, "{label}: {kind:?}");
+                assert_eq!(
+                    code(&outcome),
+                    Some(ErrorCode::ReplyMalformed),
+                    "{label}: {kind:?}"
+                );
+                assert_eq!(outcome.reason(), None, "{label}: {kind:?}");
+                assert_eq!(
+                    stages(&outcome),
+                    meta("published", "unknown", "not_attempted")
+                );
+                assert_eq!(status_of(&holder, id(1)).await, before, "{label}: {kind:?}");
+                assert_eq!(holder.fake.received().len(), 1, "never retried");
+            }
+            // A range continuation: the key was sent and may be held, so its
+            // index stays spent.
+            let holder = holder(selling_range, 0, move |_| refusing(named)).await;
+            sql(&holder, RANGE).await;
+            let before = last_index(&holder).await;
+            let outcome = take(&holder, StepKind::Release, id(1)).await;
+            assert!(sent_key(&holder).is_some(), "{label}: the key was sent");
+            assert_eq!(code(&outcome), Some(ErrorCode::ReplyMalformed), "{label}");
+            assert_eq!(stages(&outcome), meta("published", "unknown", "applied"));
+            assert_eq!(last_index(&holder).await, before + 1, "{label}");
+        }
+    }
+
     #[tokio::test]
     async fn the_makers_own_step_on_a_range_order_carries_a_key_and_spends_one_index() {
         // A seller releases; a buyer sends fiat-sent. Either way the node gets a
