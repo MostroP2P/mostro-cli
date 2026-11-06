@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use mostro_core::prelude::NOSTR_ORDER_EVENT_KIND;
 use nostr_sdk::prelude::{FromMnemonic, Keys};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::SqlitePool;
 
 /// Why no identity key could be produced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,10 +70,16 @@ pub fn resolve_dir(mcli_dir: Option<&str>, home: Option<PathBuf>) -> Option<Path
     }
 }
 
+/// The configured data directory (`MCLI_DIR`, else `<home>/.mcli`), without
+/// creating it.
+pub fn configured_dir() -> Option<PathBuf> {
+    let env = std::env::var("MCLI_DIR").ok();
+    resolve_dir(env.as_deref(), dirs::home_dir())
+}
+
 /// The identity key from the store in the configured data directory.
 pub async fn load_identity_keys() -> Result<Keys, IdentityError> {
-    let env = std::env::var("MCLI_DIR").ok();
-    let dir = resolve_dir(env.as_deref(), dirs::home_dir()).ok_or(IdentityError::Missing)?;
+    let dir = configured_dir().ok_or(IdentityError::Missing)?;
     load_identity_keys_from(&dir).await
 }
 
@@ -118,6 +125,46 @@ pub(crate) fn open_mode(path: &Path) -> Option<OpenMode> {
 
 /// The identity key from `dir/mcli.db`, opened read-only.
 pub async fn load_identity_keys_from(dir: &Path) -> Result<Keys, IdentityError> {
+    let (pool, mode) = open_store(dir).await?;
+    let keys = read_keys(&pool, mode).await;
+    pool.close().await;
+    keys
+}
+
+/// The identity key and the last trade index recorded with it (`0` when none
+/// is), from `dir/mcli.db` opened read-only. Unlike the mnemonic the index
+/// changes, so a store whose WAL cannot be read without creating a file
+/// beside it is `Unreadable`, and so is an index outside
+/// `0..=LAST_TRADE_INDEX`.
+pub async fn load_identity_from(dir: &Path) -> Result<(Keys, i64), IdentityError> {
+    let (pool, mode) = open_store(dir).await?;
+    let keys = read_keys(&pool, mode).await;
+    let index = match (&keys, mode) {
+        (Err(_), _) => Ok(0),
+        (Ok(_), OpenMode::MainFileOnly) => Err(IdentityError::Unreadable),
+        (Ok(_), _) => read_index(&pool).await,
+    };
+    pool.close().await;
+    Ok((keys?, index?))
+}
+
+/// The recorded last trade index of the first user, `0` when none.
+async fn read_index(pool: &SqlitePool) -> Result<i64, IdentityError> {
+    let index = sqlx::query_scalar::<_, Option<i64>>("SELECT last_trade_index FROM users LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| IdentityError::Unreadable)?
+        .unwrap_or(0);
+    if (0..=LAST_TRADE_INDEX).contains(&index) {
+        Ok(index)
+    } else {
+        Err(IdentityError::Unreadable)
+    }
+}
+
+/// Open `dir/mcli.db` read-only so that no file appears or disappears beside
+/// it, and say how it was opened.
+async fn open_store(dir: &Path) -> Result<(SqlitePool, OpenMode), IdentityError> {
     let path = dir.join("mcli.db");
     match std::fs::metadata(&path) {
         Ok(metadata) if metadata.is_file() => {}
@@ -142,10 +189,14 @@ pub async fn load_identity_keys_from(dir: &Path) -> Result<Keys, IdentityError> 
         .connect_with(options)
         .await
         .map_err(|_| IdentityError::Unreadable)?;
+    Ok((pool, mode))
+}
+
+/// The identity key of the first user's mnemonic.
+async fn read_keys(pool: &SqlitePool, mode: OpenMode) -> Result<Keys, IdentityError> {
     let row = sqlx::query_scalar::<_, Option<String>>("SELECT mnemonic FROM users LIMIT 1")
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await;
-    pool.close().await;
     match row {
         Err(_) | Ok(Some(None)) => Err(IdentityError::Unreadable),
         Ok(None) if mode == OpenMode::MainFileOnly => Err(IdentityError::Unreadable),
@@ -531,6 +582,105 @@ mod tests {
             |files: &[(String, usize, u64)]| files.iter().map(|f| f.0.clone()).collect::<Vec<_>>();
         assert_eq!(names(&after), names(&before));
         pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn the_identity_comes_with_its_last_trade_index_and_nothing_changes() {
+        let dir = Dir::new();
+        let expected = valid_store(&dir).await;
+        let before = dir.snapshot();
+        let (keys, index) = load_identity_from(&dir.0).await.unwrap();
+        assert_eq!(keys.public_key(), expected.public_key());
+        assert_eq!(index, 0, "no recorded index reads as 0");
+        assert_eq!(dir.snapshot(), before);
+
+        for recorded in [1, 7, LAST_TRADE_INDEX] {
+            let pool = store(&dir, "SELECT 1").await;
+            sqlx::query("UPDATE users SET last_trade_index = ?")
+                .bind(recorded)
+                .execute(&pool)
+                .await
+                .unwrap();
+            pool.close().await;
+            let (_, index) = load_identity_from(&dir.0).await.unwrap();
+            assert_eq!(index, recorded);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_index_out_of_range_is_unreadable() {
+        for recorded in [-1, LAST_TRADE_INDEX + 1] {
+            let dir = Dir::new();
+            valid_store(&dir).await;
+            let pool = store(&dir, "SELECT 1").await;
+            sqlx::query("UPDATE users SET last_trade_index = ?")
+                .bind(recorded)
+                .execute(&pool)
+                .await
+                .unwrap();
+            pool.close().await;
+            let before = dir.snapshot();
+            assert_eq!(
+                load_identity_from(&dir.0).await.unwrap_err(),
+                IdentityError::Unreadable,
+                "{recorded}"
+            );
+            assert_eq!(dir.snapshot(), before);
+            // The key alone is still readable.
+            assert!(load_identity_keys_from(&dir.0).await.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_and_damaged_stores_fail_the_same_way_as_the_key() {
+        let empty = Dir::new();
+        assert_eq!(
+            load_identity_from(&empty.0).await.unwrap_err(),
+            IdentityError::Missing
+        );
+        let no_user = Dir::new();
+        store(&no_user, USERS).await.close().await;
+        assert_eq!(
+            load_identity_from(&no_user.0).await.unwrap_err(),
+            IdentityError::Missing
+        );
+        let garbage = Dir::new();
+        fs::write(garbage.db(), b"this is not a sqlite database at all").unwrap();
+        assert_eq!(
+            load_identity_from(&garbage.0).await.unwrap_err(),
+            IdentityError::Unreadable
+        );
+        assert!(empty.snapshot().is_empty());
+    }
+
+    /// A WAL copied without its `-shm` file may hold a newer index than the
+    /// main file: the index is unreadable there, though the key is not.
+    #[tokio::test]
+    async fn a_wal_without_its_shm_file_has_no_readable_index() {
+        let live = Dir::new();
+        let pool = store_in(&live, USERS, SqliteJournalMode::Wal).await;
+        let mnemonic = bip39::Mnemonic::generate(bip39::WordCount::Words12)
+            .unwrap()
+            .to_string();
+        User::new(mnemonic, &pool).await.unwrap();
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE users SET last_trade_index = 5")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let copy = copy_of(&live, &["mcli.db", "mcli.db-wal"]);
+        pool.close().await;
+        let before = copy.snapshot();
+
+        assert_eq!(
+            load_identity_from(&copy.0).await.unwrap_err(),
+            IdentityError::Unreadable
+        );
+        assert!(load_identity_keys_from(&copy.0).await.is_ok());
+        assert_eq!(copy.snapshot(), before, "loading changed the directory");
     }
 
     #[test]

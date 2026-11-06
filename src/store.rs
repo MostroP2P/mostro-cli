@@ -2,7 +2,9 @@
 //! trade index, reserved before publishing (`store/reserve.rs`), and the order row.
 //!
 //! Unlike [`crate::identity`], this module opens `mcli.db` for writing, but it
-//! never creates it, never changes permissions and never migrates. Every
+//! never creates it (except [`create_store`], which makes a new one as the first
+//! run does and never touches an existing one), never changes permissions and
+//! never migrates. Every
 //! operation opens the existing file, does one thing and closes it, so a failed
 //! run leaves no connection or sidecar file behind. Errors carry no text from
 //! the store. The trade key and index come from the same derivation as the rest
@@ -19,11 +21,14 @@ use uuid::Uuid;
 
 use crate::db::User;
 use crate::identity::{open_mode, resolve_dir, OpenMode};
+pub(crate) use create::{create_private_db_file, initialize};
+pub use create::{create_store, CreateError};
 pub(crate) use reserve::raise_index_in;
 pub use reserve::Reservation;
 use reserve::{release_in, reserve_in};
 use save::{save_in, Existing};
 
+mod create;
 mod reserve;
 mod save;
 

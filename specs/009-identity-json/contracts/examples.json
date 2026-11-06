@@ -1,0 +1,214 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "init_created",
+      "stdout": {
+        "command": "identity.init",
+        "data": {
+          "identity_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "applied",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "init_identity_exists",
+      "stdout": {
+        "command": "identity.init",
+        "data": null,
+        "error": {
+          "code": "identity_exists",
+          "message": "A local identity already exists, so nothing was changed."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_attempted",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "init_directory_not_created",
+      "stdout": {
+        "command": "identity.init",
+        "data": null,
+        "error": {
+          "code": "store_unwritable",
+          "message": "The local store cannot be written, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_attempted",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "init_store_not_completed",
+      "stdout": {
+        "command": "identity.init",
+        "data": null,
+        "error": {
+          "code": "store_unwritable",
+          "message": "The local store cannot be written, so nothing was sent."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "failed",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "init_invalid_arguments",
+      "stdout": {
+        "command": "identity.init",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "show_new_identity",
+      "stdout": {
+        "command": "identity.show",
+        "data": {
+          "identity_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "last_trade_index": 0
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "show_after_three_trades",
+      "stdout": {
+        "command": "identity.show",
+        "data": {
+          "identity_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "last_trade_index": 3
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "show_identity_missing",
+      "stdout": {
+        "command": "identity.show",
+        "data": null,
+        "error": {
+          "code": "identity_missing",
+          "message": "No local identity exists."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "show_identity_unreadable",
+      "stdout": {
+        "command": "identity.show",
+        "data": null,
+        "error": {
+          "code": "identity_unreadable",
+          "message": "The local identity store cannot be read."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "show_invalid_arguments",
+      "stdout": {
+        "command": "identity.show",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

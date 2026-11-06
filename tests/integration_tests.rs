@@ -4,6 +4,10 @@ use std::path::Path;
 
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
+use mostro_client::outcome::identity::{
+    IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT,
+    SHOW_COMMAND as IDENTITY_SHOW,
+};
 use mostro_client::outcome::info::{OrderInfoData, OrderInfoInput};
 use mostro_client::outcome::invoice::{
     Answered, BondInvoiceData, InvoiceInput, InvoiceKind, InvoiceRequest, OrderInvoiceData,
@@ -295,6 +299,7 @@ mod schema_fixtures {
         InvoiceRequest, Message, MessageListData, MessageListInput, MessageRecord,
         OrderInvoiceData, Payload,
     };
+    use super::{IdentityInitData, IdentityShowData, IDENTITY_INIT, IDENTITY_SHOW};
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
 
     const DISCOVERY_FIXTURE: &str = concat!(
@@ -349,6 +354,14 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/message-list-v1.json"
     );
+    const IDENTITY_INIT_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/identity-init-v1.json"
+    );
+    const IDENTITY_SHOW_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/identity-show-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -363,7 +376,9 @@ mod schema_fixtures {
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"bond.add-invoice\\\") | \
     .output_schema\" > docs/schemas/bond-add-invoice-v1.json; \
     cargo run -q -- --output json schema | jq \".data.commands[] | select(.name==\\\"message.list\\\") | \
-    .output_schema\" > docs/schemas/message-list-v1.json";
+    .output_schema\" > docs/schemas/message-list-v1.json; \
+    for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done";
 
     fn read_json(path: &str) -> Value {
         let text = read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
@@ -486,6 +501,20 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn identity_schema_fixtures_match_the_generated_schemas() {
+        for (name, fixture) in [
+            ("identity.init", IDENTITY_INIT_FIXTURE),
+            ("identity.show", IDENTITY_SHOW_FIXTURE),
+        ] {
+            assert_eq!(
+                generated_output_schema(name),
+                read_json(fixture),
+                "stale {fixture}; {REGENERATE}"
+            );
+        }
+    }
+
+    #[test]
     fn discovery_fixture_is_raw_discovery_data_not_an_envelope() {
         let fixture = read_json(DISCOVERY_FIXTURE);
         let keys: Vec<&str> = fixture
@@ -529,6 +558,8 @@ mod schema_fixtures {
             machine,
             [
                 "bond.add-invoice",
+                "identity.init",
+                "identity.show",
                 "message.list",
                 "order.add-invoice",
                 "order.cancel",
@@ -3177,6 +3208,259 @@ mod schema_fixtures {
             );
         }
     }
+
+    // --- Identity commands (spec 009) ---
+
+    const IDENTITY_EXAMPLES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/specs/009-identity-json/contracts/examples.json"
+    );
+
+    fn identity_examples() -> Vec<(String, i32, Value)> {
+        let document = read_json(IDENTITY_EXAMPLES);
+        assert_eq!(document["contract_status"], "proposed");
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                (
+                    case["name"].as_str().unwrap().to_string(),
+                    i32::try_from(case["exit_code"].as_i64().unwrap()).unwrap(),
+                    case["stdout"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn identity_example(name: &str) -> (i32, Value) {
+        identity_examples()
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(_, exit, outcome)| (exit, outcome))
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    fn identity_fixture(command: &str) -> Value {
+        match command {
+            "identity.init" => read_json(IDENTITY_INIT_FIXTURE),
+            "identity.show" => read_json(IDENTITY_SHOW_FIXTURE),
+            other => panic!("no identity fixture for {other}"),
+        }
+    }
+
+    /// Every example, built with the owned constructors: the key is the
+    /// generator point's (secret key 1), as in the other examples.
+    fn identity_cases() -> Vec<(&'static str, Value, i32)> {
+        let key = node();
+        let init_error = |code, persistence| {
+            to_value(Envelope::<IdentityInitData, ()>::error(
+                Some(IDENTITY_INIT),
+                code,
+                Warnings::new(),
+                ExecutionMeta::local(persistence),
+            ))
+            .unwrap()
+        };
+        let show_error = |code| {
+            to_value(Envelope::<IdentityShowData, ()>::error(
+                Some(IDENTITY_SHOW),
+                code,
+                Warnings::new(),
+                ExecutionMeta::read(None),
+            ))
+            .unwrap()
+        };
+        let show = |index| {
+            to_value(Envelope::<_, ()>::ok(
+                IDENTITY_SHOW,
+                IdentityShowData::new(&key, index),
+                Warnings::new(),
+                ExecutionMeta::read(None),
+            ))
+            .unwrap()
+        };
+        vec![
+            (
+                "init_created",
+                to_value(Envelope::<_, ()>::ok(
+                    IDENTITY_INIT,
+                    IdentityInitData::new(&key),
+                    Warnings::new(),
+                    ExecutionMeta::local(Persistence::Applied),
+                ))
+                .unwrap(),
+                0,
+            ),
+            (
+                "init_identity_exists",
+                init_error(ErrorCode::IdentityExists, Persistence::NotAttempted),
+                1,
+            ),
+            (
+                "init_directory_not_created",
+                init_error(ErrorCode::StoreUnwritable, Persistence::NotAttempted),
+                1,
+            ),
+            (
+                "init_store_not_completed",
+                init_error(ErrorCode::StoreUnwritable, Persistence::Failed),
+                1,
+            ),
+            (
+                "init_invalid_arguments",
+                init_error(ErrorCode::InvalidArguments, Persistence::NotApplicable),
+                2,
+            ),
+            ("show_new_identity", show(0), 0),
+            ("show_after_three_trades", show(3), 0),
+            (
+                "show_identity_missing",
+                show_error(ErrorCode::IdentityMissing),
+                1,
+            ),
+            (
+                "show_identity_unreadable",
+                show_error(ErrorCode::IdentityUnreadable),
+                1,
+            ),
+            (
+                "show_invalid_arguments",
+                show_error(ErrorCode::InvalidArguments),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn proposed_identity_examples_conform_to_the_checked_in_schemas() {
+        let examples = identity_examples();
+        assert_eq!(examples.len(), 10);
+        for (name, exit, outcome) in examples {
+            let schema = identity_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                outcome["data"].is_null(),
+                outcome["status"] != "ok",
+                "{name}: data exactly on success"
+            );
+        }
+    }
+
+    #[test]
+    fn identity_examples_are_reproduced_by_the_owned_constructors() {
+        let cases = identity_cases();
+        assert_eq!(cases.len(), identity_examples().len());
+        for (name, built, exit) in cases {
+            let (example_exit, example) = identity_example(name);
+            assert_eq!(built, example, "{name}");
+            assert_eq!(exit, example_exit, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_identity_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "init_created",
+                "an uppercase key",
+                Box::new(|o| {
+                    let key = o["data"]["identity_pubkey"]
+                        .as_str()
+                        .unwrap()
+                        .to_uppercase();
+                    o["data"]["identity_pubkey"] = json!(key);
+                }),
+            ),
+            (
+                "init_created",
+                "a success that wrote nothing",
+                Box::new(|o| o["meta"]["persistence"] = json!("not_attempted")),
+            ),
+            (
+                "init_created",
+                "a publication",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "init_created",
+                "no key",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("identity_pubkey");
+                }),
+            ),
+            (
+                "init_identity_exists",
+                "a code of show",
+                Box::new(|o| o["error"]["code"] = json!("identity_missing")),
+            ),
+            (
+                "init_identity_exists",
+                "an uncertain status",
+                Box::new(|o| o["status"] = json!("uncertain")),
+            ),
+            (
+                "init_identity_exists",
+                "data on an error",
+                Box::new(|o| o["data"] = json!({"identity_pubkey": NODE})),
+            ),
+            (
+                "show_after_three_trades",
+                "a decimal-string index",
+                Box::new(|o| o["data"]["last_trade_index"] = json!("3")),
+            ),
+            (
+                "show_after_three_trades",
+                "a negative index",
+                Box::new(|o| o["data"]["last_trade_index"] = json!(-1)),
+            ),
+            (
+                "show_after_three_trades",
+                "an index past the last address",
+                Box::new(|o| o["data"]["last_trade_index"] = json!(2_147_483_648_i64)),
+            ),
+            (
+                "show_after_three_trades",
+                "no index",
+                Box::new(|o| {
+                    o["data"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("last_trade_index");
+                }),
+            ),
+            (
+                "show_after_three_trades",
+                "a local write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "show_identity_missing",
+                "a code of init",
+                Box::new(|o| o["error"]["code"] = json!("identity_exists")),
+            ),
+        ];
+        for (case, label, edit) in variants {
+            let (_, mut outcome) = identity_example(case);
+            let schema = identity_fixture(outcome["command"].as_str().unwrap());
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
 }
 
 // --- Source boundaries (T050) --------------------------------------------
@@ -3196,15 +3480,14 @@ mod source_boundaries {
     /// A file leaves this list when its migration brings it under the limit.
     const LEGACY_OVERSIZED: [(&str, usize); 4] = [
         ("cli/take_dispute.rs", 403),
-        ("db.rs", 704),
+        ("db.rs", 629),
         ("parser/dms.rs", 1210),
         ("util/messaging.rs", 556),
     ];
 
     /// Function-local production imports that remain as legacy debt.
-    const LEGACY_LOCAL_IMPORTS: [(&str, &str); 4] = [
+    const LEGACY_LOCAL_IMPORTS: [(&str, &str); 3] = [
         ("cli/send_admin_dm_attach.rs", "use reqwest::StatusCode;"),
-        ("db.rs", "use std::os::unix::fs::OpenOptionsExt;"),
         ("util/misc.rs", "use std::os::unix::fs::DirBuilderExt;"),
         ("util/misc.rs", "use std::os::unix::fs::PermissionsExt;"),
     ];

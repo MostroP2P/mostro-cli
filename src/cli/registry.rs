@@ -144,6 +144,18 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "bond.add-invoice",
         json: JsonSupport::Write,
     },
+    // Local only: they publish nothing, so a rejected invocation reports read
+    // stages, as `order sync` does.
+    CommandEntry {
+        path: &["identity", "init"],
+        canonical: "identity.init",
+        json: JsonSupport::Read,
+    },
+    CommandEntry {
+        path: &["identity", "show"],
+        canonical: "identity.show",
+        json: JsonSupport::Read,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

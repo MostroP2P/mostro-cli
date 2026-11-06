@@ -12,6 +12,10 @@ use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
+use crate::outcome::identity::{
+    IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT, INIT_ERRORS,
+    SHOW_COMMAND as IDENTITY_SHOW, SHOW_ERRORS,
+};
 use crate::outcome::info::OrderInfoData;
 use crate::outcome::invoice::{
     BondInvoiceData, OrderInvoiceData, BOND_ERRORS as INVOICE_BOND_ERRORS,
@@ -129,7 +133,8 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
         | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
         | MESSAGE_LIST | ORDER_SYNC => Some(LISTING_CONFIGURATION.to_vec()),
-        SCHEMA_COMMAND => Some(Vec::new()),
+        // Local only: the data directory, which has a default, is all they read.
+        SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW => Some(Vec::new()),
         _ => None,
     }
 }
@@ -287,6 +292,14 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &SYNC_UNCERTAIN,
             &SYNC_WARNINGS,
         )),
+        IDENTITY_INIT => {
+            output_schema::<IdentityInitData, ()>(&OutcomeRules::local(IDENTITY_INIT, &INIT_ERRORS))
+        }
+        IDENTITY_SHOW => output_schema::<IdentityShowData, ()>(&OutcomeRules::read(
+            IDENTITY_SHOW,
+            &SHOW_ERRORS,
+            false,
+        )),
         SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
             SCHEMA_COMMAND,
             &DISCOVERY_ERRORS,
@@ -404,6 +417,22 @@ mod tests {
         let schema = by_name(&data, "schema");
         assert_eq!(schema.cli_path, ["schema"]);
         assert_eq!(schema.required_configuration, Some(vec![]));
+    }
+
+    #[test]
+    fn the_identity_commands_need_no_node_configuration() {
+        let data = discovery(schemas);
+        for name in ["identity.init", "identity.show"] {
+            let command = by_name(&data, name);
+            assert_eq!(command.required_configuration, Some(vec![]), "{name}");
+            assert_eq!(
+                command.output_modes,
+                [PresentationMode::Human, PresentationMode::Json]
+            );
+        }
+        let input = input_schema(&Cli::command(), &["identity", "init"]).unwrap();
+        assert_eq!(input["properties"], json!({}));
+        assert_eq!(input["required"], json!([]));
     }
 
     #[test]

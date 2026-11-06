@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 
 use super::order::{SIDES, STATUSES};
 use super::{ErrorCode, ErrorInfo, ExecutionMeta, WarningCode, Warnings, SCHEMA_VERSION};
+use crate::identity::LAST_TRADE_INDEX;
 
 use super::rules::{code_names, scoped_codes, value};
 pub use super::rules::{OutcomeRules, Stages};
@@ -109,6 +110,12 @@ pub fn max_unique_events(_: &mut SchemaGenerator) -> Schema {
 
 pub fn positive_count(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "integer", "minimum": 1})
+}
+
+/// A trade index as a JSON integer, bounded to the normal BIP32 addresses so
+/// that every JSON consumer reads it exactly.
+pub fn trade_index_integer(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": "integer", "minimum": 0, "maximum": LAST_TRADE_INDEX})
 }
 
 pub fn count(_: &mut SchemaGenerator) -> Schema {

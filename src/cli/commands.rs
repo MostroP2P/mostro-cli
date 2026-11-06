@@ -32,6 +32,13 @@ pub enum Commands {
         #[command(subcommand)]
         command: MessageCommands,
     },
+    /// The local identity: create it or show its public key. Needs no node,
+    /// relay or network
+    #[command(arg_required_else_help = true)]
+    Identity {
+        #[command(subcommand)]
+        command: IdentityCommands,
+    },
     /// Read both sides of the kind-14 chat for an order
     GetDmUser {
         /// Counterparty pubkey the conversation is derived from
@@ -278,6 +285,18 @@ pub enum MessageCommands {
     /// trade, with any invoice to pay as data. Read-only; needs an existing
     /// local identity (it never creates one)
     List(ListMessagesArgs),
+}
+
+#[derive(Subcommand, Clone, Debug)]
+#[clap(rename_all = "lower")]
+pub enum IdentityCommands {
+    /// Create the local identity store (`MCLI_DIR`, else ~/.mcli) with a fresh
+    /// mnemonic, as the first run of a legacy command does. Never contacts a
+    /// relay and never shows the mnemonic; fails if a store already exists
+    Init,
+    /// Show the identity public key and the last trade index of the local
+    /// store. Read-only; never shows the mnemonic
+    Show,
 }
 
 #[derive(Subcommand, Clone)]
