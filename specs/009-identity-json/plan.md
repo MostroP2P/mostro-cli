@@ -19,7 +19,7 @@ lines (`db.rs` shrinks under its frozen cap); imports at the top; tests before c
 
 1. **Creation** (`store/create.rs`): the first-run `SCHEMA`, `create_private_db_file` (moved from `db.rs`, its `OpenOptionsExt` import now at the
    top under `#[cfg(unix)]`), `initialize` (tables, mnemonic, user) and `create_store(dir)` for `identity init`: refuse an existing store or
-   companion file, `ensure_private_dir`, `create_new` 0600, open by file name, `initialize`, close; on failure remove what this run created.
+   companion file, `ensure_private_dir`, `create_new` 0600, open by file name, `initialize`, close; on failure remove the file and its companions.
    `db::connect` calls `create_private_db_file` and `initialize` with its existing prints.
 2. **Reading** (`identity.rs`): `configured_dir`, and `load_identity_from(dir)` returning the key and the last trade index, refusing a WAL without
    its index file and an index outside `0..=LAST_TRADE_INDEX`.

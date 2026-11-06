@@ -20,6 +20,6 @@ regtest; no Git mutation without authorization.
 
 | Requirement | Slice |
 | --- | --- |
-| FR-001 to FR-005 | 1, 2 |
+| FR-001 to FR-005, FR-007 | 1, 2 |
 | FR-006 | 1, 3 |
 | SC-001 to SC-005 | 1, 2, 3 |
