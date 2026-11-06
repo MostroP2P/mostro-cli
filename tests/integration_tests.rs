@@ -1169,6 +1169,7 @@ mod schema_fixtures {
             premium: 2,
             invoice: None,
             expiration_days: 1,
+            expires_in: None,
         })
         .unwrap();
         let mut order = input.small_order(1_792_108_800);
@@ -1191,6 +1192,7 @@ mod schema_fixtures {
             premium: 2,
             invoice: None,
             expiration_days: 1,
+            expires_in: None,
         })
         .unwrap();
         let mut order = input.small_order(1_792_108_800);

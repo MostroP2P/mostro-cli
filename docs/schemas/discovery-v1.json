@@ -5906,6 +5906,10 @@
             "description": "Days until the pending order expires; 0 uses the node's default",
             "type": "string"
           },
+          "expires-in": {
+            "description": "Seconds until the pending order expires (1 to 31536000), instead of --expiration-days; the node lowers it to its own maximum",
+            "type": "string"
+          },
           "fiat-amount": {
             "description": "Fiat amount; with --fiat-amount-max, the range minimum",
             "type": "string"

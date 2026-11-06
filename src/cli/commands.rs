@@ -375,6 +375,10 @@ pub struct NewArgs {
     /// Days until the pending order expires; 0 uses the node's default
     #[arg(long, default_value_t = 0)]
     pub expiration_days: i64,
+    /// Seconds until the pending order expires (1 to 31536000), instead of
+    /// --expiration-days; the node lowers it to its own maximum
+    #[arg(long, value_name = "SECONDS", conflicts_with = "expiration_days")]
+    pub expires_in: Option<i64>,
     /// Create the order without asking (required with --output json)
     #[arg(long)]
     pub yes: bool,

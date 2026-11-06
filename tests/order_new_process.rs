@@ -1018,6 +1018,7 @@ mod operation {
             premium: 2,
             invoice: None,
             expiration_days: 0,
+            expires_in: None,
         })
         .unwrap()
     }

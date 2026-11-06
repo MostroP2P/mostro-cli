@@ -486,6 +486,19 @@ mod tests {
         );
     }
 
+    /// `order new --expires-in` (spec 012) is discoverable, and optional.
+    #[test]
+    fn order_new_lists_expires_in() {
+        let input = input_schema(&Cli::command(), &["order", "new"]).unwrap();
+        let expires = &input["properties"]["expires-in"];
+        assert_eq!(expires["type"], "string");
+        assert!(expires["description"]
+            .as_str()
+            .unwrap()
+            .contains("31536000"));
+        assert!(!strings(&input["required"]).contains(&"expires-in"));
+    }
+
     #[test]
     fn serialization_keeps_every_key_and_null() {
         let value = serde_json::to_value(discovery(schemas)).unwrap();
