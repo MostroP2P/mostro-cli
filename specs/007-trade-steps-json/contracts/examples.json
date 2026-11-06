@@ -125,7 +125,7 @@
         "warnings": [
           {
             "code": "local_status_stale",
-            "message": "The node accepted the invoice but the local order status could not be updated."
+            "message": "The node accepted the request but the local order status could not be updated."
           }
         ]
       }
