@@ -11,7 +11,7 @@ mostro-cli bond add-invoice  --order UUID --invoice BOLT11  [--yes] [--output hu
 ```
 
 `addinvoice`, `addbondinvoice`, `-o`, `--order-id`, `-i` are removed with no alias. Canonical JSON names: `order.add-invoice`, `bond.add-invoice`.
-`bond` is a new command group. Stdin is never read in JSON mode.
+`bond` is a new command group. Stdin is never read in JSON mode. (Amended 2026-11-05 by [spec 010](../../010-invoice-stdin/contracts/cli.md): except the invoice of `--invoice -`, which requires `--yes` in both modes.)
 
 ## Confirmation
 
@@ -31,3 +31,7 @@ One block: the order id and a sentence for the result; for `payment_accepted` th
 ## Stable errors
 
 Those of `order take` plus `order_unknown`.
+
+Amended 2026-11-05 (review of spec 010): an `invalid_arguments` caused by the invoice value itself carries `"reason": "invalid_invoice"`
+(`order take-sell` only among the takes); every other `invalid_arguments` carries no reason. See the
+[command reference](../../../docs/commands.md#machine-output-schema-v1).

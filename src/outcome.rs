@@ -8,7 +8,7 @@
 use schemars::JsonSchema;
 use serde::Serialize;
 
-pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings};
+pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings, INVALID_INVOICE};
 
 mod codes;
 pub mod identity;
@@ -219,6 +219,20 @@ impl<D, S> Envelope<D, S> {
         meta: ExecutionMeta<S>,
     ) -> Self {
         let mut envelope = Self::error(command, ErrorCode::NodeRefused, warnings, meta);
+        envelope.error = envelope.error.take().map(|error| error.with_reason(reason));
+        envelope
+    }
+
+    /// An argument error caused by the value of one input the program checked
+    /// itself, named by `reason` (today only [`INVALID_INVOICE`]). Data is null;
+    /// the message stays the fixed text of `invalid_arguments`.
+    pub fn invalid_input(
+        command: Option<&'static str>,
+        reason: &str,
+        warnings: Warnings,
+        meta: ExecutionMeta<S>,
+    ) -> Self {
+        let mut envelope = Self::error(command, ErrorCode::InvalidArguments, warnings, meta);
         envelope.error = envelope.error.take().map(|error| error.with_reason(reason));
         envelope
     }

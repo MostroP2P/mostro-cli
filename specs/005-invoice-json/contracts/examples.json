@@ -353,6 +353,50 @@
         "status": "error",
         "warnings": []
       }
+    },
+    {
+      "exit_code": 2,
+      "name": "order_invalid_invoice",
+      "stdout": {
+        "command": "order.add-invoice",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid.",
+          "reason": "invalid_invoice"
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "bond_invalid_invoice",
+      "stdout": {
+        "command": "bond.add-invoice",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid.",
+          "reason": "invalid_invoice"
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_attempted",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
     }
   ],
   "contract_status": "proposed"

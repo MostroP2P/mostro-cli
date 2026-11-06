@@ -12,7 +12,7 @@ mostro-cli order take-buy  --order UUID [--amount FIAT] [--yes] [--output human|
 
 `takesell`, `takebuy`, `-o`, `--order-id`, `-i`, `-a` and the positional forms are removed with no alias. Canonical JSON names:
 `order.take-sell` and `order.take-buy`. The side is the side of the order taken: `take-sell` takes a sell order (the taker buys sats),
-`take-buy` takes a buy order (the taker sells sats). Stdin is never read in JSON mode.
+`take-buy` takes a buy order (the taker sells sats). Stdin is never read in JSON mode. (Amended 2026-11-05 by [spec 010](../../010-invoice-stdin/contracts/cli.md): except the invoice of `--invoice -`, which requires `--yes` in both modes.)
 
 ## Confirmation
 
@@ -37,3 +37,7 @@ arguments, invoices or hold invoices.
 Inherited from `order new` (`invalid_arguments`, `configuration_*`, `identity_*`, `protocol_unsupported`, `pow_required`, `request_rejected`,
 `node_refused` + reason, `reply_timeout`, `reply_malformed`, `relay_*`, `order_declined`, `order_not_saved`, `store_unwritable`,
 `internal_error`). None is added.
+
+Amended 2026-11-05 (review of spec 010): an `invalid_arguments` caused by the invoice value itself carries `"reason": "invalid_invoice"`
+(`order take-sell` only among the takes); every other `invalid_arguments` carries no reason. See the
+[command reference](../../../docs/commands.md#machine-output-schema-v1).

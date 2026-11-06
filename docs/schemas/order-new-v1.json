@@ -374,6 +374,32 @@
               "$ref": "#/$defs/ErrorInfo"
             }
           ],
+          "anyOf": [
+            {
+              "properties": {
+                "code": {
+                  "const": "node_refused"
+                }
+              }
+            },
+            {
+              "properties": {
+                "code": {
+                  "const": "invalid_arguments"
+                },
+                "reason": {
+                  "enum": [
+                    "invalid_invoice"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "reason": false
+              }
+            }
+          ],
           "properties": {
             "code": {
               "enum": [
@@ -394,7 +420,7 @@
               ]
             },
             "reason": {
-              "description": "The node's refusal reason; present only on node_refused.",
+              "description": "The node's refusal reason on node_refused; on invalid_arguments, invalid_invoice when the program refused the invoice value itself.",
               "pattern": "^[a-z][a-z0-9_]{0,63}$",
               "type": "string"
             }

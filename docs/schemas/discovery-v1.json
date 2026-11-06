@@ -162,8 +162,9 @@
         "additionalProperties": false,
         "properties": {
           "invoice": {
-            "description": "A BOLT-11 invoice for exactly your share of the slashed bond",
-            "type": "string"
+            "description": "A BOLT-11 invoice for exactly your share of the slashed bond; `-` reads it from standard input: one line, then close standard input; needs --yes, and stdin must not be a terminal",
+            "type": "string",
+            "x-stdin": "-"
           },
           "order": {
             "description": "Id of the order whose bond was slashed",
@@ -401,6 +402,32 @@
                     "$ref": "#/$defs/ErrorInfo"
                   }
                 ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "invalid_arguments"
+                      },
+                      "reason": {
+                        "enum": [
+                          "invalid_invoice"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
+                  }
+                ],
                 "properties": {
                   "code": {
                     "enum": [
@@ -422,7 +449,7 @@
                     ]
                   },
                   "reason": {
-                    "description": "The node's refusal reason; present only on node_refused.",
+                    "description": "The node's refusal reason on node_refused; on invalid_arguments, invalid_invoice when the program refused the invoice value itself.",
                     "pattern": "^[a-z][a-z0-9_]{0,63}$",
                     "type": "string"
                   }
@@ -2322,8 +2349,9 @@
         "additionalProperties": false,
         "properties": {
           "invoice": {
-            "description": "Your invoice (BOLT-11 or Lightning address) for the sats",
-            "type": "string"
+            "description": "Your invoice (BOLT-11 or Lightning address) for the sats; `-` reads it from standard input: one line, then close standard input; needs --yes, and stdin must not be a terminal",
+            "type": "string",
+            "x-stdin": "-"
           },
           "order": {
             "description": "Id of the order the node asked an invoice for",
@@ -2753,6 +2781,32 @@
                     "$ref": "#/$defs/ErrorInfo"
                   }
                 ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "invalid_arguments"
+                      },
+                      "reason": {
+                        "enum": [
+                          "invalid_invoice"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
+                  }
+                ],
                 "properties": {
                   "code": {
                     "enum": [
@@ -2774,7 +2828,7 @@
                     ]
                   },
                   "reason": {
-                    "description": "The node's refusal reason; present only on node_refused.",
+                    "description": "The node's refusal reason on node_refused; on invalid_arguments, invalid_invoice when the program refused the invoice value itself.",
                     "pattern": "^[a-z][a-z0-9_]{0,63}$",
                     "type": "string"
                   }
@@ -3327,6 +3381,20 @@
                 "allOf": [
                   {
                     "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
                   }
                 ],
                 "properties": {
@@ -3955,6 +4023,20 @@
                 "allOf": [
                   {
                     "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
                   }
                 ],
                 "properties": {
@@ -4624,6 +4706,20 @@
                 "allOf": [
                   {
                     "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
                   }
                 ],
                 "properties": {
@@ -5436,8 +5532,9 @@
             "type": "string"
           },
           "invoice": {
-            "description": "Lightning invoice, when the order needs one",
-            "type": "string"
+            "description": "Lightning invoice, when the order needs one; `-` reads it from standard input: one line, then close standard input; needs --yes, and stdin must not be a terminal",
+            "type": "string",
+            "x-stdin": "-"
           },
           "payment-method": {
             "description": "Payment method text",
@@ -5849,6 +5946,32 @@
                     "$ref": "#/$defs/ErrorInfo"
                   }
                 ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "invalid_arguments"
+                      },
+                      "reason": {
+                        "enum": [
+                          "invalid_invoice"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
+                  }
+                ],
                 "properties": {
                   "code": {
                     "enum": [
@@ -5869,7 +5992,7 @@
                     ]
                   },
                   "reason": {
-                    "description": "The node's refusal reason; present only on node_refused.",
+                    "description": "The node's refusal reason on node_refused; on invalid_arguments, invalid_invoice when the program refused the invoice value itself.",
                     "pattern": "^[a-z][a-z0-9_]{0,63}$",
                     "type": "string"
                   }
@@ -6487,6 +6610,20 @@
                 "allOf": [
                   {
                     "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
                   }
                 ],
                 "properties": {
@@ -7944,6 +8081,20 @@
                     "$ref": "#/$defs/ErrorInfo"
                   }
                 ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
+                  }
+                ],
                 "properties": {
                   "code": {
                     "enum": [
@@ -8258,8 +8409,9 @@
             "type": "string"
           },
           "invoice": {
-            "description": "Your invoice (BOLT-11 or Lightning address) for the sats; without one the node asks for it next",
-            "type": "string"
+            "description": "Your invoice (BOLT-11 or Lightning address) for the sats; without one the node asks for it next. `-` reads it from standard input: one line, then close standard input; needs --yes, and stdin must not be a terminal",
+            "type": "string",
+            "x-stdin": "-"
           },
           "order": {
             "description": "Id of the sell order to take",
@@ -8682,6 +8834,32 @@
                     "$ref": "#/$defs/ErrorInfo"
                   }
                 ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "invalid_arguments"
+                      },
+                      "reason": {
+                        "enum": [
+                          "invalid_invoice"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
+                  }
+                ],
                 "properties": {
                   "code": {
                     "enum": [
@@ -8702,7 +8880,7 @@
                     ]
                   },
                   "reason": {
-                    "description": "The node's refusal reason; present only on node_refused.",
+                    "description": "The node's refusal reason on node_refused; on invalid_arguments, invalid_invoice when the program refused the invoice value itself.",
                     "pattern": "^[a-z][a-z0-9_]{0,63}$",
                     "type": "string"
                   }
