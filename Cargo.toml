@@ -100,9 +100,10 @@ sign-commit = true
 # (Default: false) Sign the release tag with GPG?
 sign-tag = true
 # The discovery fixture carries the executable version, and the schema drift
-# test compares it with CARGO_PKG_VERSION, so the bump must update it too.
+# test compares it with CARGO_PKG_VERSION, so the bump must update it too,
+# prereleases included (cargo-release skips replacements for them by default).
 pre-release-replacements = [
-  { file = "docs/schemas/discovery-v1.json", search = '"executable_version": "[^"]+"', replace = '"executable_version": "{{version}}"', exactly = 1 },
+  { file = "docs/schemas/discovery-v1.json", search = '"executable_version": "[^"]+"', replace = '"executable_version": "{{version}}"', exactly = 1, prerelease = true },
 ]
 # Run the tests against the bumped version, then generate CHANGELOG.md before
 # creating the release tag (the commit only happens during an actual release)
