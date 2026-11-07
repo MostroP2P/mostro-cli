@@ -90,7 +90,8 @@ prost = "0.14.1"
 publish = false
 # (Default: true) Set to false to prevent automatically pushing commits and tags to the Git remote.
 push = true
-# (Default: true) Run `cargo test` before release? Highly recommended.
+# (Default: true) Build the crate before `cargo publish`. It does not run the
+# tests, and with `publish = false` it does nothing; the hook below runs them.
 verify = true
 # (Default: true) Create a Git tag for the release (e.g., v0.2.1)? You usually want this.
 tag = true
@@ -98,11 +99,17 @@ tag = true
 sign-commit = true
 # (Default: false) Sign the release tag with GPG?
 sign-tag = true
-# Generate CHANGELOG.md before creating the release tag (only during actual release, not dry-run)
+# The discovery fixture carries the executable version, and the schema drift
+# test compares it with CARGO_PKG_VERSION, so the bump must update it too.
+pre-release-replacements = [
+  { file = "docs/schemas/discovery-v1.json", search = '"executable_version": "[^"]+"', replace = '"executable_version": "{{version}}"', exactly = 1 },
+]
+# Run the tests against the bumped version, then generate CHANGELOG.md before
+# creating the release tag (the commit only happens during an actual release)
 pre-release-hook = [
   "sh",
   "-c",
-  "cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && if [ -n \"${GITHUB_TOKEN:-}\" ]; then GITHUB_TOKEN=\"$GITHUB_TOKEN\" git cliff --unreleased --github-repo MostroP2P/mostro-cli -o CHANGELOG.md --tag {{version}}; else git cliff --unreleased -o CHANGELOG.md --tag {{version}}; fi && if [ \"$DRY_RUN\" != \"true\" ]; then git diff --quiet CHANGELOG.md || git add CHANGELOG.md && git commit -m \"Update CHANGELOG for version {{version}}\"; else echo \"DRY RUN: Skip git add and commit\"; fi",
+  "cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked && if [ -n \"${GITHUB_TOKEN:-}\" ]; then GITHUB_TOKEN=\"$GITHUB_TOKEN\" git cliff --unreleased --github-repo MostroP2P/mostro-cli -o CHANGELOG.md --tag {{version}}; else git cliff --unreleased -o CHANGELOG.md --tag {{version}}; fi && if [ \"$DRY_RUN\" != \"true\" ]; then git diff --quiet CHANGELOG.md || git add CHANGELOG.md && git commit -m \"Update CHANGELOG for version {{version}}\"; else echo \"DRY RUN: Skip git add and commit\"; fi",
 ]
 
 [dev-dependencies]
