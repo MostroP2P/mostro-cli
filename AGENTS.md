@@ -1,5 +1,9 @@
 # Mostro CLI Development Rules
 
+Using mostro-cli rather than changing it? Read the [mostro-cli book](https://mostro.network/mostro-cli-book/),
+starting with its [guide for AI agents](https://mostro.network/mostro-cli-book/wrapper/ai_agents.html), and ask the binary with
+`mostro-cli --output json schema`. The rules below are for changing this repository.
+
 Read the [constitution](.specify/memory/constitution.md) before changing code or
 specifications. It is the authoritative source for coding standards, safety,
 verification gates, and the `develop` workflow. Do not duplicate those rules here.
