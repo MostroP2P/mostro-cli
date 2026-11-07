@@ -12,7 +12,7 @@ A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P
 
 > **New to Mostro?** Mostro is a non-custodial P2P exchange protocol. Sellers lock sats in a Lightning hold invoice, buyers send fiat directly to sellers off-chain, and the Mostro daemon coordinates the trade over encrypted Nostr direct messages. The CLI is one of several clients (alongside mobile apps). See the [Mostro documentation](https://mostro.network) for protocol details.
 
-> **Driving the CLI from a program or an AI agent?** The [mostro-cli book](https://mostro.network/mostro-cli-book/) ([source](https://github.com/MostroP2P/mostro-cli-book)) documents the JSON interface: the outcome envelope, every JSON command with examples, the error and warning codes, the trade flows, sample wrappers and a [guide for AI agents](https://mostro.network/mostro-cli-book/wrapper/ai_agents.html). The installed binary describes itself with `mostro-cli --output json schema`, which needs no node, identity or network.
+> **Driving the CLI from a program or an AI agent?** The [mostro-cli book](https://mostro.network/mostro-cli-book/) ([source](https://github.com/MostroP2P/mostro-cli-book)) documents the JSON interface: the outcome envelope, every JSON command with examples, the error and warning codes, the trade flows, sample wrappers and a [guide for AI agents](https://mostro.network/mostro-cli-book/wrapper/ai_agents.html). The installed binary describes itself with `mostro-cli --output json schema` (0.17.0 or later; 0.16.3 and earlier have no JSON interface), which needs no node, identity or network.
 
 ---
 
