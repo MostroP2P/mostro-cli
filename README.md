@@ -12,6 +12,8 @@ A command-line client for [Mostro](https://github.com/MostroP2P/mostro), the P2P
 
 > **New to Mostro?** Mostro is a non-custodial P2P exchange protocol. Sellers lock sats in a Lightning hold invoice, buyers send fiat directly to sellers off-chain, and the Mostro daemon coordinates the trade over encrypted Nostr direct messages. The CLI is one of several clients (alongside mobile apps). See the [Mostro documentation](https://mostro.network) for protocol details.
 
+> **Driving the CLI from a program or an AI agent?** The [mostro-cli book](https://mostro.network/mostro-cli-book/) ([source](https://github.com/MostroP2P/mostro-cli-book)) documents the JSON interface: the outcome envelope, every JSON command with examples, the error and warning codes, the trade flows, sample wrappers and a [guide for AI agents](https://mostro.network/mostro-cli-book/wrapper/ai_agents.html). The installed binary describes itself with `mostro-cli --output json schema`, which needs no node, identity or network.
+
 ---
 
 ## Table of Contents
@@ -709,6 +711,7 @@ mostro-cli --output json schema    # the same data in the standard outcome
 - An empty order book is a success with an empty list. A relay that fails, disconnects or stays silent is an error with a stable code, never an empty success; the read is bounded and never retried.
 - Amounts and the event time are decimal strings, so 64-bit values survive any JSON consumer. `created_at` is the selected event's UTC time, or `null` if it is not representable.
 - Exit codes: `0` success, `2` invalid arguments or unsupported JSON, `1` configuration, relay or internal errors. `--help` and `--version` always print text and exit 0.
+- The [mostro-cli book](https://mostro.network/mostro-cli-book/) documents each of these commands with its fields, codes and examples, the trade flows and a [guide for AI agents](https://mostro.network/mostro-cli-book/wrapper/ai_agents.html).
 - The generated command reference is [docs/schemas/discovery-v1.json](docs/schemas/discovery-v1.json) and the listing result schema is [docs/schemas/order-list-v1.json](docs/schemas/order-list-v1.json). Field, limit, error and versioning details are in [docs/commands.md](docs/commands.md#machine-output-schema-v1). The output schema version is independent of the CLI version.
 
 **Migrating from `listorders`.** `listorders`, its `-k`, `-c` and `-s` flags and the root `--mostropubkey` spelling were removed without aliases. Use `order list --side <buy|sell> --currency <code> --status <status>` and `--mostro-pubkey` (or `-m`) before the command word.
