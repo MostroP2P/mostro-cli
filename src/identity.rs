@@ -284,14 +284,26 @@ mod tests {
         valid_store_in(dir, SqliteJournalMode::Delete).await
     }
 
+    /// A store at rest in `mode`. A WAL store is written in rollback mode and
+    /// then marked WAL in its header (bytes 18 and 19 set to 2), the state a
+    /// WAL writer leaves after a clean close. Closing a real WAL writer only
+    /// removes its `-wal` and `-shm` files when SQLite's close-time checkpoint
+    /// gets an exclusive lock, and under a loaded CI run it once did not.
     async fn valid_store_in(dir: &Dir, mode: SqliteJournalMode) -> Keys {
-        let pool = store_in(dir, USERS, mode).await;
+        let wal = matches!(mode, SqliteJournalMode::Wal);
+        let seed_mode = if wal { SqliteJournalMode::Delete } else { mode };
+        let pool = store_in(dir, USERS, seed_mode).await;
         let mnemonic = bip39::Mnemonic::generate(bip39::WordCount::Words12)
             .unwrap()
             .to_string();
         User::new(mnemonic, &pool).await.unwrap();
         let keys = User::get_identity_keys(&pool).await.unwrap();
         pool.close().await;
+        if wal {
+            let mut bytes = fs::read(dir.db()).unwrap();
+            bytes[18..20].copy_from_slice(&[2, 2]);
+            fs::write(dir.db(), bytes).unwrap();
+        }
         keys
     }
 
