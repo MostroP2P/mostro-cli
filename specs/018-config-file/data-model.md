@@ -42,13 +42,13 @@ exactly one line `hint: <path>: <text>`; in human mode it is followed by `error:
 
 ## Typed core (unit 2) of the proposed commands (units 3 and 4; the new code and keyword await the maintainer's approval)
 
-The `config set` core is in the code since unit 2 and emitted by no command yet (examples in
+The `config set` core is in the code since unit 2 and emitted by `config set` since unit 3 (examples in
 [contracts/examples.json](contracts/examples.json)); the `config show` core comes with unit 4.
 
 - `ConfigData` (data of `config.set` and `config.show`): `path`, `mostro_pubkey`, `relays`, `pow`, `transport`, each a string or null,
   the values as stored in the file.
 - `configuration_unwritable` (exit 1, "The configuration file cannot be written, so nothing was changed."): `config.set` only, persistence
   `not_attempted` (no data directory, or the directory, the lock or the temporary file cannot be created) or `failed` (a write or rename
-  failed; the old file is intact).
+  failed). The old file is intact either way, but the directory may already be created or made 0700, with an empty `.config.lock`.
 - Discovery keyword `x-positional: N` on input properties passed as positional arguments: Clap's 0-based position, hidden positionals
   counted (additive within v1).

@@ -1,6 +1,6 @@
 # Implementation Plan: Node Settings From A Config File
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 and 2 implemented with Linux evidence; units 3 and 4 proposed.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 3 implemented with Linux evidence; unit 4 proposed.
 
 ## Units
 
@@ -13,8 +13,8 @@
 
 This split is a delivery proposal of the workflow, not a maintainer decision. Each unit stays at or below 1500 changed lines (`git diff --shortstat <base>...HEAD`, fixtures, specs and tests included). Fallbacks move
 whole pieces with their tests: unit 1 moves the `config set` and `config show` contract sections to unit 2; unit 2 moved the `config show`
-core (`config_show`, its rules and examples) to unit 4 after its review fixes; unit 3 moves the set-then-list round-trip test, then the
-guidance rewording, to unit 4.
+core (`config_show`, its rules and examples) to unit 4 after its review fixes; unit 3 moved the set-then-list round-trip test and then
+the guidance rewording to unit 4, since its two generated fixtures alone take about 770 lines.
 
 ## Unit 1 design
 

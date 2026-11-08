@@ -9,13 +9,15 @@ and exits 1 before `mcli.db` exists); the local commands (`schema`, `identity in
 `order mine`) and the RPC commands never read it. Discovery's `required_configuration` names the settings each command requires, by
 their variable names, which are also the file's keys.
 
-## `config set` (proposed, unit 3)
+## `config set` (implemented, unit 3)
 
 ```text
 mostro-cli config set <mostro-pubkey|relays|pow|transport> <VALUE> [--output human|json]
 ```
 
-Canonical name `config.set`; needs no node, relay, identity, stdin or `--yes`, and connects to nothing. The value is trimmed and checked
+Canonical name `config.set`; needs no node, relay, identity, stdin or `--yes`, and connects to nothing. `key` and `value` are
+positional (`x-positional` 0 and 1 in discovery); another key is an argument error (`invalid_arguments`, exit 2), and `--` goes before a
+value that starts with `-`. The value is trimmed and checked
 like the file's (a refusal is `invalid_arguments`, exit 2, never echoed). The existing file is read strictly; a refused or unreachable
 one is left untouched (`configuration_invalid` plus the hint). Otherwise the data directory is created one level deep or made owner-only
 (0700), and while an exclusive lock on `.config.lock` there (owner-only, never removed) is held, so that `config set` calls made at once
@@ -38,7 +40,7 @@ file is read strictly, so one it cannot reach is `configuration_invalid` with th
 Errors: `invalid_arguments`, `configuration_invalid`, `internal_error`. The values shown are only ones the commands accept (a key, relay
 URLs, a number, `nip44`); this is not a secrecy promise.
 
-## Human output (proposed)
+## Human output (implemented for `config set`)
 
 `Config file: <path>`, then one `<NAME>: <value>` or `<NAME>: not set` line per setting; `--verbose` adds `verbose: config.set ok` or
 `verbose: config.show ok`.
