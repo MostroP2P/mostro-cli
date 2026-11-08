@@ -11558,7 +11558,7 @@
                 ]
               },
               "required_configuration": {
-                "description": "Environment variable names read; `null` when not modeled.",
+                "description": "Names of the required settings, each from its root option, its\nenvironment variable or the config-file key of that name; `null` when\nnot modeled.",
                 "items": {
                   "type": "string"
                 },

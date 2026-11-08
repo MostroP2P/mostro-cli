@@ -54,10 +54,11 @@ fn get_env_var(cli: &Cli) {
 
 /// Shared footnote for missing `MOSTRO_PUBKEY` / `RELAYS` errors.
 ///
-/// The CLI never reads a config file; `~/.config/mostro` is a user-managed
-/// convenience (see README Suggested setup), not something the binary creates.
+/// The legacy commands do not read the config file of the data directory
+/// (spec 018); `~/.config/mostro` is a user-managed convenience (see README
+/// Suggested setup), not something the binary creates.
 const ENV_FILE_HINT: &str = "\
-mostro-cli does not read any config file, and does not create ~/.config/mostro.\n\
+This command does not read any config file, and does not create ~/.config/mostro.\n\
 To avoid re-exporting every time, create that directory yourself, put the\n\
 exports in a file (e.g. ~/.config/mostro/env.sh, chmod 600) and `source` it\n\
 before running the CLI.\n\
@@ -239,7 +240,10 @@ mod tests {
             assert!(err.contains("--mostro-pubkey <npub>"), "{err}");
             assert!(err.contains("(or -m)"), "{err}");
             assert!(err.contains("export MOSTRO_PUBKEY=<npub>"), "{err}");
-            assert!(err.contains("does not read any config file"), "{err}");
+            assert!(
+                err.contains("This command does not read any config file"),
+                "{err}"
+            );
             assert!(err.contains("does not create ~/.config/mostro"), "{err}");
             assert!(err.contains("chmod 600"), "{err}");
             assert!(
@@ -257,7 +261,10 @@ mod tests {
             assert!(err.contains("--relays <relay[,relay...]>"), "{err}");
             assert!(err.contains("(or -r)"), "{err}");
             assert!(err.contains("export RELAYS=<relay[,relay...]>"), "{err}");
-            assert!(err.contains("does not read any config file"), "{err}");
+            assert!(
+                err.contains("This command does not read any config file"),
+                "{err}"
+            );
             assert!(err.contains("does not create ~/.config/mostro"), "{err}");
             assert!(
                 err.contains("https://github.com/MostroP2P/mostro-cli#suggested-setup"),

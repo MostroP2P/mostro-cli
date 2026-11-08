@@ -4318,7 +4318,7 @@ mod source_boundaries {
 
     /// Modules that must stay free of I/O, clients and storage, and what is
     /// forbidden in each.
-    const NO_IO: [(&str, &[&str]); 7] = [
+    const NO_IO: [(&str, &[&str]); 8] = [
         (
             "parse_human/",
             &[
@@ -4425,6 +4425,23 @@ mod source_boundaries {
                 "crate::db",
                 "crate::msg",
                 "crate::util",
+            ],
+        ),
+        (
+            "settings.rs",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "std::io",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
             ],
         ),
         (
