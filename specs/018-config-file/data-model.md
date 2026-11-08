@@ -12,10 +12,10 @@ POW=0
 TRANSPORT=nip44
 ```
 
-| Key | Accepted value | Read by (unit 1) |
+| Key | Accepted value | Read by |
 | --- | --- | --- |
-| `MOSTRO_PUBKEY` | a public key, hex or npub | every JSON-capable networked command |
-| `RELAYS` | comma-separated relay URLs (`ws://` or `wss://`), at least one | every JSON-capable networked command |
+| `MOSTRO_PUBKEY` | a public key, hex or npub | every networked command |
+| `RELAYS` | comma-separated relay URLs (`ws://` or `wss://`), at least one | every networked command |
 | `POW` | an integer 0 to 255 (the floor of the work mined) | the commands that send a request |
 | `TRANSPORT` | `nip44` (skips the protocol check, as `-t nip44` does) | the commands that send a request |
 
@@ -40,11 +40,15 @@ TRANSPORT=nip44
 On the JSON-capable path a refusal is `configuration_invalid` (exit 1, stages unchanged: nothing published or written) and stderr has
 exactly one line `hint: <path>: <text>`; in human mode it is followed by `error: The node configuration is invalid.`
 
-## Proposed (units 2 to 4; the new code and keyword await the maintainer's approval)
+## Typed core (unit 2) of the proposed commands (units 3 and 4; the new code and keyword await the maintainer's approval)
+
+The `config set` core is in the code since unit 2 and emitted by no command yet (examples in
+[contracts/examples.json](contracts/examples.json)); the `config show` core comes with unit 4.
 
 - `ConfigData` (data of `config.set` and `config.show`): `path`, `mostro_pubkey`, `relays`, `pow`, `transport`, each a string or null,
   the values as stored in the file.
 - `configuration_unwritable` (exit 1, "The configuration file cannot be written, so nothing was changed."): `config.set` only, persistence
-  `not_attempted` (no data directory, or the directory or temporary file cannot be created) or `failed` (a write or rename failed; the old
-  file is intact).
-- Discovery keyword `x-positional: N` on input properties passed as positional arguments (additive within v1).
+  `not_attempted` (no data directory, or the directory, the lock or the temporary file cannot be created) or `failed` (a write or rename
+  failed; the old file is intact).
+- Discovery keyword `x-positional: N` on input properties passed as positional arguments: Clap's 0-based position, hidden positionals
+  counted (additive within v1).

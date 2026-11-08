@@ -1,10 +1,11 @@
 # CLI Contract: Node Settings From A Config File
 
-## Reading (implemented for the JSON-capable commands; proposed for the human-only ones)
+## Reading (implemented)
 
 No new command or option. Each node setting comes from its root option (even empty), else its environment variable when set (even
 empty), else `config` in the data directory. The file format, keys and refusals are in the [data model](../data-model.md). A refused file
-is `configuration_invalid` with one stderr `hint: <path>: <problem>`; the local commands (`schema`, `identity init`, `identity show`,
+is `configuration_invalid` with one stderr `hint: <path>: <problem>` (a human-only command prints `Invalid config file <path>: <problem>`
+and exits 1 before `mcli.db` exists); the local commands (`schema`, `identity init`, `identity show`,
 `order mine`) and the RPC commands never read it. Discovery's `required_configuration` names the settings each command requires, by
 their variable names, which are also the file's keys.
 
@@ -16,10 +17,12 @@ mostro-cli config set <mostro-pubkey|relays|pow|transport> <VALUE> [--output hum
 
 Canonical name `config.set`; needs no node, relay, identity, stdin or `--yes`, and connects to nothing. The value is trimmed and checked
 like the file's (a refusal is `invalid_arguments`, exit 2, never echoed). The existing file is read strictly; a refused or unreachable
-one is left untouched (`configuration_invalid` plus the hint). Otherwise the file is rewritten atomically as `NAME=value` lines in fixed
-order, keeping the other keys' values and dropping comments, `export`, quotes, a byte order mark and repeated lines: the data directory is
-created one level deep or made owner-only (0700), a stale `.config.<pid>.tmp` of this process id is removed, a temporary owner-only (0600)
-file is written, synced and renamed over `config` (a symlinked `config` becomes a regular file). Data: `ConfigData` after the write.
+one is left untouched (`configuration_invalid` plus the hint). Otherwise the data directory is created one level deep or made owner-only
+(0700), and while an exclusive lock on `.config.lock` there (owner-only, never removed) is held, so that `config set` calls made at once
+all land, the file is read again and rewritten atomically as `NAME=value` lines in fixed order, keeping the other keys' values and
+dropping comments, `export`, quotes, a byte order mark and repeated lines: a stale `.config.<pid>.tmp` of this process id is removed, a
+temporary owner-only (0600) file is written, synced and renamed over `config` (a symlinked `config` becomes a regular file). Data:
+`ConfigData` after the write.
 Stages: `not_applicable`, `not_applicable`, persistence `applied`. Errors: `invalid_arguments`, `configuration_invalid`,
 `configuration_unwritable` (a proposed new code, awaiting approval), `internal_error`.
 

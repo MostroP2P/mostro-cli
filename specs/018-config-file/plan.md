@@ -1,19 +1,20 @@
 # Implementation Plan: Node Settings From A Config File
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Unit 1 implemented with Linux evidence; units 2 to 4 proposed.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 and 2 implemented with Linux evidence; units 3 and 4 proposed.
 
 ## Units
 
 | Unit | Branch | Content |
 | --- | --- | --- |
 | 1 | `feat/config-file-read` | `settings` (format, checks, precedence) and `settings/file` (both reads); the JSON-capable networked commands read the file |
-| 2 | `feat/config-file-legacy` | the human-only commands read it (`settings::var`, installed once by `init_context` before `mcli.db`); the typed core of both commands: `write_config`, `outcome/config.rs`, `commands/config.rs`, `parse_human/config.rs`, `configuration_unwritable` and `x-positional` (both proposed, see Proposals) |
+| 2 | `feat/config-file-legacy` | the human-only commands read it (`settings::var`, installed once by `init_context` before `mcli.db`); the typed core of `config set`: `update_config` (under a lock), `outcome/config.rs`, `commands/config.rs`, `parse_human/config.rs`, `configuration_unwritable` and `x-positional` (both proposed, see Proposals) |
 | 3 | `feat/config-set` | `config set`: grammar, dispatch, registry, schema fixture, guidance |
-| 4 | `feat/config-show` | `config show`: grammar, dispatch, registry, schema fixture; the spec becomes implemented |
+| 4 | `feat/config-show` | `config show`: its typed core (moved from unit 2, see below), grammar, dispatch, registry, schema fixture; the spec becomes implemented |
 
 This split is a delivery proposal of the workflow, not a maintainer decision. Each unit stays at or below 1500 changed lines (`git diff --shortstat <base>...HEAD`, fixtures, specs and tests included). Fallbacks move
-whole pieces with their tests: unit 1 moves the `config set` and `config show` contract sections to unit 2; unit 2 moves the `config show`
-core back to unit 4; unit 3 moves the set-then-list round-trip test, then the guidance rewording, to unit 4.
+whole pieces with their tests: unit 1 moves the `config set` and `config show` contract sections to unit 2; unit 2 moved the `config show`
+core (`config_show`, its rules and examples) to unit 4 after its review fixes; unit 3 moves the set-then-list round-trip test, then the
+guidance rewording, to unit 4.
 
 ## Unit 1 design
 

@@ -2,13 +2,14 @@
 
 **Feature**: `018-config-file`
 
-**Working Branch**: `feat/config-file-read`, the first of four stacked branches (feature directory naming does not change Git branches)
+**Working Branch**: `feat/config-file-read` and `feat/config-file-legacy`, the first two of four stacked branches (feature directory naming does not change Git branches)
 
 **Created**: 2026-11-08
 
-**Status**: Unit 1 implemented and verified on Linux against loopback relays, the scripted node and isolated sandboxes (see
-`tests/TEST_SUMMARY.md`): the JSON-capable networked commands read the file. Proposed: the human-only commands reading it (unit 2),
-`config set` (unit 3) and `config show` (unit 4). Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Units 1 and 2 implemented and verified on Linux against loopback relays, the scripted node and isolated sandboxes (see
+`tests/TEST_SUMMARY.md`): every networked command, JSON-capable or human-only, reads the file, and the typed core of `config set`
+(with its proposed examples in [contracts/examples.json](contracts/examples.json)) is in place. Proposed: the `config set` (unit 3) and
+`config show` (unit 4) commands. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: issue #244. An agent drove a whole trade with mostro-cli 0.17.0 and repeated `-m <npub> -r <relays> -p <bits>` on every
 call: coding agents and MCP hosts run each command in a fresh shell, so an `export` does not survive from one call to the next. The node
@@ -38,8 +39,8 @@ see [plan.md](plan.md).
   normally `%USERPROFILE%\.mcli\config`). With neither there is no file.
 - **FR-004 Format**: UTF-8 text, LF or CRLF, one leading byte order mark (U+FEFF) ignored. Blank lines and lines starting with `#` (after
   leading whitespace) are skipped; an `export` followed by whitespace is dropped; a line is split at its first `=`, key and value are
-  trimmed and one pair of matching `"` or `'` quotes around the whole value is removed. No inline comments, escapes or expansion. An empty
-  value means unset; a repeated key keeps its last line. The README `env.sh` parses as is.
+  trimmed, one pair of matching `"` or `'` quotes around the whole value is removed and the value is trimmed again. No inline comments,
+  escapes or expansion. An empty value means unset; a repeated key keeps its last line. The README `env.sh` parses as is.
 - **FR-005 Keys and values**: the keys are exactly `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT`. The whole file is refused on another
   key, a line without `=`, a value its setting refuses (a public key in hex or npub; at least one relay URL, each `ws://` or `wss://`; an
   integer 0 to 255; exactly `nip44`; a control character anywhere), or a `config` that is not a regular file, cannot be read or is not
@@ -55,9 +56,9 @@ see [plan.md](plan.md).
   `order sync` read the file first. A refused file is `configuration_invalid` (exit 1, nothing sent), even when the options supply every
   value, with one stderr line `hint: <path>: <problem>` in both modes. `schema`, `identity init`, `identity show` and `order mine` never
   read it.
-- **FR-008 Legacy commands** (unit 2, proposed): the same precedence through one lookup; a refused file stops them before `mcli.db` exists
-  with `Invalid config file <path>: <problem>` and exit 1. The RPC commands never read it. Until unit 2 they do not read the file, and the
-  docs say so.
+- **FR-008 Legacy commands** (unit 2): the same precedence through one lookup (`settings::var`: a variable that is not present is
+  answered by the file, whose values never enter the environment); a refused file stops them before `mcli.db` exists or `ADMIN_NSEC` is
+  read, with `Invalid config file <path>: <problem>` and exit 1. The RPC commands never read it.
 - **FR-009 `config set <key> <value>`** (unit 3, proposed), JSON `config.set`: see [contracts/cli.md](contracts/cli.md).
 - **FR-010 `config show`** (unit 4, proposed), JSON `config.show`: see [contracts/cli.md](contracts/cli.md).
 - **FR-011 Windows**: the same location rules with the profile folder, no POSIX modes; verified only by CI after the branches are pushed.
