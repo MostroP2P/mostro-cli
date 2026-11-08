@@ -8,7 +8,9 @@
 use schemars::JsonSchema;
 use serde::Serialize;
 
-pub use codes::{ErrorCode, ErrorInfo, Warning, WarningCode, Warnings, INVALID_INVOICE};
+pub use codes::{
+    ErrorCode, ErrorInfo, PowShortfall, Warning, WarningCode, Warnings, INVALID_INVOICE,
+};
 
 mod codes;
 pub mod dispute;
@@ -238,6 +240,20 @@ impl<D, S> Envelope<D, S> {
         let mut envelope = Self::error(command, ErrorCode::InvalidArguments, warnings, meta);
         envelope.error = envelope.error.take().map(|error| error.with_reason(reason));
         envelope
+    }
+
+    /// Attach the work numbers of a `pow_required` error; any other outcome,
+    /// or `None`, is returned unchanged.
+    pub fn with_work(mut self, work: Option<PowShortfall>) -> Self {
+        if let Some(work) = work {
+            self.error = self.error.take().map(|error| error.with_work(work));
+        }
+        self
+    }
+
+    /// The work numbers, only on `pow_required`.
+    pub fn work(&self) -> Option<PowShortfall> {
+        self.error.as_ref().and_then(ErrorInfo::work)
     }
 
     /// Record `extra` as well, still one warning per code.

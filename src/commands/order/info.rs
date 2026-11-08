@@ -8,7 +8,9 @@ use mostro_core::prelude::{Action, CantDoReason, Message, Payload};
 use nostr_sdk::prelude::Keys;
 use uuid::Uuid;
 
-use crate::msg::{exchange, ExchangeFailure, ExchangeLimits, Expect, Outbound, PublicReadConfig};
+use crate::msg::{
+    exchange, ExchangeFailure, ExchangeLimits, Expect, Lane, Outbound, PublicReadConfig,
+};
 use crate::outcome::info::{OrderInfoData, OrderInfoInput};
 use crate::outcome::{DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Publication, Warnings};
 
@@ -45,6 +47,7 @@ pub async fn order_info(
         recipient: config.mostro_pubkey(),
         message: request,
         pow: options.pow,
+        lane: Lane::FirstContact,
         check_protocol: options.check_protocol,
     };
     let expect = Expect {
@@ -68,6 +71,7 @@ fn failed(failure: &ExchangeFailure) -> InfoOutcome {
         failure.warnings().clone(),
         ExecutionMeta::request(failure.publication(), failure.daemon_acceptance()),
     )
+    .with_work(failure.work())
 }
 
 /// The outcome for the node's reply. Only `not_found` is turned into a

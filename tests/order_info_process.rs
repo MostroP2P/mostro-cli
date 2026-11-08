@@ -11,9 +11,10 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use mostro_client::msg::{
-    exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig,
+    exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Lane, Outbound, PublicReadConfig,
+    AUTO_POW_CEILING,
 };
-use mostro_client::outcome::{DaemonAcceptance, ErrorCode, Publication};
+use mostro_client::outcome::{DaemonAcceptance, ErrorCode, PowShortfall, Publication};
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use mostro_core::prelude::{
     unwrap_incoming, wrap_message_with, Action, Message, Payload, Transport, WrapOptions,
@@ -355,6 +356,7 @@ fn outbound(world: &World, ids: Vec<Uuid>) -> Outbound<'_> {
         recipient: world.config.mostro_pubkey(),
         message: orders_request(world, ids),
         pow: 0,
+        lane: Lane::FirstContact,
         check_protocol: true,
     }
 }
@@ -599,21 +601,62 @@ async fn the_node_info_decides_protocol_and_work_before_anything_is_published() 
             .is_ok()
     );
 
-    // More work expected than configured: fail early; enough work: proceed.
+    // More work expected than configured: mined on its own.
     let world = self::world(
         |node| Some(info_event(node, Some(2), Some(12), None, None)),
+        always_orders(Vec::new()),
+    )
+    .await;
+    assert!(run(&world, vec![Uuid::new_v4()]).await.is_ok());
+    assert!(world.fake.received()[0].work >= 12);
+
+    // More than the program mines on its own: refused before publishing,
+    // naming what the node asks and what is configured.
+    let world = self::world(
+        |node| {
+            Some(info_event(
+                node,
+                Some(2),
+                Some(AUTO_POW_CEILING + 1),
+                None,
+                None,
+            ))
+        },
         always_orders(Vec::new()),
     )
     .await;
     let failed = failure(run(&world, vec![Uuid::new_v4()]).await);
     assert_eq!(failed.code(), ErrorCode::PowRequired);
     assert_eq!(failed.publication(), Publication::NotAttempted);
+    assert_eq!(
+        failed.work(),
+        Some(PowShortfall::new(AUTO_POW_CEILING + 1, 0))
+    );
     assert!(world.fake.received().is_empty());
-    let mut mined = outbound(&world, vec![Uuid::new_v4()]);
-    mined.pow = 12;
-    assert!(exchange(&world.config, mined, &expect_orders(), &limits())
-        .await
-        .is_ok());
+}
+
+#[tokio::test]
+async fn the_work_mined_follows_the_lane_and_never_drops_below_the_floor() {
+    let world = world(
+        |node| Some(info_event(node, Some(2), Some(4), Some(10), None)),
+        always_orders(Vec::new()),
+    )
+    .await;
+    let (expect, limits) = (expect_orders(), limits());
+    let send = |outbound| exchange(&world.config, outbound, &expect, &limits);
+    // A first contact clears the stiffer lane.
+    assert!(run(&world, vec![Uuid::new_v4()]).await.is_ok());
+    // A known key needs only the base one.
+    let mut known = outbound(&world, vec![Uuid::new_v4()]);
+    known.lane = Lane::Known;
+    assert!(send(known).await.is_ok());
+    // A floor above the advertisement is mined as given.
+    let mut floor = outbound(&world, vec![Uuid::new_v4()]);
+    floor.pow = 14;
+    assert!(send(floor).await.is_ok());
+    let work: Vec<u8> = world.fake.received().iter().map(|r| r.work).collect();
+    assert_eq!(work.len(), 3);
+    assert!(work[0] >= 10 && work[1] >= 4 && work[2] >= 14, "{work:?}");
 }
 
 #[tokio::test]
@@ -624,15 +667,19 @@ async fn a_missing_info_event_is_not_an_error() {
 
 #[tokio::test]
 async fn work_expected_on_a_first_contact_explains_a_timeout() {
-    // Not checked before sending (the identity key may not be a first contact),
-    // but a silent node plus this advertisement means the request was dropped.
+    // A known-lane request is mined for `pow` only; if the node did not know
+    // the key after all, its silence plus a first-contact advertisement above
+    // the work sent means the request was dropped.
     let world = world(
         |node| Some(info_event(node, Some(2), Some(0), Some(16), None)),
         silent(),
     )
     .await;
-    let failed = failure(run(&world, vec![Uuid::new_v4()]).await);
+    let mut known = outbound(&world, vec![Uuid::new_v4()]);
+    known.lane = Lane::Known;
+    let failed = failure(exchange(&world.config, known, &expect_orders(), &limits()).await);
     assert_eq!(failed.code(), ErrorCode::PowRequired);
+    assert_eq!(failed.work(), Some(PowShortfall::new(16, 0)));
     assert_eq!(
         (failed.publication(), failed.daemon_acceptance()),
         (Publication::Published, DaemonAcceptance::Unknown)
@@ -666,6 +713,7 @@ async fn a_relay_that_rejects_the_request_leaves_nothing_published() {
         recipient: node.public_key(),
         message: request,
         pow: 0,
+        lane: Lane::FirstContact,
         check_protocol: true,
     };
 
@@ -704,6 +752,7 @@ async fn an_unreachable_relay_and_a_closed_subscription_are_told_apart() {
         recipient: node.public_key(),
         message: request,
         pow: 0,
+        lane: Lane::FirstContact,
         check_protocol: true,
     };
     let failed = failure(exchange(&config, unreachable, &expect_orders(), &limits()).await);
@@ -730,6 +779,7 @@ async fn an_unreachable_relay_and_a_closed_subscription_are_told_apart() {
         recipient: node.public_key(),
         message: request,
         pow: 0,
+        lane: Lane::FirstContact,
         check_protocol: true,
     };
     let failed = failure(exchange(&config, outbound, &expect_orders(), &limits()).await);
@@ -1498,7 +1548,15 @@ async fn a_node_that_cannot_be_served_fails_before_publishing() {
     let work = Failing::new("more work expected", Store::Valid, "pow_required");
     let bin = bin_in(
         world(
-            |node| Some(info_event(node, Some(2), Some(9), None, None)),
+            |node| {
+                Some(info_event(
+                    node,
+                    Some(2),
+                    Some(AUTO_POW_CEILING + 1),
+                    None,
+                    None,
+                ))
+            },
             silent(),
         )
         .await,
@@ -1507,6 +1565,29 @@ async fn a_node_that_cannot_be_served_fails_before_publishing() {
     .await;
     check_failure(&work, &bin).await;
     assert_eq!(bin.world.requests.load(Ordering::SeqCst), 0);
+    // Both numbers, in JSON and in the human line.
+    let ids = [text(1)];
+    let outcome = document(&bin.run(&info_args(&["--output", "json"], &ids)).await);
+    assert_eq!(outcome["error"]["required"], AUTO_POW_CEILING + 1);
+    assert_eq!(outcome["error"]["configured"], 0);
+    let human = bin.run(&info_args(&[], &ids)).await.stderr_text();
+    let numbers = format!("required: {} bits, configured: 0", AUTO_POW_CEILING + 1);
+    assert!(human.contains(&numbers), "{human}");
+    assert_eq!(bin.world.requests.load(Ordering::SeqCst), 0);
+
+    // A node asking for less than the ceiling gets it mined, without `--pow`.
+    let bin = bin_in(
+        world(
+            |node| Some(info_event(node, Some(2), Some(9), None, None)),
+            reply_with(vec![order(Uuid::from_u128(1))]),
+        )
+        .await,
+        Store::Valid,
+    )
+    .await;
+    let run = bin.run(&info_args(&["--output", "json"], &ids)).await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(bin.world.fake.received()[0].work >= 9);
 
     // An explicit transport skips the protocol check, and enough work passes.
     let bin = bin_in(
@@ -1700,6 +1781,7 @@ fn plain_outbound<'a>(identity: &'a Keys, node: nostr_sdk::prelude::PublicKey) -
             Some(Payload::Ids(vec![Uuid::new_v4()])),
         ),
         pow: 0,
+        lane: Lane::FirstContact,
         check_protocol: true,
     }
 }

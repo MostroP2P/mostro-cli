@@ -474,7 +474,7 @@ mod operation {
     use harness::Sandbox;
     use mostro_client::commands::order::take::{order_take, TakeOutcome};
     use mostro_client::commands::order::WriteOptions;
-    use mostro_client::msg::{ExchangeLimits, PublicReadConfig};
+    use mostro_client::msg::{ExchangeLimits, PublicReadConfig, AUTO_POW_CEILING};
     use mostro_client::outcome::take::{NextStep, OrderTakeInput, TakeRequest, TakeSide};
     use mostro_client::outcome::{ErrorCode, Status as Outcome};
     use mostro_client::store::Store;
@@ -958,7 +958,7 @@ mod operation {
 
     #[tokio::test]
     async fn work_the_node_expects_stops_the_take_before_anything_is_sent_or_written() {
-        let taker = with_book(sell_book(), 0, false, 9).await;
+        let taker = with_book(sell_book(), 0, false, AUTO_POW_CEILING + 1).await;
 
         let outcome = take(&taker, &input(TakeSide::Sell, id(1), None, None)).await;
 
@@ -1661,12 +1661,29 @@ mod operation {
         .await;
 
         let (respond, book) = take_daemon(Book::default(), false);
-        let work = taker_with(respond, book, 2, 9, false).await;
+        let work = taker_with(respond, book, 2, AUTO_POW_CEILING + 1, false).await;
         check_failure(
             &Failing::after_reservation("more work expected", "pow_required"),
             &work,
         )
         .await;
+
+        // Work below the ceiling is mined, without `--pow`.
+        let (respond, book) = take_daemon(
+            Book {
+                orders: sell_book(),
+                ..Book::default()
+            },
+            false,
+        );
+        let mined = taker_with(respond, book, 2, 9, false).await;
+        let taken = run(
+            &mined,
+            &args(&["--output", "json"], "take-sell", &["--yes"]),
+        )
+        .await;
+        assert_eq!(taken.code(), Some(0), "{}", taken.stderr_text());
+        assert!(mined.fake.received()[0].work >= 9);
 
         // An explicit transport skips the protocol check and enough work passes.
         let (respond, book) = take_daemon(

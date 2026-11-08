@@ -9,7 +9,9 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use mostro_client::msg::{exchange, ExchangeLimits, Expect, Outbound, PublicReadConfig};
+use mostro_client::msg::{
+    exchange, ExchangeLimits, Expect, Lane, Outbound, PublicReadConfig, AUTO_POW_CEILING,
+};
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use mostro_core::prelude::{
     unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Transport,
@@ -511,6 +513,7 @@ async fn ask_node(
         recipient: fake.pubkey(),
         message: request(legacy_order((100, None), 0, None), index),
         pow: 0,
+        lane: Lane::FirstContact,
         check_protocol: true,
     };
     let result = exchange(&config, outbound, &expect_new(), &limits()).await;
@@ -1352,7 +1355,7 @@ mod operation {
     #[tokio::test]
     async fn work_the_node_expects_stops_the_command_before_anything_is_sent_or_written() {
         let (respond, last) = new_order_daemon(0, false);
-        let maker = maker(respond, 9).await;
+        let maker = maker(respond, AUTO_POW_CEILING + 1).await;
 
         let outcome = create(&maker).await;
 
@@ -2094,12 +2097,21 @@ mod operation {
         .await;
 
         let (respond, _) = new_order_daemon(0, false);
-        let work = maker_with(respond, 2, 9, false).await;
+        let work = maker_with(respond, 2, AUTO_POW_CEILING + 1, false).await;
         check_failure(
             &Failing::after_reservation("more work expected", "pow_required"),
             &work,
         )
         .await;
+
+        // The public node's case: it asks for 6 bits and `POW` is not set. The
+        // request is mined with them, published and answered.
+        let (respond, _) = new_order_daemon(0, false);
+        let mined = maker_with(respond, 2, 6, false).await;
+        let created = run(&mined, &args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(created.code(), Some(0), "{}", created.stderr_text());
+        assert_eq!(document(&created)["status"], "ok");
+        assert!(mined.fake.received()[0].work >= 6);
 
         // An explicit transport skips the protocol check and enough work passes.
         let (respond, _) = new_order_daemon(0, false);

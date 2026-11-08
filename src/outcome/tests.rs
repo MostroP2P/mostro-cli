@@ -462,6 +462,64 @@ fn only_a_node_refusal_carries_a_reason_and_it_is_snake_case() {
 }
 
 #[test]
+fn only_pow_required_carries_the_work_the_node_asks_and_the_configured_floor() {
+    let unsent = || ExecutionMeta::request(Publication::NotAttempted, DaemonAcceptance::Unknown);
+    let short = PowShortfall::new(21, 0);
+    let envelope = Envelope::<Value, Value>::error(
+        Some("order.new"),
+        ErrorCode::PowRequired,
+        Warnings::new(),
+        unsent(),
+    )
+    .with_work(Some(short));
+    let value = wire(&envelope);
+    assert_eq!(
+        keys(&value["error"]),
+        ["code", "configured", "message", "required"]
+    );
+    assert_eq!(value["error"]["required"], json!(21));
+    assert_eq!(value["error"]["configured"], json!(0));
+    assert_eq!(envelope.work(), Some(short));
+    assert_eq!(envelope.exit_code(), 1);
+
+    // On the timeout path too.
+    let uncertain = Envelope::<Value, Value>::uncertain(
+        "order.new",
+        ErrorCode::PowRequired,
+        None,
+        Warnings::new(),
+        ExecutionMeta::request(Publication::Published, DaemonAcceptance::Unknown),
+    )
+    .with_work(Some(PowShortfall::new(12, 6)));
+    assert_eq!(wire(&uncertain)["error"]["required"], json!(12));
+    assert_eq!(wire(&uncertain)["error"]["configured"], json!(6));
+
+    // Nothing to attach, or any other code: the error is unchanged.
+    let bare = Envelope::<Value, Value>::error(
+        Some("order.new"),
+        ErrorCode::PowRequired,
+        Warnings::new(),
+        unsent(),
+    )
+    .with_work(None);
+    assert_eq!(keys(&wire(&bare)["error"]), ["code", "message"]);
+    assert_eq!(bare.work(), None);
+    for code in ERROR_CODES.iter().chain(&NEW_ERROR_CODES) {
+        let other =
+            Envelope::<Value, Value>::error(Some("order.new"), *code, Warnings::new(), unsent())
+                .with_work(Some(short));
+        if *code != ErrorCode::PowRequired {
+            assert_eq!(
+                keys(&wire(&other)["error"]),
+                ["code", "message"],
+                "{code:?}"
+            );
+            assert_eq!(other.work(), None);
+        }
+    }
+}
+
+#[test]
 fn request_stages_use_the_existing_enums_and_never_claim_a_local_write() {
     let cases = [
         (

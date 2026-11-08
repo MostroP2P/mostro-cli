@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::held::{send_held, HeldRequest, Route};
 use super::WriteOptions;
-use crate::msg::{ExchangeLimits, PublicReadConfig};
+use crate::msg::{ExchangeLimits, Lane, PublicReadConfig};
 use crate::outcome::dispute::{DisputeOpenData, COMMAND, REPLIES};
 use crate::outcome::Envelope;
 use crate::store::Store;
@@ -33,6 +33,8 @@ pub async fn dispute_open(
         action: Action::Dispute,
         payload: None,
         replies: REPLIES.to_vec(),
+        // The order is open, so the node knows its trade key.
+        lane: Lane::Known,
     };
     let route = Route {
         config,

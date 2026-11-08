@@ -251,7 +251,7 @@ mod tests {
     use crate::outcome::schema::schema_check::conforms;
     use crate::outcome::schema::{output_schema, OutcomeRules};
     use crate::outcome::{
-        DaemonAcceptance, Envelope, ExecutionMeta, Persistence, Publication, Warnings,
+        DaemonAcceptance, Envelope, ExecutionMeta, Persistence, PowShortfall, Publication, Warnings,
     };
     use mostro_core::prelude::Peer;
     use nostr_sdk::prelude::Keys;
@@ -533,17 +533,20 @@ mod tests {
                     Persistence::Applied,
                     Persistence::Failed,
                 ] {
-                    let outcome = serde_json::to_value(Envelope::<Value, ()>::uncertain(
-                        command,
-                        code,
-                        None,
-                        Warnings::new(),
-                        meta(
-                            Publication::Published,
-                            DaemonAcceptance::Unknown,
-                            persistence,
-                        ),
-                    ))
+                    let outcome = serde_json::to_value(
+                        Envelope::<Value, ()>::uncertain(
+                            command,
+                            code,
+                            None,
+                            Warnings::new(),
+                            meta(
+                                Publication::Published,
+                                DaemonAcceptance::Unknown,
+                                persistence,
+                            ),
+                        )
+                        .with_work(Some(PowShortfall::new(12, 6))),
+                    )
                     .unwrap();
                     assert!(conforms(&schema, &schema, &outcome), "{command} {code:?}");
                 }
