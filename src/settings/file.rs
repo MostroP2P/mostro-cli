@@ -1,13 +1,15 @@
-//! Reading the config file `config` in the data directory (`MCLI_DIR`, else
-//! `<home>/.mcli`). Reading creates nothing and never writes into the process
-//! environment.
+//! The config file `config` in the data directory (`MCLI_DIR`, else
+//! `<home>/.mcli`): reading it, which creates nothing and never writes into
+//! the process environment, and the lookup the human-only commands use.
 
+use std::env::{self, VarError};
 use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-use super::{ConfigFile, ConfigFileError};
+use super::{ConfigFile, ConfigFileError, Setting};
 use crate::identity::configured_dir;
 
 /// The name of the config file in the data directory.
@@ -82,6 +84,37 @@ pub fn configured_config() -> Result<Option<ConfigFile>, ConfigProblem> {
         path: config_path(&dir),
         error,
     })
+}
+
+/// The config file the human-only commands read, installed once per run.
+static INSTALLED: OnceLock<ConfigFile> = OnceLock::new();
+
+/// Make `file` answer [`var`] for the rest of the run. Only the first call
+/// counts; nothing is written into the process environment.
+pub fn install(file: ConfigFile) {
+    let _ = INSTALLED.set(file);
+}
+
+/// `std::env::var` for the human-only commands: a variable that is not
+/// present is answered by the installed config file when it is one of the
+/// four settings. With nothing installed it is exactly `std::env::var`.
+pub fn var(name: &str) -> Result<String, VarError> {
+    var_with(INSTALLED.get(), name, env::var(name))
+}
+
+/// The environment's answer `env` for `name`, else the value of `file`.
+fn var_with(
+    file: Option<&ConfigFile>,
+    name: &str,
+    env: Result<String, VarError>,
+) -> Result<String, VarError> {
+    match env {
+        Err(VarError::NotPresent) => Setting::from_name(name)
+            .and_then(|setting| file?.get(setting))
+            .map(str::to_owned)
+            .ok_or(VarError::NotPresent),
+        found => found,
+    }
 }
 
 #[cfg(test)]
@@ -238,5 +271,23 @@ mod tests {
                 config_path(&refused).display()
             )
         );
+    }
+
+    #[test]
+    fn the_legacy_var_uses_the_installed_file_only_for_absent_variables() {
+        let file = ConfigFile::parse("RELAYS=wss://file\nPOW=3\n").unwrap();
+        let absent = || Err(VarError::NotPresent);
+        let file_var = |name, env| var_with(Some(&file), name, env);
+        assert_eq!(file_var("RELAYS", Ok(String::new())), Ok(String::new()));
+        assert_eq!(file_var("RELAYS", absent()), Ok("wss://file".into()));
+        assert_eq!(file_var("TRANSPORT", absent()), absent());
+        assert_eq!(file_var("SECRET", absent()), absent());
+        let not_unicode = Err(VarError::NotUnicode("wss://".into()));
+        assert_eq!(file_var("RELAYS", not_unicode.clone()), not_unicode);
+        // With nothing installed it is the environment's answer.
+        assert_eq!(var_with(None, "RELAYS", absent()), absent());
+        for name in ["PATH", "MCLI_TEST_VARIABLE_THAT_IS_NEVER_SET"] {
+            assert_eq!(var(name), std::env::var(name), "{name}");
+        }
     }
 }

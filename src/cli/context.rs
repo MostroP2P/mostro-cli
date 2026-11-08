@@ -3,12 +3,13 @@ use log::{info, warn};
 use nostr_sdk::prelude::{Client, Keys, PublicKey};
 use pretty_env_logger::init as init_logger;
 use sqlx::SqlitePool;
-use std::env::{set_var, var};
+use std::env::set_var;
 use std::str::FromStr;
 
 use super::args::Cli;
 use super::commands::Commands;
 use crate::db::{connect, User};
+use crate::settings::{configured_config, install, var};
 use crate::util::connect_nostr;
 use crate::util::events::fetch_protocol_version_with;
 use crate::util::messaging::parse_transport_env;
@@ -52,20 +53,16 @@ fn get_env_var(cli: &Cli) {
     }
 }
 
-/// Shared footnote for missing `MOSTRO_PUBKEY` / `RELAYS` errors.
-///
-/// The legacy commands do not read the config file of the data directory
-/// (spec 018); `~/.config/mostro` is a user-managed convenience (see README
-/// Suggested setup), not something the binary creates.
+/// Shared footnote for missing `MOSTRO_PUBKEY` / `RELAYS` errors: what the
+/// config file of the data directory may hold (spec 018).
 const ENV_FILE_HINT: &str = "\
-This command does not read any config file, and does not create ~/.config/mostro.\n\
-To avoid re-exporting every time, create that directory yourself, put the\n\
-exports in a file (e.g. ~/.config/mostro/env.sh, chmod 600) and `source` it\n\
-before running the CLI.\n\
+The config file holds only MOSTRO_PUBKEY, RELAYS, POW and TRANSPORT, one\n\
+KEY=VALUE line each; keep ADMIN_NSEC and other secrets in the environment.\n\
 See https://github.com/MostroP2P/mostro-cli#suggested-setup";
 
 /// Resolve the Mostro instance pubkey from `--mostro-pubkey` / `-m`, then
-/// `MOSTRO_PUBKEY`. Fails with setup guidance if neither is set.
+/// `MOSTRO_PUBKEY`, then the config file. Fails with setup guidance if none
+/// gives it.
 fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
     cli.mostro_pubkey
         .clone()
@@ -76,6 +73,7 @@ fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
                  Provide it using one of the following methods:\n\
                  1) --mostro-pubkey <npub> (or -m)\n\
                  2) export MOSTRO_PUBKEY=<npub>\n\
+                 3) a line MOSTRO_PUBKEY=<npub> in $MCLI_DIR/config (else ~/.mcli/config; chmod 600)\n\
                  \n\
                  {ENV_FILE_HINT}"
             )
@@ -83,9 +81,10 @@ fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
 }
 
 /// Ensure `RELAYS` is configured (and non-empty) before we create any local
-/// state. `connect_nostr` reads this variable; validating it here means a
+/// state. `connect_nostr` reads this setting; validating it here means a
 /// command run without relays fails before the mnemonic database is created.
-/// `get_env_var` has already mirrored `--relays` into the env var by this point.
+/// `get_env_var` has already mirrored `--relays` into the env var, and the
+/// config file is installed, by this point.
 fn resolve_relays() -> Result<String> {
     match var("RELAYS") {
         Ok(relays) if !relays.trim().is_empty() => Ok(relays),
@@ -94,6 +93,7 @@ fn resolve_relays() -> Result<String> {
              Provide it using one of the following methods:\n\
              1) --relays <relay[,relay...]> (or -r)\n\
              2) export RELAYS=<relay[,relay...]>\n\
+             3) a line RELAYS=<relay[,relay...]> in $MCLI_DIR/config (else ~/.mcli/config; chmod 600)\n\
              \n\
              {ENV_FILE_HINT}"
         )),
@@ -103,6 +103,14 @@ fn resolve_relays() -> Result<String> {
 pub(super) async fn init_context(cli: &Cli) -> Result<Context> {
     // Get environment variables
     get_env_var(cli);
+
+    // The config file answers the node settings that neither an option nor a
+    // variable gives (spec 018). It is read before anything is created, and
+    // its values never enter the process environment.
+    let file = configured_config().map_err(|problem| anyhow!("Invalid config file {problem}"))?;
+    if let Some(file) = file {
+        install(file);
+    }
 
     // Validate all required configuration *before* touching the local database.
     // `connect()` creates `~/.mcli/mcli.db` and generates the mnemonic on first
@@ -231,45 +239,42 @@ mod tests {
         result
     }
 
+    /// The guidance shared by both missing-setting messages.
+    fn assert_names_the_config_file(err: &str, line: &str) {
+        assert!(err.contains(line), "{err}");
+        assert!(
+            err.contains("$MCLI_DIR/config (else ~/.mcli/config"),
+            "{err}"
+        );
+        assert!(err.contains("chmod 600"), "{err}");
+        assert!(err.contains("ADMIN_NSEC"), "{err}");
+        assert!(!err.contains("does not read any config file"), "{err}");
+        assert!(
+            err.contains("https://github.com/MostroP2P/mostro-cli#suggested-setup"),
+            "{err}"
+        );
+    }
+
     #[test]
     #[serial]
-    fn missing_mostro_pubkey_message_guides_setup() {
+    fn missing_mostro_pubkey_message_names_the_config_file() {
         with_env_cleared("MOSTRO_PUBKEY", || {
             let cli = Cli::try_parse_from(["mostro-cli", "listdisputes"]).unwrap();
             let err = resolve_mostro_pubkey(&cli).unwrap_err().to_string();
-            assert!(err.contains("--mostro-pubkey <npub>"), "{err}");
-            assert!(err.contains("(or -m)"), "{err}");
+            assert!(err.contains("--mostro-pubkey <npub> (or -m)"), "{err}");
             assert!(err.contains("export MOSTRO_PUBKEY=<npub>"), "{err}");
-            assert!(
-                err.contains("This command does not read any config file"),
-                "{err}"
-            );
-            assert!(err.contains("does not create ~/.config/mostro"), "{err}");
-            assert!(err.contains("chmod 600"), "{err}");
-            assert!(
-                err.contains("https://github.com/MostroP2P/mostro-cli#suggested-setup"),
-                "{err}"
-            );
+            assert_names_the_config_file(&err, "3) a line MOSTRO_PUBKEY=<npub> in ");
         });
     }
 
     #[test]
     #[serial]
-    fn missing_relays_message_guides_setup() {
+    fn missing_relays_message_names_the_config_file() {
         with_env_cleared("RELAYS", || {
             let err = resolve_relays().unwrap_err().to_string();
-            assert!(err.contains("--relays <relay[,relay...]>"), "{err}");
-            assert!(err.contains("(or -r)"), "{err}");
+            assert!(err.contains("--relays <relay[,relay...]> (or -r)"), "{err}");
             assert!(err.contains("export RELAYS=<relay[,relay...]>"), "{err}");
-            assert!(
-                err.contains("This command does not read any config file"),
-                "{err}"
-            );
-            assert!(err.contains("does not create ~/.config/mostro"), "{err}");
-            assert!(
-                err.contains("https://github.com/MostroP2P/mostro-cli#suggested-setup"),
-                "{err}"
-            );
+            assert_names_the_config_file(&err, "3) a line RELAYS=<relay[,relay...]> in ");
         });
     }
 

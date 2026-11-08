@@ -18,7 +18,9 @@ use crate::msg::{relay_entries, MOSTRO_PUBKEY_VAR, RELAYS_VAR};
 
 pub mod file;
 
-pub use file::{config_path, configured_config, read_config, read_config_strict, ConfigProblem};
+pub use file::{
+    config_path, configured_config, install, read_config, read_config_strict, var, ConfigProblem,
+};
 
 /// The byte order mark some Windows editors write at the start of a file.
 const BOM: char = '\u{feff}';
