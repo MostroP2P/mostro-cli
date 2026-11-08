@@ -19,11 +19,15 @@ use crate::msg::{relay_entries, MOSTRO_PUBKEY_VAR, RELAYS_VAR};
 pub mod file;
 
 pub use file::{
-    config_path, configured_config, install, read_config, read_config_strict, var, ConfigProblem,
+    config_path, configured_config, install, read_config, read_config_strict, update_config, var,
+    ConfigProblem, WriteError,
 };
 
 /// The byte order mark some Windows editors write at the start of a file.
 const BOM: char = '\u{feff}';
+
+/// The `config set` key of each setting, in the order of [`Setting::ALL`].
+pub const SETTING_KEYS: [&str; 4] = ["mostro-pubkey", "relays", "pow", "transport"];
 
 /// One of the four node settings the config file may hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -51,6 +55,16 @@ impl Setting {
     /// The setting whose variable is exactly `name`.
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|setting| setting.name() == name)
+    }
+
+    /// Its `config set` key.
+    pub fn key(self) -> &'static str {
+        SETTING_KEYS[self as usize]
+    }
+
+    /// The setting whose `config set` key is exactly `key`.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|setting| setting.key() == key)
     }
 
     /// Whether the commands accept `value` for this setting: a public key (hex
@@ -82,10 +96,11 @@ impl ConfigFile {
     /// Parse the text of a config file: UTF-8 `KEY=VALUE` lines (LF or CRLF),
     /// one leading byte order mark ignored. Blank lines and lines starting
     /// with `#` are skipped; an `export` prefix is dropped; key and value are
-    /// trimmed and one pair of matching `"` or `'` quotes around the value is
-    /// removed. There are no inline comments, escapes or expansion. An empty
-    /// value means unset and a repeated key keeps its last line. The first
-    /// line refused refuses the whole file.
+    /// trimmed, one pair of matching `"` or `'` quotes around the value is
+    /// removed and the value is trimmed again, so no stored value has a space
+    /// at either end. There are no inline comments, escapes or expansion. An
+    /// empty value means unset and a repeated key keeps its last line. The
+    /// first line refused refuses the whole file.
     pub fn parse(text: &str) -> Result<Self, ConfigFileError> {
         let text = text.strip_prefix(BOM).unwrap_or(text);
         let mut values = BTreeMap::new();
@@ -107,6 +122,26 @@ impl ConfigFile {
     pub fn get(&self, setting: Setting) -> Option<&str> {
         self.values.get(&setting).map(String::as_str)
     }
+
+    /// A copy with `setting` set to `value`, which must be one the setting
+    /// accepts, without a space at either end; this file is left as it is.
+    /// Private, so a value reaches a written file only through
+    /// [`file::update_config`], which checks it.
+    fn with(&self, setting: Setting, value: String) -> Self {
+        let mut values = self.values.clone();
+        values.insert(setting, value);
+        Self { values }
+    }
+
+    /// The text of the file: one `NAME=value` line per stored setting, in the
+    /// order of [`Setting::ALL`]. Accepted values never need quoting, so
+    /// parsing the text gives this file back.
+    pub fn render(&self) -> String {
+        self.values
+            .iter()
+            .map(|(setting, value)| format!("{}={value}\n", setting.name()))
+            .collect()
+    }
 }
 
 /// The setting and value of line number `line`; `None` for a blank line or a
@@ -124,7 +159,7 @@ fn entry(text: &str, line: usize) -> Result<Option<(Setting, &str)>, ConfigFileE
         .split_once('=')
         .ok_or(ConfigFileError::Malformed { line })?;
     let setting = Setting::from_name(key.trim()).ok_or(ConfigFileError::KeyNotAllowed { line })?;
-    let value = unquoted(value.trim());
+    let value = unquoted(value.trim()).trim();
     if !value.is_empty() && !setting.accepts(value) {
         return Err(ConfigFileError::InvalidValue { line });
     }
@@ -354,5 +389,39 @@ mod tests {
             let file = parsed("RELAYS=wss://file\n");
             assert_eq!(setting(Some(&file), "RELAYS", |_| bytes()), Some("".into()));
         }
+    }
+
+    #[test]
+    fn with_and_render_round_trip_and_leave_the_original() {
+        let original = parsed("RELAYS=wss://a\n");
+        let key = hex();
+        let changed = original.with(Setting::MostroPubkey, key.clone());
+        assert_eq!(original, parsed("RELAYS=wss://a\n"));
+        assert_eq!(
+            changed.render(),
+            format!("MOSTRO_PUBKEY={key}\nRELAYS=wss://a\n")
+        );
+        let npub = Keys::generate().public_key().to_bech32().unwrap();
+        for text in [
+            String::new(),
+            format!("TRANSPORT=nip44\nPOW=0\nRELAYS=wss://a.example/#x , ws://b:7000\nMOSTRO_PUBKEY={npub}"),
+            format!("export MOSTRO_PUBKEY='{key}'\nPOW=255\n"),
+            "RELAYS=' wss://a.example '\nPOW=\" 3 \"\n".to_string(),
+        ] {
+            let file = parsed(&text);
+            assert_eq!(parsed(&file.render()), file, "{text:?}");
+        }
+        // Spaces inside the quotes are trimmed too, so no value keeps them.
+        let quoted = parsed("RELAYS=' wss://a.example '\n");
+        assert_eq!(quoted.get(Setting::Relays), Some("wss://a.example"));
+        assert_eq!(parsed("").render(), "");
+        // Each setting has one `config set` key.
+        for (setting, key) in Setting::ALL.into_iter().zip(SETTING_KEYS) {
+            assert_eq!(
+                (setting.key(), Setting::from_key(key)),
+                (key, Some(setting))
+            );
+        }
+        assert_eq!(Setting::from_key("MOSTRO_PUBKEY"), None);
     }
 }

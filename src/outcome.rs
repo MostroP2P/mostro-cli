@@ -13,6 +13,7 @@ pub use codes::{
 };
 
 mod codes;
+pub mod config;
 pub mod dispute;
 pub mod identity;
 pub mod info;
