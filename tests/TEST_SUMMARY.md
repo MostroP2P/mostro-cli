@@ -4591,3 +4591,43 @@ value from its node-info probe.
   `accepted`, the id in `not_returned`) in 1.8 s, and the request event on the relay has 6 leading zero bits (`nonce` tag 6).
 - **Gates** (final tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 997 passed and 0 failed (none
   ignored), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+
+## Node Settings File (spec 018) Unit 1: The JSON-Capable Commands Read It: 2026-11-08
+
+Branch `feat/config-file-read` from `origin/main` (8970c81), the first of four stacked units of issue #244. Automated verification on Linux
+only (uid 1000, not root), with loopback relays, the scripted node and isolated sandboxes; no real node or relay was contacted and no
+manual run was made. Windows is not verified locally: only the CI runner, after the branch is pushed, will run it.
+
+- **Failing first**: `tests/config_file_process.rs`, run against the unchanged code: 3 of its first 5 tests failed (`order list` from the
+  file alone and the precedence test exited 1 with `configuration_missing`; the refused-file test exited 0 because the file was ignored);
+  the two guards (local commands, missing data directory) passed, as they must. The unit tests of `settings`, `settings::file` and
+  `cli::write` did not compile (32 errors, the API did not exist); the two `cli::context` hint tests failed on the new first line; the
+  discovery drift test failed until the fixture was regenerated. `order_new_takes_the_node_relays_and_work_from_the_file` was added after
+  the implementation; with the file's values disabled in `node_lookup` (a temporary change, reverted and rebuilt), it and the two other
+  positive tests failed.
+- **Review fixes** (same day): a set variable that is not UTF-8 fell through to the file (`RELAYS=$'\xff'` next to a file dialed the
+  file's relay); it now counts as set but empty (`settings::env_text`), `configuration_missing` as without a file. A data directory that
+  cannot be resolved (a symlink loop, a 300-character name) gave `configuration_invalid`; the lenient read now treats any lookup error as
+  no file. Failing first: that process case (the listing succeeded through the file's relay), the `settings::file` case
+  (`Err(Unreadable)`), the `env_text` test (did not compile) and the drift test after the `required_configuration` description change.
+- **The change**: `src/settings.rs` (pure, added to the no-I/O source boundary) parses `KEY=VALUE` (BOM, CRLF, comments, `export`,
+  quotes, empty means unset, last line wins), checks the four keys and their values, and gives `setting(file, name, env)`;
+  `src/settings/file.rs` reads `config` in the data directory leniently or strictly and creates nothing. `cli/write.rs::node_lookup` reads
+  the file once per run and answers each setting from a set variable, else the file; a refusal prints one `hint: <path>: <problem>` and is
+  `configuration_invalid`. `request_options` moved from `cli/migrated.rs` to `cli/write.rs`; `order list`, `order info`,
+  `resolve_reader` and `resolve_base` use the lookup. `ENV_FILE_HINT` starts "This command does not read any config file". Discovery:
+  only the `required_configuration` description changed; no output schema changed and `schema_version` stays `"1"`.
+- **Tests**: unit: every accepted form, the README `env.sh` block, six refused keys and a line without `=` by line number, eleven refused
+  values (an nsec with a sentinel, `https://`, POW 256, -1 and x, `gift-wrap`, NUL, ESC, a bare CR) never shown, the precedence of a set
+  empty variable, both readers on an absent, empty and regular-file data directory (nothing created), a data directory with mode 0600
+  (no file leniently, `Unreadable` strictly), a data directory that cannot be resolved (a 300-character component, and a symlink loop,
+  which is `Unreadable` strictly), `config` as a directory, non-UTF-8 and mode 000, a variable that is not Unicode (set but empty, over
+  the file), and `request_options` through the file lookup. Process: `order list` (JSON and human) and `order new --yes` against the
+  scripted node from the file alone, the latter mining at least the file's `POW` 8; option > set variable > file counted on three loopback relays, an empty variable and an empty `-m` missing; an
+  `ADMIN_NSEC=<sentinel>` file at `order list`, `order info`, `order new`, `message list` and `dispute open` in both modes with `-m` and
+  `-r` given: exit 1, `configuration_invalid`, exactly one `hint:` with the path and line 1, the sentinel nowhere, zero relay
+  connections, the seeded data directory byte-identical; `schema`, `identity init`, `identity show` and `order mine` ignore that file; a
+  missing data directory stays missing; a set `RELAYS` that is not UTF-8 is missing over the file (Unix only).
+- **Gates** (final tree): `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
+  `cargo test --locked` 1012 passed, 0 failed, 0 ignored (997 before), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat origin/main...HEAD` gives 21 files changed, 1399 insertions, 76 deletions (1475 changed lines).
