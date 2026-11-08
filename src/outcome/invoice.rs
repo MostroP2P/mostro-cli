@@ -356,7 +356,7 @@ mod tests {
     use crate::outcome::schema::schema_check::conforms;
     use crate::outcome::schema::{output_schema, OutcomeRules, Stages};
     use crate::outcome::{
-        DaemonAcceptance, Envelope, ExecutionMeta, Persistence, Publication,
+        DaemonAcceptance, Envelope, ExecutionMeta, Persistence, PowShortfall, Publication,
         Status as OutcomeStatus,
     };
     use nostr_sdk::prelude::Keys;
@@ -631,17 +631,20 @@ mod tests {
             (bond_schema(), "bond.add-invoice"),
         ] {
             for code in UNCERTAIN {
-                let outcome = serde_json::to_value(Envelope::<Value, ()>::uncertain(
-                    command,
-                    code,
-                    None,
-                    Warnings::new(),
-                    ExecutionMeta::write(
-                        Publication::Published,
-                        DaemonAcceptance::Unknown,
-                        Persistence::NotAttempted,
-                    ),
-                ))
+                let outcome = serde_json::to_value(
+                    Envelope::<Value, ()>::uncertain(
+                        command,
+                        code,
+                        None,
+                        Warnings::new(),
+                        ExecutionMeta::write(
+                            Publication::Published,
+                            DaemonAcceptance::Unknown,
+                            Persistence::NotAttempted,
+                        ),
+                    )
+                    .with_work(Some(PowShortfall::new(12, 6))),
+                )
                 .unwrap();
                 assert!(conforms(&schema, &schema, &outcome), "{command} {code:?}");
                 assert_eq!(outcome["status"], json!(OutcomeStatus::Uncertain));

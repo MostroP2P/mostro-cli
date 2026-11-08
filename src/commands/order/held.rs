@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::write::{reason, unsent};
 use super::WriteOptions;
-use crate::msg::{exchange, ExchangeLimits, Expect, Outbound, PublicReadConfig};
+use crate::msg::{exchange, ExchangeLimits, Expect, Lane, Outbound, PublicReadConfig};
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, WarningCode,
     Warnings,
@@ -27,6 +27,8 @@ pub struct HeldRequest {
     pub action: Action,
     pub payload: Option<Payload>,
     pub replies: Vec<Action>,
+    /// The node's proof-of-work lane for the order's trade key.
+    pub lane: Lane,
 }
 
 /// Where the request goes and with what.
@@ -69,6 +71,7 @@ pub async fn send_held<D>(
             request.payload,
         ),
         pow: route.options.pow,
+        lane: request.lane,
         check_protocol: route.options.check_protocol,
     };
     let mut allowed_actions = request.replies;
@@ -80,7 +83,8 @@ pub async fn send_held<D>(
     let exchanged = match exchange(route.config, outbound, &expect, route.limits).await {
         Ok(exchanged) => exchanged,
         Err(failure) if failure.publication() == Publication::NotAttempted => {
-            return unsent(command, failure.code(), failure.warnings().clone());
+            return unsent(command, failure.code(), failure.warnings().clone())
+                .with_work(failure.work());
         }
         Err(failure) => {
             return Envelope::uncertain(
@@ -93,7 +97,8 @@ pub async fn send_held<D>(
                     failure.daemon_acceptance(),
                     Persistence::NotAttempted,
                 ),
-            );
+            )
+            .with_work(failure.work());
         }
     };
     let reply = exchanged.reply().get_inner_message_kind();

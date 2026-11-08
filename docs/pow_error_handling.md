@@ -248,6 +248,10 @@ by setting `POW` themselves.
 
 → Rejected. Defer to explicit user opt-in via `--pow` / `POW` env.
 
+> **Revisited in spec 017** (see [section 10](#10-revision--mine-the-advertised-difficulty-spec-017)): the JSON-capable
+> commands now mine what the node advertises, up to a ceiling of 20 bits. The cost concern above holds for a
+> high target, so above the ceiling they still fail explicitly. The legacy commands keep this section's choice.
+
 ### 5.3 Read NIP‑01 `OK false` from the relay
 
 Won't help: mostrod drops the event *after* the relay accepts it, so the
@@ -329,3 +333,27 @@ POW=0 mostro-cli getuserinfo
 POW=<pow_first_contact> mostro-cli getuserinfo
 # expected: User Info section (or zeros / CantDo for unknown identity)
 ```
+
+## 10. Revision — mine the advertised difficulty (spec 017)
+
+§5.2 assumed an interactive user who can re-run with `--pow`. An agent hosting mostro-mcp cannot change its host's
+environment and reconnect mid-session, and the public node advertises `pow` 6, so every `order new` failed with
+`pow_required` while the CLI already held the number it needed. [Spec 017](../specs/017-advertised-pow/spec.md)
+changes the commands that go through `msg::exchange` (the JSON-capable writes and `order info`):
+
+- **Mined after the probe.** `exchange` reads the info event first (the probe it already ran for the protocol check),
+  then mines `max(configured, required)` and publishes. `--pow` / `POW` is a floor, default 0.
+- **Lanes.** `required` follows mostrod's gate: `pow` for the trade key of an open order (`order add-invoice`, `bond
+  add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `dispute open`), `max(pow, pow_first_contact)` for
+  a key the node may not know (`order new`, the takes, `order info`, `order rate`).
+- **Ceiling.** Raised on its own up to `AUTO_POW_CEILING` (20 bits: about a million hashes, 1.6 s on average on a Ryzen 7 4800H). Above it, with a lower
+  floor, nothing is sent: `pow_required`, `publication: not_attempted`. A floor at or above the requirement is mined
+  whatever its size.
+- **Numbers in the error.** `pow_required` carries `error.required` and `error.configured`, before sending and on the
+  timeout path (where `required` is the highest advertisement above the work sent, on either lane). The human line
+  names both and the flag to set: `error: The node requires more proof of work than is configured. (required: 21
+  bits, configured: 0; set --pow 21 or POW=21 to mine it)`.
+- **Nothing known.** No info event, or no PoW tag: the floor only, as before. A silent node is still explained by the
+  probe after the timeout.
+
+The legacy path (`wait_for_dm`, `ensure_first_contact_pow`, `PowRequirementUnmet`) is unchanged.

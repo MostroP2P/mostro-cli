@@ -1,23 +1,25 @@
 //! One request and its reply: the correlated read of the user's own data.
 //!
 //! Everything happens on one private connection: read what the node
-//! advertises, arm the wait, publish the request once, wait for the answer, and
-//! clean up within a bounded time. Nothing is retried and a request is never
-//! split or repeated. Local effects are the caller's business; this module
-//! writes nothing.
+//! advertises, mine the request with the work it asks for, arm the wait,
+//! publish the request once, wait for the answer, and clean up within a
+//! bounded time. Nothing is retried and a request is never split or repeated.
+//! Local effects are the caller's business; this module writes nothing.
 
 use std::time::Duration;
 
 use mostro_core::prelude::{Action, Message};
-use nostr_sdk::prelude::{Filter, Keys, Kind, PublicKey, Relay, SubscriptionId};
+use nostr_sdk::prelude::{Event, Filter, Keys, Kind, PublicKey, Relay, SubscriptionId};
 use tokio::time::{timeout, Instant};
 use uuid::Uuid;
 
-use super::node_info::{probe, NodeInfo};
+use super::node_info::{probe, work_to_mine, Lane, NodeInfo};
 use super::reply::{arm, Wait, Waited};
 use super::send_msg::{publish, wrap, Unconfirmed};
 use super::{PublicReadConfig, ReadLimits, Session};
-use crate::outcome::{DaemonAcceptance, ErrorCode, Publication, WarningCode, Warnings};
+use crate::outcome::{
+    DaemonAcceptance, ErrorCode, PowShortfall, Publication, WarningCode, Warnings,
+};
 use crate::util::reply::ExpectedReply;
 
 /// Time budgets of one exchange. Tests shrink them.
@@ -59,8 +61,12 @@ pub struct Outbound<'a> {
     pub recipient: PublicKey,
     /// Must carry a request identifier: the reply is matched on it.
     pub message: Message,
-    /// Proof of work mined on the request event.
+    /// The least proof of work mined on the request event (`--pow` / `POW`):
+    /// raised to what the node advertises for `lane`, up to
+    /// [`AUTO_POW_CEILING`](super::AUTO_POW_CEILING).
     pub pow: u8,
+    /// The node's proof-of-work lane for `signer`.
+    pub lane: Lane,
     /// Refuse a node that advertises an unsupported protocol version. Off when
     /// the user chose the transport explicitly.
     pub check_protocol: bool,
@@ -99,6 +105,7 @@ pub struct ExchangeFailure {
     publication: Publication,
     daemon_acceptance: DaemonAcceptance,
     warnings: Warnings,
+    work: Option<PowShortfall>,
 }
 
 impl ExchangeFailure {
@@ -110,17 +117,31 @@ impl ExchangeFailure {
         Self::new(code, Publication::Published)
     }
 
+    /// `pow_required`, with what the node asks and what was configured.
+    fn short(work: PowShortfall, publication: Publication) -> Self {
+        Self {
+            work: Some(work),
+            ..Self::new(ErrorCode::PowRequired, publication)
+        }
+    }
+
     fn new(code: ErrorCode, publication: Publication) -> Self {
         Self {
             code,
             publication,
             daemon_acceptance: DaemonAcceptance::Unknown,
             warnings: Warnings::new(),
+            work: None,
         }
     }
 
     pub fn code(&self) -> ErrorCode {
         self.code
+    }
+
+    /// The work numbers of a `pow_required` failure, for the outcome.
+    pub fn work(&self) -> Option<PowShortfall> {
+        self.work
     }
 
     pub fn publication(&self) -> Publication {
@@ -143,13 +164,11 @@ pub async fn exchange(
     expect: &Expect,
     limits: &ExchangeLimits,
 ) -> Result<Exchanged, ExchangeFailure> {
-    let internal = || ExchangeFailure::unsent(ErrorCode::InternalError);
     let request_id = outbound
         .message
         .get_inner_message_kind()
         .request_id
-        .ok_or_else(internal)?;
-    let event = wrap(&outbound).await.ok_or_else(internal)?;
+        .ok_or_else(|| ExchangeFailure::unsent(ErrorCode::InternalError))?;
     let session = Session::connect(config, &read_limits(limits))
         .await
         .map_err(ExchangeFailure::unsent)?;
@@ -159,16 +178,7 @@ pub async fn exchange(
     if let Some((order, actions)) = &expect.by_order {
         expected = expected.or_by_order(*order, actions.clone());
     }
-    let result = run(
-        &session,
-        config,
-        &outbound,
-        &event,
-        &subscription,
-        expected,
-        limits,
-    )
-    .await;
+    let result = run(&session, config, &outbound, &subscription, expected, limits).await;
 
     let mut warnings = Warnings::new();
     let cleanup = async {
@@ -196,25 +206,37 @@ fn read_limits(limits: &ExchangeLimits) -> ReadLimits {
     }
 }
 
+/// Read what the node advertises, then build the request with the work it
+/// asks for on the request's lane. Nothing is published on failure.
+async fn prepare(
+    session: &Session,
+    config: &PublicReadConfig,
+    outbound: &Outbound<'_>,
+    limits: &ExchangeLimits,
+) -> Result<(NodeInfo, Event, u8), ExchangeFailure> {
+    let info = probe(&session.client, config.mostro_pubkey(), limits.probe).await;
+    if outbound.check_protocol && info.protocol_unsupported() {
+        return Err(ExchangeFailure::unsent(ErrorCode::ProtocolUnsupported));
+    }
+    let pow = work_to_mine(outbound.pow, info.required(outbound.lane))
+        .map_err(|work| ExchangeFailure::short(work, Publication::NotAttempted))?;
+    let event = wrap(outbound, pow)
+        .await
+        .ok_or_else(|| ExchangeFailure::unsent(ErrorCode::InternalError))?;
+    Ok((info, event, pow))
+}
+
 async fn run(
     session: &Session,
     config: &PublicReadConfig,
     outbound: &Outbound<'_>,
-    event: &nostr_sdk::prelude::Event,
     subscription: &SubscriptionId,
     expected: ExpectedReply,
     limits: &ExchangeLimits,
 ) -> Result<Message, ExchangeFailure> {
     let client = &session.client;
     let node = config.mostro_pubkey();
-
-    let info = probe(client, node, limits.probe).await;
-    if outbound.check_protocol && info.protocol_unsupported() {
-        return Err(ExchangeFailure::unsent(ErrorCode::ProtocolUnsupported));
-    }
-    if info.work_short(outbound.pow) {
-        return Err(ExchangeFailure::unsent(ErrorCode::PowRequired));
-    }
+    let (info, event, mined) = prepare(session, config, outbound, limits).await?;
 
     // Arm the wait, then subscribe, and only then publish.
     let mut armed = arm(client, config.relays())
@@ -234,7 +256,7 @@ async fn run(
     // acknowledgements spends the reply budget.
     let deadline = Instant::now() + limits.reply;
     let relays: Vec<Relay> = client.relays().await.into_values().collect();
-    let mut publishing = publish(&relays, event);
+    let mut publishing = publish(&relays, &event);
     let confirmed = match publishing.confirmed(deadline).await {
         Ok(()) => true,
         Err(Unconfirmed::Ambiguous) => false,
@@ -270,21 +292,20 @@ async fn run(
         Waited::Lost => Err(ExchangeFailure::published(ErrorCode::RelayReadFailed)),
         Waited::Timeout => {
             // A node silently drops under-mined events, so an advertisement of
-            // more work than was sent explains the silence.
+            // more work than was sent, on either lane, explains the silence.
             let late = probe(client, node, limits.probe).await;
-            let short = work_explains_silence(&late, &info, outbound.pow);
-            Err(ExchangeFailure::published(if short {
-                ErrorCode::PowRequired
-            } else {
-                ErrorCode::ReplyTimeout
-            }))
+            Err(match unmet_after_silence(&late, &info, mined) {
+                Some(required) => ExchangeFailure::short(
+                    PowShortfall::new(required, outbound.pow),
+                    Publication::Published,
+                ),
+                None => ExchangeFailure::published(ErrorCode::ReplyTimeout),
+            })
         }
     }
 }
 
-/// Whether what the node advertises, now or before, is above the work sent.
-fn work_explains_silence(late: &NodeInfo, early: &NodeInfo, sent: u8) -> bool {
-    [late, early]
-        .iter()
-        .any(|info| info.work_short(sent) || info.first_contact_work_short(sent))
+/// The highest work above `sent` that the node advertises, now or before.
+fn unmet_after_silence(late: &NodeInfo, early: &NodeInfo, sent: u8) -> Option<u8> {
+    late.unmet(sent).max(early.unmet(sent))
 }

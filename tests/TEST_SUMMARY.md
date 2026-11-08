@@ -4560,3 +4560,34 @@ Same uncommitted working tree. The reason: a live harness run against a regtest 
   `the_global_options_are_listed_with_what_they_apply_to` (exactly the eleven request and write commands, default `"15"`, not command input).
 - **Gates** (final tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 982 passed and 0 failed (no FAILED
   line, none ignored; 977 before), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+
+## Advertised Proof Of Work (spec 017): mined, not refused: 2026-11-07
+
+Uncommitted working tree on `main` (738bafd). The reason: mostro-mcp runs `mostro-cli` 0.17.0 with `POW` unset, and the public node
+advertises `pow` 6, so every `order new` was `pow_required` (`not_attempted`) with no number in the error, while the CLI already held the
+value from its node-info probe.
+
+- **Failing first**: the unit tests for lanes, unmet work, `work_to_mine`, `Envelope::with_work`, the schema rule and `error_line` did not
+  compile (the API did not exist). The existing process tests that asserted `pow_required` for a node asking for 9 or 12 bits (order info,
+  order new, the takes, add-invoice, the steps) are the record of the old refusal; they failed against the new code (9 failures plus the
+  fixture drift) until moved above the ceiling. Regtest: the released 0.17.0 binary, `POW` unset, against a node advertising `pow` 6 and
+  `pow_first_contact` 8: `pow_required`, `publication: not_attempted`.
+- **The change**: `exchange` probes, then mines `max(--pow/POW, required)` for the request's lane (known: `pow`; first contact:
+  `max(pow, pow_first_contact)`) up to `AUTO_POW_CEILING` (20); above it, with a lower floor, `pow_required` before publishing. Every
+  `pow_required` carries `error.required` and `error.configured`, also on the timeout path; the human line names both and the flag. Twelve
+  schema fixtures regenerated (the commands that can emit `pow_required` and discovery); the pilot fixtures did not change.
+- **Tests**: the scripted node now records the leading zero bits of each request (`Received.work`). A node asking for 6, 9 or 12 bits gets
+  them mined without `--pow` (order new, take-sell, fiat-sent, add-invoice, order info, in JSON); a first contact clears `pow_first_contact`,
+  a known key `pow`, a floor of 14 is kept; 21 bits is refused with nothing published and `required` 21, `configured` 0 in JSON and in the
+  human line; a known-lane request dropped by a node that advertises first-contact work is `pow_required` with `required` 16 after the
+  timeout. Mining cost (release, Ryzen 7 4800H): 16 bits 0.03 s mean; 20 bits 1.6 s mean, 5.2 s worst of five.
+- **Regtest probe** (manual observation, 2026-11-08): a second mostrod (image `mortsom/mostro:git-8111f5e`, v0.20.2, `pow` 6,
+  `pow_first_contact` 8, no bond) on the local Mortsom stack's relay and LND, removed afterwards. This build, `POW` unset: `order new` `ok`
+  (`published`, `accepted`, order `pending`), request mined with 9 bits; `order cancel` on the known lane `ok` (`canceled`), 9 bits. The
+  probe node's info, rates and canceled-order events stay on that local relay.
+- **Public node check** (manual observation, 2026-11-08): the public node `82fa8cb9…` (v0.20.2) advertises `pow` 6 and
+  `pow_first_contact` 6 on `wss://relay.mostro.network`. A throwaway identity (fresh `MCLI_DIR`), `POW` unset, `order info` on an unknown id:
+  the released 0.17.0 from crates.io returns `pow_required`, `publication: not_attempted`; this build returns `ok` (`published`,
+  `accepted`, the id in `not_returned`) in 1.8 s, and the request event on the relay has 6 leading zero bits (`nonce` tag 6).
+- **Gates** (final tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 997 passed and 0 failed (none
+  ignored), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.

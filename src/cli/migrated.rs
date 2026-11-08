@@ -236,9 +236,10 @@ fn unsent(code: ErrorCode) -> InfoOutcome {
     )
 }
 
-/// The work to mine and whether to check the node's protocol: `--pow` over
-/// `POW` (0-255, default 0) and `--transport` over `TRANSPORT`, of which only
-/// `nip44` exists. An explicit transport skips the protocol check.
+/// The least work to mine and whether to check the node's protocol: `--pow`
+/// over `POW` (0-255, default 0; the exchange raises it to what the node
+/// advertises, up to `AUTO_POW_CEILING`) and `--transport` over `TRANSPORT`,
+/// of which only `nip44` exists. An explicit transport skips the protocol check.
 pub(super) fn request_options(
     pow: Option<&str>,
     transport: Option<&str>,
@@ -286,15 +287,7 @@ fn info_summary(outcome: &InfoOutcome) -> String {
 /// reason when it refused). Rendered completely before the first byte is written.
 fn print_info(outcome: &InfoOutcome, out: &mut impl Write, err: &mut impl Write) -> i32 {
     let Some(data) = outcome.data() else {
-        let message = outcome
-            .error_code()
-            .unwrap_or(ErrorCode::InternalError)
-            .message();
-        let line = match outcome.reason() {
-            Some(reason) => format!("error: {message} (reason: {reason})"),
-            None => format!("error: {message}"),
-        };
-        diagnose(err, &line);
+        diagnose(err, &error_line(outcome));
         return outcome.exit_code();
     };
     let text = render_info(data);
@@ -328,6 +321,26 @@ pub(super) fn code_name(code: ErrorCode) -> String {
         .ok()
         .and_then(|name| name.as_str().map(str::to_owned))
         .unwrap_or_else(|| "internal_error".to_string())
+}
+
+/// The fixed error line of a failed outcome: its message, with the node's
+/// refusal reason, or with the work the node asks and the flag that mines it.
+pub(super) fn error_line<D, S>(outcome: &Envelope<D, S>) -> String {
+    let message = outcome
+        .error_code()
+        .unwrap_or(ErrorCode::InternalError)
+        .message();
+    if let Some(work) = outcome.work() {
+        let (required, configured) = (work.required(), work.configured());
+        return format!(
+            "error: {message} (required: {required} bits, configured: {configured}; \
+             set --pow {required} or POW={required} to mine it)"
+        );
+    }
+    match outcome.reason() {
+        Some(reason) => format!("error: {message} (reason: {reason})"),
+        None => format!("error: {message}"),
+    }
 }
 
 /// One diagnostic line on stderr. A stderr that cannot be written is ignored:
@@ -382,6 +395,7 @@ fn print_discovery(data: &DiscoveryData, out: &mut impl Write, err: &mut impl Wr
 mod tests {
     use super::*;
     use crate::outcome::order::{ListData, ListOrdersInput};
+    use crate::outcome::PowShortfall;
     use nostr_sdk::prelude::Keys;
     use std::io::{Error, ErrorKind};
 
@@ -439,6 +453,46 @@ mod tests {
         assert_eq!(
             String::from_utf8(err).unwrap(),
             format!("error: {}\n", ErrorCode::ReadTimeout.message())
+        );
+    }
+
+    #[test]
+    fn the_error_line_names_the_refusal_reason_or_the_work_to_set() {
+        let unsent =
+            || ExecutionMeta::request(Publication::NotAttempted, DaemonAcceptance::Unknown);
+        let short: InfoOutcome = Envelope::error(
+            Some(INFO),
+            ErrorCode::PowRequired,
+            Warnings::new(),
+            unsent(),
+        )
+        .with_work(Some(PowShortfall::new(21, 0)));
+        let line = format!(
+            "error: {} (required: 21 bits, configured: 0; set --pow 21 or POW=21 to mine it)",
+            ErrorCode::PowRequired.message()
+        );
+        assert_eq!(error_line(&short), line);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(print_info(&short, &mut out, &mut err), 1);
+        assert!(out.is_empty());
+        assert_eq!(String::from_utf8(err).unwrap(), format!("{line}\n"));
+
+        let refused: InfoOutcome = Envelope::refused(
+            Some(INFO),
+            "not_found",
+            Warnings::new(),
+            ExecutionMeta::request(Publication::Published, DaemonAcceptance::Rejected),
+        );
+        assert_eq!(
+            error_line(&refused),
+            format!(
+                "error: {} (reason: not_found)",
+                ErrorCode::NodeRefused.message()
+            )
+        );
+        assert_eq!(
+            error_line(&failed(ErrorCode::ReadTimeout)),
+            format!("error: {}", ErrorCode::ReadTimeout.message())
         );
     }
 

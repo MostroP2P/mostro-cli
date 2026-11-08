@@ -9,7 +9,7 @@ use nostr_sdk::prelude::Keys;
 
 use super::held::{send_held, HeldRequest, Route};
 use super::WriteOptions;
-use crate::msg::{ExchangeLimits, PublicReadConfig};
+use crate::msg::{ExchangeLimits, Lane, PublicReadConfig};
 use crate::outcome::rate::{RateData, RateInput, COMMAND, REPLIES};
 use crate::outcome::Envelope;
 use crate::store::Store;
@@ -31,6 +31,8 @@ pub async fn order_rate(
         action: Action::RateUser,
         payload: Some(input.payload()),
         replies: REPLIES.to_vec(),
+        // A rated order is finished: the node no longer counts its trade key as known.
+        lane: Lane::FirstContact,
     };
     let route = Route {
         config,

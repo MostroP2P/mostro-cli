@@ -34,7 +34,8 @@ impl Sent<'_> {
     pub async fn failed<D>(&self, failure: &ExchangeFailure) -> Envelope<D, ()> {
         if failure.publication() == Publication::NotAttempted {
             self.store.release(self.reservation).await;
-            return unsent(self.command, failure.code(), failure.warnings().clone());
+            return unsent(self.command, failure.code(), failure.warnings().clone())
+                .with_work(failure.work());
         }
         let meta = ExecutionMeta::write(
             failure.publication(),
@@ -48,6 +49,7 @@ impl Sent<'_> {
             failure.warnings().clone(),
             meta,
         )
+        .with_work(failure.work())
     }
 
     /// The node answered but not with a usable reply: it may hold the request,

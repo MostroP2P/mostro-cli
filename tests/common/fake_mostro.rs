@@ -20,8 +20,8 @@ use mostro_core::prelude::{
     WrapOptions, NOSTR_INFO_EVENT_KIND,
 };
 use nostr_sdk::prelude::{
-    Client, ClientNotification, Event, EventBuilder, EventId, Filter, FinalizeEvent, Keys, Kind,
-    PublicKey, Tag, Timestamp,
+    get_leading_zero_bits, Client, ClientNotification, Event, EventBuilder, EventId, Filter,
+    FinalizeEvent, Keys, Kind, PublicKey, Tag, Timestamp,
 };
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
@@ -33,6 +33,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub struct Received {
     pub event_id: EventId,
+    /// The proof of work the event carries: leading zero bits of its id.
+    pub work: u8,
     /// The event author.
     pub author: PublicKey,
     /// The identity proven inside the message.
@@ -1200,6 +1202,7 @@ impl FakeMostro {
                     };
                     let seen = Received {
                         event_id: event.id,
+                        work: get_leading_zero_bits(event.id.as_bytes()),
                         author: request.sender,
                         identity: request.identity,
                         request_id: inner.request_id,

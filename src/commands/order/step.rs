@@ -26,7 +26,7 @@ use uuid::Uuid;
 use super::held::{malformed, refusal};
 use super::write::unsent;
 use super::WriteOptions;
-use crate::msg::{exchange, ExchangeLimits, Expect, Outbound, PublicReadConfig};
+use crate::msg::{exchange, ExchangeLimits, Expect, Lane, Outbound, PublicReadConfig};
 use crate::outcome::step::{StepData, StepInput};
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, WarningCode,
@@ -79,6 +79,7 @@ pub async fn order_step(
             payload,
         ),
         pow: options.pow,
+        lane: Lane::Known,
         check_protocol: options.check_protocol,
     };
     let mut allowed_actions = kind.replies();
@@ -91,7 +92,8 @@ pub async fn order_step(
         Ok(exchanged) => exchanged,
         Err(failure) if failure.publication() == Publication::NotAttempted => {
             give_back(store, next.as_ref()).await;
-            return unsent(command, failure.code(), failure.warnings().clone());
+            return unsent(command, failure.code(), failure.warnings().clone())
+                .with_work(failure.work());
         }
         // Published, or possibly published: the node may have acted, so the key
         // it may hold stays spent.
@@ -106,7 +108,8 @@ pub async fn order_step(
                     failure.daemon_acceptance(),
                     spent(next.as_ref()),
                 ),
-            );
+            )
+            .with_work(failure.work());
         }
     };
     let reply = exchanged.reply().get_inner_message_kind();

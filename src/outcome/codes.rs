@@ -130,6 +130,40 @@ pub struct ErrorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     reason: Option<String>,
+    /// On `pow_required` only: the proof of work the node advertises for the
+    /// request, in bits. Left out of the derived schema like `reason`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    required: Option<u8>,
+    /// On `pow_required` only: the `--pow` / `POW` floor, in bits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    configured: Option<u8>,
+}
+
+/// What a `pow_required` error tells about the work: what the node advertises
+/// for the request and the floor the user configured, both in bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PowShortfall {
+    required: u8,
+    configured: u8,
+}
+
+impl PowShortfall {
+    pub fn new(required: u8, configured: u8) -> Self {
+        Self {
+            required,
+            configured,
+        }
+    }
+
+    pub fn required(&self) -> u8 {
+        self.required
+    }
+
+    pub fn configured(&self) -> u8 {
+        self.configured
+    }
 }
 
 impl ErrorInfo {
@@ -138,6 +172,8 @@ impl ErrorInfo {
             code,
             message: code.message(),
             reason: None,
+            required: None,
+            configured: None,
         }
     }
 
@@ -149,10 +185,26 @@ impl ErrorInfo {
         self.reason.as_deref()
     }
 
+    /// The work numbers of a `pow_required` error.
+    pub fn work(&self) -> Option<PowShortfall> {
+        self.required
+            .zip(self.configured)
+            .map(|(required, configured)| PowShortfall::new(required, configured))
+    }
+
     /// This error with the node's refusal `reason`, kept only when it is a
     /// snake-case word; anything else is dropped, never echoed.
     pub(super) fn with_reason(mut self, reason: &str) -> Self {
         self.reason = is_reason(reason).then(|| reason.to_string());
+        self
+    }
+
+    /// This error with the numbers of `work`, kept only on `pow_required`.
+    pub(super) fn with_work(mut self, work: PowShortfall) -> Self {
+        if self.code == ErrorCode::PowRequired {
+            self.required = Some(work.required);
+            self.configured = Some(work.configured);
+        }
         self
     }
 }

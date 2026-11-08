@@ -12,7 +12,7 @@ use nostr_sdk::prelude::Keys;
 use serde::Serialize;
 
 use super::invocation::OutputMode;
-use super::migrated::{code_name, diagnose, request_options};
+use super::migrated::{code_name, diagnose, error_line, request_options};
 use super::Cli;
 use crate::commands::order::WriteOptions;
 use crate::identity::{load_identity_keys, IdentityError};
@@ -216,12 +216,8 @@ fn print_human<D>(
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> i32 {
-    if let Some(code) = outcome.error_code() {
-        let line = match outcome.reason() {
-            Some(reason) => format!("error: {} (reason: {reason})", code.message()),
-            None => format!("error: {}", code.message()),
-        };
-        diagnose(err, &line);
+    if outcome.error_code().is_some() {
+        diagnose(err, &error_line(outcome));
         if outcome.status() == Status::Uncertain {
             diagnose(err, advice);
         }

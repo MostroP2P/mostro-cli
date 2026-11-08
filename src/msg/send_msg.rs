@@ -12,10 +12,11 @@ use tokio::time::{timeout_at, Instant};
 use super::exchange::Outbound;
 
 /// The request as a protocol-v2 event: sealed by the identity, authored and
-/// signed by the signer (the same key for the account-scoped form).
-pub(super) async fn wrap(outbound: &Outbound<'_>) -> Option<Event> {
+/// signed by the signer (the same key for the account-scoped form), mined
+/// with `pow` bits of proof of work.
+pub(super) async fn wrap(outbound: &Outbound<'_>, pow: u8) -> Option<Event> {
     let options = WrapOptions {
-        pow: outbound.pow,
+        pow,
         expiration: None,
         signed: true,
     };

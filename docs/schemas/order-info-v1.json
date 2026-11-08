@@ -342,6 +342,44 @@
           "allOf": [
             {
               "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "code": {
+                      "const": "pow_required"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "configured"
+                  ]
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "invalid_arguments",
+                        "configuration_missing",
+                        "configuration_invalid",
+                        "relay_connection_failed",
+                        "relay_read_failed",
+                        "internal_error",
+                        "identity_missing",
+                        "identity_unreadable",
+                        "protocol_unsupported",
+                        "request_rejected",
+                        "reply_timeout",
+                        "node_refused",
+                        "reply_malformed"
+                      ]
+                    },
+                    "configured": false,
+                    "required": false
+                  }
+                }
+              ]
             }
           ],
           "anyOf": [
@@ -377,10 +415,22 @@
                 "reply_malformed"
               ]
             },
+            "configured": {
+              "description": "The --pow / POW floor, in bits; present only on pow_required.",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
             "reason": {
               "description": "The node's refusal reason; present only on node_refused.",
               "pattern": "^[a-z][a-z0-9_]{0,63}$",
               "type": "string"
+            },
+            "required": {
+              "description": "The proof of work the node advertises for the request, in bits; present only on pow_required.",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
             }
           }
         },

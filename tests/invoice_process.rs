@@ -620,7 +620,7 @@ mod operation {
         bond_add_invoice, order_add_invoice, BondInvoiceOutcome, OrderInvoiceOutcome,
     };
     use mostro_client::commands::order::WriteOptions;
-    use mostro_client::msg::{ExchangeLimits, PublicReadConfig};
+    use mostro_client::msg::{ExchangeLimits, PublicReadConfig, AUTO_POW_CEILING};
     use mostro_client::outcome::invoice::{
         BondResult, InvoiceInput, InvoiceKind, InvoiceRequest, InvoiceResult,
     };
@@ -1161,7 +1161,7 @@ mod operation {
 
     #[tokio::test]
     async fn work_the_node_expects_stops_both_commands_before_anything_is_sent() {
-        let holder = holder(waiting, true, 9, |respond| respond).await;
+        let holder = holder(waiting, true, AUTO_POW_CEILING + 1, |respond| respond).await;
         let before = database(&holder);
 
         let order = add(&holder, id(1)).await;
@@ -1991,12 +1991,21 @@ mod operation {
         )
         .await;
 
-        let work = holder_with(waiting, true, (2, 9, false), |respond| respond).await;
+        let work = holder_with(waiting, true, (2, AUTO_POW_CEILING + 1, false), |respond| {
+            respond
+        })
+        .await;
         check_failure(
             &Failing::new("more work expected", Tweak::None, "pow_required"),
             &work,
         )
         .await;
+
+        // Work below the ceiling is mined, without `--pow`.
+        let mined = holder_with(waiting, true, (2, 9, false), |respond| respond).await;
+        let added = run(&mined, &order_args(&["--output", "json"], &["--yes"])).await;
+        assert_eq!(added.code(), Some(0), "{}", added.stderr_text());
+        assert!(mined.fake.received()[0].work >= 9);
 
         // An explicit transport skips the protocol check and enough work passes.
         let holder = holder_with(waiting, true, (1, 9, false), |respond| respond).await;

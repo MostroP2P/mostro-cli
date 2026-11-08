@@ -11,7 +11,10 @@ settable via the matching env var):
 
 - `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`, `identity init`, `identity show` and `order mine`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
 - `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
-- `-p, --pow <BITS>` (`POW`): NIP-13 proof-of-work difficulty mined on outgoing events.
+- `-p, --pow <BITS>` (`POW`): the least NIP-13 proof of work mined on outgoing events, default 0. The commands that go
+  through `msg::exchange` (the JSON-capable writes and `order info`) raise it to what the node advertises for the
+  request's lane, up to 20 bits; above that they fail with `pow_required` carrying `required` and `configured` (spec 017).
+  The legacy commands mine exactly this value.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
 - `-t, --transport <nip44>` (`TRANSPORT`): wire transport. Only `nip44`
   (protocol v2, signed kind 14) is supported.

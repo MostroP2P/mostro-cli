@@ -202,10 +202,7 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
             "command": {"const": command},
             "status": {"const": "uncertain"},
             "data": {"anyOf": [data, {"type": "null"}]},
-            "error": {
-                "allOf": [error.clone()],
-                "properties": {"code": {"enum": code_names(rules.uncertain)}},
-            },
+            "error": uncertain_error(rules, &error),
             "meta": meta_rule(&meta, &combos.uncertain, failure_snapshot),
         },
     });
@@ -309,7 +306,49 @@ fn failure_error(rules: &OutcomeRules, error: &Value) -> Value {
         rule["anyOf"] = Value::Array(allowed);
     }
     rule["properties"] = properties;
+    add_work(&mut rule, rules.errors);
     rule
+}
+
+/// The `error` of an uncertain outcome: its codes, and the work numbers when
+/// `pow_required` is one of them.
+fn uncertain_error(rules: &OutcomeRules, error: &Value) -> Value {
+    let mut rule = json!({
+        "allOf": [error],
+        "properties": {"code": {"enum": code_names(rules.uncertain)}},
+    });
+    add_work(&mut rule, rules.uncertain);
+    rule
+}
+
+/// Where `codes` include `pow_required`: `required` and `configured`, both
+/// present on that code and absent on every other one.
+fn add_work(rule: &mut Value, codes: &[ErrorCode]) {
+    if !codes.contains(&ErrorCode::PowRequired) {
+        return;
+    }
+    let bits = |description: &str| json!({"type": "integer", "minimum": 0, "maximum": u8::MAX, "description": description});
+    rule["properties"]["required"] = bits(
+        "The proof of work the node advertises for the request, in bits; present only on \
+         pow_required.",
+    );
+    rule["properties"]["configured"] =
+        bits("The --pow / POW floor, in bits; present only on pow_required.");
+    let others: Vec<ErrorCode> = codes
+        .iter()
+        .copied()
+        .filter(|code| *code != ErrorCode::PowRequired)
+        .collect();
+    let presence = json!({"anyOf": [
+        {
+            "properties": {"code": {"const": ErrorCode::PowRequired}},
+            "required": ["required", "configured"],
+        },
+        {"properties": {"code": {"enum": code_names(&others)}, "required": false, "configured": false}},
+    ]});
+    if let Some(all) = rule["allOf"].as_array_mut() {
+        all.push(presence);
+    }
 }
 
 /// Replace the `enum` of the shared definition `name`, when it exists.
@@ -331,7 +370,8 @@ mod tests {
     use crate::outcome::info::{OrderInfoData, OrderInfoInput};
     use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
     use crate::outcome::{
-        DaemonAcceptance, Envelope, ExecutionMeta, Publication, WarningCode, Warnings,
+        DaemonAcceptance, Envelope, ExecutionMeta, Persistence, PowShortfall, Publication,
+        WarningCode, Warnings,
     };
     use mostro_core::order::{Kind, SmallOrder, Status};
     use nostr_sdk::prelude::{Keys, Timestamp};
@@ -730,9 +770,11 @@ mod tests {
         serde_json::to_value(Envelope::ok("order.info", data, warnings, meta)).unwrap()
     }
 
+    /// A failure as the command emits it: `pow_required` always carries its work numbers.
     fn info_failure(code: ErrorCode, meta: ExecutionMeta<()>) -> Value {
         let envelope =
             Envelope::<OrderInfoData, ()>::error(Some("order.info"), code, Warnings::new(), meta);
+        let envelope = envelope.with_work(Some(PowShortfall::new(21, 0)));
         serde_json::to_value(envelope).unwrap()
     }
 
@@ -914,5 +956,100 @@ mod tests {
         for case in rejected {
             assert!(!conforms(&schema, &schema, &case), "accepted: {case}");
         }
+    }
+
+    // --- The work numbers of `pow_required` --------------------------------
+
+    #[test]
+    fn pow_required_carries_both_work_numbers_and_no_other_code_does() {
+        let unsent = || request(Publication::NotAttempted, DaemonAcceptance::Unknown);
+        let edit = |base: Value, change: &dyn Fn(&mut Value)| {
+            let mut value = base;
+            change(&mut value);
+            value
+        };
+        let short = || info_failure(ErrorCode::PowRequired, unsent());
+        let bare = serde_json::to_value(Envelope::<OrderInfoData, ()>::error(
+            Some("order.info"),
+            ErrorCode::PowRequired,
+            Warnings::new(),
+            unsent(),
+        ))
+        .unwrap();
+
+        let schema = info_schema();
+        assert!(conforms(&schema, &schema, &short()), "{}", short());
+        let failure = &schema["oneOf"][1]["properties"]["error"]["properties"];
+        for field in ["required", "configured"] {
+            assert_eq!(failure[field]["type"], "integer");
+            assert_eq!(
+                (&failure[field]["minimum"], &failure[field]["maximum"]),
+                (&json!(0), &json!(255))
+            );
+        }
+        for case in [
+            bare.clone(),
+            edit(short(), &|o| {
+                o["error"].as_object_mut().unwrap().remove("configured");
+            }),
+            edit(short(), &|o| o["error"]["required"] = json!("21")),
+            edit(short(), &|o| o["error"]["required"] = json!(256)),
+            edit(short(), &|o| o["error"]["configured"] = json!(-1)),
+            edit(info_failure(ErrorCode::IdentityMissing, unsent()), &|o| {
+                o["error"]["required"] = json!(21)
+            }),
+        ] {
+            assert!(!conforms(&schema, &schema, &case), "accepted: {case}");
+        }
+
+        // The same rule holds where pow_required leaves the outcome uncertain.
+        let uncertain_codes = [ErrorCode::PowRequired, ErrorCode::ReplyTimeout];
+        let write = Value::Object(output_schema::<OrderInfoData, ()>(&OutcomeRules::write(
+            "order.info",
+            &info_codes(),
+            &uncertain_codes,
+            &INFO_WARNINGS,
+        )));
+        let uncertain = |code, work| {
+            let meta = ExecutionMeta::write(
+                Publication::Published,
+                DaemonAcceptance::Unknown,
+                Persistence::Applied,
+            );
+            let envelope = Envelope::<OrderInfoData, ()>::uncertain(
+                "order.info",
+                code,
+                None,
+                Warnings::new(),
+                meta,
+            )
+            .with_work(work);
+            serde_json::to_value(envelope).unwrap()
+        };
+        let mined = Some(PowShortfall::new(12, 6));
+        assert!(conforms(
+            &write,
+            &write,
+            &uncertain(ErrorCode::PowRequired, mined)
+        ));
+        assert!(conforms(
+            &write,
+            &write,
+            &uncertain(ErrorCode::ReplyTimeout, None)
+        ));
+        assert!(!conforms(
+            &write,
+            &write,
+            &uncertain(ErrorCode::PowRequired, None)
+        ));
+        let timeout = edit(uncertain(ErrorCode::ReplyTimeout, None), &|o| {
+            o["error"]["configured"] = json!(0)
+        });
+        assert!(!conforms(&write, &write, &timeout), "{timeout}");
+
+        // A command that cannot emit pow_required describes neither number.
+        let read = listing();
+        let read_error = &read["oneOf"][1]["properties"]["error"]["properties"];
+        assert!(read_error.get("required").is_none() && read_error.get("configured").is_none());
     }
 }

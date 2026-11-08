@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use super::write::{self, reserve_code, Sent};
 use super::WriteOptions;
-use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
+use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Lane, Outbound, PublicReadConfig};
 use crate::outcome::new::{OrderNewData, OrderNewInput};
 use crate::outcome::{Envelope, ErrorCode, Warnings};
 use crate::store::{Role, Store};
@@ -71,6 +71,7 @@ pub async fn order_new(
         recipient: config.mostro_pubkey(),
         message: request,
         pow: options.pow,
+        lane: Lane::FirstContact,
         check_protocol: options.check_protocol,
     };
     let expect = Expect {

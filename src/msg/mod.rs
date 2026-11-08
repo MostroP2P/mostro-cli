@@ -35,7 +35,7 @@
 //! ```
 //! use mostro_client::msg::{
 //!     exchange, fetch_msg, ExchangeFailure, ExchangeLimits, Exchanged, Expect, FetchFailure,
-//!     Fetched, Outbound, PublicReadConfig, ReadLimits,
+//!     Fetched, Lane, Outbound, PublicReadConfig, ReadLimits, AUTO_POW_CEILING,
 //! };
 //! ```
 
@@ -56,6 +56,7 @@ mod reply;
 mod send_msg;
 
 pub use exchange::{exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Outbound};
+pub use node_info::{Lane, AUTO_POW_CEILING};
 pub(crate) use orders::{reduce_orders, seven_day_filter};
 pub use receive_msg::{fetch_msg, FetchFailure, Fetched};
 

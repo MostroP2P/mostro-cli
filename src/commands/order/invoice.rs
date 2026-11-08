@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use super::write::{reason, unsent};
 use super::WriteOptions;
-use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Outbound, PublicReadConfig};
+use crate::msg::{exchange, ExchangeLimits, Exchanged, Expect, Lane, Outbound, PublicReadConfig};
 use crate::outcome::invoice::{
     Answered, BondInvoiceData, InvoiceInput, InvoiceKind, OrderInvoiceData,
 };
@@ -146,6 +146,7 @@ async fn send<D>(
             Some(input.payload()),
         ),
         pow: options.pow,
+        lane: Lane::Known,
         check_protocol: options.check_protocol,
     };
     let expect = match kind {
@@ -167,7 +168,8 @@ async fn send<D>(
     match exchange(config, outbound, &expect, limits).await {
         Ok(exchanged) => Ok((trade, exchanged)),
         Err(failure) if failure.publication() == Publication::NotAttempted => {
-            Err(unsent(command, failure.code(), failure.warnings().clone()))
+            Err(unsent(command, failure.code(), failure.warnings().clone())
+                .with_work(failure.work()))
         }
         // Published, or possibly published: the node may hold the invoice.
         Err(failure) => Err(Envelope::uncertain(
@@ -180,7 +182,8 @@ async fn send<D>(
                 failure.daemon_acceptance(),
                 Persistence::NotAttempted,
             ),
-        )),
+        )
+        .with_work(failure.work())),
     }
 }
 

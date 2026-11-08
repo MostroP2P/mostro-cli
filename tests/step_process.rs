@@ -805,7 +805,7 @@ mod operation {
     use fake_mostro::{Outgoing, Received};
     use mostro_client::commands::order::step::{order_step, StepOutcome};
     use mostro_client::commands::order::WriteOptions;
-    use mostro_client::msg::{ExchangeLimits, PublicReadConfig};
+    use mostro_client::msg::{ExchangeLimits, PublicReadConfig, AUTO_POW_CEILING};
     use mostro_client::outcome::step::{StepInput, StepKind, StepNext, StepResult};
     use mostro_client::outcome::{ErrorCode, Status as Outcome};
     use mostro_client::store::Trade;
@@ -1364,7 +1364,7 @@ mod operation {
 
     #[tokio::test]
     async fn work_the_node_expects_stops_every_step_before_anything_is_sent() {
-        let holder = holder(buying, 9, |respond| respond).await;
+        let holder = holder(buying, AUTO_POW_CEILING + 1, |respond| respond).await;
         let before = database(&holder);
 
         for kind in [StepKind::FiatSent, StepKind::Release, StepKind::Cancel] {
@@ -1576,7 +1576,7 @@ mod operation {
         assert_eq!(last_index(&holder).await, before + 1);
 
         // Nothing left the machine: nothing spent.
-        let holder = self::holder(selling_range, 9, |respond| respond).await;
+        let holder = self::holder(selling_range, AUTO_POW_CEILING + 1, |respond| respond).await;
         sql(&holder, RANGE).await;
         let before = last_index(&holder).await;
         let stopped = take(&holder, StepKind::Release, id(1)).await;
@@ -2444,12 +2444,22 @@ mod operation {
         )
         .await;
 
-        let work = holder_with(buying, (2, 9, false), |respond| respond).await;
+        let work = holder_with(buying, (2, AUTO_POW_CEILING + 1, false), |respond| respond).await;
         check_failure(
             &Failing::new("more work expected", Tweak::None, "pow_required"),
             &work,
         )
         .await;
+
+        // Work below the ceiling is mined, without `--pow`.
+        let mined = holder_with(buying, (2, 9, false), |respond| respond).await;
+        let sent = run(
+            &mined,
+            &step_args(&["--output", "json"], "fiat-sent", &["--yes"]),
+        )
+        .await;
+        assert_eq!(sent.code(), Some(0), "{}", sent.stderr_text());
+        assert!(mined.fake.received()[0].work >= 9);
 
         // An explicit transport skips the protocol check and enough work passes.
         let holder = holder_with(buying, (1, 9, false), |respond| respond).await;
