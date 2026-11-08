@@ -157,7 +157,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ## Configuration
 
-`mostro-cli` reads its configuration from environment variables (or equivalent CLI flags). The Mostro pubkey and at least one relay are mandatory. **Your own keys are not part of the configuration** — see [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
+`mostro-cli` reads its configuration from environment variables (or equivalent CLI flags); the JSON-capable commands also read the node settings from a [config file](#config-file) in the data directory. The Mostro pubkey and at least one relay are mandatory. **Your own keys are not part of the configuration** — see [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
 
 ### Required
 
@@ -177,6 +177,8 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 | `MOSTRO_RPC_URL` | `http://127.0.0.1:50051` | `mostrod` admin gRPC endpoint (`[rpc]` in the daemon's settings). Only used by `admsetmaintenance` / `admmaintenancestatus` / `admcancelpending`. |
 | `MOSTRO_RPC_TOKEN` | — | Bearer token for the admin gRPC, required when the daemon sets `[rpc].auth_token`. Only used by the three commands above. Sent in cleartext only to a loopback URL (direct or through an SSH tunnel); any other `http://` host is refused, use `https://` via a TLS proxy instead. |
 | `RUST_LOG` | `-v, --verbose` | **Not actually configurable.** The logger is initialised only when `-v` is passed, and `-v` overwrites `RUST_LOG` with `info` first. So `RUST_LOG` alone produces no output, and `RUST_LOG=debug -v` still logs at `info`. `-v` is the only available level. |
+
+`MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` may also be set in the [config file](#config-file); the other variables are read from the environment only.
 
 ### Choosing a Mostro instance
 
@@ -209,6 +211,25 @@ mostro-cli order list
 
 > Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init`, `identity show` and `order mine` are the only exceptions).
 
+### Config file
+
+The JSON-capable commands that talk to a node (`order list`, `order new`, `message list` and the others listed under [Machine-readable output](#machine-readable-output), except the local `schema`, `identity init`, `identity show` and `order mine`) also read the node settings from `config` in the data directory: `$MCLI_DIR/config`, else `~/.mcli/config` (`%USERPROFILE%\.mcli\config` on Windows). It holds `KEY=VALUE` lines with the variable names; `#` comment lines, blank lines, an `export` prefix and quotes are accepted, but a `#` after a value is part of the value. So the `MOSTRO_PUBKEY` and `RELAYS` lines of the `env.sh` above can be copied there as they are, a `POW` line without its trailing comment, and `ADMIN_NSEC` stays out (see below).
+
+```bash
+mkdir -m 700 -p ~/.mcli
+cat > ~/.mcli/config <<'END'
+MOSTRO_PUBKEY=<npub-of-your-mostro-node>
+RELAYS=wss://<relay-your-node-publishes-to>,wss://<another-relay>
+END
+chmod 600 ~/.mcli/config
+mostro-cli order list
+```
+
+- An option wins over an environment variable that is set (even empty), which wins over the file.
+- Only `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` are allowed. Any other key, `ADMIN_NSEC` included, makes the whole file invalid, so keep secrets in the environment. Every value is checked like an option.
+- Reading it never creates `~/.mcli` or anything in it.
+- The human-only commands (`listdisputes`, `getdmuser`, the admin commands, ...) do not read it yet: they still need the environment or the options.
+
 ### About `.env` files
 
 `mostro-cli` does **not** load a `.env` file automatically — there is no dotenv support in the binary, so dropping a `.env` next to the executable has no effect. Older guides (and some issue comments) suggest it; that advice is outdated.
@@ -233,7 +254,7 @@ mostro-cli order list
 
 ## Quick start
 
-Export your configuration first — every command below fails immediately without it:
+Export your configuration (or put it in the [config file](#config-file)) first — every command below fails immediately without it:
 
 ```bash
 export MOSTRO_PUBKEY="<npub-of-your-mostro-node>"
@@ -725,6 +746,7 @@ mostro-cli --output json schema    # the same data in the standard outcome
 | Path | What it is |
 |---|---|
 | `~/.mcli/` | The CLI's data directory. Created on first run. |
+| `~/.mcli/config` | Optional node settings as `KEY=VALUE` lines (see [Config file](#config-file)); never created by a read. |
 | `~/.mcli/mcli.db` | SQLite database with your `users` row (mnemonic, identity key, last trade index) and `orders` cache. |
 
 Environment variables read by the CLI:
@@ -754,6 +776,8 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 **"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
 
 **`MOSTRO_PUBKEY not set`** — Export it, or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> order list`, not `mostro-cli order list -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance).
+
+**`The node configuration is invalid.`** after a `hint: <path>: line N ...` line — The config file was refused. The hint names the file and the line: a key other than the four settings, a line without `=`, or a value that is not a key, relay URLs, a number up to 255 or `nip44`. Fix or remove that line; the whole file is refused even when the options give every value. Without a hint, the option or variable itself is invalid.
 
 **`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs) or pass `-r <relay[,relay...]>` before the subcommand.
 

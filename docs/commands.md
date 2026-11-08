@@ -7,7 +7,8 @@ All commands are part of the `Commands` enum and are dispatched via `Commands::r
 ### Global options
 
 These flags apply to every subcommand (parsed on the top-level `Cli`; each also
-settable via the matching env var):
+settable via the matching env var, and `-m`, `-r`, `-p` and `-t` also through the config file, see
+[Where the settings come from](#where-the-settings-come-from)):
 
 - `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`, `identity init`, `identity show` and `order mine`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
 - `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
@@ -42,6 +43,32 @@ In human mode, argument errors exit 2 and print a fixed description on stderr,
 such as `error: unexpected argument found`, without echoing the arguments given.
 `--help` and `--version` print text and exit 0 even with `--output json`.
 
+### Where the settings come from
+
+Spec 018 ([contract](../specs/018-config-file/contracts/cli.md)). Each node setting, `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT`,
+comes from its root option (`-m`, `-r`, `-p`, `-t`), even empty; else from its environment variable when that is set, even empty (a
+value that is not valid UTF-8 counts as empty); else from the config file; else it is missing. An empty value keeps its meaning: an empty key or relay list is `configuration_missing`, an
+empty `POW` is 0, an empty `TRANSPORT` means detect.
+
+- **Location**: `config` in the data directory: `$MCLI_DIR/config`, else `~/.mcli/config` (on Windows the profile folder, normally
+  `%USERPROFILE%\.mcli\config`). Without a data directory there is no file.
+- **Format**: UTF-8 `KEY=VALUE` lines with the variable names (LF or CRLF; a leading byte order mark is ignored). Blank lines and lines
+  starting with `#` are skipped, an `export` followed by whitespace is dropped, key and value are trimmed and one pair of matching `"` or `'` quotes around
+  the value is removed. No inline comments (a `#` after a value is part of the value), escapes or expansion. An empty value means unset;
+  a repeated key keeps its last line. From the README `env.sh`, the `MOSTRO_PUBKEY` and `RELAYS` lines can be copied as they are and a
+  `POW` line without its trailing comment; an `ADMIN_NSEC` line refuses the file.
+- **Only the four keys.** Any other key (`ADMIN_NSEC`, `MOSTRO_RPC_TOKEN`, ...) refuses the file, so secrets stay in the environment.
+  Each value is checked as the commands check it (a public key in hex or npub, relay URLs, 0 to 255, `nip44`, no control character).
+- **Refusals**: a refused file (another key, a line without `=`, a value refused, not a readable UTF-8 file) fails the command with
+  `configuration_invalid` (exit 1) after the command's own argument checks (the `--yes` rule and the `--invoice -` read included) and
+  before identity, store or network access, even when the options give every value, and stderr gets one line `hint: <path>: <problem>`
+  naming the line, never its content. An error looking the file up (a data directory that does not exist, that the process may not search
+  or whose path cannot be resolved) means no file, as before the file existed.
+- **When**: read once per run, before identity, store or network access, by the JSON-capable networked commands (every machine command
+  except `schema`, `identity init`, `identity show` and `order mine`, which never read it). The human-only commands do not read it yet and
+  the RPC commands never read it; set their settings in the environment or with the options. Reading never creates the data directory or any file and
+  never changes the process environment.
+
 ### Discovery
 
 - **`schema`**
@@ -70,8 +97,8 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   | --- | --- | --- |
   | `invalid_arguments` | 2 | unknown, missing or invalid argument or side/status, removed spelling |
   | `output_not_supported` | 2 | `--output json` on a command without JSON support |
-  | `configuration_missing` | 1 | `MOSTRO_PUBKEY` or `RELAYS` missing or blank |
-  | `configuration_invalid` | 1 | invalid public key or relay URL |
+  | `configuration_missing` | 1 | `MOSTRO_PUBKEY` or `RELAYS` missing, or blank where it is taken from (the option, else a set variable, else the config file) |
+  | `configuration_invalid` | 1 | invalid public key or relay URL, or a refused config file (with a stderr `hint:`) |
   | `relay_connection_failed` | 1 | a relay could not be connected in time |
   | `relay_read_failed` | 1 | REQ rejected or CLOSED, disconnect before EOSE, lagging buffer |
   | `read_timeout` | 1 | the read deadline passed before every EOSE |
@@ -80,13 +107,13 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
 
 - **The invoice reason.** On `order new`, `order take-sell`, `order add-invoice` and `bond add-invoice`, an `invalid_arguments` caused by the invoice value itself carries `"reason": "invalid_invoice"` in `error`, as a node refusal carries its reason; the message stays the fixed text and never contains the invoice. It covers what the program checks before sending: for `order add-invoice` a BOLT-11 prefix (`lnbc`, `lntb`, `lnsb`, any case) or a Lightning address with one `@`, for `bond add-invoice` a BOLT-11 prefix only (an address is refused), for `order take-sell` and `order new` a non-empty value of at most 4096 bytes without whitespace or control characters, and for `--invoice -` the content of standard input (empty, several lines, more than 8 KiB, not UTF-8). Every other `invalid_arguments` carries no reason: a malformed order id, a missing or unknown option, `--invoice -` without `--yes` or with a terminal as stdin. The program does not decode a BOLT-11 or check its network; the node refuses such an invoice (`node_refused`, reason `invalid_invoice`). The generated schemas allow a reason only on `node_refused` and, for those four commands, `invalid_invoice` on `invalid_arguments` (2026-11-05).
 - **Exceptions to the single document.** `--help` and `--version` print text and exit 0 even with `--output json`. A missing, invalid or repeated `--output` exits 2 with empty stdout and a fixed stderr line. If the result cannot be written (closed or broken stdout) the process exits 1 with one fixed stderr line and nothing more. A crash or external kill cannot guarantee a final document.
-- **Versioning.** `schema_version` (currently `1`) is independent of the package version, which `schema` reports separately as `executable_version`. Consumers may ignore additional optional fields; changed types, semantics, required fields or enum values need a new `schema_version`. The canonical command names are part of version 1. Because `executable_version` is in the generated reference, a package version change requires regenerating it.
+- **Versioning.** `schema_version` (currently `1`) is independent of the package version, which `schema` reports separately as `executable_version`. Consumers may ignore additional optional fields; changed types, semantics, required fields or enum values need a new `schema_version`. The canonical command names are part of version 1. `configuration_missing` and `configuration_invalid` stay in version 1 with the config file (spec 018): their names, messages and exits are unchanged, they only gain a source, and without a file every outcome is identical. Because `executable_version` is in the generated reference, a package version change requires regenerating it.
 - **Not supported by this contract**: pagination, an all-statuses filter, streaming output, and any write command. Secret-export commands (`getlasttradeprivkey`, `conversationkey`) are not offered in JSON.
 
 ### Orders
 
 - **`order list`** (replaces `listorders`)
-  - **Description**: Reads the node's public order book (read-only; publishes nothing and never touches the local database or identity). Needs `MOSTRO_PUBKEY` and `RELAYS`, from the root flags or the environment.
+  - **Description**: Reads the node's public order book (read-only; publishes nothing and never touches the local database or identity). Needs `MOSTRO_PUBKEY` and `RELAYS`, from the root flags, the environment or the config file; in the data directory it reads only `config`.
   - **Args**:
     - `--side <buy|sell>`: Optional order side (case-insensitive). Replaces `--kind`.
     - `--currency <STRING>`: Optional fiat currency code (case-insensitive).
