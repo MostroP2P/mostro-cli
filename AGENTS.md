@@ -37,7 +37,9 @@ After them: `order mine` ([spec](specs/011-order-mine/spec.md)), `order new --ex
 `dispute open` ([spec](specs/013-dispute-open/spec.md)) and `order rate` ([spec](specs/014-order-rate/spec.md)), which replace `dispute` and
 `rate`, and the bond flows of `order cancel` and `message list` ([spec](specs/015-bond-flows/spec.md)), all verified on Linux against isolated
 stores and the scripted node only. The global `--reply-timeout` ([spec](specs/016-reply-timeout/spec.md)) sets the reply deadline of the
-commands that wait for the node.
+commands that wait for the node. The commands that wait for the node also mine the proof of work it advertises, up to 20 bits, and a
+`pow_required` names `required` and `configured` ([spec](specs/017-advertised-pow/spec.md)); verified against the scripted node and
+probed on a local regtest node.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

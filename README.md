@@ -170,7 +170,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 | Variable | CLI flag | Description |
 |---|---|---|
-| `POW` | `-p, --pow` | Proof-of-work difficulty (bits) required by the Mostro instance for incoming events. Set this if the daemon enforces PoW. |
+| `POW` | `-p, --pow` | The least proof of work (bits) mined on requests, default 0. The JSON-capable commands raise it to what the instance advertises, up to 20 bits, so you rarely need it; set it for a higher requirement or for the legacy commands. |
 | `SECRET` | `-s, --secret` | Use secret/anonymous mode for the inner event tuple (advanced, hides trade index). |
 | `TRANSPORT` | `-t, --transport` | Wire transport: only `nip44` (protocol v2, signed kind 14). Leave unset to auto-detect from the instance's info event (defaults to nip44). |
 | `ADMIN_NSEC` | — | Admin/solver private key in `nsec1...` or hex format. Only read when an `adm*` command is invoked. |
@@ -198,7 +198,7 @@ Create a small env file you `source` before using the CLI:
 # ~/.config/mostro/env.sh   (chmod 600)
 export MOSTRO_PUBKEY="<npub-of-your-mostro-node>"
 export RELAYS="wss://<relay-your-node-publishes-to>,wss://<another-relay>"
-# export POW=10                # only if the node enforces proof of work
+# export POW=24                # only for more than 20 bits, or the legacy commands
 # export ADMIN_NSEC=nsec1...   # only if you're an admin/solver
 ```
 
@@ -772,7 +772,7 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 Run with `-v` (before the subcommand) for relay-level logs.
 
-**Mostro rejects events / no reply** — The instance may require `POW`. Ask the operator what difficulty is enforced and export `POW=<bits>`.
+**Mostro rejects events / no reply** — The instance may require `POW`. The JSON-capable commands mine the advertised difficulty up to 20 bits and report `pow_required` with `required` and `configured` above that; export `POW=<required>` to mine it. For the legacy commands, ask the operator (or read the `pow` tag of its kind-38385 event) and export `POW=<bits>`.
 
 **`no such table: orders`** — Your `~/.mcli/mcli.db` was created by something other than the CLI (usually by hand-crafting it while restoring a mnemonic). The CLI only creates its tables when that file does not exist, so a pre-made database is missing `orders`. Delete it and follow [Restoring from the mnemonic alone](#restoring-from-the-mnemonic-alone) — but back up the mnemonic first: `sqlite3 ~/.mcli/mcli.db "SELECT mnemonic FROM users;"`.
 
