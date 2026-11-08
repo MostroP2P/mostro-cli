@@ -445,3 +445,10 @@ review entry in [TEST_SUMMARY.md](TEST_SUMMARY.md). The invoice reason (2026-11-
 Reply deadline (spec 016, 2026-11-05): `tests/reply_timeout_process.rs` (4) and `the_global_options_are_listed_with_what_they_apply_to`;
 verified on Linux against the scripted node only. The step refusal rule (follow-up of spec 013):
 `a_refusal_that_names_another_order_or_none_is_uncertain_for_every_step`.
+
+Order chat (spec 019, unit 1 of 4, 2026-11-08): `tests/order_chat_process.rs` (10: `mod store`, the counterparty column read without
+writing and written alone; `mod counterparty`, a stored key used with no relay contacted, the lookup from eight-day-old lock mail and from
+`fiat-sent-ok`, `counterparty_unknown` before the lock, our own key in the row, a refused save, store failures before any relay, relay
+failures) and the
+`msg::counterparty` unit tests (8, the impostor case included); verified on Linux against isolated stores and loopback relays only. No
+command uses the lookup yet.

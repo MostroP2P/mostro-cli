@@ -4591,3 +4591,46 @@ value from its node-info probe.
   `accepted`, the id in `not_returned`) in 1.8 s, and the request event on the relay has 6 leading zero bits (`nonce` tag 6).
 - **Gates** (final tree): fmt, clippy `--all-targets --all-features -D warnings`, `cargo test --locked` 997 passed and 0 failed (none
   ignored), build, MSRV `cargo +1.94.0 check --locked --all-targets --all-features`.
+
+## Order Chat (spec 019) Unit 1: The Counterparty Lookup: 2026-11-08
+
+Branch `feat/order-chat-counterparty` from `main` (8970c81), the first of four units of #245. Library only: no command, option, schema,
+fixture or output changes, and no command emits `counterparty_unknown` yet.
+
+- **Failing first**: `outcome::tests` with `counterparty_unknown` in the added codes and the contract table did not compile (no such
+  variant); `tests/order_chat_process.rs` did not compile (`Store::counterparty`, `Store::set_counterparty` and
+  `commands::order::counterparty` did not exist); the `msg::counterparty` unit tests against a `counterparty_in` that always returned `None`:
+  4 passed (the three moved tests and the "nothing counts" cases), 4 failed (`lock_messages_name_the_other_trade_key`,
+  `fiat_sent_ok_names_the_counterparty_in_its_peer_payload`, `the_newest_accepted_message_wins`,
+  `an_impostor_event_never_names_the_counterparty`).
+- **The change**: `store/counterparty.rs` (read-only `Store::counterparty`, one-column `Store::set_counterparty`); `msg/counterparty.rs`
+  (`counterparty_from_trade_pubkeys` moved from `parser/dms.rs` with its three tests; `counterparty_in` accepts only `buyer-took-order` and
+  `hold-invoice-payment-accepted` naming both trade keys and `fiat-sent-ok` with a `Peer`, about this order, addressed to our key, newest
+  first); `commands/order/counterparty.rs` (`find_counterparty`: the stored key, if valid and not ours, with no relay contacted; otherwise
+  the node's mail since 0 and a key found saved best-effort); `ErrorCode::CounterpartyUnknown` (exit 1). The frozen production size of
+  `parser/dms.rs` goes from 1210 to the measured 1189 (1188 fails the size test).
+- **Review fixes (same day)**: a first review moved the node's mail ahead of the row, to replace a pre-lock key the legacy `getdm` might
+  have stored. A second review, checked against mostrod `main` (8111f5e), showed that it fixed nothing and cost a relay read on every
+  lookup: on Lightning no pre-lock message names both trade keys (`show_hold_invoice` sends `waiting-seller-to-pay` with no payload, and
+  `as_new_order` and the `add-invoice` payload carry no trade keys), so `getdm` only ever stores the post-lock key; on a Cashu node the
+  seller's pre-lock `waiting-seller-to-pay` names both, but the lock (`cashu-escrow-locked`) carries no payload, so the mail named no one
+  and the row was used anyway. The row comes first again, as the issue and the plan order it:
+  `a_stored_counterparty_is_used_without_contacting_any_relay` (a closed port as the only relay) failed against the mail-first code
+  (`relay_connection_failed`) and passes now; the mail-first test, whose mail mixed a Cashu-only pre-lock payload with a Lightning-only
+  lock message, is gone. The Cashu case stays a recorded risk (plan Risks). The store error mapping had no test: with
+  `StoreError::Missing` mapped to `store_unreadable`, every test still passed; the new `store_failures_keep_their_codes_and_contact_no_relay`
+  fails on that mutation and passes on the code. The rustdoc names the 50 as the read's per-relay request limit and the node's NIP-40
+  expiry of kind 14 (`dm_days`, 30 days by default).
+- **Tests**: `tests/order_chat_process.rs` 10/10 (isolated stores, loopback relays holding mail signed by generated node keys): the column
+  read back as canonical hex with every other column and row unchanged, unknown order refused; NULL, empty and unparsable values read as
+  `None` with no file created and no byte changed; a stored key returned with no warning, no write and a closed port as the only relay;
+  our own key in the column ignored; eight-day-old `hold-invoice-payment-accepted` found and saved, then served from the row by a relay
+  holding no mail; `fiat-sent-ok` found; pre-lock mail (`waiting-seller-to-pay` and `new-order` naming a stale key, a lock message of
+  another order) is `counterparty_unknown` with the store byte-identical; a trigger refusing the save still returns the key; a deleted
+  store is `identity_missing` and a directory in its place `store_unreadable`, with no relay contacted; a silent relay gives
+  `read_timeout`, a closed port `relay_connection_failed`. The `msg::counterparty` unit tests 8/8, including a forged `Order` payload
+  authored by another key that `inbox::open_events` drops. The legacy `persist_counterparty_pubkey` tests pass unchanged.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1012 passed, 0 failed, 0 ignored (997 at the base; +5 unit and +10 process tests, the 3 moved tests counted
+  once); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`. All schema fixture drift tests pass unchanged.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual.

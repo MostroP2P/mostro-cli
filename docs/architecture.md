@@ -89,7 +89,7 @@ imports are excluded; platform-specific production code is counted. This is not 
 general Rust parser or a CI gate; task T050 adds the automated check for migrated files.
 
 Totals: **62 files, 13,124 physical lines, 3,106 test-only lines, 10,018 production lines**.
-Four files exceed 400 production lines: `parser/dms.rs` (1,210), `db.rs` (704; 629 since spec 009 moved the store creation to `store/create.rs`),
+Four files exceed 400 production lines: `parser/dms.rs` (1,210; 1,189 since spec 019 moved `counterparty_from_trade_pubkeys` to `msg/counterparty.rs`), `db.rs` (704; 629 since spec 009 moved the store creation to `store/create.rs`),
 `util/messaging.rs` (556) and `cli/take_dispute.rs` (403). Every file created or
 migrated by the pilot is at or below 316 production lines (`cli.rs` is the largest).
 T019 found the T002 table inconsistent with the files; this table was produced by one
@@ -185,7 +185,7 @@ they are excluded from size, not exempt from cleanup.
 | Oversized file | Planned split and gate |
 | --- | --- |
 | db.rs (704, now 629) | Roadmap effects phase: connection/migrations and focused user/order persistence behind the db facade; no storage migration in the listing pilot |
-| parser/dms.rs (1,210) | Roadmap effects/messaging phases: decode/correlation to msg, reply-driven writes to commands/apply, presentation to parse_human |
+| parser/dms.rs (1,210, now 1,189) | Roadmap effects/messaging phases: decode/correlation to msg, reply-driven writes to commands/apply, presentation to parse_human |
 | util/messaging.rs (556) | Roadmap shared-messaging phase: private session, `send_msg` and `receive_msg`, with focused private helpers |
 | cli/take_dispute.rs (403) | Roadmap dispute/admin phase: separate validation, orchestration and rendering into their owning modules |
 
@@ -296,6 +296,14 @@ violation.
 - **`src/commands/order/held.rs`**, **`src/commands/order/dispute.rs`**, **`src/commands/order/rate.rs`**, **`src/outcome/dispute.rs`**, **`src/outcome/rate.rs`**, **`src/cli/held.rs`**, **`src/parse_human/held.rs`**: `dispute open` (spec 013) and `order rate` (spec 014), which replace the legacy `dispute` and `rate`. `held::send_held` is a request on an order the user holds that spends no trade index: the stored key signs, the reply is selected by request id and must name the order, an accepted reply may set the local status (`dispute` for a dispute; nothing for a rating). The trade steps keep their own operation (a range continuation reserves an index) and share its rule and outcomes for a refusal (`held::refusal`: a `cant-do` is a refusal only when it names the order, otherwise `reply_malformed`) and an unusable reply. The legacy `cli/rate_user.rs`, `cli/send_msg.rs` and `util::run_simple_order_msg` are gone.
 - **`src/cli/stdin.rs`**: `--invoice -` (spec 010). The four dispatchers that take an invoice (`cli/invoice.rs`, `cli/order_take.rs`, `cli/order_new.rs`) call `stdin::invoice` right after the JSON `--yes` rule and before their validation: a literal value is kept as it is; `-` without `--yes`, or with a terminal as stdin, is `invalid_arguments` before stdin is read; with `--yes` at most 8 KiB + 1 byte is read and exactly one non-empty trimmed UTF-8 line is required. The prompt never reads stdin on this path.
 - **`src/commands/message/list.rs`**, **`src/msg/inbox.rs`**, **`src/cli/message.rs`**, **`src/outcome/messages.rs`** (and `messages/payload.rs`), **`src/parse_human/message.rs`**: `message list`, a read with an identity. `cli/write.rs::resolve_reader` resolves configuration, identity and an existing store (never writable, and without the work and transport settings, which concern only what is sent); `Store::trade_keys` derives the keys of indexes 1 to the recorded last (newest 200) or `Store::order_keys` gives the one of `--order`. `msg::inbox::read_inbox` asks every relay once (kind 14, the node as author, all keys as recipients, the window, 50 per relay) through the bounded read of `order list`, then re-checks author, kind, time and recipient itself and opens each event with the key it names; a filter with no recipient is never sent. `outcome/messages.rs` holds the validated input, the records with the typed `next_step`, and the payload summary (the bond, hold and payout invoices are data). The command writes nothing: it saves no counterparty or solver key, which `getdm` did.
+- **`src/store/counterparty.rs`**, **`src/msg/counterparty.rs`**, **`src/commands/order/counterparty.rs`**: the counterparty lookup of
+  spec 019 (`order chat`, in progress; no command uses it yet). `find_counterparty` returns the row's `counterparty_pubkey`
+  (`Store::counterparty`) as it is when it parses and is not our trade key, with no relay contacted. Otherwise it reads all the node's mail
+  to the order's trade key since 0 (`read_inbox`) and takes the key from the newest post-lock message about the order
+  (`msg::counterparty::counterparty_in`: `buyer-took-order` or `hold-invoice-payment-accepted` naming both trade keys, or `fiat-sent-ok`
+  with its `Peer`), then saves it to the row as a best-effort cache (`Store::set_counterparty`; a failed save is not reported). None found
+  is `counterparty_unknown`. `counterparty_from_trade_pubkeys`, which the legacy `persist_counterparty_pubkey` still uses, moved from
+  `parser/dms.rs` to `msg/counterparty.rs`.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text.
