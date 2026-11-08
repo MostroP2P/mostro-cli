@@ -30,6 +30,7 @@ use reserve::{release_in, reserve_in};
 pub use rows::StoredOrder;
 use save::{save_in, Existing};
 
+mod counterparty;
 mod create;
 mod reserve;
 mod rows;

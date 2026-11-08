@@ -3952,7 +3952,7 @@ mod source_boundaries {
     const LEGACY_OVERSIZED: [(&str, usize); 4] = [
         ("cli/take_dispute.rs", 403),
         ("db.rs", 629),
-        ("parser/dms.rs", 1210),
+        ("parser/dms.rs", 1189),
         ("util/messaging.rs", 556),
     ];
 
