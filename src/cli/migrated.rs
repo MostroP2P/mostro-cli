@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
 use super::write::{exchange_limits, node_lookup, request_options};
-use super::{held, identity, invoice, message, mine, order_new, order_take, step, sync};
+use super::{config, held, identity, invoice, message, mine, order_new, order_take, step, sync};
 use super::{
     offline_discovery, BondCommands, Cli, Commands, DiscoveryData, DisputeCommands,
     MessageCommands, OrderCommands,
@@ -49,12 +49,13 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         });
     }
 
-    // The local identity and the local orders: no configuration, node, relay
-    // or legacy context.
+    // The local identity, the local orders and the config file: no node
+    // configuration, relay or legacy context.
     match &cli.command {
         Some(Commands::Identity { command }) => {
             return Some(identity::run(cli, command, output).await)
         }
+        Some(Commands::Config { command }) => return Some(config::run(cli, command, output)),
         Some(Commands::Order {
             command: OrderCommands::Mine,
         }) => return Some(mine::run(cli, output).await),

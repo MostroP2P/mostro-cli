@@ -170,6 +170,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "dispute.open",
         json: JsonSupport::Write,
     },
+    // Writes the config file only and publishes nothing, like `identity init`.
+    CommandEntry {
+        path: &["config", "set"],
+        canonical: "config.set",
+        json: JsonSupport::Read,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.
