@@ -56,6 +56,23 @@ pub struct ChatArgs {
 }
 
 #[derive(Args, Clone, Debug)]
+pub struct WatchArgs {
+    /// Id of an order in the local store
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// How far back to replay first, in minutes (1 to 10080, default 30)
+    #[arg(long, value_name = "MINUTES")]
+    pub since: Option<i64>,
+    /// Start where an earlier JSON call stopped: its `cursor`, verbatim
+    #[arg(long, value_name = "CURSOR", conflicts_with = "since")]
+    pub after: Option<String>,
+    /// Stop after this many seconds without the trade ending (1 to 86400);
+    /// human mode has no deadline without it
+    #[arg(long, value_name = "SECONDS")]
+    pub timeout: Option<i64>,
+}
+
+#[derive(Args, Clone, Debug)]
 pub struct ListMessagesArgs {
     /// How far back to read, in minutes (1 to 10080, default 30)
     #[arg(long, value_name = "MINUTES")]

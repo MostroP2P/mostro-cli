@@ -13,8 +13,8 @@ use super::schema::SCHEMA_COMMAND;
 use super::write::exchange_limits;
 use super::{held, identity, invoice, message, mine, order_new, order_take, step, sync};
 use super::{
-    offline_discovery, order_chat, BondCommands, Cli, Commands, DiscoveryData, DisputeCommands,
-    MessageCommands, OrderCommands,
+    offline_discovery, order_chat, order_watch, BondCommands, Cli, Commands, DiscoveryData,
+    DisputeCommands, MessageCommands, OrderCommands,
 };
 use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
@@ -62,7 +62,7 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         _ => {}
     }
 
-    // An order already held, with no trade index: a request, or its peer chat.
+    // An order already held, with no trade index: a request, chat, human watch.
     match &cli.command {
         Some(Commands::Dispute {
             command: DisputeCommands::Open(args),
@@ -73,6 +73,9 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         Some(Commands::Order {
             command: OrderCommands::Chat(args),
         }) => return Some(order_chat::run(cli, args, output).await),
+        Some(Commands::Order {
+            command: OrderCommands::Watch(args),
+        }) if output == OutputMode::Human => return Some(order_watch::run(cli, args).await),
         _ => {}
     }
 

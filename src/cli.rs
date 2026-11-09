@@ -29,6 +29,7 @@ mod mine;
 mod order_chat;
 mod order_new;
 mod order_take;
+mod order_watch;
 mod registry;
 mod schema;
 mod stdin;
@@ -40,7 +41,7 @@ pub use args::Cli;
 pub use commands::{
     AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, ChatArgs, Commands, DisputeCommands,
     IdentityCommands, ListMessagesArgs, MessageCommands, NewArgs, OrderCommands, RateArgs,
-    StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
+    StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs, WatchArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

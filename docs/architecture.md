@@ -356,7 +356,7 @@ violation.
   replays; a relay that is away gets it when it is back. `next` returns released records oldest first or an empty batch at the deadline;
   `observed` feeds `Cursor::advance`; `close` is bounded (`cleanup_incomplete`).
 - **`src/commands/order/watch.rs`**, **`src/parse_human/watch.rs`**: the operation and the human renderer of `order watch` (spec 020
-  unit 4); no command reaches them yet. `order_watch` takes the order's trade key and index (`message/list.rs::order_key`, the order
+  unit 4). `order_watch` takes the order's trade key and index (`message/list.rs::order_key`, the order
   branch of `message list`), the user's side (`TradeRole::of_order` from `Store::order_rows`, whose `StoredOrder` now carries `is_mine`;
   unknown when it is NULL), the counterparty from `find_counterparty` (`counterparty_unknown` only leaves the chat out), then one
   `Watch`. A node message that names the counterparty while watching (`counterparty_in`) brings the chat in through `follow_chat`, its
@@ -367,6 +367,13 @@ violation.
   `parse_human/watch.rs` renders the header (order, window start, counterparty or its absence), the node's messages with `message
   list`'s block and the chat with `order chat`'s block (escaped by `escape_untrusted`), the learned counterparty and `truncated`, and
   the end or deadline line.
+- **`src/cli/order_watch.rs`**: the dispatch of `order watch` in human mode (spec 020 unit 5), the only output that streams
+  (constitution 1.0.1). It validates `WatchArgs`, resolves the reader (`write::resolve_reader(cli, false)`: no work or transport
+  setting), then runs `order_watch` with `Follow::UntilEnd` and a sink that renders each update whole (`Shown::First` with the window
+  start, then `Shown::Later`, flagged when the counterparty first appears), writes and flushes it; a failed write stops the watch with
+  one fixed line (exit 1). It then prints the end or deadline line (exit 0), or the error line. The registry marks `order.watch`
+  `JsonSupport::Unsupported`, and the `cli/migrated.rs` arm is guarded by human output, so JSON falls through to
+  `output_not_supported`.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).
@@ -390,7 +397,7 @@ Each file in `src/cli/` encapsulates the logic of a specific feature or a group 
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `order chat`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs`, `cli/invoice.rs`, `cli/step.rs`, `cli/sync.rs`, `cli/message.rs`, `cli/identity.rs`, `cli/mine.rs`, `cli/held.rs`, `cli/order_chat.rs` and `cli/schema.rs`.
+Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `order chat`, `order watch`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs`, `cli/invoice.rs`, `cli/step.rs`, `cli/sync.rs`, `cli/message.rs`, `cli/identity.rs`, `cli/mine.rs`, `cli/held.rs`, `cli/order_chat.rs`, `cli/order_watch.rs` and `cli/schema.rs`.
 
 ### Typical flow: creating a new order
 

@@ -14,20 +14,20 @@ settable via the matching env var):
 - `-p, --pow <BITS>` (`POW`): the least NIP-13 proof of work mined on outgoing events, default 0. The commands that go
   through `msg::exchange` (the JSON-capable writes and `order info`) raise it to what the node advertises for the
   request's lane, up to 20 bits; above that they fail with `pow_required` carrying `required` and `configured` (spec 017).
-  The legacy commands mine exactly this value. `order chat` mines nothing and does not read it.
+  The legacy commands mine exactly this value. `order chat` and `order watch` mine nothing and do not read it.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
 - `-t, --transport <nip44>` (`TRANSPORT`): wire transport. Only `nip44`
   (protocol v2, signed kind 14) is supported.
   **Optional**: when omitted, the CLI auto-detects it at startup from the node's
   `protocol_version` tag on its kind-38385 info event (a node that advertises
-  nothing is treated as `nip44`). A v1 node is an error. `order chat` does not read it: its message goes to relays, never to
-  the node.
+  nothing is treated as `nip44`). A v1 node is an error. `order chat` and `order watch` do not read it: they talk to relays, never
+  to the node.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
 - `--reply-timeout <SECONDS>` (spec 016): how long to wait for the node's reply, 5 to 300 seconds, default 15; accepted before, between or
   after the command words, like `--output`. It is the deadline of the commands that wait for a reply: `order new`, `order take-sell`,
   `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order info`, `dispute open`, `order rate` and
-  `bond add-invoice`. The connect, probe and cleanup budgets do not change; the public reads (`order list`, `message list`, `order sync`) keep
-  their own limits, and the legacy commands ignore it. A value out of range or not a number is `invalid_arguments` (exit 2). A reply after the
+  `bond add-invoice`. The connect, probe and cleanup budgets do not change; the public reads (`order list`, `message list`, `order sync`, `order
+  watch`) keep their own limits, and the legacy commands ignore it. A value out of range or not a number is `invalid_arguments` (exit 2). A reply after the
   deadline is still `reply_timeout` (`uncertain` for a write), never retried: raise it for a slow node rather than repeating a write.
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
@@ -82,7 +82,8 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
 - **The invoice reason.** On `order new`, `order take-sell`, `order add-invoice` and `bond add-invoice`, an `invalid_arguments` caused by the invoice value itself carries `"reason": "invalid_invoice"` in `error`, as a node refusal carries its reason; the message stays the fixed text and never contains the invoice. It covers what the program checks before sending: for `order add-invoice` a BOLT-11 prefix (`lnbc`, `lntb`, `lnsb`, any case) or a Lightning address with one `@`, for `bond add-invoice` a BOLT-11 prefix only (an address is refused), for `order take-sell` and `order new` a non-empty value of at most 4096 bytes without whitespace or control characters, and for `--invoice -` the content of standard input (empty, several lines, more than 8 KiB, not UTF-8). Every other `invalid_arguments` carries no reason: a malformed order id, a missing or unknown option, `--invoice -` without `--yes` or with a terminal as stdin. The program does not decode a BOLT-11 or check its network; the node refuses such an invoice (`node_refused`, reason `invalid_invoice`). The generated schemas allow a reason only on `node_refused` and, for those four commands, `invalid_invoice` on `invalid_arguments` (2026-11-05).
 - **Exceptions to the single document.** `--help` and `--version` print text and exit 0 even with `--output json`. A missing, invalid or repeated `--output` exits 2 with empty stdout and a fixed stderr line. If the result cannot be written (closed or broken stdout) the process exits 1 with one fixed stderr line and nothing more. A crash or external kill cannot guarantee a final document.
 - **Versioning.** `schema_version` (currently `1`) is independent of the package version, which `schema` reports separately as `executable_version`. Consumers may ignore additional optional fields; changed types, semantics, required fields or enum values need a new `schema_version`. The canonical command names are part of version 1. Because `executable_version` is in the generated reference, a package version change requires regenerating it.
-- **Not supported by this contract**: pagination, an all-statuses filter, streaming output, and any write command. Secret-export commands (`getlasttradeprivkey`, `conversationkey`) are not offered in JSON.
+- **Not supported by this contract**: pagination, an all-statuses filter, streaming output (human `order watch` is the only output that
+  streams, constitution 1.0.1), and any write command. Secret-export commands (`getlasttradeprivkey`, `conversationkey`) are not offered in JSON.
 
 ### Orders
 
@@ -242,6 +243,45 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Handler**: `order_chat` in `src/commands/order/chat.rs`; dispatch in `src/cli/order_chat.rs`; contract in
     [specs/019-order-chat](../specs/019-order-chat/contracts/cli.md).
 
+- **`order watch`** (spec 020)
+  - **Description**: Follows an order you hold until its trade ends: the node's messages to the order's trade key and, once the
+    counterparty is known, the order's peer chat. The window is replayed first, then new records arrive live. Read-only, publishes
+    nothing; needs `MOSTRO_PUBKEY`, `RELAYS`, an existing identity (it never creates one) and the order's row. Human output only for now:
+    `--output json` is `output_not_supported` (exit 2) before any configuration, store or relay access.
+  - **Args**:
+    - `--order <UUID>`: an order in the local store; otherwise `order_unknown`, before any relay is contacted.
+    - `--since <minutes>`: how far back to replay, 1 to 10080 (default 30).
+    - `--after <cursor>`: start where an earlier JSON call stopped; conflicts with `--since`. Accepted already; the cursor comes with
+      JSON output.
+    - `--timeout <seconds>`: 1 to 86400, counted from the end of the first replay. Human mode has no deadline without it.
+    - Any invalid value exits 2 before configuration, store or relay access, and is never shown.
+  - **Counterparty**: found as `order chat` finds it (the row, else the node's post-lock messages, cached in the row). When it is not
+    known yet the watch starts without the chat, and the first new node message that names it brings the chat in, with its replay; that
+    key is not saved, the next call's lookup caches it.
+  - **Behavior**: one subscription per relay for the node's messages and one for the chat; each record is shown once (node messages by
+    event id, chat messages by their inner `message_id`), across relays and resends. A relay that drops reconnects on its own (every 10
+    s) and replays the window, and a subscription a relay dropped is sent again when it reconnects; no relay failure ends a watch once
+    it is live. The opening replay is strict, as the reads: every relay must answer within 10 s to connect and 15 s to replay. After
+    10,000 records the watch ends with `read_limit_exceeded`.
+  - **End**: a node message for this order with `purchase-completed`, `hold-invoice-payment-settled`, `canceled`,
+    `cooperative-cancel-accepted` or `admin-canceled` ends the watch; `admin-settled` ends it only when the order's row says you are the
+    seller (the buyer's payout follows, and can fail and ask for a new invoice). `rate`, `bond-slashed` and `add-bond-invoice` may follow
+    an end; read them with `message list --order`. Some watches never end on their own: an untaken order that expires (the node sends the
+    maker nothing) and a trade that ended before the window. Use `--timeout`, and `order info` to check the order's status.
+  - **Human output**: "👀 Watching order <id>", the window start and the counterparty (or "not known yet; the chat is followed once the
+    escrow is locked"); "📭 Nothing yet; waiting for the node or the counterparty..." when the replay is empty; then each update as it
+    comes: `message list`'s message block with its next step under "📨 From Mostro:", and `order chat`'s block under "💬 Chat:" (the
+    text escaped); a line when the counterparty is learned and one when older records may be missing. Each update is written whole and
+    flushed. The last line is "🏁 The trade ended: <action>", or at `--timeout` "⏰ Stopped at the watch deadline; the trade has not
+    ended."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors are one `error: <fixed message>` line on stderr (exit 1,
+    2 for arguments); a stdout that cannot be written stops the watch with "error: the watch could not be written" (exit 1).
+    `--verbose` adds one line, `verbose: order.watch <ok|code>`.
+  - **Timing**: 10 s to connect, 15 s for the replay, 15 s more when the counterparty is learned, then live until the end or
+    `--timeout`, then 1 s of cleanup; up to 26 s more first when the counterparty must be looked up. `--pow`, `--transport` and
+    `--reply-timeout` do not apply.
+  - **Handler**: `order_watch` in `src/commands/order/watch.rs`; dispatch in `src/cli/order_watch.rs`; contract in
+    [specs/020-order-watch](../specs/020-order-watch/contracts/cli.md).
+
 - **`getdmuser`**
   - **Description**: Read both sides of the kind-14 chat for an order. The pubkey is the counterparty the conversation is derived from. Needs the order's row and its trade key, as `order chat` does; `order chat` also finds the counterparty itself, so this command is the fallback when it answers `counterparty_unknown` and you know the key.
   - **Args**:
@@ -396,7 +436,7 @@ mode) without running anything.
 | `rate -o <UUID> -r <N>`, `rate --orderid <UUID> --rating <N>` (documented as `--order-id`) | `order rate --order <UUID> --rating <N> [--yes]` | JSON `order.rate`, requires `--yes`; `N` outside 1-5 is refused before anything is sent; a second rating gets no answer (`uncertain`) |
 
 Added in the same range, for the notes: `identity init`, `identity show`, `order mine`, `order new --expires-in`, `--invoice -` on the four
-invoice commands, `order chat` (`order.chat`). The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
+invoice commands, `order chat` (`order.chat`), `order watch` (`order.watch`, human output for now). The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
 
 ---
 
