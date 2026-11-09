@@ -1,6 +1,7 @@
 //! Tests for `order chat` (spec 019): the counterparty column of the store and
 //! the lookup of the counterparty in the node's messages (unit 1), the chat
-//! read and send (unit 2), and the command in human mode (unit 3).
+//! read and send (unit 2), the command in human mode (unit 3) and its JSON
+//! output (unit 4).
 //!
 //! Every store is an isolated sandbox seeded the way the CLI creates one; the
 //! node's mail and the chat sit on in-process loopback relays, signed by
@@ -27,6 +28,8 @@ use uuid::Uuid;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{
     mail_fiat_sent_ok, mail_trade_keys, mail_waiting_seller, node_event, seed_identity, Traded,
@@ -893,7 +896,7 @@ mod binary {
     }
 
     /// Run the binary in `room`'s sandbox with its node and relays at `url`.
-    async fn run(room: &Room, url: &str, args: &[&str]) -> Captured {
+    pub(super) async fn run(room: &Room, url: &str, args: &[&str]) -> Captured {
         let run = run_with_watchdog(command(room, url, args), WATCHDOG)
             .await
             .unwrap();
@@ -1114,5 +1117,139 @@ mod binary {
         let message = ErrorCode::CounterpartyUnknown.message();
         let expected = format!("error: {message}\nverbose: order.chat counterparty_unknown\n");
         assert_eq!(unknown.stderr_text(), expected);
+    }
+}
+
+mod json {
+    use super::binary::run;
+    use super::*;
+    use harness::{run_with_watchdog, Captured, SENTINEL, WATCHDOG};
+
+    const NOTHING: [&str; 3] = ["not_applicable"; 3];
+
+    /// The arguments of a JSON `order chat` on `ORDER`, then `extra`.
+    fn args(extra: &[&'static str]) -> Vec<String> {
+        let base = ["--output", "json", "order", "chat", "--order"];
+        let mut args: Vec<String> = base.iter().map(|word| word.to_string()).collect();
+        args.push(ORDER.to_string());
+        args.extend(extra.iter().map(|word| word.to_string()));
+        args
+    }
+
+    async fn chat(room: &Room, url: &str, extra: &[&'static str]) -> Captured {
+        let args = args(extra);
+        run(
+            room,
+            url,
+            &args.iter().map(String::as_str).collect::<Vec<_>>(),
+        )
+        .await
+    }
+
+    /// The one document on stdout, checked against the checked-in schema, and
+    /// its stages.
+    fn document(run: &Captured) -> (Value, [String; 3]) {
+        let stdout = run.stdout_text();
+        assert!(
+            stdout.ends_with('\n') && stdout.lines().count() == 1,
+            "{stdout}"
+        );
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let outcome: Value = serde_json::from_str(&stdout).unwrap();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/docs/schemas/order-chat-v1.json"
+        );
+        let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            schema_check::conforms(&schema, &schema, &outcome),
+            "{outcome}"
+        );
+        assert_eq!(outcome["command"], "order.chat");
+        let stage = |name: &str| outcome["meta"][name].as_str().unwrap().to_string();
+        let stages = ["publication", "daemon_acceptance", "persistence"].map(stage);
+        (outcome, stages)
+    }
+
+    #[tokio::test]
+    async fn json_message_without_yes_is_refused_before_anything() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let relay = room.relay(Vec::new()).await;
+        let (bytes, files) = (room.bytes(), file_names(&room.sandbox.mcli_dir()));
+
+        let refused = chat(&room, &relay.url, &["--message", SENTINEL]).await;
+
+        assert_eq!(refused.code(), Some(2), "{}", refused.stderr_text());
+        assert!(!refused.stdout_text().contains(SENTINEL));
+        let (outcome, stages) = document(&refused);
+        assert_eq!(outcome["error"]["code"], "invalid_arguments");
+        assert_eq!(
+            (&outcome["data"], stages),
+            (&Value::Null, NOTHING.map(String::from))
+        );
+        assert_eq!(relay.connections(), 0, "no relay contacted");
+        assert_eq!(room.bytes(), bytes, "the store is untouched");
+        assert_eq!(file_names(&room.sandbox.mcli_dir()), files);
+
+        // Before configuration too: without a node or relays it is the same.
+        let args = args(&["--message", SENTINEL]);
+        let bare = room.sandbox.command(&args);
+        let bare = run_with_watchdog(bare, WATCHDOG).await.unwrap();
+        assert_eq!(bare.code(), Some(2), "{}", bare.stderr_text());
+        assert_eq!(document(&bare).0["error"]["code"], "invalid_arguments");
+    }
+
+    #[tokio::test]
+    async fn json_read_and_send_conform_to_the_checked_in_schema() {
+        let room = Room::new().await;
+        let (ours, them) = (room.trade.public_key(), room.them.public_key());
+        let accepted = mail_trade_keys(Action::HoldInvoicePaymentAccepted, ORDER, ours, them);
+        let said = room.line(&room.them, "hi").await;
+        let relay = room.relay(vec![room.mail(&accepted, 1).await, said]).await;
+
+        let read = chat(&room, &relay.url, &[]).await;
+
+        assert_eq!(read.code(), Some(0), "{}", read.stderr_text());
+        let (outcome, stages) = document(&read);
+        assert_eq!(
+            (&outcome["status"], stages),
+            (&json!("ok"), NOTHING.map(String::from))
+        );
+        let data = &outcome["data"];
+        assert_eq!(data["counterparty_pubkey"], them.to_hex());
+        assert_eq!(written(data), [pair("counterparty", "hi")]);
+        assert_eq!(data["sent"], Value::Null);
+
+        let sent = chat(&room, &relay.url, &["--message", "on my way", "--yes"]).await;
+
+        assert_eq!(sent.code(), Some(0), "{}", sent.stderr_text());
+        let (outcome, stages) = document(&sent);
+        assert_eq!(stages, ["published", "not_applicable", "not_applicable"]);
+        let data = &outcome["data"];
+        assert_eq!(written(data), [pair("counterparty", "hi")], "sent is apart");
+        let record = (&data["sent"]["from"], &data["sent"]["text"]);
+        assert_eq!(record, (&json!("me"), &json!("on my way")));
+        assert_eq!(room.envelopes(&relay.url).await, 2, "sent once");
+    }
+
+    #[tokio::test]
+    async fn json_counterparty_unknown_exits_1_and_conforms() {
+        let room = Room::new().await;
+        let relay = room
+            .relay(vec![room.mail(&mail_waiting_seller(ORDER), 1).await])
+            .await;
+
+        let run = chat(&room, &relay.url, &["--message", SENTINEL, "--yes"]).await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        assert!(!run.stdout_text().contains(SENTINEL));
+        let (outcome, stages) = document(&run);
+        assert_eq!(outcome["error"]["code"], "counterparty_unknown");
+        assert_eq!(
+            (&outcome["data"], stages),
+            (&Value::Null, NOTHING.map(String::from))
+        );
+        assert_eq!(room.envelopes(&relay.url).await, 0, "nothing was sent");
     }
 }

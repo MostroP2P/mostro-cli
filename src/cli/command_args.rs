@@ -49,7 +49,8 @@ pub struct ChatArgs {
     /// How far back to read, in minutes (1 to 10080, default 10080)
     #[arg(long, value_name = "MINUTES")]
     pub since: Option<i64>,
-    /// Send --message without asking (human mode never asks)
+    /// Send --message without asking (required with --output json; human
+    /// mode never asks)
     #[arg(long)]
     pub yes: bool,
 }

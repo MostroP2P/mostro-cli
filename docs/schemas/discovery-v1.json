@@ -4576,11 +4576,531 @@
         "chat"
       ],
       "output_modes": [
-        "human"
+        "human",
+        "json"
       ],
-      "input_schema": null,
-      "output_schema": null,
-      "required_configuration": null
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "Send this message after reading (1 to 4096 bytes once trimmed); write --message=<TEXT> for a text that starts with '-'",
+            "type": "string"
+          },
+          "order": {
+            "description": "Id of an order in the local store",
+            "type": "string"
+          },
+          "since": {
+            "description": "How far back to read, in minutes (1 to 10080, default 10080)",
+            "type": "string"
+          },
+          "yes": {
+            "description": "Send --message without asking (required with --output json; human mode never asks)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "ChatData": {
+            "description": "`order.chat` success data, and the data of an `uncertain` send.",
+            "properties": {
+              "counterparty_pubkey": {
+                "description": "The counterparty's trade key.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "messages": {
+                "description": "The conversation in the window, oldest first, at most 200; never the\nmessage sent on this run.",
+                "items": {
+                  "$ref": "#/$defs/ChatRecord"
+                },
+                "type": "array"
+              },
+              "order_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "sent": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChatRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The message sent on this run: non-null exactly when the publication is\n`published` or `unknown`."
+              },
+              "truncated": {
+                "description": "The conversation may not be complete: a relay or the cap of 200 may have\nleft out older messages.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "order_id",
+              "counterparty_pubkey",
+              "messages",
+              "truncated",
+              "sent"
+            ],
+            "type": "object"
+          },
+          "ChatRecord": {
+            "description": "One message of the conversation.",
+            "properties": {
+              "created_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "from": {
+                "$ref": "#/$defs/ChatSender"
+              },
+              "message_id": {
+                "description": "The id of the signed message inside the envelope: the same on every\nrelay that delivers it.",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "text": {
+                "description": "What was written: untrusted data, at most 4096 bytes, cut on a\ncharacter boundary.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "message_id",
+              "from",
+              "created_at",
+              "created_at_unix",
+              "text"
+            ],
+            "type": "object"
+          },
+          "ChatSender": {
+            "description": "Who wrote a chat message.",
+            "oneOf": [
+              {
+                "const": "me",
+                "description": "The order's trade key: the user.",
+                "type": "string"
+              },
+              {
+                "const": "counterparty",
+                "description": "The counterparty's trade key.",
+                "type": "string"
+              }
+            ]
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "identity_missing",
+              "identity_unreadable",
+              "store_unreadable",
+              "order_unknown",
+              "counterparty_unknown",
+              "request_rejected"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "order.chat"
+              },
+              "data": {
+                "$ref": "#/$defs/ChatData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.chat"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "identity_missing",
+                      "identity_unreadable",
+                      "store_unreadable",
+                      "order_unknown",
+                      "counterparty_unknown",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "read_timeout",
+                      "read_limit_exceeded",
+                      "request_rejected",
+                      "internal_error"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "not_attempted"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "order.chat"
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChatData"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "request_rejected"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "unknown"
+                  },
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "uncertain"
+              }
+            },
+            "title": "uncertain outcome of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "uncertain"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "order.chat outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS"
+      ]
     },
     {
       "name": "order.fiat-sent",
@@ -11926,6 +12446,7 @@
         "message.list",
         "order.add-invoice",
         "order.cancel",
+        "order.chat",
         "order.fiat-sent",
         "order.info",
         "order.list",

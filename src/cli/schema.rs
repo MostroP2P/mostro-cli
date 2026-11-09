@@ -13,6 +13,7 @@ use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
+use crate::outcome::chat::{chat_rules, ChatData, COMMAND as ORDER_CHAT};
 use crate::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use crate::outcome::identity::{
     IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT, INIT_ERRORS,
@@ -143,7 +144,7 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
         | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
-        | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN | ORDER_RATE => {
+        | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN | ORDER_RATE | ORDER_CHAT => {
             Some(LISTING_CONFIGURATION.to_vec())
         }
         // Local only: the data directory, which has a default, is all they read.
@@ -334,6 +335,7 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &STEP_UNCERTAIN,
             &[],
         )),
+        ORDER_CHAT => output_schema::<ChatData, ()>(&chat_rules()),
         IDENTITY_INIT => {
             output_schema::<IdentityInitData, ()>(&OutcomeRules::local(IDENTITY_INIT, &INIT_ERRORS))
         }
@@ -523,6 +525,28 @@ mod tests {
         assert!(!strings(&input["required"]).contains(&"expires-in"));
     }
 
+    /// `order chat` (spec 019): its four options, of which only `--order` is
+    /// required, nothing read from stdin, and the node and relays it needs.
+    #[test]
+    fn order_chat_input_lists_order_message_since_and_yes() {
+        let input = input_schema(&Cli::command(), &["order", "chat"]).unwrap();
+        let properties = input["properties"].as_object().unwrap();
+        let names: Vec<&str> = properties.keys().map(String::as_str).collect();
+        assert_eq!(names, ["message", "order", "since", "yes"]);
+        assert_eq!(input["required"], json!(["order"]));
+        for name in ["order", "message", "since"] {
+            assert_eq!(properties[name]["type"], "string", "{name}");
+        }
+        assert_eq!(properties["yes"]["type"], "boolean");
+        assert!(properties.values().all(|p| p.get("x-stdin").is_none()));
+        let data = discovery(schemas);
+        let configuration = Some(vec!["MOSTRO_PUBKEY", "RELAYS"]);
+        assert_eq!(
+            by_name(&data, "order.chat").required_configuration,
+            configuration
+        );
+    }
+
     /// `--reply-timeout` is discoverable: its default and range, and exactly
     /// the commands that wait for the node's reply; `--output` is listed too.
     #[test]
@@ -549,10 +573,18 @@ mod tests {
         };
         assert_eq!(reply["applies_to"], json!(waiting));
         assert_eq!(waiting.len(), 11);
-        for read in ["order.list", "message.list", "order.sync", "schema"] {
+        for read in [
+            "order.list",
+            "message.list",
+            "order.sync",
+            "schema",
+            "order.chat",
+        ] {
             assert!(!waiting.contains(&read), "{read}");
         }
         assert_eq!(data.global_options[0]["enum"], json!(["human", "json"]));
+        let output = strings(&data.global_options[0]["applies_to"]);
+        assert!(output.contains(&"order.chat"), "{output:?}");
         let input = input_schema(&Cli::command(), &["order", "take-sell"]).unwrap();
         assert!(
             input["properties"].get("reply-timeout").is_none(),

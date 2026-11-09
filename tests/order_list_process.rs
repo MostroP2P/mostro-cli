@@ -1888,7 +1888,6 @@ fn valid_legacy_args(canonical: &str, key: &str) -> Vec<String> {
         "admin.message-attach" => {
             [&peer[..], &order[..], &["--file", "synthetic.bin"][..]].concat()
         }
-        "order.chat" => vec!["--order", ORDER_ID, "--message", "hi", "--yes"],
         _ => Vec::new(),
     };
     rest.into_iter().map(str::to_owned).collect()
@@ -1909,8 +1908,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 18,
-        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine, order rate and dispute open are machine-capable"
+        REGISTRY.len() - 19,
+        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine, order rate, dispute open and order chat are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];
