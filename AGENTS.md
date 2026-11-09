@@ -42,8 +42,8 @@ commands that wait for the node. The commands that wait for the node also mine t
 probed on a local regtest node. `order chat` ([spec](specs/019-order-chat/spec.md)) reads the peer chat of an order held and sends one
 message without the counterparty's key being passed; it supports `--output json` (`--message` then requires `--yes`); verified on Linux
 against isolated stores, loopback relays and the scripted node's mail only. `order watch` ([spec](specs/020-order-watch/spec.md))
-follows an order held until its trade ends, the node's messages and the peer chat, replayed then live; human output only for now
-(`--output json` is `output_not_supported`); verified on Linux against isolated stores and loopback relays only.
+follows an order held until its trade ends, the node's messages and the peer chat, replayed then live; human mode streams,
+and `--output json` returns one document per call with a cursor for `--after`; verified on Linux against isolated stores and loopback relays only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
@@ -54,4 +54,4 @@ The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
 clones and outside both repositories. Only the `order list`, `order info`, `order new`, the two
 `order take-*`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`,
-`dispute open`, `order chat`, `order watch` (human output), `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` modules are migrated; the other planned modules are not yet implemented.
+`dispute open`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` modules are migrated; the other planned modules are not yet implemented.

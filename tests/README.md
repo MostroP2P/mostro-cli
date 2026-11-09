@@ -498,3 +498,10 @@ deadline line, exit 0; a closed stdout exits 1 with one fixed line well before t
 0`, a malformed `--after` and `--after` with `--since` exit 2 with no relay contacted and the value never echoed; one `--verbose` line;
 `--pow`, `--transport`, `POW` and `TRANSPORT` set to garbage change nothing), `order.watch` in the registry mapping and in
 `every_legacy_command_rejects_json_before_any_effect` (26 tests in the file).
+
+Order watch unit 6 (2026-11-09): `tests/order_watch_process.rs` `mod json` (3, the real binary with `--output json`: one conforming
+document at the replayed record, then `--after` its cursor returns only a node message published while the call waits; `--after` with
+`--timeout 1` is an empty success that keeps the given cursor; `order_unknown` exit 1 and a malformed `--after` exit 2 are one
+conforming document with null data and no relay contacted), `watch_examples_conform_and_are_reproduced` and
+`order_watch_input_lists_order_since_after_and_timeout`; `order.watch` joins the machine lists of the registry and discovery tests
+(29 tests in the process file). Until unit 7 the schema checked is the `order.watch` entry of `docs/schemas/discovery-v1.json`.

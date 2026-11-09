@@ -4,8 +4,7 @@
 mostro-cli order watch --order UUID [--since MINUTES | --after CURSOR] [--timeout SECONDS] [--output human|json]
 ```
 
-Canonical name `order.watch`. Human mode since unit 5; unit 6 adds JSON output, and until then `--output json` is
-`output_not_supported` (exit 2) before any configuration, store or relay access. Needs `MOSTRO_PUBKEY`,
+Canonical name `order.watch`. Human mode since unit 5, JSON since unit 6. Needs `MOSTRO_PUBKEY`,
 `RELAYS`, the identity and the order's row. `--pow`, `--transport` and `--reply-timeout` do not apply: nothing is published.
 
 - `--order`: an order in the local store; otherwise `order_unknown` before any relay.
@@ -17,7 +16,8 @@ Any invalid value exits 2 (`invalid_arguments`) before configuration, store or r
 
 With `--output json` a call returns one document at the first new records after the replays, or an empty success at the deadline, with
 the next cursor. Human mode streams updates until the trade ends or the deadline passes, and exits 0 in both cases. Data, outcomes and
-stable errors: [data model](../data-model.md). The ending actions and the `admin-settled` side rule: [spec](../spec.md) D9.
+stable errors: [data model](../data-model.md). Proposed outcome: [examples.json](examples.json) (`new_records`); until unit 7 it is
+checked against the `order.watch` output schema inside `docs/schemas/discovery-v1.json`. The ending actions and the `admin-settled` side rule: [spec](../spec.md) D9.
 
 ## Human output (unit 5)
 
