@@ -1,4 +1,5 @@
-//! Tests for `order watch` (spec 020): the live subscription (units 2 and 3).
+//! Tests for `order watch` (spec 020): the live subscription (units 2 and 3)
+//! and the operation (unit 4).
 //!
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
@@ -27,6 +28,8 @@ use uuid::Uuid;
 mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
+#[path = "common/schema_check.rs"]
+mod schema_check;
 
 use fake_mostro::{mail_text, node_event};
 use harness::{Backend, LoopbackRelay};
@@ -560,3 +563,517 @@ mod reconnect {
 const OBSERVE: Duration = Duration::from_secs(3);
 /// How long a test watches to see that nothing more comes.
 const QUIET: Duration = Duration::from_millis(500);
+
+mod operation {
+    use super::*;
+    use chrono::Utc;
+    use fake_mostro::{mail_trade_keys, seed_identity, Traded};
+    use harness::Sandbox;
+    use mostro_client::commands::order::watch::{order_watch, Follow, Watched};
+    use mostro_client::outcome::schema::output_schema;
+    use mostro_client::outcome::watch::{watch_rules, WatchData, WatchInput};
+    use mostro_client::store::{Role, Store, Trade};
+    use mostro_core::prelude::{Action, Message};
+    use serde_json::{json, Value};
+
+    const OTHER: Uuid = Uuid::from_u128(0x07e4);
+    const UNKNOWN: Uuid = Uuid::from_u128(0xdead);
+    const NOTHING: [&str; 3] = ["not_applicable"; 3];
+
+    /// A user holding `ORDER` as the seller (`Role::Maker` of a sell order)
+    /// or the buyer (`Role::Taker`), with the conversation's keys and one
+    /// loopback relay.
+    struct Desk {
+        sandbox: Sandbox,
+        store: Store,
+        node: Keys,
+        chat: Chat,
+        local: LocalRelay,
+        relay: LoopbackRelay,
+    }
+
+    impl Desk {
+        /// The row stores the counterparty's key when `peer_stored`.
+        async fn new(role: Role, peer_stored: bool, events: &[&Event]) -> Self {
+            Self::with(role, peer_stored, Chat::new(), Keys::generate(), events).await
+        }
+
+        async fn with(
+            role: Role,
+            peer_stored: bool,
+            chat: Chat,
+            node: Keys,
+            events: &[&Event],
+        ) -> Self {
+            let sandbox = Sandbox::new().unwrap();
+            seed_identity(&sandbox.mcli_dir()).await;
+            let store = Store::in_dir(&sandbox.mcli_dir());
+            let (ours, theirs) = (chat.trade.public_key(), chat.them.public_key());
+            let traded = match role {
+                Role::Maker => Traded::active(ORDER, ours, theirs),
+                Role::Taker => Traded::active(ORDER, theirs, ours),
+            };
+            let keys = Trade {
+                index: 1,
+                keys: chat.trade.clone(),
+            };
+            store
+                .save_order_as(&traded.small(), &keys, 1, role)
+                .await
+                .unwrap();
+            if peer_stored {
+                store.set_counterparty(ORDER, &theirs).await.unwrap();
+            }
+            let local = LocalRelay::new();
+            let relay = serve(&local, events).await;
+            Self {
+                sandbox,
+                store,
+                node,
+                chat,
+                local,
+                relay,
+            }
+        }
+
+        fn db(&self) -> std::path::PathBuf {
+            self.sandbox.mcli_dir().join("mcli.db")
+        }
+
+        /// `message` from the node to our trade key at `at`.
+        async fn mail(&self, message: &Message, at: u64) -> Event {
+            node_event(
+                &self.node,
+                self.chat.trade.public_key(),
+                message,
+                Timestamp::from(at),
+            )
+            .await
+        }
+
+        /// A message `writer` wrote at `at`, in an envelope of the same time.
+        fn line(&self, writer: &Keys, text: &str, at: u64) -> Event {
+            self.chat.envelope(&Chat::note(writer, text, at), at)
+        }
+
+        /// Put `event` on the relay after `delay`, while a watch runs.
+        fn publish(&self, event: Event, delay: Duration) {
+            let local = self.local.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
+                local.add_event(event).await.unwrap();
+            });
+        }
+
+        async fn watch(
+            &self,
+            order: Uuid,
+            after: Option<&str>,
+            timeout: i64,
+            follow: Follow<'_>,
+        ) -> Watched {
+            let json = matches!(follow, Follow::FirstChange);
+            let input = WatchInput::validate(order, None, after, Some(timeout), json).unwrap();
+            let config = config(&self.node, &[&self.relay.url]);
+            order_watch(&input, &config, &self.store, &limits(), Utc::now(), follow).await
+        }
+
+        /// A JSON call, as its outcome.
+        async fn json(&self, after: Option<&str>, timeout: i64) -> Value {
+            let watched = self.watch(ORDER, after, timeout, Follow::FirstChange).await;
+            serde_json::to_value(&watched.outcome).unwrap()
+        }
+
+        /// A human watch: every update, and how it ended.
+        async fn follow(&self, timeout: i64) -> (Vec<WatchData>, Watched) {
+            let mut updates = Vec::new();
+            let mut sink = |update: &WatchData| {
+                updates.push(update.clone());
+                true
+            };
+            let watched = self
+                .watch(ORDER, None, timeout, Follow::UntilEnd(&mut sink))
+                .await;
+            (updates, watched)
+        }
+    }
+
+    fn about(order: Uuid, action: Action) -> Message {
+        Message::new_order(Some(order), None, None, action, None)
+    }
+
+    /// The status, error code and stages of an outcome with no snapshot.
+    fn result(outcome: &Value) -> (&str, Option<&str>, [&str; 3]) {
+        let meta = &outcome["meta"];
+        let stage = |name: &str| meta[name].as_str().unwrap();
+        assert_eq!(meta["snapshot"], Value::Null);
+        (
+            outcome["status"].as_str().unwrap(),
+            outcome["error"]["code"].as_str(),
+            [
+                stage("publication"),
+                stage("daemon_acceptance"),
+                stage("persistence"),
+            ],
+        )
+    }
+
+    fn event_ids(data: &Value) -> Vec<String> {
+        data["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["event_id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn chat_texts(data: &Value) -> Vec<String> {
+        data["chat"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line["text"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn actions(updates: &[WatchData]) -> Vec<String> {
+        updates
+            .iter()
+            .flat_map(|update| update.messages().iter().map(|m| m.action().to_string()))
+            .collect()
+    }
+
+    fn cursor_since(data: &Value) -> u64 {
+        let cursor = data["cursor"].as_str().unwrap();
+        cursor.split(':').next().unwrap().parse().unwrap()
+    }
+
+    #[tokio::test]
+    async fn json_mode_returns_the_replay_then_only_newer_records() {
+        let base = now();
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let older = node_event(
+            &node,
+            chat.trade.public_key(),
+            &mail_text(ORDER, "one"),
+            Timestamp::from(base - 600),
+        )
+        .await;
+        let newest = node_event(
+            &node,
+            chat.trade.public_key(),
+            &mail_text(ORDER, "two"),
+            Timestamp::from(base - 10),
+        )
+        .await;
+        let desk = Desk::with(Role::Taker, true, chat, node, &[&older, &newest]).await;
+
+        let first = desk.json(None, 2).await;
+        assert_eq!(result(&first), ("ok", None, NOTHING));
+        let data = &first["data"];
+        assert_eq!(event_ids(data), [older.id.to_hex(), newest.id.to_hex()]);
+        assert_eq!(
+            data["counterparty_pubkey"],
+            desk.chat.them.public_key().to_hex()
+        );
+        assert_eq!(
+            (&data["ended"], &data["truncated"]),
+            (&json!(false), &json!(false))
+        );
+        let cursor = data["cursor"].as_str().unwrap().to_string();
+        assert!(cursor.contains(&newest.id.to_hex()), "{cursor}");
+
+        // Stamped in the same second as the newest, published while it waits.
+        let sibling = desk.mail(&mail_text(ORDER, "sibling"), base - 10).await;
+        desk.publish(sibling.clone(), QUIET);
+        let second = desk.json(Some(&cursor), 5).await;
+        assert_eq!(result(&second), ("ok", None, NOTHING));
+        assert_eq!(event_ids(&second["data"]), [sibling.id.to_hex()]);
+        assert!(chat_texts(&second["data"]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_chat_line_stamped_before_the_newest_record_is_not_lost() {
+        let base = now();
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let newest = node_event(
+            &node,
+            chat.trade.public_key(),
+            &mail_text(ORDER, "fiat sent"),
+            Timestamp::from(base - 10),
+        )
+        .await;
+        let desk = Desk::with(Role::Taker, true, chat, node, &[&newest]).await;
+        let first = desk.json(None, 2).await;
+        assert_eq!(event_ids(&first["data"]), [newest.id.to_hex()]);
+        let cursor = first["data"]["cursor"].as_str().unwrap().to_string();
+
+        // The counterparty's clock is 30 s behind.
+        let late = desk.line(&desk.chat.them, "received", base - 40);
+        desk.publish(late, QUIET);
+        let second = desk.json(Some(&cursor), 5).await;
+        assert_eq!(chat_texts(&second["data"]), ["received"]);
+        assert!(event_ids(&second["data"]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_future_stamped_chat_line_does_not_push_the_cursor_past_now() {
+        let base = now();
+        let chat = Chat::new();
+        let ahead = chat.envelope(
+            &Chat::note(&chat.them, "from the future", base + 50),
+            base + 50,
+        );
+        let desk = Desk::with(Role::Taker, true, chat, Keys::generate(), &[&ahead]).await;
+        let first = desk.json(None, 2).await;
+        assert_eq!(chat_texts(&first["data"]), ["from the future"]);
+        assert!(cursor_since(&first["data"]) <= now() - 60);
+        let cursor = first["data"]["cursor"].as_str().unwrap().to_string();
+
+        // Stamped before the chat line, it reaches the relays later.
+        let slow = desk.mail(&mail_text(ORDER, "slow"), base - 5).await;
+        desk.publish(slow.clone(), QUIET);
+        let second = desk.json(Some(&cursor), 5).await;
+        assert_eq!(event_ids(&second["data"]), [slow.id.to_hex()]);
+        assert!(chat_texts(&second["data"]).is_empty(), "not again");
+    }
+
+    #[tokio::test]
+    async fn the_counterparty_learned_while_watching_brings_its_chat_in_the_same_document() {
+        let base = now();
+        let chat = Chat::new();
+        let paid = chat.envelope(&Chat::note(&chat.them, "paid", base - 100), base - 100);
+        let desk = Desk::with(Role::Taker, false, chat, Keys::generate(), &[&paid]).await;
+        let (ours, theirs) = (desk.chat.trade.public_key(), desk.chat.them.public_key());
+        let accepted = mail_trade_keys(Action::HoldInvoicePaymentAccepted, ORDER, ours, theirs);
+        let lock = desk.mail(&accepted, now()).await;
+        desk.publish(lock.clone(), QUIET);
+
+        let outcome = desk.json(None, 5).await;
+
+        assert_eq!(result(&outcome), ("ok", None, NOTHING));
+        let data = &outcome["data"];
+        assert_eq!(data["counterparty_pubkey"], theirs.to_hex());
+        assert_eq!(event_ids(data), [lock.id.to_hex()]);
+        assert_eq!(
+            chat_texts(data),
+            ["paid"],
+            "the chat replay, in the same document"
+        );
+        assert_eq!(
+            desk.store.counterparty(ORDER).await.unwrap(),
+            None,
+            "not saved"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_end_of_the_trade_is_reported_and_ends_the_follow() {
+        let desk = Desk::new(Role::Taker, true, &[]).await;
+        let other = desk.mail(&about(OTHER, Action::Canceled), now()).await;
+        let completed = desk
+            .mail(&about(ORDER, Action::PurchaseCompleted), now())
+            .await;
+        desk.publish(other, QUIET);
+        desk.publish(completed, QUIET * 3);
+
+        let (updates, watched) = desk.follow(10).await;
+
+        assert_eq!(actions(&updates), ["canceled", "purchase-completed"]);
+        assert!(
+            updates[0].messages().is_empty(),
+            "the first update is the empty replay"
+        );
+        let ended: Vec<bool> = updates.iter().map(WatchData::ended).collect();
+        assert_eq!(ended.last(), Some(&true));
+        assert!(!ended[..ended.len() - 1].contains(&true), "{ended:?}");
+        assert_eq!(watched.ended_by.as_deref(), Some("purchase-completed"));
+        let outcome = serde_json::to_value(&watched.outcome).unwrap();
+        assert_eq!(result(&outcome), ("ok", None, NOTHING));
+        assert_eq!(outcome["data"]["ended"], json!(true));
+
+        // An end already in the replay.
+        let base = now();
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let canceled = node_event(
+            &node,
+            chat.trade.public_key(),
+            &about(ORDER, Action::Canceled),
+            Timestamp::from(base - 100),
+        )
+        .await;
+        let desk = Desk::with(Role::Taker, true, chat, node, &[&canceled]).await;
+        let first = desk.json(None, 2).await;
+        assert_eq!(first["data"]["ended"], json!(true));
+        let (updates, watched) = desk.follow(10).await;
+        assert_eq!(updates.len(), 1, "it ends after the first update");
+        assert_eq!(watched.ended_by.as_deref(), Some("canceled"));
+    }
+
+    #[tokio::test]
+    async fn admin_settled_ends_the_seller_but_not_the_buyer() {
+        let base = now();
+        let settled = |chat: &Chat, node: &Keys| {
+            let (to, node) = (chat.trade.public_key(), node.clone());
+            async move {
+                node_event(
+                    &node,
+                    to,
+                    &about(ORDER, Action::AdminSettled),
+                    Timestamp::from(base - 100),
+                )
+                .await
+            }
+        };
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let event = settled(&chat, &node).await;
+        let seller = Desk::with(Role::Maker, true, chat, node, &[&event]).await;
+        let (updates, watched) = seller.follow(10).await;
+        assert_eq!(updates.len(), 1);
+        assert_eq!(watched.ended_by.as_deref(), Some("admin-settled"));
+
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let event = settled(&chat, &node).await;
+        let buyer = Desk::with(Role::Taker, true, chat, node, &[&event]).await;
+        let failed = buyer
+            .mail(&about(ORDER, Action::PaymentFailed), now())
+            .await;
+        let completed = buyer
+            .mail(&about(ORDER, Action::PurchaseCompleted), now())
+            .await;
+        buyer.publish(failed, QUIET);
+        buyer.publish(completed, QUIET * 3);
+        let (updates, watched) = buyer.follow(10).await;
+        assert_eq!(
+            actions(&updates),
+            ["admin-settled", "payment-failed", "purchase-completed"]
+        );
+        assert_eq!(watched.ended_by.as_deref(), Some("purchase-completed"));
+    }
+
+    #[tokio::test]
+    async fn nothing_new_until_the_deadline_is_an_empty_success_in_both_modes() {
+        let desk = Desk::new(Role::Taker, true, &[]).await;
+        let before = now() - 1_800;
+        let outcome = desk.json(None, 1).await;
+        assert_eq!(result(&outcome), ("ok", None, NOTHING));
+        let data = &outcome["data"];
+        assert!(event_ids(data).is_empty() && chat_texts(data).is_empty());
+        assert_eq!(data["ended"], json!(false));
+        let cursor = data["cursor"].as_str().unwrap();
+        assert!(!cursor.contains(':'), "the start, carried: {cursor}");
+        assert!((before..=now() - 1_800).contains(&cursor_since(data)));
+
+        let (updates, watched) = desk.follow(1).await;
+        assert_eq!(updates.len(), 1, "only the first update");
+        assert_eq!(watched.ended_by, None);
+        let outcome = serde_json::to_value(&watched.outcome).unwrap();
+        assert_eq!(result(&outcome), ("ok", None, NOTHING));
+        assert_eq!(outcome["data"]["ended"], json!(false));
+
+        // A sink that cannot write stops the watch at once.
+        let started = Instant::now();
+        let mut refused = 0;
+        let mut sink = |_: &WatchData| {
+            refused += 1;
+            false
+        };
+        let watched = desk
+            .watch(ORDER, None, 60, Follow::UntilEnd(&mut sink))
+            .await;
+        assert_eq!(refused, 1);
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(watched.ended_by, None);
+    }
+
+    #[tokio::test]
+    async fn unknown_order_or_store_fail_before_any_relay() {
+        let desk = Desk::new(Role::Taker, true, &[]).await;
+        let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+        let input = WatchInput::validate(UNKNOWN, None, None, Some(1), true).unwrap();
+        let config = config(&desk.node, &[&silent.url]);
+        let code = |watched: Watched| {
+            let outcome = serde_json::to_value(&watched.outcome).unwrap();
+            assert_eq!(outcome["data"], Value::Null);
+            outcome["error"]["code"].as_str().unwrap().to_string()
+        };
+        let run = |input: WatchInput| {
+            let (config, store) = (config.clone(), &desk.store);
+            async move {
+                order_watch(
+                    &input,
+                    &config,
+                    store,
+                    &limits(),
+                    Utc::now(),
+                    Follow::FirstChange,
+                )
+                .await
+            }
+        };
+        assert_eq!(code(run(input).await), "order_unknown");
+        let input = WatchInput::validate(ORDER, None, None, Some(1), true).unwrap();
+        std::fs::remove_file(desk.db()).unwrap();
+        assert_eq!(code(run(input.clone()).await), "identity_missing");
+        std::fs::create_dir(desk.db()).unwrap();
+        assert_eq!(code(run(input).await), "store_unreadable");
+        assert_eq!(silent.connections(), 0, "no relay was contacted");
+    }
+
+    #[tokio::test]
+    async fn a_lookup_failure_keeps_its_code() {
+        let desk = Desk::new(Role::Taker, false, &[]).await;
+        let input = WatchInput::validate(ORDER, None, None, Some(1), true).unwrap();
+        let config = config(&desk.node, &[&dead_relay()]);
+        let watched = order_watch(
+            &input,
+            &config,
+            &desk.store,
+            &limits(),
+            Utc::now(),
+            Follow::FirstChange,
+        )
+        .await;
+        let outcome = serde_json::to_value(&watched.outcome).unwrap();
+        assert_eq!(
+            result(&outcome),
+            ("error", Some("relay_connection_failed"), NOTHING)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_frozen_store_still_watches_and_conforms() {
+        let base = now();
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let (ours, theirs) = (chat.trade.public_key(), chat.them.public_key());
+        let accepted = mail_trade_keys(Action::HoldInvoicePaymentAccepted, ORDER, ours, theirs);
+        let lock = node_event(&node, ours, &accepted, Timestamp::from(base - 100)).await;
+        let desk = Desk::with(Role::Taker, false, chat, node, &[&lock]).await;
+        let options = sqlx::sqlite::SqliteConnectOptions::new().filename(desk.db());
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query(
+            "CREATE TRIGGER freeze BEFORE UPDATE ON orders \
+             BEGIN SELECT RAISE(ABORT, 'frozen'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let outcome = desk.json(None, 2).await;
+
+        assert_eq!(result(&outcome), ("ok", None, NOTHING));
+        assert_eq!(
+            outcome["warnings"],
+            json!([]),
+            "the failed cache write is not reported"
+        );
+        assert_eq!(outcome["data"]["counterparty_pubkey"], theirs.to_hex());
+        assert_eq!(desk.store.counterparty(ORDER).await.unwrap(), None);
+        let schema = Value::Object(output_schema::<WatchData, ()>(&watch_rules()));
+        assert!(
+            schema_check::conforms(&schema, &schema, &outcome),
+            "{outcome}"
+        );
+    }
+}

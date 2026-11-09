@@ -11,6 +11,7 @@ pub mod rate;
 pub mod step;
 pub mod sync;
 pub mod take;
+pub mod watch;
 mod write;
 
 /// How a write command sends its request: the work to mine and whether to

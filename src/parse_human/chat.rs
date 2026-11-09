@@ -40,7 +40,7 @@ pub fn render_chat(data: &ChatData) -> String {
     out
 }
 
-fn block(out: &mut String, number: usize, message: &ChatRecord) {
+pub(crate) fn block(out: &mut String, number: usize, message: &ChatRecord) {
     let _ = writeln!(out, "📄 Message {number}:\n{THIN_RULE}");
     let time = message.created_at().map_or_else(
         || "Invalid date".to_string(),

@@ -13,6 +13,7 @@ pub mod order_take;
 pub mod step;
 pub mod sync;
 pub mod table;
+pub mod watch;
 
 pub use chat::render_chat;
 pub use held::{render_dispute, render_dispute_preview, render_rate, render_rate_preview};
@@ -26,3 +27,4 @@ pub use order_new::{render_new, render_preview};
 pub use order_take::{render_take_preview, render_taken};
 pub use step::{render_step, render_step_preview};
 pub use sync::render_sync;
+pub use watch::{render_watch_end, render_watch_update};
