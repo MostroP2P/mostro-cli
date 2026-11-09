@@ -1,5 +1,5 @@
-//! `order.watch`: follow one order the user holds (spec 020). Not reachable
-//! from the binary yet.
+//! `order.watch`: follow one order the user holds (spec 020). The binary
+//! reaches it through `src/cli/order_watch.rs`.
 //!
 //! The order's trade key and the user's side come from the store, the
 //! counterparty from [`find_counterparty`] (the row, else the node's post-lock
@@ -12,11 +12,13 @@
 //! A JSON call ([`Follow::FirstChange`]) returns at the first new records, or
 //! empty at its deadline. A human watch ([`Follow::UntilEnd`]) hands every
 //! update to its sink, the first even when empty, until the trade ends, the
-//! deadline passes or the sink cannot write. Both get the same outcome: `ok`
+//! deadline passes, the sink cannot write or its reader is gone. Both get the same outcome: `ok`
 //! with the last update, whose cursor covers every record observed in the
 //! call. Nothing is published and nothing is written but the lookup's cache,
 //! so every stage is `not_applicable`.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -47,9 +49,14 @@ pub enum Follow<'a> {
     FirstChange,
     /// Until the trade ends or the deadline, handing every update to the
     /// sink, the first even when empty. The sink returns `false` when it
-    /// could not write the update, which stops the watch.
-    UntilEnd(&'a mut dyn FnMut(&WatchData) -> bool),
+    /// could not write the update, which stops the watch; so does the
+    /// [`Gone`] future, once the first update is written.
+    UntilEnd(&'a mut dyn FnMut(&WatchData) -> bool, Gone<'a>),
 }
+
+/// Resolves when the sink's reader went away while the watch waits, so an
+/// idle watch stops without waiting for its next write.
+pub type Gone<'a> = Pin<&'a mut dyn Future<Output = ()>>;
 
 /// The outcome, and the action that ended the trade, when one did.
 pub struct Watched {
@@ -163,15 +170,24 @@ async fn follow_until(
     deadline: Option<Instant>,
     follow: Follow<'_>,
 ) -> Result<(WatchData, Option<String>), ErrorCode> {
-    let Follow::UntilEnd(sink) = follow else {
+    let Follow::UntilEnd(sink, mut gone) = follow else {
         let batch = next_update(run, watch, deadline).await?;
         return Ok(run.update(watch, batch));
     };
     // The first update at once: the replay, even when it is empty.
     let mut wait = Some(Instant::now());
-    let mut first = true;
+    // The last update written; `None` until the first one is.
+    let mut last = None;
     loop {
-        let batch = next_update(run, watch, wait).await?;
+        let first = last.is_none();
+        let batch = match last.take() {
+            None => next_update(run, watch, wait).await?,
+            Some(written) => tokio::select! {
+                biased;
+                () = &mut gone => return Ok(written),
+                batch = next_update(run, watch, wait) => batch?,
+            },
+        };
         let empty = batch.items.is_empty();
         let (data, ended_by) = run.update(watch, batch);
         let could_not_write = (first || !empty) && !sink(&data);
@@ -179,7 +195,7 @@ async fn follow_until(
         if could_not_write || data.ended() || (empty && !first) {
             return Ok((data, ended_by));
         }
-        first = false;
+        last = Some((data, ended_by));
         wait = deadline;
     }
 }
