@@ -5,9 +5,9 @@
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
 
-use std::future::Future;
+use std::future::{pending, Future};
 use std::net::SocketAddr;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -768,7 +768,12 @@ mod operation {
                 true
             };
             let watched = self
-                .watch(ORDER, None, timeout, Follow::UntilEnd(&mut sink))
+                .watch(
+                    ORDER,
+                    None,
+                    timeout,
+                    Follow::UntilEnd(&mut sink, pin!(pending())),
+                )
                 .await;
             (updates, watched)
         }
@@ -1109,7 +1114,12 @@ mod operation {
             false
         };
         let watched = desk
-            .watch(ORDER, None, 60, Follow::UntilEnd(&mut sink))
+            .watch(
+                ORDER,
+                None,
+                60,
+                Follow::UntilEnd(&mut sink, pin!(pending())),
+            )
             .await;
         assert_eq!(refused, 1);
         assert!(started.elapsed() < Duration::from_secs(10));
@@ -1218,7 +1228,8 @@ mod binary {
     use tokio::process::Command;
     use tokio::time::timeout;
 
-    const DEADLINE_LINE: &str = "⏰ Stopped at the watch deadline; the trade has not ended.\n";
+    const DEADLINE_LINE: &str =
+        "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order.\n";
 
     /// The binary in `desk`'s sandbox, with its node and relay, watching
     /// `ORDER` with `extra` arguments after `front` ones.
@@ -1334,22 +1345,67 @@ mod binary {
         );
     }
 
+    /// A human watch with no deadline whose reader goes away while it is
+    /// idle stops then, not at a write that may never come.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_idle_watch_stops_when_its_reader_closes_stdout() {
+        let desk = quiet_desk().await;
+        let mut command = command(&desk, &[], &[]);
+        command.kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        // The first update is written whole; its last line says it is empty.
+        loop {
+            let line = timeout(WATCHDOG, lines.next_line()).await.unwrap();
+            if line
+                .unwrap()
+                .expect("the first update")
+                .contains("📭 Nothing yet;")
+            {
+                break;
+            }
+        }
+
+        drop(lines);
+        let status = timeout(Duration::from_secs(5), child.wait()).await;
+
+        let status = status.expect("the watch stopped").unwrap();
+        let mut err = String::new();
+        stderr.read_to_string(&mut err).await.unwrap();
+        assert_eq!(status.code(), Some(1), "{err}");
+        assert_eq!(err, "error: the watch could not be written\n");
+    }
+
     #[tokio::test]
     async fn bad_arguments_exit_2_before_any_relay() {
+        // The first line is the command's own: a bad value gets the fixed
+        // `invalid_arguments` line, the conflict Clap's fixed description.
+        // Neither is what an unknown subcommand prints.
+        const INVALID: &str = "error: The command arguments are invalid.";
+        const CONFLICT: &str =
+            "error: an argument cannot be used with one or more of the other specified arguments";
         let desk = quiet_desk().await;
-        let bad: [&[&str]; 5] = [
-            &["--since", "0"],
-            &["--since", "10081"],
-            &["--timeout", "0"],
-            &["--after", SENTINEL],
-            &["--after", "100", "--since", "5"],
+        let bad: [(&[&str], &str); 5] = [
+            (&["--since", "0"], INVALID),
+            (&["--since", "10081"], INVALID),
+            (&["--timeout", "0"], INVALID),
+            (&["--after", SENTINEL], INVALID),
+            (&["--after", "100", "--since", "5"], CONFLICT),
         ];
-        for extra in bad {
+        for (extra, first_line) in bad {
             let run = run(command(&desk, &[], extra)).await;
 
-            assert_eq!(run.code(), Some(2), "{extra:?}: {}", run.stderr_text());
+            let stderr = run.stderr_text();
+            assert_eq!(run.code(), Some(2), "{extra:?}: {stderr}");
+            assert_eq!(
+                stderr.lines().next(),
+                Some(first_line),
+                "{extra:?}: {stderr}"
+            );
             assert!(run.stdout.is_empty(), "{extra:?}");
-            assert!(!run.stderr_text().contains(SENTINEL), "{extra:?}");
+            assert!(!stderr.contains(SENTINEL), "{extra:?}");
         }
         assert_eq!(desk.relay.connections(), 0, "no relay was contacted");
     }
