@@ -4634,3 +4634,44 @@ fixture or output changes, and no command emits `counterparty_unknown` yet.
   `cargo test --locked` 1012 passed, 0 failed, 0 ignored (997 at the base; +5 unit and +10 process tests, the 3 moved tests counted
   once); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`. All schema fixture drift tests pass unchanged.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual.
+
+## Order Chat (spec 019) Unit 2: Chat Transport, Outcome Types, Renderer: 2026-11-08
+
+Branch `feat/order-chat-transport` from `feat/order-chat-counterparty` (b10bc81), the second of four units of #245. Library only: no
+command, option, schema, fixture or output changes; nothing calls the new code yet.
+
+- **Failing first**: the new tests ran against stubs (`escape_untrusted` escaping control characters only; `open_lines` without the
+  window, deduplicating by outer id and without the cap; an ambiguous send reported `not_attempted` with no line; `ChatInput::validate`
+  without trimming or the byte bound; `ChatRecord` without the 4096-byte bound; `Stages::Chat` with the read combinations). The unit
+  tests gave 5 passed and 7 failed (`both_sides_come_back_oldest_first_once`, `the_window_and_the_cap_keep_the_newest_200`,
+  `a_record_bounds_untrusted_text_on_a_character_boundary`, `chat_outcomes_conform_only_with_chat_stages`,
+  `the_message_is_trimmed_and_must_be_1_to_4096_bytes`, `a_forged_line_and_bidi_controls_are_escaped_and_indented`,
+  `untrusted_text_escapes_format_characters_and_line_separators`); `mod transport` gave 4 passed and 1 failed
+  (`a_relay_that_never_confirms_is_ambiguous`). Review fixes, failing first too: the joiner case of the `escape_untrusted` test before
+  U+200C and U+200D left the table; the NIP-42 test with `Publishing::settle` removed (the auth relay held nothing), the limit test with
+  `truncated` reduced to the cap (`(200, false)`) and with a per-relay limit of 5 (`(5, false)`).
+- **The change**: `msg/chat.rs` (`read_chat` through `fetch_msg`, `open_lines`, `send_chat` through the private `send_msg::publish`),
+  `Publishing::settle`, `FetchFailure::before_query` visible inside `msg`; `outcome/chat.rs` (`ChatInput`, `ChatSender`, `ChatRecord`,
+  `ChatData`, `ERRORS`, `UNCERTAIN`, `chat_rules`); `Stages::Chat` and `OutcomeRules::chat` with the D4 amendment in the rustdoc;
+  `payload::bounded` and `TEXT_BYTES` crate-visible; `parse_human::table::escape_untrusted` (Cc, the 21 Unicode 17.0 Cf ranges taken
+  from the `unicode-properties` 0.1.4 tables but U+200C and U+200D, U+2028, U+2029; `escape_controls` unchanged);
+  `parse_human/chat.rs` (`render_chat`).
+- **Measured**: `output_schema::<ChatData, ()>(&chat_rules())` pretty-printed is 492 lines (the same method gives `order.sync` 694, the
+  size of its fixture); unit 4 is projected at about 1,320 changed lines (tasks.md).
+- **Tests**: unit tests 12/12: `msg::chat` 3 (both sides oldest first, a re-wrapped message counted once by its inner id, an envelope
+  not authored by `K_sign` and a third inner writer dropped; the window and the cap keep the newest 200, exactly 200 is not capped; a
+  message 59 s ahead of the clock kept, 61 s dropped), `outcome::chat` 4 (the window bounds, the trimmed 1 to 4096-byte message whose
+  error never shows the text, the bounded text and one aggregate `invalid_event_timestamp`, the five D4 stage combinations conforming to
+  the generated schema while acceptance `accepted`, persistence `applied`, a snapshot object, `from: solver` and other stages do not),
+  `parse_human::chat` 4, `parse_human::table` 1 (a ZWJ emoji and a ZWNJ word unchanged). `tests/order_chat_process.rs` `mod transport`
+  7/7 on loopback relays: one read (one connection) returns both sides and nothing from a third writer or another conversation, the same
+  both ways; 201 messages on a relay give its 200 and `truncated`; with a refusing, an open and a NIP-42 relay the send is confirmed and
+  the NIP-42 relay holds the message after the AUTH; a sent message is opened by
+  the counterparty, signed inside by our trade key, and is one kind-14 event authored by `K_sign` with one `p` tag (`K_conv`) and no other
+  tag; a relay refusing writes gives `request_rejected` and `not_attempted` with no line; a silent relay gives `request_rejected` and
+  `unknown` with the line; a closed port gives `relay_connection_failed` and `not_attempted`. `source_boundaries` passes with the
+  transport call counts unchanged.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1031 passed, 0 failed, 0 ignored (1012 at the base; +12 unit and +7 process tests); `cargo build --locked`;
+  `cargo +1.94.0 check --locked --all-targets --all-features`. All schema fixture drift tests pass unchanged.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual.

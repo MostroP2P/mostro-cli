@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-08
 
-**Status**: In progress, unit 1 of 4 (the counterparty lookup, library only; no command uses it yet). Progress is tracked only in
-[tasks.md](tasks.md)
+**Status**: In progress, unit 2 of 4 (the counterparty lookup, then the chat read and send, the outcome types and the human renderer;
+library only, no command uses them yet). Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Issue #245. An agent that ran a full trade with mostro-cli 0.17.0 had to find the counterparty's trade key itself and pass it to
 `getdmuser -p` and `dmtouser -p`, which print human text only. On the JSON flow nothing states that key: `message list` carries it inside
@@ -68,8 +68,9 @@ counterparty on its own, reads the conversation and, with `--message`, sends one
 - **FR-003**: The conversation is one bounded read of the kind-14 chat of the order's trade key and the counterparty: both sides, oldest
   first, at most 200, opened only through `unwrap_chat_message` with our key and the counterparty's as the allowed signers.
 - **FR-004**: `--message` publishes one chat message after the read (D2, D5, D6); a send no relay confirms is `uncertain` and never retried.
-- **FR-005**: Untrusted text is bounded to 4096 bytes and escaped in human output (control, Unicode format and line separator characters).
-  The message text never appears in errors, verbose output or stderr; the trade secret is never serialized.
+- **FR-005**: Untrusted text is bounded to 4096 bytes and escaped in human output (control, Unicode format and line separator characters;
+  the zero-width non-joiner and joiner are kept). The message text never appears in errors, verbose output or stderr; the trade secret
+  is never serialized.
 - **FR-006**: Output schema `docs/schemas/order-chat-v1.json`, discovery, examples and drift tests (D9); `schema_version` stays `1`.
 
 ## Success Criteria

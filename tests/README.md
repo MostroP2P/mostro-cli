@@ -451,4 +451,9 @@ writing and written alone; `mod counterparty`, a stored key used with no relay c
 `fiat-sent-ok`, `counterparty_unknown` before the lock, our own key in the row, a refused save, store failures before any relay, relay
 failures) and the
 `msg::counterparty` unit tests (8, the impostor case included); verified on Linux against isolated stores and loopback relays only. No
-command uses the lookup yet.
+command uses the lookup yet. Unit 2 (2026-11-08): `tests/order_chat_process.rs` `mod transport` (7: one bounded read of both sides,
+a relay at its limit of 200 marking the read truncated, a sent message the counterparty opens and that is one kind-14 event authored by
+`K_sign` with one `p` tag, one confirmation beside a refusing relay while a relay asking for NIP-42 auth still gets the message, refused,
+unconfirmed and unreachable relays) and the unit tests of `msg::chat` (3: replays, forged envelopes and third writers; the window and the
+cap of 200; the 60-second clock bound), `outcome::chat` (4, the D4 stage combinations included), `parse_human::chat` (4) and
+`parse_human::table::escape_untrusted` (1, the joiners kept); loopback relays only, no command yet.

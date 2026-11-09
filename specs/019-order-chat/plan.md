@@ -1,6 +1,6 @@
 # Implementation Plan: Order Chat Without Looking Up The Counterparty
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Unit 1 implemented (the lookup, library only); units 2-4 planned.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 and 2 implemented (the lookup, the chat transport, outcome types and renderer; library only); units 3 and 4 planned.
 
 ## Stack
 
@@ -30,6 +30,14 @@ stack on top. Each unit stays within 1500 changed lines, generated fixtures and 
 - Store error mapping (as `message list`): `StoreError::Missing` is `identity_missing`; `Unwritable` and `Unreadable` are
   `store_unreadable`. In unit 3 `Store::order_keys` returning `None` is `order_unknown`, before the lookup.
 - `ErrorCode::CounterpartyUnknown`, exit 1, scoped to `order.chat`'s schema like every code added after the pilot.
+
+## Unit 2: transport, outcome types, renderer
+
+Described in [architecture](../../docs/architecture.md) and the module rustdoc (`msg/chat.rs`, `outcome/chat.rs`, `Stages::Chat`,
+`parse_human/chat.rs`). Two notes: after one relay confirms, `send_chat` lets the others answer until the same deadline
+(`Publishing::settle`, so a relay still authenticating is not cut off), so a confirmed send can take the whole read budget when another
+relay never answers, within the 15 s already counted under Timing; and the human truncation line reads "Older messages may be missing:
+the read reached its limit of 200", which covers both causes (a relay's limit and the cap).
 
 ## Timing
 
