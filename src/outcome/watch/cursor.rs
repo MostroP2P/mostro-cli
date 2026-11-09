@@ -486,6 +486,17 @@ mod tests {
         assert_eq!((edge.since(), edge.ids().len()), (NOW - 60, 200));
         parses_back(&edge);
 
+        let mut flood: Vec<Observed> = (0..250)
+            .map(|n| Observed::chat(many(n), NOW + 60, NOW + 60))
+            .collect();
+        flood.extend(mails(&[(NOW - 30, id(1)), (NOW - 59, id(2))]));
+        let next = start.advance(&flood, NOW);
+        assert_eq!((next.since(), next.ids().len()), (NOW - 60, 200));
+        assert!(
+            next.ids().contains(&id(1)) && next.ids().contains(&id(2)),
+            "chat dated ahead never pushes node messages out of the cursor"
+        );
+
         let ahead = Cursor::start(NOW + 100);
         let later: Vec<(u64, EventId)> = (0..201).map(|n| (NOW + 150, many(n))).collect();
         let kept = ahead.advance(&mails(&later), NOW);
