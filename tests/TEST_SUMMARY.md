@@ -4745,3 +4745,51 @@ contacted. Windows is not verified locally: only the CI runner, after the branch
   `cargo test --locked` 1056 passed, 0 failed, 0 ignored (1044 before), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-set...HEAD`
   gives 26 files changed, 1375 insertions, 115 deletions (1490 changed lines).
+
+## Node Settings File (spec 018) Unit 5: Review Fixes: 2026-11-09
+
+Branch `feat/config-review-fixes`, stacked on `feat/config-show` (617b82d), unit 5 of issue #244: the review fixes for units 2 and 3
+(#249, #250) that do not fit those units' 1500 changed lines. Automated verification on Linux only (uid 1000, not root), with loopback
+relays and isolated sandboxes; no real node or relay was contacted. Windows is not verified locally beyond a `cargo check` of the
+`x86_64-pc-windows-gnu` target: only the CI runner, after the branch is pushed, will run the tests there.
+
+- **From unit 2's second review round** (cherry-picked with `-x` from its local branch, where they were never pushed): `.config.lock`
+  is opened with `O_NOFOLLOW` on Unix (`libc`, already locked at 0.2.189, as a Unix-only dependency without its default features), so a symlinked lock is
+  `configuration_unwritable` / `not_attempted` and nothing is created outside the data directory; the temporary file is written through
+  the handle that created it; after the rename the data directory is synced on Unix, best effort (CodeRabbit's nitpick on #249). The
+  missing-setting hint says that a set, even empty, variable wins over the file; the README Global flags and the `--transport` help name
+  the config file (the transport is detected when the `TRANSPORT` that wins is absent or empty).
+- **From unit 3's review** (CodeRabbit on #250): the owner-only modes are Unix only; on Windows the directory, lock and file keep their
+  inherited ACLs. README, `docs/commands.md`, `docs/database.md`, `docs/architecture.md`, the `config set` help, the doc comments and the
+  spec 018 contract and data model say so. Behavior unchanged.
+- **`tests/README.md` recount**: `cli_functions` 86, `parser_orders` 123, `integration_tests` 75 (with their modules), from
+  `cargo test --locked --test <name> -- --list` and `--lib`/`--doc`; the stale `new_order_preflight_process` name is gone. The module
+  doc of `tests/config_process.rs` was already right after unit 4.
+- **From the review of this unit**: a blank `MOSTRO_PUBKEY` (set but empty or whitespace, or `-m ""`) reached
+  `PublicKey::from_str` in the human-only commands, so an empty variable that hid the file printed only `Invalid input length 64`
+  and never the new hint; it is now missing, as a blank `RELAYS` and the JSON path (`configuration_missing`) already were, and prints
+  `MOSTRO_PUBKEY not set.` with the hint (exit 1 either way, before `mcli.db`). `libc` is declared with `default-features = false`
+  (`O_NOFOLLOW` needs no `std`; `cargo tree -i libc -e features` shows its other dependents still enable `std`, `Cargo.lock` is
+  unchanged). `tests/README.md` lists all 23 test targets: the 14 process suites of specs 002 to 016 were missing, six of them named
+  nowhere in the file; 757 tests in the targets plus 296 library unit tests and 6 doctests, 1059, from `--list` on 2026-11-09.
+- **Failing first**, on this branch: `settings::file::tests::update_refuses_a_symlinked_lock` with `O_NOFOLLOW` removed returned
+  `Ok(ConfigFile { values: {Pow: "2"} })` instead of `Err(NotCreated)`, and passes with it; the two `cli::context` message tests
+  (`missing_mostro_pubkey_message_names_config_set_and_show`, `missing_relays_message_names_config_set_and_show`) failed with the new
+  sentence removed and pass with it. From the review: `cli::context::tests::blank_mostro_pubkey_gets_the_missing_message` failed
+  (`unwrap_err` on `Ok("")`) and `config_file_process::an_empty_variable_hides_the_file_from_a_legacy_command` failed (stderr
+  `Invalid input length 64`) before the blank key was treated as missing; both pass with it. The directory sync has no test (a power
+  loss cannot be reproduced), the `libc` features none (the build is unchanged) and the docs need none.
+- **Ad hoc runs by the agent** (release binary, scratch `MCLI_DIR`, no node or relay): with `.config.lock` a symlink to a missing
+  path, `--output json config set pow 2` printed `configuration_unwritable` with persistence `not_attempted`, exit 1, `config` still
+  `POW=1` and the link's target not created; without the link the same command wrote `POW=2`, the directory 0700 and `config` and
+  `.config.lock` 0600. `listdisputes` with `RELAYS` set empty and a file holding `RELAYS` printed `RELAYS not set` with the new
+  sentence, exit 1, and created no `mcli.db`. After the review fixes, the rebuilt release binary, with a file holding both settings
+  (`RELAYS=ws://127.0.0.1:9`) and `MOSTRO_PUBKEY` set to `""`, then `" "`, then `-m ""`, printed `MOSTRO_PUBKEY not set.` with the
+  sentence each time, exit 1; `RELAYS` set empty printed `RELAYS not set` likewise; the data directory held only `config` and the home
+  stayed empty.
+- **Windows compile check**: `cargo +1.94.0 check --locked --target x86_64-pc-windows-gnu --all-targets --all-features`, with a stub C
+  compiler for the build scripts (so only the Rust code is checked, nothing is linked or run), passed with no warning.
+- **Gates** (final tree): `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
+  `cargo test --locked` 1059 passed, 0 failed, 0 ignored (1056 before), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-show...HEAD`
+  gives 20 files changed, 234 insertions, 60 deletions (294 changed lines).

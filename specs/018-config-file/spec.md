@@ -2,11 +2,11 @@
 
 **Feature**: `018-config-file`
 
-**Working Branch**: `feat/config-file-read`, `feat/config-file-legacy`, `feat/config-set` and `feat/config-show`, four stacked branches (feature directory naming does not change Git branches)
+**Working Branch**: `feat/config-file-read`, `feat/config-file-legacy`, `feat/config-set` and `feat/config-show`, four stacked branches, plus `feat/config-review-fixes` (unit 5, review fixes) on top (feature directory naming does not change Git branches)
 
 **Created**: 2026-11-08
 
-**Status**: Implemented (units 1 to 4) and verified on Linux against loopback relays, the scripted node and isolated sandboxes (see
+**Status**: Implemented (units 1 to 4, with review fixes in unit 5) and verified on Linux against loopback relays, the scripted node and isolated sandboxes (see
 `tests/TEST_SUMMARY.md`): every networked command, JSON-capable or human-only, reads the file, `config set` writes it and `config show`
 reports it (examples in [contracts/examples.json](contracts/examples.json)). Windows only by CI. Progress is tracked only in [tasks.md](tasks.md)
 

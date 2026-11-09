@@ -1,6 +1,6 @@
 # Implementation Plan: Node Settings From A Config File
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 4 implemented with Linux evidence.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 5 implemented with Linux evidence.
 
 ## Units
 
@@ -10,11 +10,14 @@
 | 2 | `feat/config-file-legacy` | the human-only commands read it (`settings::var`, installed once by `init_context` before `mcli.db`); the typed core of `config set`: `update_config` (under a lock), `outcome/config.rs`, `commands/config.rs`, `parse_human/config.rs`, `configuration_unwritable` and `x-positional` (both proposed, see Proposals) |
 | 3 | `feat/config-set` | `config set`: grammar, dispatch, registry, schema fixture, guidance |
 | 4 | `feat/config-show` | `config show`: its typed core (moved from unit 2, see below), grammar, dispatch, registry, schema fixture; the spec becomes implemented |
+| 5 | `feat/config-review-fixes` | review fixes for units 2 and 3 that do not fit their 1500 lines: the lock opened without following a symlink (Unix), the temporary written through its handle and the directory synced after the rename (Unix, best effort); the config file in the flag docs and the missing-setting guidance; the owner-only claims limited to Unix; the `tests/README.md` recount; then, from the review of this unit, a blank `MOSTRO_PUBKEY` given the missing-setting message (as a blank `RELAYS` is), `libc` without its default features and every test target listed in `tests/README.md` |
 
 This split is a delivery proposal of the workflow, not a maintainer decision. Each unit stays at or below 1500 changed lines (`git diff --shortstat <base>...HEAD`, fixtures, specs and tests included). Fallbacks move
 whole pieces with their tests: unit 1 moves the `config set` and `config show` contract sections to unit 2; unit 2 moved the `config show`
 core (`config_show`, its rules and examples) to unit 4 after its review fixes; unit 3 moved the set-then-list round-trip test and then
-the guidance rewording to unit 4, since its two generated fixtures alone take about 770 lines.
+the guidance rewording to unit 4, since its two generated fixtures alone take about 770 lines. Unit 2's second review round would have
+taken it to 1535 lines, so those two commits, and the later review fixes of unit 3, form unit 5, stacked on unit 4; units 2 to 4 are
+left as reviewed.
 
 ## Unit 1 design
 
@@ -39,6 +42,12 @@ the guidance rewording to unit 4, since its two generated fixtures alone take ab
 - **Not done (minimal scope)**: source attribution, an override warning, size limits, duplicate-key refusal, value normalization, a
   `config unset`, and an owner or group- and world-writable refusal: whoever can write the data directory can already replace `mcli.db`,
   which holds the identity, so the directory's mode (the README creates it with 0700) is the protection, as it is for `mcli.db`.
+
+- **Why `libc` (unit 5)**: `OpenOptionsExt::custom_flags` needs the `O_NOFOLLOW` value, which the standard library does not export.
+  `libc` was already in `Cargo.lock` through other dependencies at the same version, so it is added as a Unix-only direct dependency
+  (`[target.'cfg(unix)'.dependencies]`) and adds no crate to the build; Windows opens the lock as before. It is declared with
+  `default-features = false`, since the constant needs no `std`; the dependencies that already used `libc` still enable its `std`, so
+  the build is the same.
 
 ## Proposals awaiting maintainer approval
 
