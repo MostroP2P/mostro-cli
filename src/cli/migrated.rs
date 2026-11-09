@@ -62,7 +62,7 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         _ => {}
     }
 
-    // An order already held, with no trade index: a request, chat, human watch.
+    // An order already held, with no trade index: a request, chat, a watch.
     match &cli.command {
         Some(Commands::Dispute {
             command: DisputeCommands::Open(args),
@@ -75,7 +75,7 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         }) => return Some(order_chat::run(cli, args, output).await),
         Some(Commands::Order {
             command: OrderCommands::Watch(args),
-        }) if output == OutputMode::Human => return Some(order_watch::run(cli, args).await),
+        }) => return Some(order_watch::run(cli, args, output).await),
         _ => {}
     }
 

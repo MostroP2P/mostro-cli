@@ -43,6 +43,7 @@ use crate::outcome::sync::{
     SyncData, ERRORS as SYNC_ERRORS, UNCERTAIN as SYNC_UNCERTAIN, WARNINGS as SYNC_WARNINGS,
 };
 use crate::outcome::take::{OrderTakeData, TakeSide};
+use crate::outcome::watch::{watch_rules, WatchData, COMMAND as ORDER_WATCH};
 use crate::outcome::{ErrorCode, WarningCode, INVALID_INVOICE};
 
 pub use crate::outcome::schema::{SchemaDocument, DIALECT as SCHEMA_DIALECT};
@@ -149,7 +150,7 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
     match entry.canonical {
         "order.list" | ORDER_INFO | ORDER_NEW | ORDER_TAKE_SELL | ORDER_TAKE_BUY
         | ORDER_ADD_INVOICE | BOND_ADD_INVOICE | ORDER_FIAT_SENT | ORDER_RELEASE | ORDER_CANCEL
-        | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN | ORDER_RATE | ORDER_CHAT => {
+        | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN | ORDER_RATE | ORDER_CHAT | ORDER_WATCH => {
             Some(LISTING_CONFIGURATION.to_vec())
         }
         // Local only: the data directory, which has a default, is all they read.
@@ -342,6 +343,7 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &[],
         )),
         ORDER_CHAT => output_schema::<ChatData, ()>(&chat_rules()),
+        ORDER_WATCH => output_schema::<WatchData, ()>(&watch_rules()),
         IDENTITY_INIT => {
             output_schema::<IdentityInitData, ()>(&OutcomeRules::local(IDENTITY_INIT, &INIT_ERRORS))
         }
@@ -555,6 +557,29 @@ mod tests {
         );
     }
 
+    /// `order watch` (spec 020): only `--order` is required, every option is
+    /// a string, nothing is read from stdin, and it needs the node and relays.
+    #[test]
+    fn order_watch_input_lists_order_since_after_and_timeout() {
+        let input = input_schema(&Cli::command(), &["order", "watch"]).unwrap();
+        let properties = input["properties"].as_object().unwrap();
+        let names: Vec<&str> = properties.keys().map(String::as_str).collect();
+        assert_eq!(names, ["after", "order", "since", "timeout"]);
+        assert_eq!(input["required"], json!(["order"]));
+        for (name, property) in properties {
+            assert_eq!(property["type"], "string", "{name}");
+            assert!(property.get("x-stdin").is_none(), "{name}");
+        }
+        let data = discovery(schemas);
+        let watch = by_name(&data, "order.watch");
+        assert_eq!(
+            watch.required_configuration,
+            Some(vec!["MOSTRO_PUBKEY", "RELAYS"])
+        );
+        let entry = REGISTRY.iter().find(|e| e.canonical == "order.watch");
+        assert!(command_schemas(&Cli::command(), entry.unwrap()).is_some());
+    }
+
     /// `--reply-timeout` is discoverable: its default and range, and exactly
     /// the commands that wait for the node's reply; `--output` is listed too.
     #[test]
@@ -587,12 +612,15 @@ mod tests {
             "order.sync",
             "schema",
             "order.chat",
+            "order.watch",
         ] {
             assert!(!waiting.contains(&read), "{read}");
         }
         assert_eq!(data.global_options[0]["enum"], json!(["human", "json"]));
         let output = strings(&data.global_options[0]["applies_to"]);
-        assert!(output.contains(&"order.chat"), "{output:?}");
+        for read in ["order.chat", "order.watch"] {
+            assert!(output.contains(&read), "{output:?}");
+        }
         let input = input_schema(&Cli::command(), &["order", "take-sell"]).unwrap();
         assert!(
             input["properties"].get("reply-timeout").is_none(),

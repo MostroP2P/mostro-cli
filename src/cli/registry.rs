@@ -193,11 +193,13 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "order.chat",
         json: JsonSupport::Read,
     },
-    // Follows one order live; human output only for now (spec 020, unit 5).
+    // Follows one order live and publishes nothing. Its only local write, the
+    // counterparty key the lookup may cache in the order row, is not a stage
+    // and is not reported, as for `order chat` (spec 020, D11).
     CommandEntry {
         path: &["order", "watch"],
         canonical: "order.watch",
-        json: JsonSupport::Unsupported,
+        json: JsonSupport::Read,
     },
 ];
 

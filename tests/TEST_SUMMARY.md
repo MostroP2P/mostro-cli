@@ -5126,3 +5126,32 @@ Branch `feat/order-watch-command` from `feat/order-watch-operation` (39cdd09), t
   `cargo test --locked` 1099 passed, 0 failed, 0 ignored (1093 at the base; +6 process); `cargo build --locked`;
   `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Order Watch (spec 020) Unit 6: JSON Output: 2026-11-09
+
+Branch `feat/order-watch-json` from `feat/order-watch-command` (6486c92), the sixth of seven units of #246. User-visible:
+`order watch --output json` returns one document per call, at the first new records after the replays or an empty success at
+`--timeout` (30 s by default), with the cursor for `--after`. The registry marks `order.watch` `JsonSupport::Read`; discovery lists its
+input schema, its output schema (`WatchData`, `watch_rules`) and `MOSTRO_PUBKEY`/`RELAYS`. `docs/schemas/discovery-v1.json`
+regenerated with `cargo run -q -- schema` (+875, -4). `docs/schemas/order-watch-v1.json` is unit 7 (D12).
+
+- **Failing first**: `cargo test --locked --no-fail-fast` on the new tests: `only_the_migrated_commands_support_json`,
+  `schema_is_a_registered_machine_command_with_a_non_dotted_name`, `discovery_fixture_is_raw_discovery_data_not_an_envelope`,
+  `watch_examples_conform_and_are_reproduced` (no example file), the three `mod json` process tests (the binary answered
+  `output_not_supported`), and in the library `order_watch_input_lists_order_since_after_and_timeout` and
+  `the_global_options_are_listed_with_what_they_apply_to` all failed. With the change all passed.
+- **Tests** (6 new): `mod json` (3, see [README.md](README.md)), `watch_examples_conform_and_are_reproduced` (the `new_records` case
+  rebuilt with `MessageRecord::from_message`, `ChatRecord::new`, `Cursor::advance` and `WatchData::new`, equal to
+  `specs/020-order-watch/contracts/examples.json` and conforming to the discovery entry's output schema) and
+  `order_watch_input_lists_order_since_after_and_timeout`. `every_legacy_command_rejects_json_before_any_effect` counts 20
+  machine-capable commands; `--reply-timeout` still applies to eleven. `source_boundaries` passes (`cli/order_watch.rs` 157 lines).
+- **Review fix**: waiting for a replay (the opening one, or the chat's once the counterparty is learned) is bounded by one replay
+  budget, so a reconnect during it no longer extends it and the stated `--timeout` + 67 s holds. `a_reconnect_does_not_extend_the_chat_replay`
+  (two relays that leave every REQ after the first unanswered, one dropped while the chat replays and back before its end) failed first
+  (3.76 s against the 2.5 s budget) and passes with the change. The `--timeout` help, and so its discovery description, now states the
+  JSON default of 30 s.
+- **Departure recorded in tasks.md**: no `json_counterparty_not_saved_conforms`; the warning does not exist on this base (D11).
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1105 passed, 0 failed, 0 ignored (1099 at the base; +1 unit, +1 integration, +4 process); `cargo build
+  --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.

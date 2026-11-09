@@ -315,10 +315,11 @@ mostro-cli --output json message list --since 60   # the same for a script: read
 
 Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
 
-**Follow a trade.** `order watch` is the one command that stays connected: it replays the last 30 minutes (`--since`), then prints each new message from Mostro and each chat message of one order as it arrives, until the trade ends. Human output only for now; `--timeout SECONDS` stops it earlier with a final line, and Ctrl-C stops it at any time.
+**Follow a trade.** `order watch` is the one command that stays connected: it replays the last 30 minutes (`--since`), then prints each new message from Mostro and each chat message of one order as it arrives, until the trade ends. `--timeout SECONDS` stops it earlier with a final line, and Ctrl-C stops it at any time. With `--output json` each call returns one document, at the first new records or empty after `--timeout` (30 s by default), with a `cursor`: pass it back with `--after` to get only newer records, so a script loops watch, act, watch.
 
 ```bash
 mostro-cli order watch --order <order-id>
+mostro-cli --output json order watch --order <order-id> --after <cursor>
 ```
 
 Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` (or `--expires-in SECONDS`, 1 to 31536000) to `order new` to request a different window; the node lowers it to its own maximum.
@@ -740,7 +741,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
 - `--reply-timeout <SECONDS>` — how long the commands that wait for the node's reply (`order new`, the takes, `order add-invoice`, the trade steps, `order info`, `dispute open`, `order rate`, `bond add-invoice`) wait for it: 5 to 300, default 15. Like `--output`, it may also follow the command words. Raise it for a slow node instead of repeating a write that came back `uncertain`.
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `order chat`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -756,7 +757,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Twenty-one commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `config set`, `config show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order rate`, `dispute open` and `bond add-invoice` (the last ten need `--yes` and can report `uncertain`), and `order chat` (`--yes` and `uncertain` only with `--message`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Twenty-two commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `config set`, `config show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order rate`, `dispute open` and `bond add-invoice` (the last ten need `--yes` and can report `uncertain`), `order chat` (`--yes` and `uncertain` only with `--message`), and `order watch` (one document per call, with a cursor for `--after`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

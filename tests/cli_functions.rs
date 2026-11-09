@@ -1182,7 +1182,8 @@ mod registry {
         for entry in REGISTRY {
             match entry.canonical {
                 "order.list" | "schema" | "message.list" | "order.sync" | "identity.init"
-                | "identity.show" | "order.mine" | "config.set" | "config.show" | "order.chat" => {
+                | "identity.show" | "order.mine" | "config.set" | "config.show" | "order.chat"
+                | "order.watch" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1278,7 +1279,8 @@ mod registry {
                 "dispute.open",
                 "config.set",
                 "config.show",
-                "order.chat"
+                "order.chat",
+                "order.watch"
             ]
         );
     }

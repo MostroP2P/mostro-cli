@@ -277,14 +277,21 @@ impl Watch {
         }
     }
 
-    /// Process notifications until no relay replays.
+    /// Process notifications until no relay replays, for one replay budget
+    /// at most: a replay a reconnect starts meanwhile is not waited for.
     async fn settle(&mut self) -> Result<(), ErrorCode> {
+        let limit = self.state.replay_end(Instant::now());
         loop {
-            self.state.expire(Instant::now())?;
-            if !self.state.replaying() {
+            let now = Instant::now();
+            self.state.expire(now)?;
+            if !self.state.replaying() || now >= limit {
                 return Ok(());
             }
-            match self.armed.recv(self.state.next_expiry()).await {
+            match self
+                .armed
+                .recv(earliest(Some(limit), self.state.next_expiry()))
+                .await
+            {
                 Received::Notification(relay, notification) => {
                     self.handle(relay, notification).await?;
                 }

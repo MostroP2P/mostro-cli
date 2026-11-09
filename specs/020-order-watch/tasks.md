@@ -49,7 +49,12 @@ public node.
   `counterparty_not_saved` exists on this base (D11, unit 4), so there is no warning line to print and no test for it; JSON
   `output_not_supported` is covered by `every_legacy_command_rejects_json_before_any_effect` rather than a second test in the process
   file. Production size 106 (`cli/order_watch.rs`). The book update is its own PR.
-- [ ] **6. JSON.** Failing tests first, then registry `Read`, the unguarded arm, the schema arms, the regenerated discovery,
-  `contracts/examples.json` (`new_records`). Fallback above 1450: the example and its test move to unit 7. The book update is its own PR.
+- [x] **6. JSON.** Failing tests first (the registry and discovery machine lists, the input and global-option unit tests, the missing
+  example and the three `mod json` process tests, which got `output_not_supported`), then registry `Read`, the unguarded arm with
+  `parse_machine::emit` and the 30 s default, the schema arms, the regenerated discovery (+875, -4), `contracts/examples.json`
+  (`new_records`, rebuilt with the constructors; its counterparty is a third key, not the trade key). Measured with the example and
+  before documents: 1,288 changed lines, so the fallback did not apply. No `counterparty_not_saved` exists on this base (D11), so there
+  is no frozen-store JSON test of it; unit 4's operation test covers the warning-free outcome. Production size 157
+  (`cli/order_watch.rs`). The book update is its own PR.
 - [ ] **7. The output schema file.** Failing first (the fixture is missing), then `docs/schemas/order-watch-v1.json`, its drift test, the
   `timeout_empty` example; spec status implemented. The book update is its own PR.
