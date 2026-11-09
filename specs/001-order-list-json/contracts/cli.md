@@ -205,7 +205,9 @@ formatting. Do not call these hand-authored examples source-generated output.
 Contract version `1` is independent of CLI package version. Consumers reject
 unsupported schema versions and incompatible command coverage. Only optional
 additions are compatible within v1; incompatible enum/type/semantic changes require
-a new version. Pilot command schemas allow ok/error only, while the shared
+a new version, except the two open enums of message records (`next_step` and
+the payload `kind`) described in the versioning rule of `docs/commands.md`.
+Pilot command schemas allow ok/error only, while the shared
 envelope reserves uncertain for future writes.
 
 The existing MCP is not compatible with the removed listorders spelling. Keep

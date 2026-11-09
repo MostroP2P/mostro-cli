@@ -45,6 +45,10 @@ against isolated stores, loopback relays and the scripted node's mail only. `ord
 follows an order held until its trade ends, the node's messages and the peer chat, replayed then live; human mode streams,
 and `--output json` returns one document per call with a cursor for `--after` (output schema `docs/schemas/order-watch-v1.json`);
 implemented and verified on Linux against isolated stores, loopback relays and scripted node and chat events only, not on a real node.
+[Next steps](specs/021-next-steps/spec.md) (#243) is partly implemented: a failed payout is the typed payload `payment_failed`
+(`next_step` `add_invoice` only with no attempt left), each human "👉 Next:" line names the record's order id, and `docs/commands.md`
+makes `next_step` and the payload `kind` open enums within v1; verified on Linux against the scripted node only. `fiat_sent`, `rate` and
+`release` are still proposed.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
