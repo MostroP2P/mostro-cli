@@ -1088,7 +1088,8 @@ mod binary {
     use tokio::process::Command;
     use tokio::time::timeout;
 
-    const DEADLINE_LINE: &str = "⏰ Stopped at the watch deadline; the trade has not ended.\n";
+    const DEADLINE_LINE: &str =
+        "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order.\n";
 
     /// The binary in `desk`'s sandbox, with its node and relay, watching
     /// `ORDER` with `extra` arguments after `front` ones.
