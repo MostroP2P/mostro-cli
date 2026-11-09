@@ -26,6 +26,16 @@ pub(super) struct Armed {
     relays: usize,
 }
 
+/// What the next notification of any relay is.
+pub(super) enum Received {
+    /// A notification and the index of the relay that sent it.
+    Notification(usize, RelayNotification),
+    /// The deadline passed first.
+    Timeout,
+    /// Every relay's notification stream ended.
+    Ended,
+}
+
 /// What the wait ended with.
 pub(super) enum Waited {
     Reply(Box<Message>),
@@ -58,16 +68,31 @@ pub(super) async fn arm(client: &Client, urls: &[RelayUrl]) -> Option<Armed> {
 }
 
 impl Armed {
+    /// The next notification of any relay, waiting until `deadline` or, with
+    /// none, for as long as it takes.
+    pub(super) async fn recv(&mut self, deadline: Option<Instant>) -> Received {
+        let next = match deadline {
+            Some(deadline) => match timeout_at(deadline, self.notifications.next()).await {
+                Err(_) => return Received::Timeout,
+                Ok(next) => next,
+            },
+            None => self.notifications.next().await,
+        };
+        match next {
+            Some((relay, notification)) => Received::Notification(relay, notification),
+            None => Received::Ended,
+        }
+    }
+
     /// Wait for the answer until the deadline.
     pub(super) async fn wait(&mut self, wait: &Wait<'_>) -> Waited {
         let mut lost = vec![false; self.relays];
         loop {
-            let next = match timeout_at(wait.deadline, self.notifications.next()).await {
-                Err(_) => return Waited::Timeout,
-                Ok(None) => return Waited::Lost,
-                Ok(Some(next)) => next,
+            let (relay, notification) = match self.recv(Some(wait.deadline)).await {
+                Received::Timeout => return Waited::Timeout,
+                Received::Ended => return Waited::Lost,
+                Received::Notification(relay, notification) => (relay, notification),
             };
-            let (relay, notification) = next;
             match notification {
                 RelayNotification::Message { message } => match *message {
                     RelayMessage::Event {

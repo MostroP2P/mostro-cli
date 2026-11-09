@@ -492,3 +492,8 @@ and defaults; the ending actions; `WatchData` outcomes checked against the gener
 and 22 malformed cursors refused; the next cursor's time and ids; the cap of 200 raising the time only over records older than a minute;
 records stamped ahead never moving the time past now minus 60 s, and node messages kept ahead of chat dated ahead when the cap binds; a
 chat message held over five simulated calls) and the four `TradeRole` pairs in `outcome::messages`. No relay, store or command.
+
+Order watch (spec 020, unit 2 of 7, 2026-11-09): `tests/order_watch_process.rs` `mod live` (5: the window replayed once from two relays,
+one answering every REQ with all it holds, then new mail live once, foreign or old events never counted; the chat replayed and live when
+the counterparty is known, a re-wrapped line once, a line dated before the window in an envelope inside it kept, a third writer's dropped;
+50 forged envelopes hiding an older line set `truncated`; the opening failures; a bounded close) and `msg::watch::state` (8).

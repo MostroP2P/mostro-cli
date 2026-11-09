@@ -5030,3 +5030,25 @@ folder and constitution amendment 1.0.1; nothing is user-visible and no generate
   (1049 at the base; +9 unit tests); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
   `source_boundaries` (sizes, imports) passes.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.
+
+## Order Watch (spec 020) Unit 2: The Live Subscription: 2026-11-09
+
+Branch `feat/order-watch-subscription` from `feat/order-watch-contract` (06be7d5), the second of seven units of #246. Library transport
+only (`msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv`, `inbox::mail_filter`); nothing is user-visible and no fixture changes.
+
+- **Failing first**: `cargo test --locked --lib msg::watch` did not compile (41 errors: `State`, `Seen`, `Batch` not found), nor did
+  `cargo test --locked --test order_watch_process` (unresolved `msg::watch::{Batch, Seen, Watch, WatchFailure, WatchLimits}`).
+- **Tests** (13): `msg::watch::state` (8: records held until every replaying relay ends its replay, then oldest first, a held record not
+  observed at the deadline; a replay ending at EOSE, a disconnect, the 15 s budget, a CLOSED or the notification capacity, live or (all
+  but EOSE) failing the opening replay; mail once by event id, a chat line once by `message_id` with its later envelope's time used by the
+  cursor; 1,000 repeats from a live relay while another replays held as one entry per record; cursor ids observed, not returned; the
+  record cap; `truncated` when 50 stored events come back, opened or not, and the oldest is new) and `mod live` (5; see
+  [README.md](README.md)), whose noise a probe saw delivered under the watch's ids. `source_boundaries`: one `.subscribe(` (`watch.rs`).
+- **Review fixes, each failing first**: 50 forged chat envelopes over a genuine line gave `truncated=false` (now every stored event
+  counts before opening); a line written 10 s before the window in an envelope dated 30 s later was dropped (the window now applies to
+  the envelope); keying held records by envelope id failed the repeats test (1,000 entries). Over 1,500 lines, `follow_chat` (with the
+  fix for a relay already away, seen waiting 1.5 s), its tests and the live CLOSED-or-disconnect test moved to unit 3 (plan fallback).
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1071 passed, 0 failed, 0 ignored (1058 at the base; +8 unit, +5 process); `cargo build --locked`;
+  `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.

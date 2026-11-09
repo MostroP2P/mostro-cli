@@ -17,7 +17,8 @@
 //!
 //! So are the doors of the request and reply exchange: publishing happens only
 //! inside `exchange` and the chat send (`chat::send_chat`); waiting for the
-//! reply and reading the node's information only inside `exchange`.
+//! reply and reading the node's information only inside `exchange`. The order
+//! watch (`watch`) is a subscription that publishes nothing.
 //!
 //! ```compile_fail,E0603
 //! use mostro_client::msg::send_msg::publish;
@@ -39,6 +40,7 @@
 //!     Fetched, Lane, Outbound, PublicReadConfig, ReadLimits, AUTO_POW_CEILING,
 //! };
 //! use mostro_client::msg::chat::{read_chat, send_chat, ChatLine, Conversation, SendFailure};
+//! use mostro_client::msg::watch::{Batch, Seen, Watch, WatchFailure, WatchLimits};
 //! ```
 
 use std::str::FromStr;
@@ -58,6 +60,7 @@ mod orders;
 pub mod receive_msg;
 mod reply;
 mod send_msg;
+pub mod watch;
 
 pub use exchange::{exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Outbound};
 pub use node_info::{Lane, AUTO_POW_CEILING};

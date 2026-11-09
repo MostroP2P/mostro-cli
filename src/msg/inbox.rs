@@ -67,12 +67,7 @@ pub async fn read_inbox(
         });
     }
     let node = config.mostro_pubkey();
-    let filter = Filter::new()
-        .kind(Kind::PrivateDirectMessage)
-        .author(node)
-        .pubkeys(keys.iter().map(|(_, key)| key.public_key()))
-        .since(since)
-        .limit(PER_RELAY_LIMIT);
+    let filter = mail_filter(node, keys, since);
     let fetched = fetch_msg(config, filter, limits).await?;
 
     let mut mail = open_events(fetched.events(), keys, node, since).await;
@@ -88,6 +83,21 @@ pub async fn read_inbox(
         snapshot: fetched.snapshot().clone(),
         warnings: fetched.warnings().clone(),
     })
+}
+
+/// The node's kind-14 mail to any of `keys` since `since`, at most
+/// [`PER_RELAY_LIMIT`] stored events per relay.
+pub(super) fn mail_filter(
+    node: PublicKey,
+    keys: &[(Option<i64>, Keys)],
+    since: Timestamp,
+) -> Filter {
+    Filter::new()
+        .kind(Kind::PrivateDirectMessage)
+        .author(node)
+        .pubkeys(keys.iter().map(|(_, key)| key.public_key()))
+        .since(since)
+        .limit(PER_RELAY_LIMIT)
 }
 
 /// Open the events that are the node's mail for one of `keys` since `since`.
