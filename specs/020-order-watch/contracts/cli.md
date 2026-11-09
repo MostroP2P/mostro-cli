@@ -28,5 +28,6 @@ step; `order chat`'s chat block, escaped; a line when the counterparty is learne
 ended: ACTION" at the end, or "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order." at the
 deadline. Errors on stderr; the read warnings are reported only in JSON. `--verbose` prints one line `verbose: order.watch <ok|code>`.
 Each update is rendered whole, written and flushed; a stdout that cannot be written stops the watch with `error: the watch could not be
-written` (exit 1). Other errors are one `error: <fixed message>` line (exit 1, 2 for arguments). Ctrl-C stops the process by its default
-action; no exit status is promised.
+written` (exit 1). On Unix a reader that closes stdout while the watch is idle stops it the same way; elsewhere the watch notices at its
+next write. Other errors after parsing are one `error: <fixed message>` line (exit 1, 2 for a bad value); an argument the parser rejects
+gets its fixed description and a `--help` hint (exit 2). Ctrl-C stops the process by its default action; no exit status is promised.

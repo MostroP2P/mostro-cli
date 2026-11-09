@@ -273,9 +273,11 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     comes: `message list`'s message block with its next step under "📨 From Mostro:", and `order chat`'s block under "💬 Chat:" (the
     text escaped); a line when the counterparty is learned and one when older records may be missing. Each update is written whole and
     flushed. The last line is "🏁 The trade ended: <action>", or at `--timeout` "⏰ Stopped at the watch deadline; no ending message
-    was seen. Run `order info` to check the order."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors are one `error: <fixed message>` line on stderr (exit 1,
-    2 for arguments); a stdout that cannot be written stops the watch with "error: the watch could not be written" (exit 1).
-    `--verbose` adds one line, `verbose: order.watch <ok|code>`.
+    was seen. Run `order info` to check the order."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors after parsing
+    are one `error: <fixed message>` line on stderr (exit 1, 2 for a bad value); an argument the parser rejects (an unknown flag,
+    `--after` with `--since`) gets its fixed description and a `--help` hint (exit 2). A stdout that cannot be written stops the watch
+    with "error: the watch could not be written" (exit 1); on Unix so does a reader that closes stdout while the watch is idle,
+    elsewhere the watch notices at its next write. `--verbose` adds one line, `verbose: order.watch <ok|code>`.
   - **Timing**: 10 s to connect, 15 s for the replay, 15 s more when the counterparty is learned, then live until the end or
     `--timeout`, then 1 s of cleanup; up to 26 s more first when the counterparty must be looked up. `--pow`, `--transport` and
     `--reply-timeout` do not apply.
