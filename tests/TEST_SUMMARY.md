@@ -4880,3 +4880,5 @@ command, option, schema, fixture or output changes; nothing calls the new code y
   `cargo test --locked` 1031 passed, 0 failed, 0 ignored (1012 at the base; +12 unit and +7 process tests); `cargo build --locked`;
   `cargo +1.94.0 check --locked --all-targets --all-features`. All schema fixture drift tests pass unchanged.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual.
+- **Merged with `main`** (2026-11-09, after unit 1 and spec 018): `parse_human` keeps both `chat` and `config`; `cargo test --locked`
+  1093 passed, 0 failed, 0 ignored (1074 on `main`, +19); `tests/README.md` recounted.
