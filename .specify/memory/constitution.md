@@ -78,7 +78,8 @@ and destructive regtest cleanup require separate user authorization.
 - Work on `develop`. Creating/switching branches, staging, commits, pushes, and issues/PRs require explicit authorization. Preserve all existing user edits.
 - Command compatibility may break. Use canonical noun/verb commands and migration documentation, not legacy aliases or adapters.
 - Native Windows and Linux runtime support require separate verification. Docker/regtest runs on Linux/WSL. Test the declared MSRV separately from the development toolchain; do not change either just to hide a failed check.
-- Direct library linking, extra MCP tools, protocol redesign, streaming output, and automatic trade/payment retries remain outside the refactor scope.
+- Direct library linking, extra MCP tools, protocol redesign, streaming machine output, and automatic trade/payment retries remain outside the refactor scope.
+- Human-mode `order watch` may stream updates until the trade ends, with no overall deadline unless `--timeout` is given; each relay step keeps its own bounds (connect, replay, cleanup).
 
 ## Development Workflow And Documentation
 
@@ -112,4 +113,17 @@ entrypoints rather than duplicating them. Governance versioning is independent
 of CLI/schema versions: major for incompatible principles, minor for new
 principles, patch for clarifications.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-16 | **Last Amended**: 2026-10-16
+### Amendment Record
+
+- **1.0.1 (2026-11-09), clarification: human-mode streaming for `order watch`.**
+  Principle: IV (deadlines; both renderers consume the same outcomes) and the
+  Project Boundaries. Rationale: the maintainers chose, for issue #246, one JSON
+  document per call (at the first new records, or empty at `--timeout`, with a
+  cursor passed back with `--after`) and a human mode that follows the trade
+  until it ends. The boundary now excludes streaming machine output only. The
+  human stream renders the same typed data as JSON, one update at a time, and
+  its connect, replay and cleanup steps stay bounded. Affected artifacts:
+  `docs/commands.md` and [spec 020](../../specs/020-order-watch/spec.md).
+  Migration: none; no existing command or output changes.
+
+**Version**: 1.0.1 | **Ratified**: 2026-10-16 | **Last Amended**: 2026-11-09
