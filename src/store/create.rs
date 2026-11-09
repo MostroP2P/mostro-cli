@@ -68,12 +68,12 @@ const SCHEMA: &str = r#"
 /// permissions instead of being created world-readable and tightened
 /// afterwards, which would leave a brief window where another local user could
 /// open it. A second create never truncates an existing database.
-pub fn create_private_db_file(path: impl AsRef<Path>) -> io::Result<()> {
+pub fn create_private_db_file(path: impl AsRef<Path>) -> io::Result<fs::File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     options.mode(0o600);
-    options.open(path.as_ref()).map(|_| ())
+    options.open(path.as_ref())
 }
 
 /// Create the tables of a new store and its user, with a fresh 12-word
@@ -129,7 +129,7 @@ where
     let dir_text = dir.to_str().ok_or(CreateError::NotCreated)?;
     ensure_private_dir(dir_text).map_err(|_| CreateError::NotCreated)?;
     match create_private_db_file(&path) {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             return Err(CreateError::Exists)
         }

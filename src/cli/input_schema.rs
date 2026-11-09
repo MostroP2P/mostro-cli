@@ -1,7 +1,8 @@
 //! Input schemas of the machine-capable commands, read from the real Clap
-//! grammar: one property per long option of the leaf command, with its type,
-//! allowed values, case rule and help text. Root options are configuration,
-//! not input, and are described by discovery's `required_configuration`.
+//! grammar: one property per long option or positional argument of the leaf
+//! command, with its type, allowed values, case rule, position and help text.
+//! Root options are configuration, not input, and are described by
+//! discovery's `required_configuration`.
 
 use clap::{Arg, ArgAction, Command};
 use serde_json::{json, Map, Value};
@@ -19,11 +20,31 @@ pub fn input_schema(root: &Command, path: &[&str]) -> Option<SchemaDocument> {
     let leaf = path
         .iter()
         .try_fold(root, |level, name| level.find_subcommand(name))?;
+    // Clap numbers every positional, hidden ones included, when it builds.
+    let mut built = leaf.clone();
+    built.build();
+    let index = |arg: &Arg| {
+        built
+            .get_positionals()
+            .find(|positional| positional.get_id() == arg.get_id())
+            .and_then(Arg::get_index)
+    };
     let mut properties = Map::new();
     let mut required = Vec::new();
     for arg in leaf.get_arguments().filter(|arg| is_input(arg)) {
-        let name = arg.get_long()?;
-        properties.insert(name.to_string(), property(arg));
+        let mut property = property(arg);
+        // A positional is named by its id and passed after the command path,
+        // at its 0-based `x-positional` (Clap's index starts at 1).
+        let name = match arg.get_long() {
+            Some(long) => long,
+            None => {
+                if let (Value::Object(map), Some(index)) = (&mut property, index(arg)) {
+                    map.insert("x-positional".into(), json!(index - 1));
+                }
+                arg.get_id().as_str()
+            }
+        };
+        properties.insert(name.to_string(), property);
         if arg.is_required_set() {
             required.push(json!(name));
         }
@@ -46,13 +67,14 @@ pub fn input_schema(root: &Command, path: &[&str]) -> Option<SchemaDocument> {
     Some(document)
 }
 
-/// An option of the command itself: not hidden, not help or version, and not a
-/// global option (`--output`, `--reply-timeout`), which discovery lists apart.
+/// An option or positional argument of the command itself: not hidden, not
+/// help or version, and not a global option (`--output`, `--reply-timeout`),
+/// which discovery lists apart.
 fn is_input(arg: &Arg) -> bool {
     !arg.is_hide_set()
         && !arg.is_global_set()
         && !matches!(arg.get_id().as_str(), "help" | "version" | OUTPUT_LONG)
-        && arg.get_long().is_some()
+        && (arg.get_long().is_some() || arg.is_positional())
 }
 
 /// The schema property of one option: its type, allowed values, case rule,
@@ -151,4 +173,35 @@ pub(super) fn global_options(root: &Command, entries: &[CommandEntry]) -> Vec<Sc
         .collect();
     options.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn positionals_appear_with_their_position() {
+        let set = Command::new("set")
+            .arg(
+                Arg::new("key")
+                    .required(true)
+                    .value_parser(["mostro-pubkey", "relays"])
+                    .help("The setting"),
+            )
+            // Hidden, so not in the schema, but it still takes a position.
+            .arg(Arg::new("legacy").required(true).hide(true))
+            .arg(Arg::new("value").required(true).help("Its value"))
+            .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue));
+        let root = Command::new("root").subcommand(Command::new("config").subcommand(set));
+        let input = input_schema(&root, &["config", "set"]).unwrap();
+        assert_eq!(
+            input["properties"],
+            json!({
+                "key": {"type": "string", "enum": ["mostro-pubkey", "relays"], "x-positional": 0, "description": "The setting"},
+                "value": {"type": "string", "x-positional": 2, "description": "Its value"},
+                "yes": {"type": "boolean"}
+            })
+        );
+        assert_eq!(input["required"], json!(["key", "value"]));
+    }
 }

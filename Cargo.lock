@@ -1838,6 +1838,7 @@ dependencies = [
  "futures",
  "hyper",
  "hyper-util",
+ "libc",
  "lightning-invoice",
  "lnurl-rs",
  "log",

@@ -57,9 +57,10 @@ unwrap_chat_message}` instead of this dispatcher.
 
 ## 4. Client wiring
 
-- **Config:** `--transport nip44` (`-t`) sets `TRANSPORT`. Absent/empty ⇒
-  nip44. `parse_transport_env()` rejects any other value. This mirrors how
-  `POW` / `SECRET` are read from the environment.
+- **Config:** `--transport nip44` (`-t`) sets `TRANSPORT`, else the variable,
+  else the config file (spec 018). Absent/empty ⇒ nip44. `parse_transport_env()`
+  rejects any other value. This mirrors how `POW` (option, environment or config
+  file) and `SECRET` (environment) are read.
 - **Send:** the Mostro-protocol path of `send_dm` / `send_plain_text_dm` goes
   through `publish_wrapped` → `wrap_message_with(Transport::Nip44Direct, …)`.
   Peer chat (`dmtouser`, `disputechat`, `sendadmindmattach`) uses
