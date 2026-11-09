@@ -4932,3 +4932,7 @@ generated change is the human-only `order.chat` entry in `docs/schemas/discovery
   `cargo +1.94.0 check --locked --all-targets --all-features`. Every drift test passes, the discovery fixture after regeneration.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual beyond the two legacy runs above. The book update is
   a separate PR.
+- **Merged with `main`** (2026-11-09, after units 1 and 2 and spec 018): the registry, the approved names (41) and `cli.rs` keep both
+  `config.set`/`config.show` and `order.chat`; `schema_fixtures` keeps the config and the chat example tests; discovery and every
+  per-command fixture regenerated with no change. `cargo test --locked` 1106 passed, 0 failed, 0 ignored (1093 on `main`, +13);
+  `tests/README.md` recounted.
