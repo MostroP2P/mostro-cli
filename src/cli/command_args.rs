@@ -39,6 +39,23 @@ pub struct AddBondInvoiceArgs {
 }
 
 #[derive(Args, Clone, Debug)]
+pub struct ChatArgs {
+    /// Id of an order in the local store
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+    /// Send this message after reading (1 to 4096 bytes once trimmed); write
+    /// --message=<TEXT> for a text that starts with '-'
+    #[arg(long, value_name = "TEXT")]
+    pub message: Option<String>,
+    /// How far back to read, in minutes (1 to 10080, default 10080)
+    #[arg(long, value_name = "MINUTES")]
+    pub since: Option<i64>,
+    /// Send --message without asking (human mode never asks)
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Clone, Debug)]
 pub struct ListMessagesArgs {
     /// How far back to read, in minutes (1 to 10080, default 30)
     #[arg(long, value_name = "MINUTES")]

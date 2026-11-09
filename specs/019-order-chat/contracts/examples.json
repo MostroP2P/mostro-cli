@@ -1,0 +1,200 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "conversation_read",
+      "stdout": {
+        "command": "order.chat",
+        "data": {
+          "counterparty_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "messages": [
+            {
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "from": "me",
+              "message_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "text": "Fiat sent by bank transfer."
+            },
+            {
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "from": "counterparty",
+              "message_id": "2222222222222222222222222222222222222222222222222222222222222222",
+              "text": "Received, releasing now."
+            }
+          ],
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "sent": null,
+          "truncated": false
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "message_sent",
+      "stdout": {
+        "command": "order.chat",
+        "data": {
+          "counterparty_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "messages": [
+            {
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "from": "me",
+              "message_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "text": "Fiat sent by bank transfer."
+            },
+            {
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "from": "counterparty",
+              "message_id": "2222222222222222222222222222222222222222222222222222222222222222",
+              "text": "Received, releasing now."
+            }
+          ],
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "sent": {
+            "created_at": "2026-10-16T00:00:00Z",
+            "created_at_unix": "1792108800",
+            "from": "me",
+            "message_id": "3333333333333333333333333333333333333333333333333333333333333333",
+            "text": "Thanks!"
+          },
+          "truncated": false
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "relays_refused",
+      "stdout": {
+        "command": "order.chat",
+        "data": null,
+        "error": {
+          "code": "request_rejected",
+          "message": "No relay confirmed accepting the request."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "send_uncertain",
+      "stdout": {
+        "command": "order.chat",
+        "data": {
+          "counterparty_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "messages": [
+            {
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "from": "me",
+              "message_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "text": "Fiat sent by bank transfer."
+            },
+            {
+              "created_at": "2026-10-16T00:00:00Z",
+              "created_at_unix": "1792108800",
+              "from": "counterparty",
+              "message_id": "2222222222222222222222222222222222222222222222222222222222222222",
+              "text": "Received, releasing now."
+            }
+          ],
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "sent": {
+            "created_at": "2026-10-16T00:00:00Z",
+            "created_at_unix": "1792108800",
+            "from": "me",
+            "message_id": "3333333333333333333333333333333333333333333333333333333333333333",
+            "text": "Thanks!"
+          },
+          "truncated": false
+        },
+        "error": {
+          "code": "request_rejected",
+          "message": "No relay confirmed accepting the request."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "unknown",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "uncertain",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "counterparty_unknown",
+      "stdout": {
+        "command": "order.chat",
+        "data": null,
+        "error": {
+          "code": "counterparty_unknown",
+          "message": "The counterparty of this order was not found in the node's messages; it is known once the escrow is locked."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "message_without_yes",
+      "stdout": {
+        "command": "order.chat",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

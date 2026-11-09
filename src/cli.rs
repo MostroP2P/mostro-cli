@@ -27,6 +27,7 @@ mod legacy;
 mod message;
 mod migrated;
 mod mine;
+mod order_chat;
 mod order_new;
 mod order_take;
 mod registry;
@@ -38,9 +39,9 @@ mod write;
 
 pub use args::Cli;
 pub use commands::{
-    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, Commands, ConfigCommands, ConfigSetArgs,
-    DisputeCommands, IdentityCommands, ListMessagesArgs, MessageCommands, NewArgs, OrderCommands,
-    RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, ChatArgs, Commands, ConfigCommands,
+    ConfigSetArgs, DisputeCommands, IdentityCommands, ListMessagesArgs, MessageCommands, NewArgs,
+    OrderCommands, RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

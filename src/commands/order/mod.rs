@@ -1,3 +1,4 @@
+pub mod chat;
 pub mod counterparty;
 pub mod dispute;
 pub mod held;

@@ -4882,3 +4882,57 @@ command, option, schema, fixture or output changes; nothing calls the new code y
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual.
 - **Merged with `main`** (2026-11-09, after unit 1 and spec 018): `parse_human` keeps both `chat` and `config`; `cargo test --locked`
   1093 passed, 0 failed, 0 ignored (1074 on `main`, +19); `tests/README.md` recounted.
+
+## Order Chat (spec 019) Unit 3: The Command In Human Mode: 2026-11-09
+
+Branch `feat/order-chat-command` from `feat/order-chat-transport` (f146080), the third of four units of #245. `order chat --order <uuid>
+[--message <text>] [--since <minutes>] [--yes]` runs in human mode; `--output json` is `output_not_supported` until unit 4. The only
+generated change is the human-only `order.chat` entry in `docs/schemas/discovery-v1.json`; no output schema fixture is added or changed.
+
+- **Failing first**: `registry_matches_the_approved_mapping` failed (no `order.chat` entry); `chat_examples_conform_and_are_reproduced` and
+  `invalid_chat_variants_do_not_conform` failed (`specs/019-order-chat/contracts/examples.json` did not exist);
+  `tests/order_chat_process.rs` did not compile (no `commands::order::chat`), then, against a stub `order_chat` returning `internal_error`
+  and no command, `mod operation` and `mod binary` gave 0 passed and 9 failed. `discovery_fixture_matches_the_generated_document` failed
+  once the registry entry existed, until the fixture was regenerated with `cargo run -q -- schema`. `every_legacy_command_rejects_json_before_any_effect`
+  passed before (no `order.chat` to check) and passes after with `order chat --order <uuid> --message hi --yes` among the human-only commands.
+  The two binary tests added on review (the uncertain send and the closed stdout) and the exactly-4097-byte message cover code that
+  already worked, so they were checked against temporary mutations instead: a changed advice text, a changed unwritable line and a bound
+  of 4097 bytes gave 3 failed and 3 passed in `mod binary`; reverted, 6 passed.
+- **The change**: `commands/order/chat.rs` (`order_chat`: the order's key, else `order_unknown`; `find_counterparty`; `read_chat`; then
+  `send_chat`; every failure before the send step with read stages, the send step's own `published`, `not_attempted` or `unknown`, the
+  warnings of every step kept; a record read back with the id of the message just sent is left out of `messages`); `cli/order_chat.rs`
+  (validation, `resolve_reader`, `write::finish`, no prompt); `ChatArgs` and `OrderCommands::Chat`; the registry entry
+  (`JsonSupport::Unsupported`); the dispatch arm. `cli/migrated.rs` measured 393 production lines at the start, so the guarded path was
+  taken: an arm with `if output == OutputMode::Human` in the existing match of the commands on an order already held; 396 after it.
+  `contracts/examples.json` holds six proposed cases built with the outcome constructors.
+- **Tests**: `tests/order_chat_process.rs` `mod operation` 5/5 and `mod binary` 6/6 (isolated stores, loopback relays, chat signed by
+  generated keys): a read of both sides whose counterparty is learned from the node's lock mail and cached in the row (`ok`, all stages
+  `not_applicable`); `order_unknown` with no relay contacted and `counterparty_unknown` with nothing sent, both with and without a message,
+  and `identity_missing` and `store_unreadable`; a send that is `published`, whose `sent` is not in `messages` and which the next read
+  returns once by its id (two envelopes on the relay); a relay refusing writes gives `request_rejected` with `not_attempted` and null data,
+  a relay that never answers a write gives `uncertain` with `unknown`, the conversation and `sent`; an open relay beside a silent one gives
+  `read_timeout` with publication `not_applicable` and no envelope sent. The binary prints the conversation with a forged "From" line kept
+  inside the indented text and ESC and U+202E escaped; sends without writing a question on stderr; `--yes` alone sends nothing; `--since`
+  0, 10081 and `week`, an empty or blank message, a message of exactly 4097 bytes, two `--message` and `--message -x` exit 2 with no relay
+  connection and the text never on stderr, while `--message=-x` is sent; a send to a relay that never answers a write exits 1 with exactly
+  the `request_rejected` line and the advice line on stderr and still prints the conversation and the `📤 Your message` block; a closed
+  stdout exits 1 with exactly `error: the chat could not be written` on stderr, for a read (nothing sent) and a send (sent once all the
+  same); the trade secret is on no stream; `--verbose` adds exactly `verbose: order.chat ok`, or the error line and
+  `verbose: order.chat counterparty_unknown`. `tests/integration_tests.rs`: the six
+  examples equal the constructors and conform to `output_schema::<ChatData, ()>(&chat_rules())`, data null exactly on `error`; seven
+  edits (a third writer, a numeric time, a snapshot, node acceptance, a refusal after publishing, `uncertain` with `read_timeout`, a code of
+  another command) do not conform. `source_boundaries` passes (`cli/migrated.rs` 396).
+- **Corrected on review**: the README, docs/commands.md and spec 019 called `getdmuser` and `dmtouser` the commands for an order without a
+  local row, but both load the row and its trade key first (`Order::get_by_id`). Checked by running the built binary against an empty
+  isolated store and an unreachable loopback relay: `getdmuser -p <key> -o <uuid>` exits 1 with `Failed to load order <uuid>: no rows
+  returned by a query that expected to return at least one row`, `dmtouser -p <key> -o <uuid> -m hi` exits 1 with `order <uuid> not
+  found`. The docs now say `order chat` replaces both, which stay the fallback when it answers `counterparty_unknown` and the key is known.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1044 passed, 0 failed, 0 ignored (1031 at the base; +11 process and +2 integration tests); `cargo build --locked`;
+  `cargo +1.94.0 check --locked --all-targets --all-features`. Every drift test passes, the discovery fixture after regeneration.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual beyond the two legacy runs above. The book update is
+  a separate PR.
+- **Merged with `main`** (2026-11-09, after units 1 and 2 and spec 018): the registry, the approved names (41) and `cli.rs` keep both
+  `config.set`/`config.show` and `order.chat`; `schema_fixtures` keeps the config and the chat example tests; discovery and every
+  per-command fixture regenerated with no change. `cargo test --locked` 1106 passed, 0 failed, 0 ignored (1093 on `main`, +13);
+  `tests/README.md` recounted.

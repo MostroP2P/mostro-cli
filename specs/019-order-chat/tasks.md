@@ -18,8 +18,12 @@ relays, isolated stores and the scripted node only; no public node.
   schema, an input schema of about 27 lines and the descriptor, minus the 12-line human-only entry of unit 3, plus `order.chat` in
   `output.applies_to`) and about 300 of code, tests and documents, so about 1,320, under 1,450: unit 4's JSON tests keep their planned
   scope.
-- [ ] **3. The command in human mode.** `commands/order/chat.rs`, `cli/order_chat.rs`, grammar, registry `Unsupported`, the dispatch arm
-  (record here which `cli/migrated.rs` path was taken and its size), discovery, `contracts/examples.json`, command reference, README,
-  architecture, AGENTS.md, book.
+- [x] **3. The command in human mode.** Failing tests first (the registry mapping, `contracts/examples.json` missing,
+  `tests/order_chat_process.rs` `mod operation` and `mod binary` against a stub operation and no command), then `commands/order/chat.rs`,
+  `cli/order_chat.rs`, `ChatArgs` and `OrderCommands::Chat`, registry `Unsupported`, the dispatch arm, discovery (+13 lines, the human-only
+  entry), `contracts/examples.json`, command reference, README, architecture, AGENTS.md. Dispatch: `cli/migrated.rs` measured 393
+  production lines at the unit's start, so the guarded path was taken: `if output == OutputMode::Human` on an arm added to the existing
+  match of the commands on an order already held, and `order_chat` in an existing import list; 396 lines after it. `request_options` did
+  not move. The book update is its own PR.
 - [ ] **4. JSON.** Registry `Read`, the `--yes` rule, schema arms, `docs/schemas/order-chat-v1.json`, regenerated discovery, JSON tests,
   command reference, book; spec status implemented.
