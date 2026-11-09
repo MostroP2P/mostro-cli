@@ -16,11 +16,15 @@ public node.
   schema of about 30 lines and the descriptor, minus the 12-line human-only entry of unit 5) and about 450 of code, tests and documents,
   so about 1,340, under 1,450; unit 7 about 842 generated lines and about 150 more, so about 990. The fallbacks of the
   [plan](plan.md#stack) stand.
-- [ ] **2. The live subscription.** Failing tests first (`msg::watch::state` unit tests, `tests/order_watch_process.rs` `mod live`), then
-  `msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv`; a CLOSED or a disconnect in the live phase leaves the relay dropped until unit 3.
-  Fallback above 1450: `follow_chat` and its tests move to unit 3.
+- [x] **2. The live subscription.** Failing tests first (`msg::watch::state` unit tests, `tests/order_watch_process.rs` `mod live`), then
+  `msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv` and `inbox::mail_filter` (shared with `read_inbox`); a live CLOSED or disconnect
+  drops that subscription or relay until unit 3. The review fixes (every stored event counts toward `truncated`, one held entry per
+  record, the chat window on the envelope's time) reached about 1,610 lines, so the fallback applied: `follow_chat`, its tests and the
+  live-disconnect process test moved to unit 3. Production lines 338 (`msg/watch.rs`) and 379 (`msg/watch/state.rs`).
 - [ ] **3. Reconnects.** Failing tests first (the reconnect tests fail on unit 2), then `Session::live`, the dropped subscriptions sent
-  again on Connected, the reconnect as a replay start, `Backend::Kickable` in the test harness.
+  again on Connected, the reconnect as a replay start, `Backend::Kickable` in the test harness. Moved from unit 2: `follow_chat(peer)`
+  (the chat REQs on every relay, waiting for their replays), which skips a relay that went away (a test drops one first and expects no
+  wait for the read budget) and records which filter each relay lacks, so D5 can send it again.
 - [ ] **4. The operation and the human renderer.** Failing tests first (`tests/order_watch_process.rs` `mod operation`, the
   `parse_human::watch` unit tests), then `commands/order/watch.rs`, `order_key`, `StoredOrder.is_mine`, `parse_human/watch.rs`.
   Fallback above 1450: the renderer and its tests move to unit 5.

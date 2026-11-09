@@ -1,7 +1,7 @@
 # Implementation Plan: Follow An Order Until The Trade Ends
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-09 | **Status**: Unit 1 of 7 implemented (the contract types and the constitution
-amendment).
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-09 | **Status**: Units 1 and 2 of 7 implemented (the contract types, the constitution
+amendment and the live subscription).
 
 ## Stack
 

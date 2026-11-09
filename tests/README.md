@@ -467,3 +467,8 @@ closed stdout giving one fixed line, no secret on any stream and one `--verbose`
 `every_legacy_command_rejects_json_before_any_effect`. Unit 4 (2026-11-09): `mod json` (3: JSON `--message` without `--yes` refused with
 no relay, store or configuration touched, a read and a send conforming to `docs/schemas/order-chat-v1.json`, `counterparty_unknown` with
 `--message --yes`), `chat_schema_fixture_matches_the_generated_schema`, and `order.chat` among the machine commands (31 tests in the file).
+
+Order watch (spec 020, unit 2 of 7, 2026-11-09): `tests/order_watch_process.rs` `mod live` (5: the window replayed once from two relays,
+one answering every REQ with all it holds, then new mail live once, foreign or old events never counted; the chat replayed and live when
+the counterparty is known, a re-wrapped line once, a line dated before the window in an envelope inside it kept, a third writer's dropped;
+50 forged envelopes hiding an older line set `truncated`; the opening failures; a bounded close) and `msg::watch::state` (8).
