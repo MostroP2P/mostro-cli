@@ -497,3 +497,12 @@ Order watch (spec 020, unit 2 of 7, 2026-11-09): `tests/order_watch_process.rs` 
 one answering every REQ with all it holds, then new mail live once, foreign or old events never counted; the chat replayed and live when
 the counterparty is known, a re-wrapped line once, a line dated before the window in an envelope inside it kept, a third writer's dropped;
 50 forged envelopes hiding an older line set `truncated`; the opening failures; a bounded close) and `msg::watch::state` (8).
+
+Order watch unit 3 (2026-11-09): `tests/order_watch_process.rs` `mod reconnect` (5, with a 1 s retry: a relay dropped after the
+opening replay reconnects and delivers once the mail stored while it was away, without repeating the window; `follow_chat` while one
+relay is away returns without waiting for it, the other relay's chat comes first and the away relay's line after its reconnect; a chat
+REQ the relay refused with CLOSED is not asked again while connected and is sent again on reconnect, and after a `rate-limited:` CLOSED
+the relay gets exactly one chat REQ on reconnect (four REQs in all); 51 mail events stored during an
+outage come back as 50 with `truncated`) and `msg::watch::state` (11 with the reconnect replay, a live replay of 50 cut before EOSE or by a CLOSED, and the dropped feeds). The harness
+`Backend::Kickable(relay, notify)` serves like `Backend::Relay`; `LoopbackRelay::kick` ends every open session and keeps the port
+listening, so the client reconnects to the same URL.

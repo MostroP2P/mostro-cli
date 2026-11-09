@@ -1,4 +1,4 @@
-//! Tests for `order watch` (spec 020): the live subscription (unit 2).
+//! Tests for `order watch` (spec 020): the live subscription (units 2 and 3).
 //!
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
@@ -6,6 +6,8 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mostro_client::msg::watch::{Batch, Seen, Watch, WatchFailure, WatchLimits};
@@ -17,6 +19,7 @@ use nostr_sdk::prelude::{
     nip44, Event, EventBuilder, EventId, Filter, FinalizeEvent, Keys, Kind, LocalRelay,
     MachineReadablePrefix, PublicKey, QueryPolicy, QueryPolicyResult, Tag, Timestamp,
 };
+use tokio::sync::Notify;
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -38,6 +41,7 @@ fn limits() -> WatchLimits {
             cleanup: Duration::from_millis(500),
             ..ReadLimits::default()
         },
+        retry: Duration::from_secs(1),
     }
 }
 
@@ -73,6 +77,26 @@ async fn serve(local: &LocalRelay, events: &[&Event]) -> LoopbackRelay {
         .unwrap()
 }
 
+/// A loopback relay serving `local` that the test can drop, holding `events`.
+async fn kickable(local: &LocalRelay, events: &[&Event]) -> LoopbackRelay {
+    for event in events {
+        local.add_event((*event).clone()).await.unwrap();
+    }
+    let kick = Arc::new(Notify::new());
+    LoopbackRelay::start(Backend::Kickable(Box::new(local.clone()), kick))
+        .await
+        .unwrap()
+}
+
+/// Drop every session of `relay` and wait until it is gone.
+async fn drop_sessions(relay: &LoopbackRelay) {
+    relay.kick();
+    assert!(
+        relay.wait_idle(OBSERVE).await,
+        "the relay dropped the watch"
+    );
+}
+
 /// Answers every REQ as if it had no filter: everything the relay holds,
 /// under the caller's subscription id.
 #[derive(Debug)]
@@ -101,6 +125,35 @@ impl QueryPolicy for Refuse {
     ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
         let refusal = QueryPolicyResult::reject(MachineReadablePrefix::Restricted, "not served");
         Box::pin(async { refusal })
+    }
+}
+
+/// Refuses the second REQ it gets with `prefix` and serves every other one;
+/// `reqs` counts them all.
+#[derive(Debug)]
+struct RefuseSecond {
+    reqs: Arc<AtomicUsize>,
+    prefix: MachineReadablePrefix,
+}
+
+impl RefuseSecond {
+    fn with(prefix: MachineReadablePrefix) -> Self {
+        let reqs = Arc::default();
+        Self { reqs, prefix }
+    }
+}
+
+impl QueryPolicy for RefuseSecond {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        let result = match self.reqs.fetch_add(1, Ordering::SeqCst) {
+            1 => QueryPolicyResult::reject(self.prefix.clone(), "not now"),
+            _ => QueryPolicyResult::Accept,
+        };
+        Box::pin(async { result })
     }
 }
 
@@ -354,6 +407,152 @@ mod live {
         assert!(started.elapsed() < limits().read.cleanup + Duration::from_millis(500));
         assert!(relay.wait_idle(OBSERVE).await);
         assert_eq!(relay.connections(), 1);
+    }
+}
+
+mod reconnect {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_dropped_relay_reconnects_and_misses_nothing() {
+        let (node, trade) = (Keys::generate(), Keys::generate());
+        let base = now();
+        let first = mail(&node, &trade, base - 600, "one").await;
+        let local = LocalRelay::new();
+        let relay = kickable(&local, &[&first]).await;
+        let config = config(&node, &[&relay.url]);
+        let mut watch = watching(&config, &trade, None, base - 1_800).await;
+        assert_eq!(
+            ids(&watch.next(Some(Instant::now())).await.unwrap()),
+            [first.id]
+        );
+
+        drop_sessions(&relay).await;
+        let missed = mail(&node, &trade, now(), "missed").await;
+        local.add_event(missed.clone()).await.unwrap();
+
+        let after = watch.next(Some(Instant::now() + OBSERVE)).await.unwrap();
+        assert_eq!(ids(&after), [missed.id], "once; the window is not repeated");
+        assert!(!after.truncated);
+        let quiet = watch.next(Some(Instant::now() + QUIET)).await.unwrap();
+        assert!(quiet.items.is_empty());
+        assert_eq!(relay.connections(), 2);
+        assert!(watch.close().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_chat_follow_while_a_relay_is_down_reaches_it_after_reconnect() {
+        let (node, chat) = (Keys::generate(), Chat::new());
+        let base = now();
+        let paid = chat.envelope(&Chat::note(&chat.them, "paid", base - 500), base - 500);
+        let (away, here) = (LocalRelay::new(), LocalRelay::new());
+        let (down, up) = (kickable(&away, &[]).await, serve(&here, &[&paid]).await);
+        let config = config(&node, &[&down.url, &up.url]);
+        let limits = WatchLimits {
+            retry: Duration::from_secs(2),
+            ..limits()
+        };
+        let start = Cursor::start(base - 1_800);
+        let opened = Watch::open(&config, (Some(1), &chat.trade), None, &start, &limits).await;
+        let mut watch = opened.unwrap();
+        assert!(watch
+            .next(Some(Instant::now()))
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+
+        drop_sessions(&down).await;
+        let seen_going = watch.next(Some(Instant::now() + QUIET / 2)).await.unwrap();
+        assert!(seen_going.items.is_empty());
+        let started = Instant::now();
+        watch.follow_chat(&chat.them.public_key()).await.unwrap();
+        assert!(
+            started.elapsed() < limits.read.read,
+            "no wait for the relay away"
+        );
+        let late = Chat::note(&chat.them, "on my way", now());
+        away.add_event(chat.envelope(&late, now())).await.unwrap();
+
+        let replayed = watch.next(Some(Instant::now())).await.unwrap();
+        assert_eq!(texts(&replayed), ["paid"], "the relay that stayed");
+        let arrived = watch.next(Some(Instant::now() + OBSERVE)).await.unwrap();
+        assert_eq!(texts(&arrived), ["on my way"], "after the reconnect");
+        assert!(watch.close().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_closed_subscription_is_sent_again_on_reconnect() {
+        let refusal = RefuseSecond::with(MachineReadablePrefix::Restricted);
+        closed_then_reconnected(refusal).await;
+    }
+
+    #[tokio::test]
+    async fn a_rate_limited_subscription_is_sent_again_once() {
+        let refusal = RefuseSecond::with(MachineReadablePrefix::RateLimited);
+        let reqs = refusal.reqs.clone();
+        closed_then_reconnected(refusal).await;
+        assert_eq!(
+            reqs.load(Ordering::SeqCst),
+            4,
+            "mail and chat, then each once again; the SDK forgot the closed id"
+        );
+    }
+
+    /// The chat REQ is refused while connected, and served after a reconnect.
+    async fn closed_then_reconnected(refusal: RefuseSecond) {
+        let (node, chat) = (Keys::generate(), Chat::new());
+        let base = now();
+        let local = LocalRelay::builder().query_policy(refusal).build();
+        let relay = kickable(&local, &[]).await;
+        let config = config(&node, &[&relay.url]);
+        let mut watch = watching(&config, &chat.trade, None, base - 1_800).await;
+        assert!(watch
+            .next(Some(Instant::now()))
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+
+        watch.follow_chat(&chat.them.public_key()).await.unwrap();
+        let paid = chat.envelope(&Chat::note(&chat.them, "paid", base - 100), base - 100);
+        local.add_event(paid).await.unwrap();
+        let refused = watch.next(Some(Instant::now() + QUIET)).await.unwrap();
+        assert!(refused.items.is_empty(), "not asked again while connected");
+
+        drop_sessions(&relay).await;
+        let arrived = watch.next(Some(Instant::now() + OBSERVE)).await.unwrap();
+        assert_eq!(texts(&arrived), ["paid"]);
+        let quiet = watch.next(Some(Instant::now() + QUIET)).await.unwrap();
+        assert!(quiet.items.is_empty());
+        assert!(watch.close().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_reconnect_replay_of_fifty_new_events_sets_truncated() {
+        let (node, trade) = (Keys::generate(), Keys::generate());
+        let base = now();
+        let local = LocalRelay::new();
+        let relay = kickable(&local, &[]).await;
+        let config = config(&node, &[&relay.url]);
+        let mut watch = watching(&config, &trade, None, base - 1_800).await;
+        assert!(watch
+            .next(Some(Instant::now()))
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+
+        drop_sessions(&relay).await;
+        for n in 0..51 {
+            let missed = mail(&node, &trade, base - 1_000 + n, "missed").await;
+            local.add_event(missed).await.unwrap();
+        }
+
+        let after = watch.next(Some(Instant::now() + OBSERVE)).await.unwrap();
+        assert_eq!(after.items.len(), 50, "the relay's limit");
+        assert!(after.truncated, "the oldest is missing");
+        watch.close().await;
     }
 }
 

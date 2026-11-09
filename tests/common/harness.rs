@@ -118,6 +118,9 @@ pub enum Backend {
     Relay(Box<LocalRelay>),
     /// Complete the upgrade, then never answer.
     Silent,
+    /// Serve like `Relay`; notifying ends every open session and keeps the
+    /// port listening, so a client that reconnects is served again.
+    Kickable(Box<LocalRelay>, Arc<Notify>),
 }
 
 /// Loopback WebSocket endpoint on an OS-assigned port. The socket is bound and
@@ -176,13 +179,20 @@ impl LoopbackRelay {
         };
         timeout(limit, idle).await.is_ok()
     }
+
+    /// End every open session of a `Kickable` relay.
+    pub fn kick(&self) {
+        if let Backend::Kickable(_, kick) = &self.backend {
+            kick.notify_waiters();
+        }
+    }
 }
 
 impl Drop for LoopbackRelay {
     fn drop(&mut self) {
         // Aborting the accept task drops its JoinSet, which aborts every session.
         self.accept.abort();
-        if let Backend::Relay(relay) = &self.backend {
+        if let Backend::Relay(relay) | Backend::Kickable(relay, _) = &self.backend {
             relay.shutdown();
         }
     }
@@ -235,6 +245,13 @@ pub async fn session(stream: TcpStream, remote: SocketAddr, backend: Backend) {
         Backend::Silent => {
             let _held_open = upgraded;
             pending::<()>().await;
+        }
+        Backend::Kickable(relay, kick) => {
+            // Dropping the connection future closes the socket.
+            tokio::select! {
+                _ = relay.take_connection(TokioIo::new(upgraded), remote) => {}
+                () = kick.notified() => {}
+            }
         }
     }
 }

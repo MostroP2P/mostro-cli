@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-09
 
-**Status**: In progress, unit 2 of 7: the contract types, the constitution amendment and the live subscription. Nothing is
-user-visible yet. Progress is
+**Status**: In progress, unit 3 of 7: the contract types, the constitution amendment, the live subscription and its reconnects.
+Nothing is user-visible yet. Progress is
 tracked only in [tasks.md](tasks.md)
 
 **Input**: Issue #246. An agent that ran a full trade with mostro-cli 0.17.0 had to poll `message list` and `getdmuser` every 15 seconds
@@ -41,12 +41,13 @@ D2, D5, D7, D8, D9 and D14 depart from the issue's wording; each says why.
   event ends the watch. A replay starts on a relay with any later REQ (the chat REQ, or a subscription sent again) and with every
   reconnect, because the SDK sends its subscriptions again. New records are held while any relay replays; a replay ends at that relay's
   EOSE for the subscription, at a disconnect, or after 15 s. `truncated` is set when a replay returns 50 stored events for a subscription
-  and the oldest of them was neither seen in this run nor listed in the cursor, or when a live replay reaches the notification capacity
-  before EOSE.
+  and the oldest of them was neither seen in this run nor listed in the cursor (also when a live replay ends without EOSE, at a
+  disconnect, after 15 s or when the notifications end), or when a live replay reaches the notification capacity before EOSE.
 - **D5 Reconnect (departure: no renewal from the newest time)**: the watch's session reconnects on its own with a fixed retry (10 s),
   and the SDK sends again the subscriptions it still holds, with their original filter (since S, limit 50). When a relay reports
   Connected, each watch subscription that relay no longer holds (after a CLOSED, or one that could not be sent while it was down) is sent
-  again with a new id and the same filter. Duplicates are dropped (D8). A relay that refuses again while it stays connected is not asked
+  again with a new id and the same filter; on a CLOSED the watch unsubscribes the old id, because the SDK keeps a `rate-limited:` one and
+  would send it again as well. Duplicates are dropped (D8). A relay that refuses again while it stays connected is not asked
   again until it reconnects. Why: the stored limit returns the newest 50 since S, so what was missed during an outage arrives unless more
   than 50 arrived (then `truncated`); a since at the newest time would lose lines stamped by a slower clock and would race the SDK's own
   resend.
