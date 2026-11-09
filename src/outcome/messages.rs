@@ -639,6 +639,12 @@ mod tests {
             ),
             message(Action::RateUser, Some(id(1)), Some(Payload::RatingUser(4))),
             failed_payment(0),
+            message(
+                Action::HoldInvoicePaymentAccepted,
+                Some(id(1)),
+                Some(Payload::Order(order(1, Status::Active))),
+            ),
+            message(Action::Rate, Some(id(1)), None),
         ]
         .iter()
         .map(|message| record(message).0)

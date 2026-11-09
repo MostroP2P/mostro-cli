@@ -87,6 +87,10 @@ fn next_step(step: NextStep, order: Option<&str>) -> String {
         NextStep::AddBondInvoice => format!(
             "send an invoice for your share: `bond add-invoice --order {id} --invoice <bolt11>`"
         ),
+        NextStep::FiatSent => format!("send the fiat, then: `order fiat-sent --order {id}`"),
+        NextStep::Rate => {
+            format!("rate your counterparty: `order rate --order {id} --rating <1-5>`")
+        }
     }
 }
 
@@ -308,6 +312,36 @@ mod tests {
             0,
         ));
         assert!(!informing.contains("Next:"));
+    }
+
+    #[test]
+    fn the_steps_of_a_trade_name_their_command_with_the_order_id() {
+        let text = render_messages(&data(
+            vec![
+                record(Action::HoldInvoicePaymentAccepted, None),
+                record(Action::FiatSentOk, None),
+                record(Action::Rate, None),
+            ],
+            false,
+            0,
+        ));
+        assert!(
+            text.contains(
+                "👉 Next: send the fiat, then: `order fiat-sent --order 00000000-0000-0000-0000-000000000001`\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "👉 Next: rate your counterparty: `order rate --order 00000000-0000-0000-0000-000000000001 --rating <1-5>`\n"
+            ),
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("Next:").count(),
+            2,
+            "fiat-sent-ok asks nothing: {text}"
+        );
     }
 
     #[test]

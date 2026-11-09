@@ -638,8 +638,8 @@ mod store {
 mod operation {
     use super::fake_mostro::{
         mail_add_invoice, mail_bond_payout_request, mail_cant_do, mail_pay_bond_invoice,
-        mail_pay_invoice, mail_payment_failed, mail_text, mail_waiting_seller, node_event,
-        seed_identity, set_last_trade_index,
+        mail_pay_invoice, mail_payment_failed, mail_rate, mail_text, mail_waiting_seller,
+        node_event, seed_identity, set_last_trade_index,
     };
     use super::harness::Sandbox;
     use super::*;
@@ -819,7 +819,7 @@ mod operation {
                 Some(NextStep::PayHoldInvoice),
                 None,
                 Some(NextStep::AddBondInvoice),
-                None,
+                Some(NextStep::FiatSent),
             ]
         );
         let indexes: Vec<_> = data
@@ -1430,6 +1430,88 @@ mod operation {
             "{text}"
         );
         assert_eq!(text.matches("Next:").count(), 1, "{text}");
+    }
+
+    /// The end of two trades: the seller's (index 2) settled hold invoice and
+    /// the buyer's (index 1) completed purchase, each followed by `rate`.
+    async fn trade_ends(node: Keys, keys: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        let to = |index: i64| {
+            keys.iter()
+                .find(|(i, _)| *i == index)
+                .map(|(_, key)| key.public_key())
+                .unwrap()
+        };
+        let notice = |order, action| Message::new_order(Some(order), None, None, action, None);
+        vec![
+            node_event(
+                &node,
+                to(2),
+                &notice(id(1), Action::HoldInvoicePaymentSettled),
+                minutes_ago(9),
+            )
+            .await,
+            node_event(&node, to(2), &mail_rate(id(1)), minutes_ago(8)).await,
+            node_event(
+                &node,
+                to(1),
+                &notice(id(2), Action::PurchaseCompleted),
+                minutes_ago(5),
+            )
+            .await,
+            node_event(&node, to(1), &mail_rate(id(2)), minutes_ago(4)).await,
+        ]
+    }
+
+    #[tokio::test]
+    async fn the_end_of_a_trade_asks_both_sides_to_rate() {
+        let room = Mailroom::with(2, 1, trade_ends).await;
+
+        let json = room.run(&["--output", "json", "message", "list"]).await;
+
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = one_document(&json);
+        conforms_to_the_checked_in_schema(&outcome);
+        let steps: Vec<(&str, &Value)> = outcome["data"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| (m["action"].as_str().unwrap(), &m["next_step"]))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                ("hold-invoice-payment-settled", &Value::Null),
+                ("rate", &json!("rate")),
+                ("purchase-completed", &Value::Null),
+                ("rate", &json!("rate")),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn human_names_the_fiat_and_rating_commands_with_the_order_id() {
+        let flow = Mailroom::with(3, 1, flow).await;
+        let ends = Mailroom::with(2, 1, trade_ends).await;
+
+        let flow = flow.run(&["message", "list"]).await;
+        let ends = ends.run(&["message", "list"]).await;
+
+        assert_eq!(flow.code(), Some(0), "{}", flow.stderr_text());
+        let text = flow.stdout_text();
+        assert!(
+            text.contains("👉 Next: send the fiat, then: `order fiat-sent --order 00000000-0000-0000-0000-000000000004`\n"),
+            "{text}"
+        );
+        assert_eq!(ends.code(), Some(0), "{}", ends.stderr_text());
+        let text = ends.stdout_text();
+        for order in [1, 2] {
+            let line = format!(
+                "👉 Next: rate your counterparty: `order rate --order {} --rating <1-5>`\n",
+                id(order)
+            );
+            assert!(text.contains(&line), "{text}");
+        }
+        assert_eq!(text.matches("Next:").count(), 2, "{text}");
     }
 
     #[tokio::test]

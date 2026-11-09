@@ -46,6 +46,7 @@ fn limits() -> WatchLimits {
             ..ReadLimits::default()
         },
         retry: Duration::from_secs(1),
+        rate_grace: Duration::from_secs(1),
     }
 }
 
@@ -631,6 +632,7 @@ mod operation {
     use fake_mostro::{mail_trade_keys, seed_identity, Traded};
     use harness::Sandbox;
     use mostro_client::commands::order::watch::{order_watch, Follow, Watched};
+    use mostro_client::outcome::messages::NextStep;
     use mostro_client::outcome::schema::output_schema;
     use mostro_client::outcome::watch::{watch_rules, WatchData, WatchInput};
     use mostro_client::store::{Role, Store, Trade};
@@ -710,6 +712,19 @@ mod operation {
                 Timestamp::from(at),
             )
             .await
+        }
+
+        /// The end of a trade and its `rate`, stamped in the same second, with
+        /// event ids that would list the `rate` first.
+        pub(super) async fn end_and_rate(&self, end: Action) -> (Event, Event) {
+            let at = now();
+            let over = self.mail(&about(ORDER, end), at).await;
+            loop {
+                let rate = self.mail(&about(ORDER, Action::Rate), at).await;
+                if rate.id < over.id {
+                    return (over, rate);
+                }
+            }
         }
 
         /// A message `writer` wrote at `at`, in an envelope of the same time.
@@ -1013,6 +1028,60 @@ mod operation {
     }
 
     #[tokio::test]
+    async fn a_watch_ends_after_the_rate_that_follows_the_end_of_the_trade() {
+        let ends = [
+            (
+                Role::Maker,
+                Action::HoldInvoicePaymentSettled,
+                "hold-invoice-payment-settled",
+            ),
+            (Role::Taker, Action::PurchaseCompleted, "purchase-completed"),
+        ];
+        for (role, end, name) in ends {
+            let desk = Desk::new(role, true, &[]).await;
+            let (over, rate) = desk.end_and_rate(end).await;
+            desk.publish(over, QUIET);
+            desk.publish(rate, QUIET * 2);
+
+            let (updates, watched) = desk.follow(10).await;
+
+            assert_eq!(actions(&updates), [name, "rate"]);
+            let last = updates.last().unwrap();
+            assert!(last.ended(), "{name}");
+            assert!(
+                !updates[..updates.len() - 1].iter().any(WatchData::ended),
+                "{name}"
+            );
+            let asked = last.messages().last().unwrap().next_step();
+            assert_eq!(asked, Some(NextStep::Rate), "{name}");
+            assert_eq!(watched.ended_by.as_deref(), Some(name));
+        }
+
+        // A JSON call returns the end and its rate in one document.
+        let desk = Desk::new(Role::Taker, true, &[]).await;
+        let (over, rate) = desk.end_and_rate(Action::PurchaseCompleted).await;
+        desk.publish(over.clone(), QUIET);
+        desk.publish(rate.clone(), QUIET * 2);
+        let outcome = desk.json(None, 10).await;
+        let data = &outcome["data"];
+        assert_eq!(event_ids(data), [over.id.to_hex(), rate.id.to_hex()]);
+        assert_eq!(data["ended"], json!(true));
+
+        // No rate: the grace window ends the watch, long before its deadline.
+        let desk = Desk::new(Role::Taker, true, &[]).await;
+        let over = desk
+            .mail(&about(ORDER, Action::PurchaseCompleted), now())
+            .await;
+        desk.publish(over, QUIET);
+        let started = Instant::now();
+        let (updates, watched) = desk.follow(30).await;
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(actions(&updates), ["purchase-completed"]);
+        assert!(updates.last().unwrap().ended());
+        assert_eq!(watched.ended_by.as_deref(), Some("purchase-completed"));
+    }
+
+    #[tokio::test]
     async fn nothing_new_until_the_deadline_is_an_empty_success_in_both_modes() {
         let desk = Desk::new(Role::Taker, true, &[]).await;
         let before = now() - 1_800;
@@ -1198,11 +1267,13 @@ mod binary {
         let forged = "paid\u{1b}[2J\u{202e}gnissim";
         let line = desk.line(&desk.chat.them, forged, now());
         let completed = desk
-            .mail(&about(ORDER, Action::PurchaseCompleted), now())
+            .mail(&about(ORDER, Action::PurchaseCompleted), now() - 1)
             .await;
         desk.publish(live, QUIET);
         desk.publish(line, QUIET * 2);
         desk.publish(completed, QUIET * 3);
+        let rate = desk.mail(&about(ORDER, Action::Rate), now()).await;
+        desk.publish(rate, QUIET * 4);
 
         while let Some(line) = timeout(WATCHDOG, lines.next_line()).await.unwrap().unwrap() {
             out.push_str(&line);
@@ -1227,6 +1298,8 @@ mod binary {
             out.ends_with("🏁 The trade ended: purchase-completed\n"),
             "{out}"
         );
+        let rating = format!("👉 Next: rate your counterparty: `order rate --order {ORDER} ");
+        assert!(at("purchase-completed") < at(&rating), "{out}");
         let secret = desk.chat.trade.secret_key().to_secret_hex();
         assert!(!out.contains(&secret) && !err.contains(&secret));
     }

@@ -19,6 +19,12 @@ pub enum NextStep {
     PayHoldInvoice,
     /// Send a payout invoice for a slashed bond: `bond add-invoice`.
     AddBondInvoice,
+    /// Send the fiat, then `order fiat-sent`. Sent to the buyer once the
+    /// seller's hold invoice is paid; act only while the order is `active`.
+    FiatSent,
+    /// Rate the counterparty: `order rate`. Sent to both sides when the trade
+    /// is over.
+    Rate,
 }
 
 impl NextStep {
@@ -29,6 +35,8 @@ impl NextStep {
             Action::AddInvoice => Some(Self::AddInvoice),
             Action::PayInvoice => Some(Self::PayHoldInvoice),
             Action::AddBondInvoice => Some(Self::AddBondInvoice),
+            Action::HoldInvoicePaymentAccepted => Some(Self::FiatSent),
+            Action::Rate => Some(Self::Rate),
             Action::PaymentFailed => match &message.payload {
                 Some(Payload::PaymentFailed(info)) if info.payment_attempts == 0 => {
                     Some(Self::AddInvoice)
@@ -67,16 +75,22 @@ mod tests {
             (Action::AddInvoice, NextStep::AddInvoice),
             (Action::PayInvoice, NextStep::PayHoldInvoice),
             (Action::AddBondInvoice, NextStep::AddBondInvoice),
+            (Action::HoldInvoicePaymentAccepted, NextStep::FiatSent),
+            (Action::Rate, NextStep::Rate),
         ] {
             assert_eq!(NextStep::of(&kind(action.clone(), None)), Some(step));
         }
         for quiet in [
             Action::WaitingSellerToPay,
             Action::CantDo,
-            Action::HoldInvoicePaymentAccepted,
             Action::BondInvoiceAccepted,
             Action::NewOrder,
             Action::Released,
+            Action::FiatSentOk,
+            Action::BuyerTookOrder,
+            Action::PurchaseCompleted,
+            Action::HoldInvoicePaymentSettled,
+            Action::RateReceived,
         ] {
             assert_eq!(NextStep::of(&kind(quiet.clone(), None)), None, "{quiet:?}");
         }
