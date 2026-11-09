@@ -48,7 +48,8 @@ verified on Linux against isolated sandboxes and loopback relays. Spec 018 is im
 passed; it supports `--output json` (`--message` then requires `--yes`); verified on Linux against isolated stores, loopback relays and
 the scripted node's mail only. `order watch` ([spec](specs/020-order-watch/spec.md))
 follows an order held until its trade ends, the node's messages and the peer chat, replayed then live; human mode streams,
-and `--output json` returns one document per call with a cursor for `--after`; verified on Linux against isolated stores and loopback relays only.
+and `--output json` returns one document per call with a cursor for `--after` (output schema `docs/schemas/order-watch-v1.json`);
+implemented and verified on Linux against isolated stores, loopback relays and scripted node and chat events only, not on a real node.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

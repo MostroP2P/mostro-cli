@@ -401,6 +401,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/config-show-v1.json"
     );
+    const WATCH_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-watch-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -418,7 +422,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine order.rate dispute.open config.set config.show order.chat; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open config.set config.show order.chat order.watch; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -562,6 +566,15 @@ mod schema_fixtures {
             generated_output_schema("order.chat"),
             read_json(ORDER_CHAT_FIXTURE),
             "stale {ORDER_CHAT_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    #[test]
+    fn watch_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.watch"),
+            read_json(WATCH_FIXTURE),
+            "stale {WATCH_FIXTURE}; {REGENERATE}"
         );
     }
 
@@ -4282,26 +4295,42 @@ mod schema_fixtures {
         let counterparty = PublicKey::from_hex(PEER).unwrap();
         let records = (vec![message], vec![line]);
         let data = WatchData::new(id(1), Some(&counterparty), records, false, false, &cursor);
-        let ok = Envelope::<WatchData, ()>::ok(
-            ORDER_WATCH,
-            data,
-            Warnings::new(),
-            ExecutionMeta::read(None),
+        // The next call passes that cursor back and reaches its deadline with
+        // nothing newer: empty lists and the given cursor carried forward.
+        let given = Cursor::parse(&cursor.to_string()).unwrap();
+        let empty = WatchData::new(
+            id(1),
+            Some(&counterparty),
+            (vec![], vec![]),
+            false,
+            false,
+            &given,
         );
-        vec![("new_records", to_value(ok).unwrap(), 0)]
+        let ok = |data| {
+            to_value(Envelope::<WatchData, ()>::ok(
+                ORDER_WATCH,
+                data,
+                Warnings::new(),
+                ExecutionMeta::read(None),
+            ))
+            .unwrap()
+        };
+        vec![
+            ("new_records", ok(data), 0),
+            ("timeout_empty", ok(empty), 0),
+        ]
     }
 
     #[test]
     fn watch_examples_conform_and_are_reproduced() {
-        // Checked against the schema inside discovery until order.watch has
-        // its own fixture (spec 020, unit 7).
-        let schema = read_json(DISCOVERY_FIXTURE)["commands"]
+        let discovered = read_json(DISCOVERY_FIXTURE)["commands"]
             .as_array()
             .unwrap()
             .iter()
             .find(|command| command["name"] == ORDER_WATCH)
             .map(|command| command["output_schema"].clone())
             .unwrap();
+        let fixture = read_json(WATCH_FIXTURE);
         let examples = examples_of("020-order-watch");
         let built = watch_cases();
         assert_eq!(examples.len(), built.len());
@@ -4310,7 +4339,9 @@ mod schema_fixtures {
         {
             assert_eq!(name, built_name);
             assert_eq!((outcome, exit), (built_outcome, built_exit), "{name}");
-            assert!(schema_check::conforms(&schema, &schema, outcome), "{name}");
+            for schema in [&discovered, &fixture] {
+                assert!(schema_check::conforms(schema, schema, outcome), "{name}");
+            }
         }
     }
 }

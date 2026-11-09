@@ -5155,3 +5155,28 @@ regenerated with `cargo run -q -- schema` (+875, -4). `docs/schemas/order-watch-
   `cargo test --locked` 1105 passed, 0 failed, 0 ignored (1099 at the base; +1 unit, +1 integration, +4 process); `cargo build
   --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Order Watch (spec 020) Unit 7: The Output Schema File: 2026-11-09
+
+Branch `feat/order-watch-schema` from `feat/order-watch-json` (85f0e26), the last of seven units of #246. No behavior change:
+`docs/schemas/order-watch-v1.json` (842 lines) is generated with
+`cargo run -q -- --output json schema | jq '.data.commands[] | select(.name=="order.watch") | .output_schema'`, and the drift test's
+`REGENERATE` text covers `order.watch`. Between units 6 and 7 the schema was checked only inside `docs/schemas/discovery-v1.json` (D12).
+
+- **Failing first**: `cargo test --locked --test integration_tests -- watch_`: `watch_schema_fixture_matches_the_generated_schema` and
+  `watch_examples_conform_and_are_reproduced` (now with `timeout_empty`) failed on the missing file; `cargo test --locked --test
+  order_watch_process json`: the three `mod json` tests that read the schema failed on it (1 passed, 3 failed). With the file
+  generated and the example added, all passed.
+- **Tests** (1 new): `watch_schema_fixture_matches_the_generated_schema`. `watch_examples_conform_and_are_reproduced` rebuilds
+  `new_records` and `timeout_empty` (the cursor of `new_records` passed back, empty lists, `ended` false, the given cursor carried
+  forward) with the owned constructors and checks both against the discovery entry and the new file. The process `mod json`
+  documents are checked against the file.
+- **Red/green record of #246**: units 1 to 6 have their entries above, each with the tests that failed first and then passed; this
+  unit's are listed here.
+- **What was verified and how**: on Linux, with isolated stores, loopback relays and the scripted node's mail and chat events, through
+  the real binary (`tests/order_watch_process.rs`) and the library. Not probed on a real node: the local Mortsom stack is in use by
+  another session, and there is no public node to use.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1106 passed, 0 failed, 0 ignored (1105 at the base; +1 integration); `cargo build --locked`;
+  `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.

@@ -56,5 +56,9 @@ public node.
   before documents: 1,288 changed lines, so the fallback did not apply. No `counterparty_not_saved` exists on this base (D11), so there
   is no frozen-store JSON test of it; unit 4's operation test covers the warning-free outcome. Production size 157
   (`cli/order_watch.rs`). The book update is its own PR.
-- [ ] **7. The output schema file.** Failing first (the fixture is missing), then `docs/schemas/order-watch-v1.json`, its drift test, the
+- [x] **7. The output schema file.** Failing first (the fixture is missing), then `docs/schemas/order-watch-v1.json`, its drift test, the
   `timeout_empty` example; spec status implemented. The book update is its own PR.
+  Done: `watch_schema_fixture_matches_the_generated_schema` and `watch_examples_conform_and_are_reproduced` (with `timeout_empty`)
+  failed first on the missing file, and the three `mod json` process tests failed on it once they read it. The file was generated with
+  the jq command (842 lines); `REGENERATE` covers `order.watch`. The examples and the process documents now conform to both the
+  discovery entry and the file. No behavior change.
