@@ -29,8 +29,9 @@ D2, D5, D7, D8, D9 and D14 depart from the issue's wording; each says why.
   1 to 86400 seconds. A bad value is `invalid_arguments` (exit 2) before any configuration, store or relay access, and is never echoed.
 - **D2 Deadline (departure: no dedicated code)**: JSON waits 30 s by default; human mode has no default deadline. The deadline counts
   from the end of the first replay. At the deadline both modes get the same outcome: `ok`, `ended: false`, empty lists and the cursor
-  carried forward. JSON emits that document; human mode prints "⏰ Stopped at the watch deadline; the trade has not ended." and exits 0.
-  The issue's dedicated exit code is dropped: no extra codes, and Principle IV gives both renderers one outcome.
+  carried forward. JSON emits that document; human mode prints "⏰ Stopped at the watch deadline; no ending message was seen. Run
+  `order info` to check the order." and exits 0. The issue's dedicated exit code is dropped: no extra codes, and Principle IV gives both
+  renderers one outcome.
 - **D3 Subscriptions**: each relay gets one REQ per filter, sent with `ReqTarget::single` from one `.subscribe(` site: the node mail
   (`read_inbox`'s filter for the order's trade key, since S, limit 50) and, once the counterparty is known, the chat
   (`chat_filter(K_sign)`, since S, limit 50, with `K_sign` from `derive_chat_keys(trade, peer)`). Separate REQs keep both filters
@@ -67,11 +68,12 @@ D2, D5, D7, D8, D9 and D14 depart from the issue's wording; each says why.
   leaves at most 200, but never past local now minus 60 s (nor past the old time when that is later), so a raise covers only seconds
   observed in the call that ended more than 60 s before, whatever times the records claim (a counterparty can date chat envelopes up to
   60 s ahead). Its ids are every record observed in the call, new or skipped, at or after that time; if more than 200 still qualify, the
-  cursor lists the newest 200 and a later call returns the others again. An empty observation keeps the cursor; a call without `--after`
-  starts from `<S>`. `--after` subscribes from the cursor's time and skips the listed ids while still observing them. **Documented
-  limits**: a record that reaches the relays after records stamped more than 60 s later, or one inside a raised range, is never returned
-  in the JSON loop, and a chat message inside a raised range is returned again if another envelope of it, dated after the range, reaches
-  the relays; when more than 200 records fall within the last minute, a later call returns some of them again.
+  cursor lists node messages first, then the newest chat messages (chat dated ahead cannot push node messages out), and a later call
+  returns the others again. An empty observation keeps the cursor; a call without `--after` starts from `<S>`. `--after` subscribes from
+  the cursor's time and skips the listed ids while still observing them. **Documented limits**: a record that reaches the relays after
+  records stamped more than 60 s later, or one inside a raised range, is never returned in the JSON loop, and a chat message inside a
+  raised range is returned again if another envelope of it, dated after the range, reaches the relays; when more than 200 records fall
+  within the last minute, a later call returns some of them again.
 - **D8 Records (departure: two arrays)**: `messages` are `MessageRecord`s as `message list` builds them, `next_step` included, with the
   `trade_index` of the order's key. `chat` holds #245's `ChatRecord`s; chat events are opened one at a time, so `open_lines`'s cap of 200
   never applies. Each array runs oldest first by (outer time, id). Mail is deduplicated by outer id and chat by inner `message_id`, across

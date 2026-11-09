@@ -4805,6 +4805,9 @@ folder and constitution amendment 1.0.1; nothing is user-visible and no generate
   the next call observes and skips the message again. The hold comes before the cap: tried after the raise, it failed the crowded case
   above (a time 570 s back with 200 of the 250 ids listed, so the other 50 records would be returned again). D7, the data model and
   `docs/architecture.md` say so, with the new documented limit (a chat message inside a raised range).
+- **Review fix (the cap order)**: a review found that when the cap binds, 250 chat envelopes dated 60 s ahead pushed node message ids
+  out of the cursor, so the next call returned those messages again. The case was added to the records-stamped-ahead test first and
+  failed; `advance` now lists node messages first, then the newest chat messages (`Observed` records which it is).
 - **Measured**: `output_schema::<WatchData, ()>(&watch_rules())` pretty-printed is 842 lines, with a throwaway test removed afterwards
   (the same method gives 492 for `order.chat` and 851 for `message.list`, their fixtures' sizes); the projections are in the spec's
   `tasks.md`.
@@ -4828,9 +4831,9 @@ only (`msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv`, `inbox::mail_filter`)
   record cap; `truncated` when 50 stored events come back, opened or not, and the oldest is new) and `mod live` (5; see
   [README.md](README.md)), whose noise a probe saw delivered under the watch's ids. `source_boundaries`: one `.subscribe(` (`watch.rs`).
 - **Review fixes, each failing first**: 50 forged chat envelopes over a genuine line gave `truncated=false` (now every stored event
-  counts before opening); a line written 30 s before the window in an envelope inside it was dropped (the window now applies to the
-  envelope); keying held records by envelope id failed the repeats test (1,000 entries). Over 1,500 lines, `follow_chat` (with the fix
-  for a relay already away, seen waiting 1.5 s), its tests and the live-disconnect test moved to unit 3 (plan fallback).
+  counts before opening); a line written 10 s before the window in an envelope dated 30 s later was dropped (the window now applies to
+  the envelope); keying held records by envelope id failed the repeats test (1,000 entries). Over 1,500 lines, `follow_chat` (with the
+  fix for a relay already away, seen waiting 1.5 s), its tests and the live CLOSED-or-disconnect test moved to unit 3 (plan fallback).
 - **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
   `cargo test --locked` 1071 passed, 0 failed, 0 ignored (1058 at the base; +8 unit, +5 process); `cargo build --locked`;
   `cargo +1.94.0 check --locked --all-targets --all-features`.
