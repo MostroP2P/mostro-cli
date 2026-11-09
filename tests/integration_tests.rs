@@ -4,6 +4,8 @@ use std::path::Path;
 
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
+use mostro_client::commands::config::{config_set, invalid_input, set_outcome, show_outcome};
+use mostro_client::outcome::config::ConfigSetInput;
 use mostro_client::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use mostro_client::outcome::identity::{
     IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT,
@@ -23,6 +25,7 @@ use mostro_client::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, WarningCode,
     Warnings, INVALID_INVOICE,
 };
+use mostro_client::settings::{ConfigFile, ConfigFileError, WriteError};
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
@@ -293,6 +296,10 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 
 mod schema_fixtures {
     use super::{
+        config_set, invalid_input, set_outcome, show_outcome, ConfigFile, ConfigFileError,
+        ConfigSetInput, Path, WriteError,
+    };
+    use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
         Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, OrderNewData,
         OrderNewInput, OrderRequest, OrderTakeData, OrderTakeInput, Persistence, PublicKey,
@@ -387,6 +394,14 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-chat-v1.json"
     );
+    const CONFIG_SET_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/config-set-v1.json"
+    );
+    const CONFIG_SHOW_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/config-show-v1.json"
+    );
     const WATCH_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-watch-v1.json"
@@ -408,7 +423,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine order.rate dispute.open order.chat order.watch; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open config.set config.show order.chat order.watch; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -565,6 +580,65 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn config_set_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("config.set"),
+            read_json(CONFIG_SET_FIXTURE),
+            "stale {CONFIG_SET_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    #[test]
+    fn config_show_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("config.show"),
+            read_json(CONFIG_SHOW_FIXTURE),
+            "stale {CONFIG_SHOW_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    /// `config set` takes its key and value as positional arguments, marked
+    /// `x-positional`, and `config show` takes no input; neither reads a node
+    /// setting or waits for a reply.
+    #[test]
+    fn discovery_describes_the_config_commands() {
+        let discovery = generated_discovery();
+        let find = |list: &str, key: &str, name: &str| {
+            discovery[list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item[key] == name)
+                .cloned()
+                .unwrap()
+        };
+        let command = find("commands", "name", "config.set");
+        assert_eq!(command["required_configuration"], json!([]));
+        let input = &command["input_schema"];
+        assert_eq!(input["required"], json!(["key", "value"]));
+        let (key, value) = (&input["properties"]["key"], &input["properties"]["value"]);
+        assert_eq!(
+            key["enum"],
+            json!(["mostro-pubkey", "relays", "pow", "transport"])
+        );
+        assert_eq!(
+            (&key["x-positional"], &value["x-positional"]),
+            (&json!(0), &json!(1))
+        );
+        let show = find("commands", "name", "config.show");
+        assert_eq!(show["required_configuration"], json!([]));
+        assert_eq!(show["input_schema"]["properties"], json!({}));
+        let applies = |option| find("global_options", "name", option)["applies_to"].clone();
+        for name in ["config.set", "config.show"] {
+            assert!(applies("output").as_array().unwrap().contains(&json!(name)));
+            assert!(!applies("reply-timeout")
+                .as_array()
+                .unwrap()
+                .contains(&json!(name)));
+        }
+    }
+
+    #[test]
     fn identity_schema_fixtures_match_the_generated_schemas() {
         for (name, fixture) in [
             ("identity.init", IDENTITY_INIT_FIXTURE),
@@ -623,6 +697,8 @@ mod schema_fixtures {
             machine,
             [
                 "bond.add-invoice",
+                "config.set",
+                "config.show",
                 "dispute.open",
                 "identity.init",
                 "identity.show",
@@ -3962,6 +4038,92 @@ mod schema_fixtures {
         }
     }
 
+    // --- config set and config show (spec 018) ---
+
+    fn config_cases() -> Vec<(&'static str, Value, i32)> {
+        // The trailing `/` keeps `join` from adding `\` on Windows.
+        let dir = Path::new("/home/user/.mcli/");
+        let saved = ConfigFile::parse(&format!(
+            "MOSTRO_PUBKEY={NODE}\nRELAYS=wss://relay.example\n"
+        ))
+        .unwrap();
+        let shown = ConfigFile::parse(&format!(
+            "MOSTRO_PUBKEY={NODE}\nRELAYS=wss://relay.example\nPOW=0\nTRANSPORT=nip44\n"
+        ))
+        .unwrap();
+        let input = ConfigSetInput::new("relays", "wss://relay.example").unwrap();
+        let line_one = ConfigFileError::KeyNotAllowed { line: 1 };
+        let set = |result| to_value(set_outcome(dir, result)).unwrap();
+        let show = |read| to_value(show_outcome(Some(dir), read)).unwrap();
+        vec![
+            ("set_saved", set(Ok(saved)), 0),
+            ("set_invalid_value", to_value(invalid_input()).unwrap(), 2),
+            (
+                "set_configuration_invalid",
+                set(Err(WriteError::Refused(line_one))),
+                1,
+            ),
+            (
+                "set_configuration_unwritable",
+                to_value(config_set(None, &input).0).unwrap(),
+                1,
+            ),
+            (
+                "set_configuration_unwritable_failed",
+                set(Err(WriteError::Failed)),
+                1,
+            ),
+            ("show_values", show(Ok(Some(shown))), 0),
+            ("show_no_file", show(Ok(None)), 0),
+            ("show_configuration_invalid", show(Err(line_one)), 1),
+        ]
+    }
+
+    #[test]
+    fn config_examples_conform_to_the_generated_schemas() {
+        let examples = examples_of("018-config-file");
+        assert_eq!(examples.len(), 8);
+        let (set, show) = (
+            read_json(CONFIG_SET_FIXTURE),
+            read_json(CONFIG_SHOW_FIXTURE),
+        );
+        for (name, exit, outcome) in examples {
+            let schema = if outcome["command"] == "config.show" {
+                &show
+            } else {
+                &set
+            };
+            assert!(schema_check::conforms(schema, schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                outcome["data"].is_null(),
+                outcome["status"] != "ok",
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn config_examples_are_reproduced_by_the_owned_constructors() {
+        let examples = examples_of("018-config-file");
+        let built = config_cases();
+        assert_eq!(examples.len(), built.len());
+        for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+            examples.iter().zip(&built)
+        {
+            assert_eq!((name.as_str(), exit), (*built_name, built_exit));
+            assert_eq!(outcome, built_outcome, "{name}");
+        }
+    }
+
     // --- Order chat (spec 019) ---
 
     use mostro_client::outcome::chat::{ChatData, ChatRecord, ChatSender, COMMAND as ORDER_CHAT};
@@ -4707,7 +4869,7 @@ mod source_boundaries {
 
     /// Modules that must stay free of I/O, clients and storage, and what is
     /// forbidden in each.
-    const NO_IO: [(&str, &[&str]); 7] = [
+    const NO_IO: [(&str, &[&str]); 8] = [
         (
             "parse_human/",
             &[
@@ -4814,6 +4976,23 @@ mod source_boundaries {
                 "crate::db",
                 "crate::msg",
                 "crate::util",
+            ],
+        ),
+        (
+            "settings.rs",
+            &[
+                "println!",
+                "print!(",
+                "eprint",
+                "process::exit",
+                "std::fs",
+                "std::env",
+                "std::io",
+                "sqlx",
+                "tokio::",
+                "reqwest",
+                "Client",
+                "crate::db",
             ],
         ),
         (

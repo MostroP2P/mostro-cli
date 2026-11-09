@@ -1,10 +1,10 @@
 use anyhow::Result;
 use nostr_sdk::prelude::*;
-use std::env::var;
 use std::sync::Once;
 use std::time::Duration;
 
 use crate::msg::{ephemeral_client, relay_entries};
+use crate::settings::var;
 
 /// rustls 0.23 cannot auto-pick a process CryptoProvider when more than one
 /// backend feature is in the graph. Pin `ring` (same as tonic `tls-ring` and
