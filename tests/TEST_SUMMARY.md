@@ -5293,3 +5293,7 @@ relay is contacted; rows that cannot be read are `store_unreadable`. `TradeRole`
   `cargo test --locked` 1124 passed, 0 failed, 0 ignored (1117 at the base; +1 library, +5 `message_list_process`, +1
   `order_watch_process`); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Stacks 245, 246 and 243 merged: 2026-11-09
+
+After merging specs 019, 020 and 021 into `main`, `cargo test --locked -- --list` lists 1189 tests: 838 in 25 targets, 345 library unit tests and 6 doctests. `tests/README.md` recounted; its per-module breakdowns of `message_list_process.rs` are as of the last unit that updated them.
