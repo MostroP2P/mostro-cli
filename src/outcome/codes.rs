@@ -41,6 +41,8 @@ pub enum ErrorCode {
     IdentityExists,
     // Added for `config.set`.
     ConfigurationUnwritable,
+    // Added for `order.chat`.
+    CounterpartyUnknown,
 }
 
 impl ErrorCode {
@@ -82,7 +84,8 @@ impl ErrorCode {
             | Self::OrderUnknown
             | Self::StoreUnreadable
             | Self::IdentityExists
-            | Self::ConfigurationUnwritable => RUNTIME_ERROR_EXIT,
+            | Self::ConfigurationUnwritable
+            | Self::CounterpartyUnknown => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -115,6 +118,10 @@ impl ErrorCode {
             Self::IdentityExists => "A local identity already exists, so nothing was changed.",
             Self::ConfigurationUnwritable => {
                 "The configuration file cannot be written, so nothing was changed."
+            }
+            Self::CounterpartyUnknown => {
+                "The counterparty of this order was not found in the node's messages; \
+                 it is known once the escrow is locked."
             }
         }
     }

@@ -1,3 +1,4 @@
+pub mod counterparty;
 pub mod dispute;
 pub mod held;
 pub mod info;

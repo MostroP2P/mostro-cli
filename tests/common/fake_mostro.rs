@@ -1111,6 +1111,39 @@ pub fn mail_bond_notice(action: Action, order: &SmallOrder) -> Message {
     )
 }
 
+/// `action` with an order payload naming both trade keys, as the node sends
+/// `buyer-took-order` and `hold-invoice-payment-accepted` once the escrow is
+/// locked (and a Cashu node `waiting-seller-to-pay` to the seller before it).
+pub fn mail_trade_keys(
+    action: Action,
+    order: Uuid,
+    buyer: PublicKey,
+    seller: PublicKey,
+) -> Message {
+    let small = SmallOrder {
+        id: Some(order),
+        buyer_trade_pubkey: Some(buyer.to_hex()),
+        seller_trade_pubkey: Some(seller.to_hex()),
+        ..SmallOrder::default()
+    };
+    Message::new_order(Some(order), None, None, action, Some(Payload::Order(small)))
+}
+
+/// `fiat-sent-ok`: the other side's trade key in a `Peer` payload.
+pub fn mail_fiat_sent_ok(order: Uuid, other: PublicKey) -> Message {
+    let peer = Peer {
+        pubkey: other.to_hex(),
+        reputation: None,
+    };
+    Message::new_order(
+        Some(order),
+        None,
+        None,
+        Action::FiatSentOk,
+        Some(Payload::Peer(peer)),
+    )
+}
+
 /// A message with a free-text payload.
 pub fn mail_text(order: Uuid, text: &str) -> Message {
     Message::new_order(

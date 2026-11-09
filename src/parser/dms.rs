@@ -11,6 +11,7 @@ use nostr_sdk::prelude::*;
 use crate::{
     cli::Context,
     db::{is_row_not_found, Order},
+    msg::counterparty::counterparty_from_trade_pubkeys,
     parser::common::{
         format_timestamp, print_amount_info, print_fiat_code, print_order_count,
         print_payment_method, print_premium, print_required_amount, print_section_header,
@@ -602,25 +603,6 @@ pub async fn persist_solver_pubkey(message: &MessageKind, sender: &PublicKey, ct
     order.set_solver_pubkey(solver.to_hex());
     if let Err(e) = order.save(&ctx.pool).await {
         log::debug!("solver pubkey: could not persist for {order_id}: {e}");
-    }
-}
-
-/// Pick the trade pubkey that is not `ours` from a buyer/seller pair.
-///
-/// Both sides are parsed as [`PublicKey`] so hex and npub compare equal.
-fn counterparty_from_trade_pubkeys(
-    ours: &PublicKey,
-    buyer: &str,
-    seller: &str,
-) -> Option<PublicKey> {
-    let buyer = PublicKey::parse(buyer).ok()?;
-    let seller = PublicKey::parse(seller).ok()?;
-    if buyer == *ours {
-        Some(seller)
-    } else if seller == *ours {
-        Some(buyer)
-    } else {
-        None
     }
 }
 
@@ -1248,40 +1230,6 @@ mod tests {
         };
         let lines = user_info_lines(&info, 1_700_000_000);
         assert!(lines.contains(&"📅 Operating Days: 42".to_string()));
-    }
-
-    #[test]
-    fn counterparty_from_trade_pubkeys_picks_the_other_side() {
-        let ours = Keys::generate().public_key();
-        let them = Keys::generate().public_key();
-        assert_eq!(
-            counterparty_from_trade_pubkeys(&ours, &ours.to_hex(), &them.to_hex()),
-            Some(them)
-        );
-        assert_eq!(
-            counterparty_from_trade_pubkeys(&ours, &them.to_hex(), &ours.to_hex()),
-            Some(them)
-        );
-    }
-
-    #[test]
-    fn counterparty_from_trade_pubkeys_accepts_npub() {
-        let ours = Keys::generate().public_key();
-        let them = Keys::generate().public_key();
-        let ours_npub = ours.to_bech32().expect("npub");
-        let them_hex = them.to_hex();
-        assert_eq!(
-            counterparty_from_trade_pubkeys(&ours, &ours_npub, &them_hex),
-            Some(them)
-        );
-    }
-
-    #[test]
-    fn counterparty_from_trade_pubkeys_returns_none_when_neither_is_ours() {
-        let ours = Keys::generate().public_key();
-        let buyer = Keys::generate().public_key().to_hex();
-        let seller = Keys::generate().public_key().to_hex();
-        assert!(counterparty_from_trade_pubkeys(&ours, &buyer, &seller).is_none());
     }
 
     async fn memory_pool() -> SqlitePool {

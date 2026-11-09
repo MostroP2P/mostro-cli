@@ -47,6 +47,7 @@ use nostr_sdk::prelude::{Client, Keys, PublicKey, RelayUrl, SignerAuthenticator}
 use crate::outcome::ErrorCode;
 use crate::util::net::install_rustls_crypto_provider;
 
+pub mod counterparty;
 pub mod exchange;
 pub mod inbox;
 mod node_info;

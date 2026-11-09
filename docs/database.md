@@ -90,6 +90,12 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 
 - **Usage**:
   - Many command handlers persist or update orders via `util::save_order`, which internally calls `Order::new` and raises `User::last_trade_index` (never lowers it).
+  - `counterparty_pubkey` is written by the legacy `getdm` (`persist_counterparty_pubkey`: the first node `Order` payload naming both trade
+    keys, only while the column is empty; on a Cashu node the seller's pre-lock `waiting-seller-to-pay` is one) and by
+    `Store::set_counterparty` (`src/store/counterparty.rs`, spec 019), which the counterparty lookup (`find_counterparty`) calls only when
+    the column holds no usable key, with a key from the node's post-lock messages for that order, as a best-effort cache whose failure is
+    not reported. `Store::counterparty` reads it without writing; the lookup uses a stored key that parses and is not ours as it is,
+    whoever wrote it.
   - A taker's row is created from the node's reply when it carries the order (`add-invoice`, `pay-invoice`, `pay-bond-invoice`). An `order take-sell` that already carried the invoice is answered with `waiting-seller-to-pay` and no order, so `commands::order::take` saves a minimal row from the request (id, side, `waiting-payment`, the amount taken, the trade key) together with the trade index in one transaction (#204); the legacy read of the public book is gone.
 
 #### `users`
