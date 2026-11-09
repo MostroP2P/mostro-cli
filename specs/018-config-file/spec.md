@@ -33,7 +33,9 @@ see [plan.md](plan.md).
   `configuration_missing`; an empty `POW` is 0 and an empty `TRANSPORT` means detect; an invalid value is `configuration_invalid`. A set
   variable whose value is not valid UTF-8 counts as set but empty: it still beats the file and, as before the file existed, is blank.
 - **FR-002 No file**: without a config file every command's behavior, outcomes and JSON are unchanged; only the guidance text of the
-  legacy missing-setting messages differs. The existing suites pass unchanged.
+  legacy missing-setting messages differs, and a human-only command given a blank `-m` or `MOSTRO_PUBKEY` prints `MOSTRO_PUBKEY not set`
+  with that guidance (unit 5), as a blank `RELAYS` already gave `RELAYS not set`, instead of a key parse error (exit 1 either way,
+  before `mcli.db`). The existing suites pass unchanged.
 - **FR-003 Location**: `config` in the data directory: a non-blank `MCLI_DIR`, else `<home>/.mcli` (on Windows the profile folder,
   normally `%USERPROFILE%\.mcli\config`). With neither there is no file.
 - **FR-004 Format**: UTF-8 text, LF or CRLF, one leading byte order mark (U+FEFF) ignored. Blank lines and lines starting with `#` (after

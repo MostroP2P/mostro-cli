@@ -353,6 +353,38 @@ async fn a_legacy_command_reads_the_file_with_the_same_precedence() {
     );
 }
 
+/// A set but empty `MOSTRO_PUBKEY` or `RELAYS` hides a file that holds both
+/// from `listdisputes`: it stops before `mcli.db` exists or a relay is
+/// contacted, with the missing-setting message, whose hint says why.
+#[tokio::test]
+async fn an_empty_variable_hides_the_file_from_a_legacy_command() {
+    let relay = relay().await;
+    let node = Keys::generate().public_key().to_hex();
+    let sandbox = Sandbox::new().unwrap();
+    write_config(
+        &sandbox,
+        &format!("MOSTRO_PUBKEY={node}\nRELAYS={}\n", relay.url),
+    );
+
+    for name in ["MOSTRO_PUBKEY", "RELAYS"] {
+        let run = run(&sandbox, &["listdisputes"], &[(name, "")]).await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stdout_text());
+        let stderr = run.stderr_text();
+        assert!(stderr.contains(&format!("{name} not set.\n")), "{stderr}");
+        assert!(
+            stderr.contains("set, even empty, wins over the file"),
+            "{stderr}"
+        );
+        let names: Vec<String> = snapshot(&sandbox.mcli_dir())
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, ["config"], "no mcli.db");
+    }
+    assert_eq!(relay.connections(), 0, "no relay was contacted");
+}
+
 /// `admsenddm`, a human-only command that publishes, takes `POW` and
 /// `TRANSPORT` from the file alone: the event the node receives carries at
 /// least that work, and the transport is explicit, so the node is not probed.

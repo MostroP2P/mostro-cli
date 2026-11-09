@@ -64,11 +64,12 @@ to use the file. See https://github.com/MostroP2P/mostro-cli#suggested-setup";
 
 /// Resolve the Mostro instance pubkey from `--mostro-pubkey` / `-m`, then
 /// `MOSTRO_PUBKEY`, then the config file. Fails with setup guidance if none
-/// gives it.
+/// gives it or the one that wins is blank (as `RELAYS` does).
 fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
     cli.mostro_pubkey
         .clone()
         .or_else(|| var("MOSTRO_PUBKEY").ok())
+        .filter(|key| !key.trim().is_empty())
         .ok_or_else(|| {
             anyhow!(
                 "MOSTRO_PUBKEY not set.\n\
@@ -270,6 +271,29 @@ mod tests {
             assert!(err.contains("export MOSTRO_PUBKEY=<npub>"), "{err}");
             let line = "3) mostro-cli config set mostro-pubkey <npub>, which writes it to ";
             assert_names_the_config_commands(&err, line);
+        });
+    }
+
+    /// A blank `MOSTRO_PUBKEY`, set or from `-m`, is missing (as a blank
+    /// `RELAYS` is), so its message and the hint reach a user whose empty
+    /// variable hides the config file; it is not a key parse error.
+    #[test]
+    #[serial]
+    fn blank_mostro_pubkey_gets_the_missing_message() {
+        with_env_cleared("MOSTRO_PUBKEY", || {
+            let listdisputes = Cli::try_parse_from(["mostro-cli", "listdisputes"]).unwrap();
+            for blank in ["", " \t"] {
+                set_var("MOSTRO_PUBKEY", blank);
+                let err = resolve_mostro_pubkey(&listdisputes)
+                    .unwrap_err()
+                    .to_string();
+                assert!(err.starts_with("MOSTRO_PUBKEY not set.\n"), "{err}");
+                assert!(err.contains("set, even empty, wins over the file"), "{err}");
+            }
+            set_var("MOSTRO_PUBKEY", "npub1fromtheenvironment");
+            let option = Cli::try_parse_from(["mostro-cli", "-m", "", "listdisputes"]).unwrap();
+            let err = resolve_mostro_pubkey(&option).unwrap_err().to_string();
+            assert!(err.starts_with("MOSTRO_PUBKEY not set.\n"), "{err}");
         });
     }
 
