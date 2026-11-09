@@ -45,7 +45,7 @@ pub struct FetchFailure {
 }
 
 impl FetchFailure {
-    fn before_query(code: ErrorCode) -> Self {
+    pub(super) fn before_query(code: ErrorCode) -> Self {
         Self {
             code,
             snapshot: None,

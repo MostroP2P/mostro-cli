@@ -12,6 +12,7 @@ pub use codes::{
     ErrorCode, ErrorInfo, PowShortfall, Warning, WarningCode, Warnings, INVALID_INVOICE,
 };
 
+pub mod chat;
 mod codes;
 pub mod config;
 pub mod dispute;

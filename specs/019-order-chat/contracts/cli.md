@@ -4,8 +4,8 @@
 mostro-cli order chat --order UUID [--message TEXT] [--since MINUTES] [--yes] [--output human|json]
 ```
 
-Canonical name `order.chat`. Not available yet: unit 1 adds only the counterparty lookup. Unit 3 adds the command in human mode and unit 4
-JSON. Needs `MOSTRO_PUBKEY`, `RELAYS`, the identity and the order's row. `--pow`, `--transport` and `--reply-timeout` do not apply.
+Canonical name `order.chat`. Not available yet: units 1 and 2 add only library code (the counterparty lookup, the chat read and send, the
+outcome types and the human renderer). Unit 3 adds the command in human mode and unit 4 JSON. Needs `MOSTRO_PUBKEY`, `RELAYS`, the identity and the order's row. `--pow`, `--transport` and `--reply-timeout` do not apply.
 
 - `--order`: an order in the local store; otherwise `order_unknown` before any relay.
 - `--message`: one value, trimmed, 1 to 4096 bytes; `--message=<text>` for a text starting with `-`. JSON requires `--yes`; human mode

@@ -78,8 +78,10 @@ without aliases; other legacy spellings are unchanged.
 - No new database model, table or migration was added; the existing SQLite
   layer is untouched and described in [database.md](database.md).
 - The transport migration is **not** complete. There is a single door for public reads
-  (`msg::fetch_msg`), but no shared `send_msg`/`receive_msg` for trades, chat or
-  admin messages, and no write command returns an outcome.
+  (`msg::fetch_msg`), and the order chat of spec 019 (`msg::chat`, no command yet) reads through
+  it and publishes through the private door of `msg::send_msg`, but the legacy `getdmuser`,
+  `dmtouser` and `disputechat` keep their own transport, and there is no shared
+  `send_msg`/`receive_msg` for admin messages.
 - `util::events` and `parser/orders.rs` keep delegating helpers for the remaining
   Rust callers of the shared order logic; `msg/orders.rs` holds the one implementation.
 
@@ -308,13 +310,25 @@ violation.
   with its `Peer`), then saves it to the row as a best-effort cache (`Store::set_counterparty`; a failed save is not reported). None found
   is `counterparty_unknown`. `counterparty_from_trade_pubkeys`, which the legacy `persist_counterparty_pubkey` still uses, moved from
   `parser/dms.rs` to `msg/counterparty.rs`.
+- **`src/msg/chat.rs`**, **`src/outcome/chat.rs`**, **`src/parse_human/chat.rs`**: the order chat of spec 019 (no command uses them
+  yet). `msg::chat::read_chat` is one bounded read through `fetch_msg` of the envelopes the conversation's `K_sign` authored (the window as
+  `since`, 200 per relay); `open_lines` opens each only through `unwrap_chat_message` with our trade key and the counterparty's as
+  writers, counts a message once by its inner id, orders by (time, id) and keeps the newest 200. `send_chat`, the send step, wraps and
+  opens its own envelope first, connects the relays, publishes once through `send_msg::publish`, waits for one confirmation within the read
+  budget and lets the other relays answer until the same deadline (`Publishing::settle`); every relay refusing is `request_rejected` with
+  nothing published, no confirmation with an ambiguous failure is `request_rejected` with publication `unknown`. `outcome/chat.rs` holds
+  the validated input, `ChatRecord` (`from` is `me` or `counterparty`, the text bounded to 4096 bytes) and `ChatData`. Its stage
+  vocabulary is `Stages::Chat`, an amendment for this command: publication is `not_applicable` until the send step runs, then `published`,
+  `not_attempted` (wrap, connection or every relay refusing) or `unknown`; acceptance and persistence are always `not_applicable` (the
+  counterparty key the lookup may cache is not reported). `parse_human/chat.rs` renders the conversation with each text line escaped by
+  `escape_untrusted` and indented; the indent does not survive the terminal wrapping a long line, which goes on at column 0.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
-- **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text.
+- **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).
 - **Command registry** (`REGISTRY` and `lookup` in `src/cli/registry.rs`): every subcommand's canonical name and JSON support. `run()` uses it to name the command in JSON rejections before RPC routing or context initialization.
 
 - **Peer / solver chat** (`src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
-  - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`.
+  - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`, each with its own transport, and by `msg/chat.rs` for the migrated order chat (spec 019).
   - Attachment encryption still uses ECDH (`derive_shared_key_bytes`) for the Blossom blob only; the metadata DM is the same kind-14 chat envelope.
 
 ### Lightning integration

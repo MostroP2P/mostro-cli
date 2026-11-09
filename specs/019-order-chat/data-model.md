@@ -1,6 +1,7 @@
 # Data Model: Order Chat
 
-Proposed for units 2-4; only the lookup types of unit 1 exist in the code.
+The lookup types (unit 1), the transport types and the `order.chat` data types (unit 2) exist in the code; no command emits them until
+unit 3.
 
 ## The lookup (unit 1, `commands::order::counterparty`)
 
@@ -8,6 +9,14 @@ Proposed for units 2-4; only the lookup types of unit 1 exist in the code.
 | --- | --- | --- |
 | `Counterparty` | `key: PublicKey`, `warnings: Warnings` | The counterparty's trade key and the warnings of the read of the node's mail (none when the row held the key) |
 | `LookupFailure` | `code: ErrorCode`, `warnings: Warnings` | `identity_missing`, `store_unreadable`, the read's own code, or `counterparty_unknown`; the read's warnings |
+
+## The transport (unit 2, `msg::chat`)
+
+| Type | Fields | Meaning |
+| --- | --- | --- |
+| `ChatLine` | `message_id`, `sender`, `created_at`, `text` | One message opened: the inner event id, the inner signer (our trade key or the counterparty's), its time in seconds, the text as written |
+| `Conversation` | `lines`, `truncated`, `warnings` | The messages in the window, oldest first, at most 200; whether a relay or the cap may have left some out |
+| `SendFailure` | `code`, `publication`, `line`, `warnings` (private, with getters) | `not_attempted` with no line (`internal_error`, the connect code or `request_rejected`), or `unknown` with the line (`request_rejected`) |
 
 ## `order.chat` data (`ChatData`)
 

@@ -42,6 +42,22 @@ pub enum Stages {
     /// `not_applicable` for an invocation rejected before it ran, as for
     /// [`Stages::Sync`].
     Local,
+    /// `order.chat`: a read of the relays that may publish one chat message
+    /// to the counterparty, never to the node. An amendment of the general
+    /// meanings for this command: publication is `not_applicable` until the
+    /// send step runs, with or without `--message` (a rejected invocation, the
+    /// missing `--yes`, configuration, identity, store, `order_unknown`,
+    /// `counterparty_unknown`, a failed lookup or chat read), because the
+    /// registry reports a rejected invocation as a read before `--message` is
+    /// known. The send step starts at the wrap and reports only its own
+    /// result: `published`; `not_attempted` when the wrap failed
+    /// (`internal_error`), the relays could not be connected (the connect code)
+    /// or every relay refused (`request_rejected`); `unknown` (`uncertain`)
+    /// when no relay confirmed and one failed ambiguously. The node is not
+    /// involved, so acceptance is always `not_applicable`, and so is
+    /// persistence: the counterparty key the lookup may cache in the order row
+    /// is not reported.
+    Chat,
 }
 
 /// The stage combinations (publication, node acceptance, persistence) allowed
@@ -186,6 +202,24 @@ impl<'a> OutcomeRules<'a> {
         }
     }
 
+    /// Rules of `order.chat` (`Stages::Chat`).
+    pub fn chat(
+        command: &'static str,
+        errors: &'a [ErrorCode],
+        uncertain: &'a [ErrorCode],
+    ) -> Self {
+        Self {
+            command,
+            errors,
+            uncertain,
+            warnings: &[],
+            snapshot_on_success: false,
+            reason: false,
+            input_reasons: &[],
+            stages: Stages::Chat,
+        }
+    }
+
     /// Stage combinations allowed on success, failure and uncertainty of the
     /// resolved command.
     pub(super) fn combos(&self) -> Combos {
@@ -194,6 +228,18 @@ impl<'a> OutcomeRules<'a> {
                 success: vec![["not_applicable"; 3]],
                 failure: vec![["not_applicable"; 3]],
                 uncertain: Vec::new(),
+            },
+            // Read only, read and sent, or the send step's own result.
+            Stages::Chat => Combos {
+                success: vec![
+                    ["not_applicable"; 3],
+                    ["published", "not_applicable", "not_applicable"],
+                ],
+                failure: vec![
+                    ["not_applicable"; 3],
+                    ["not_attempted", "not_applicable", "not_applicable"],
+                ],
+                uncertain: vec![["unknown", "not_applicable", "not_applicable"]],
             },
             Stages::Request => Combos {
                 success: vec![["published", "accepted", "not_applicable"]],
