@@ -219,14 +219,14 @@ mod tests {
     }
 
     #[test]
-    fn the_end_line_names_the_action_and_the_deadline_line_says_the_trade_has_not_ended() {
+    fn the_end_line_names_the_action_and_the_deadline_line_points_to_order_info() {
         assert_eq!(
             render_watch_end(Some("purchase-completed")),
             "🏁 The trade ended: purchase-completed\n"
         );
         assert_eq!(
             render_watch_end(None),
-            "⏰ Stopped at the watch deadline; the trade has not ended.\n"
+            "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order.\n"
         );
     }
 }
