@@ -1087,6 +1087,38 @@ mod operation {
     }
 
     #[tokio::test]
+    async fn the_rate_grace_never_runs_past_the_deadline() {
+        let limits = WatchLimits {
+            rate_grace: Duration::from_secs(30),
+            ..limits()
+        };
+        for json in [false, true] {
+            let desk = Desk::new(Role::Taker, true, &[]).await;
+            let over = desk
+                .mail(&about(ORDER, Action::PurchaseCompleted), now())
+                .await;
+            desk.publish(over, QUIET);
+            let input = WatchInput::validate(ORDER, None, None, Some(2), json).unwrap();
+            let config = config(&desk.node, &[&desk.relay.url]);
+            let mut sink = |_: &WatchData| true;
+            let follow = if json {
+                Follow::FirstChange
+            } else {
+                Follow::UntilEnd(&mut sink, pin!(pending()))
+            };
+            let started = Instant::now();
+
+            let watched =
+                order_watch(&input, &config, &desk.store, &limits, Utc::now(), follow).await;
+
+            // The 2 s deadline, the replay and the cleanup; not the 30 s grace.
+            assert!(started.elapsed() < Duration::from_secs(10), "json {json}");
+            assert_eq!(watched.ended_by.as_deref(), Some("purchase-completed"));
+            assert!(watched.outcome.error_code().is_none(), "json {json}");
+        }
+    }
+
+    #[tokio::test]
     async fn nothing_new_until_the_deadline_is_an_empty_success_in_both_modes() {
         let desk = Desk::new(Role::Taker, true, &[]).await;
         let before = now() - 1_800;
