@@ -308,6 +308,7 @@ mod schema_fixtures {
         INVALID_INVOICE, ORDER_MINE, ORDER_RATE,
     };
     use super::{IdentityInitData, IdentityShowData, IDENTITY_INIT, IDENTITY_SHOW};
+    use mostro_client::outcome::messages::TradeRole;
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
     use mostro_core::prelude::Peer;
 
@@ -3052,6 +3053,7 @@ mod schema_fixtures {
             &message,
             Some(3),
             &PublicKey::from_hex(TRADE).unwrap(),
+            None,
             &mut Warnings::new(),
         )
     }
@@ -4130,7 +4132,44 @@ mod schema_fixtures {
         vec![
             ("payment_failed_while_the_node_retries", outcome, 0),
             ("messages_of_the_trade_steps", trade_steps(), 0),
+            ("the_seller_is_asked_to_release", release_steps(), 0),
         ]
+    }
+
+    /// The seller's copy of `fiat-sent-ok` (no request id, and the local row
+    /// says the user is the seller) asks for `release`; the buyer's copy,
+    /// which echoes the buyer's request id, asks nothing.
+    fn release_steps() -> Value {
+        let copy = |byte: u8, request_id, role, minute: u64| {
+            let peer = Peer {
+                pubkey: PEER.to_string(),
+                reputation: None,
+            };
+            let payload = Some(Payload::Peer(peer));
+            let message =
+                Message::new_order(Some(id(1)), request_id, None, Action::FiatSentOk, payload);
+            MessageRecord::from_message(
+                &EventId::from_byte_array([byte; 32]),
+                1_792_108_800 + minute * 60,
+                &message,
+                Some(3),
+                &PublicKey::from_hex(TRADE).unwrap(),
+                Some(role),
+                &mut Warnings::new(),
+            )
+        };
+        let records = vec![
+            copy(0x41, None, TradeRole::Seller, 1),
+            copy(0x42, Some(77), TradeRole::Buyer, 2),
+        ];
+        let data = message_data(records, false, (3, 0));
+        to_value(MessageEnvelope::ok(
+            MESSAGE_LIST,
+            to_value(data).unwrap(),
+            Warnings::new(),
+            ExecutionMeta::read(Some(read_snapshot(2, 2))),
+        ))
+        .unwrap()
     }
 
     /// The buyer is asked to send the fiat, the node confirms it was sent
@@ -4144,6 +4183,7 @@ mod schema_fixtures {
                 &message,
                 Some(3),
                 &PublicKey::from_hex(TRADE).unwrap(),
+                None,
                 &mut Warnings::new(),
             )
         };

@@ -23,13 +23,14 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use mostro_core::prelude::{Action, Kind};
+use mostro_core::prelude::Action;
 use nostr_sdk::prelude::{Keys, PublicKey, Timestamp};
 use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::counterparty::find_counterparty;
 use crate::commands::message::list::{order_key, record, store_code};
+use crate::commands::message::roles::Roles;
 use crate::msg::counterparty::counterparty_in;
 use crate::msg::inbox::Mail;
 use crate::msg::watch::{Batch, Seen, Watch, WatchLimits};
@@ -66,6 +67,8 @@ struct Run {
     order: Uuid,
     index: Option<i64>,
     trade: Keys,
+    /// The user's side in each stored order, for the records.
+    roles: Roles,
     role: Option<TradeRole>,
     peer: Option<PublicKey>,
     start: Cursor,
@@ -129,7 +132,10 @@ async fn prepare(
     let order = input.order();
     let alone = |code| (code, Warnings::new());
     let (index, trade) = order_key(store, order).await.map_err(alone)?;
-    let role = order_side(store, order).await.map_err(alone)?;
+    let roles = Roles::load(store)
+        .await
+        .map_err(|error| alone(store_code(error)))?;
+    let role = roles.of(Some(order), &trade.public_key());
     let seconds = u64::try_from(now.timestamp()).unwrap_or(0);
     let found = find_counterparty(order, &trade, config, store, &limits.read, seconds.into());
     let (peer, warnings) = match found.await {
@@ -143,23 +149,13 @@ async fn prepare(
         order,
         index,
         trade,
+        roles,
         role,
         peer,
         start: input.start_cursor(seconds),
         rate_grace: limits.rate_grace,
         warnings,
     })
-}
-
-/// The user's side in `order`, from its row; `None` when the row does not
-/// say (`is_mine` NULL, or a kind that does not parse).
-async fn order_side(store: &Store, order: Uuid) -> Result<Option<TradeRole>, ErrorCode> {
-    let rows = store.order_rows().await.map_err(store_code)?;
-    let id = order.to_string();
-    Ok(rows.iter().find(|row| row.id == id).and_then(|row| {
-        let kind = row.kind.parse::<Kind>().ok()?;
-        Some(TradeRole::of_order(kind, row.is_mine?))
-    }))
 }
 
 /// The updates, until `follow` is done: the last one and how the trade ended.
@@ -258,7 +254,7 @@ impl Run {
         for seen in &batch.items {
             match seen {
                 Seen::Mail(mail) => {
-                    let message = record(mail, &mut self.warnings);
+                    let message = record(mail, &self.roles, &mut self.warnings);
                     if (ended_by.is_none() || by_rate) && self.ends(mail) {
                         by_rate = mail.message.get_inner_message_kind().action == Action::Rate;
                         ended_by = Some(message.action().to_string());

@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
-use mostro_core::prelude::{unwrap_incoming, Action, CantDoReason, Message, Payload};
+use mostro_core::prelude::{unwrap_incoming, Action, CantDoReason, Message, Payload, Peer};
 use nostr_sdk::prelude::{
     Client, Event, Filter, FinalizeEvent, Keys, Kind, LocalRelay, PublicKey, Timestamp,
 };
@@ -648,7 +648,7 @@ mod operation {
     use mostro_client::msg::{PublicReadConfig, ReadLimits};
     use mostro_client::outcome::messages::{MessageListInput, NextStep};
     use mostro_client::outcome::{ErrorCode, Status as Outcome};
-    use mostro_client::store::{Store, Trade};
+    use mostro_client::store::{Role, Store, Trade};
     use serde_json::{json, Value};
 
     struct Mailroom {
@@ -1512,6 +1512,213 @@ mod operation {
             assert!(text.contains(&line), "{text}");
         }
         assert_eq!(text.matches("Next:").count(), 2, "{text}");
+    }
+
+    // --- The seller's release (spec 021, unit 3) ---
+
+    impl Mailroom {
+        /// A row for order `n` of `kind`, made or taken as `role`, saved with
+        /// the key of `index`.
+        async fn hold(&self, n: u128, kind: OrderKind, role: Role, index: i64) {
+            let mut row = order(n, Status::FiatSent);
+            row.kind = Some(kind);
+            let trade = Trade {
+                index,
+                keys: self.key(index).clone(),
+            };
+            self.store
+                .save_order_as(&row, &trade, 1, role)
+                .await
+                .unwrap();
+        }
+
+        /// Run `statement` on the store, as an older client or damage would
+        /// have left it.
+        async fn sql(&self, statement: &'static str) {
+            let path = self.sandbox.mcli_dir().join("mcli.db");
+            let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            sqlx::query(statement).execute(&pool).await.unwrap();
+            pool.close().await;
+        }
+    }
+
+    /// The `order_id`, `request_id` and `next_step` of every record.
+    fn steps(outcome: &ListOutcome) -> Vec<(Value, Value, Value)> {
+        document(outcome)["data"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| {
+                (
+                    m["order_id"].clone(),
+                    m["request_id"].clone(),
+                    m["next_step"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// `fiat-sent-ok` for order `n` to the key of `index`, `minutes` ago: the
+    /// seller's copy answers no request, the buyer's echoes its request id.
+    async fn fiat_sent_ok(
+        node: &Keys,
+        keys: &[(i64, Keys)],
+        (n, index): (u128, i64),
+        request_id: Option<u64>,
+        minutes: u64,
+    ) -> Event {
+        let to = keys
+            .iter()
+            .find(|(i, _)| *i == index)
+            .unwrap()
+            .1
+            .public_key();
+        let peer = Peer {
+            pubkey: Keys::generate().public_key().to_hex(),
+            reputation: None,
+        };
+        let payload = Some(Payload::Peer(peer));
+        let message =
+            Message::new_order(Some(id(n)), request_id, None, Action::FiatSentOk, payload);
+        node_event(node, to, &message, minutes_ago(minutes)).await
+    }
+
+    /// Both copies of `fiat-sent-ok` for orders 1 to 4, each to the key of
+    /// the same index: once with no request id, then, for orders 3 and 4,
+    /// once with the buyer's request id.
+    async fn four_sides(node: Keys, keys: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        let mut events = Vec::new();
+        for n in 1..=4 {
+            let minutes = 20 - n as u64;
+            events.push(fiat_sent_ok(&node, &keys, (n, n as i64), None, minutes).await);
+        }
+        for n in 3..=4 {
+            let minutes = 10 - n as u64;
+            events.push(fiat_sent_ok(&node, &keys, (n, n as i64), Some(77), minutes).await);
+        }
+        events
+    }
+
+    #[tokio::test]
+    async fn the_seller_is_asked_to_release_and_the_buyer_is_not() {
+        let room = Mailroom::with(4, 1, four_sides).await;
+        room.hold(1, OrderKind::Sell, Role::Maker, 1).await;
+        room.hold(2, OrderKind::Buy, Role::Taker, 2).await;
+        room.hold(3, OrderKind::Sell, Role::Taker, 3).await;
+        room.hold(4, OrderKind::Buy, Role::Maker, 4).await;
+        let before = room.database();
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let order = |n: u128| json!(id(n).to_string());
+        assert_eq!(
+            steps(&outcome),
+            [
+                (order(1), Value::Null, json!("release")),
+                (order(2), Value::Null, json!("release")),
+                (order(3), Value::Null, Value::Null),
+                (order(4), Value::Null, Value::Null),
+                (order(3), json!("77"), Value::Null),
+                (order(4), json!("77"), Value::Null),
+            ]
+        );
+        assert_eq!(room.database(), before, "a read writes nothing");
+    }
+
+    /// `fiat-sent-ok` with no request id: order 1 to key 1, order 2 to key
+    /// 2, and order 3 to key 1, which is not the key stored for it.
+    async fn unknown_sides(node: Keys, keys: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        vec![
+            fiat_sent_ok(&node, &keys, (1, 1), None, 9).await,
+            fiat_sent_ok(&node, &keys, (2, 2), None, 8).await,
+            fiat_sent_ok(&node, &keys, (3, 1), None, 7).await,
+        ]
+    }
+
+    #[tokio::test]
+    async fn an_order_with_no_known_side_is_never_asked_to_release() {
+        let room = Mailroom::with(3, 1, unknown_sides).await;
+        // Order 1 has no row (another client, or a restore).
+        room.hold(2, OrderKind::Sell, Role::Maker, 2).await;
+        let two = "UPDATE orders SET is_mine = NULL \
+            WHERE id = '00000000-0000-0000-0000-000000000002'";
+        room.sql(two).await;
+        room.hold(3, OrderKind::Sell, Role::Maker, 3).await;
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(outcome.status(), Outcome::Ok);
+        let asked: Vec<Value> = steps(&outcome).into_iter().map(|(.., s)| s).collect();
+        assert_eq!(asked, [Value::Null, Value::Null, Value::Null]);
+    }
+
+    /// The buyer's copy of `fiat-sent-ok`, with the buyer's request id.
+    async fn buyers_copy(node: Keys, keys: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        vec![fiat_sent_ok(&node, &keys, (1, 1), Some(77), 5).await]
+    }
+
+    #[tokio::test]
+    async fn a_legacy_row_that_calls_the_buyer_its_maker_gets_no_release() {
+        // 0.16.3 and earlier saved a taken sell order as made, so the row of
+        // the buyer says seller; the buyer's copy answers the buyer's request.
+        let room = Mailroom::with(1, 1, buyers_copy).await;
+        room.hold(1, OrderKind::Sell, Role::Maker, 1).await;
+
+        let outcome = room.list(None, None).await;
+
+        assert_eq!(
+            steps(&outcome),
+            [(json!(id(1).to_string()), json!("77"), Value::Null)]
+        );
+    }
+
+    #[tokio::test]
+    async fn human_names_the_release_command_with_the_order_id() {
+        let room = Mailroom::with(4, 1, four_sides).await;
+        room.hold(1, OrderKind::Sell, Role::Maker, 1).await;
+        room.hold(3, OrderKind::Sell, Role::Taker, 3).await;
+
+        let run = room.run(&["message", "list"]).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        let text = run.stdout_text();
+        let line = format!(
+            "👉 Next: once the fiat is in your account: `order release --order {}`\n",
+            id(1)
+        );
+        assert!(text.contains(&line), "{text}");
+        assert_eq!(text.matches("Next:").count(), 1, "{text}");
+    }
+
+    #[tokio::test]
+    async fn without_its_order_rows_the_store_is_unreadable_and_no_relay_is_asked() {
+        let room = Mailroom::with(2, 1, flow_none).await;
+        room.sql("DROP TABLE orders").await;
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("ws://{}", free.local_addr().unwrap());
+        drop(free);
+        let config = PublicReadConfig::new(room.node.public_key(), &dead).unwrap();
+        let input = MessageListInput::validate(None, None).unwrap();
+
+        let outcome = message_list(&input, &config, &room.store, &limits(), Utc::now()).await;
+        let json = room.run(&["--output", "json", "message", "list"]).await;
+        let human = room.run(&["message", "list"]).await;
+
+        assert_eq!(outcome.error_code(), Some(ErrorCode::StoreUnreadable));
+        assert_eq!(
+            document(&outcome)["meta"]["snapshot"],
+            Value::Null,
+            "no relay was asked"
+        );
+        let json = one_document(&json);
+        conforms_to_the_checked_in_schema(&json);
+        assert_eq!(json["error"]["code"], "store_unreadable");
+        assert_eq!(json["meta"]["snapshot"], Value::Null);
+        assert_eq!(human.code(), Some(1));
+        let said = human.stderr_text();
+        assert!(said.contains("The local store cannot be read."), "{said}");
     }
 
     #[tokio::test]
