@@ -59,7 +59,8 @@ const ENV_FILE_HINT: &str = "\
 Check what the config file holds with: mostro-cli config show\n\
 It takes only MOSTRO_PUBKEY, RELAYS, POW and TRANSPORT (one KEY=VALUE line\n\
 each, chmod 600 if written by hand); keep ADMIN_NSEC and other secrets in the\n\
-environment. See https://github.com/MostroP2P/mostro-cli#suggested-setup";
+environment. A variable that is set, even empty, wins over the file; unset it\n\
+to use the file. See https://github.com/MostroP2P/mostro-cli#suggested-setup";
 
 /// Resolve the Mostro instance pubkey from `--mostro-pubkey` / `-m`, then
 /// `MOSTRO_PUBKEY`, then the config file. Fails with setup guidance if none
@@ -241,7 +242,7 @@ mod tests {
     }
 
     /// The guidance shared by both missing-setting messages: `config set`
-    /// writes the file, `config show` checks it.
+    /// writes the file, `config show` checks it, a set variable wins over it.
     fn assert_names_the_config_commands(err: &str, line: &str) {
         assert!(err.contains(line), "{err}");
         assert!(
@@ -250,6 +251,7 @@ mod tests {
         );
         assert!(err.contains("chmod 600"), "{err}");
         assert!(err.contains("mostro-cli config show"), "{err}");
+        assert!(err.contains("set, even empty, wins over the file"), "{err}");
         assert!(err.contains("ADMIN_NSEC"), "{err}");
         assert!(!err.contains("does not read any config file"), "{err}");
         assert!(

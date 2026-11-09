@@ -724,6 +724,8 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-s, --secret` — secret mode for inner event tuple.
 - `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; only nip44 is supported).
 
+`-m`, `-r`, `-p` and `-t` also override the [config file](#config-file): the file fills in a setting only when neither an option nor a variable that is set (even empty) gives it, and the transport is auto-detected when the `TRANSPORT` that wins is absent or empty.
+
 ```bash
 mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 ```
