@@ -505,4 +505,9 @@ document at the replayed record, then `--after` its cursor returns only a node m
 conforming document with null data and no relay contacted), `watch_examples_conform_and_are_reproduced` and
 `order_watch_input_lists_order_since_after_and_timeout`; `order.watch` joins the machine lists of the registry and discovery tests;
 `mod reconnect` gains `a_reconnect_does_not_extend_the_chat_replay` (a relay dropped while the chat replays comes back before the
-replay's end, and `follow_chat` still returns within one replay budget) (30 tests in the process file). Until unit 7 the schema checked is the `order.watch` entry of `docs/schemas/discovery-v1.json`.
+replay's end, and `follow_chat` still returns within one replay budget) (30 tests in the process file).
+
+Order watch unit 7 (2026-11-09): the process `mod json` documents are checked against `docs/schemas/order-watch-v1.json`;
+`watch_schema_fixture_matches_the_generated_schema` keeps that file equal to the generated schema, and
+`watch_examples_conform_and_are_reproduced` covers `new_records` and `timeout_empty` against both the file and the discovery entry
+(`integration_tests.rs` 75 tests).

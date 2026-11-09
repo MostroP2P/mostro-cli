@@ -373,7 +373,8 @@ violation.
   start, then `Shown::Later`, flagged when the counterparty first appears), writes and flushes it; a failed write stops the watch with
   one fixed line (exit 1). It then prints the end or deadline line (exit 0), or the error line. JSON runs `order_watch` with
   `Follow::FirstChange` (the 30 s default deadline from `WatchInput::validate`) and writes its one outcome with `parse_machine::emit`.
-  The registry marks `order.watch` `JsonSupport::Read`; its output schema is generated from `WatchData` and `watch_rules`.
+  The registry marks `order.watch` `JsonSupport::Read`; its output schema is generated from `WatchData` and `watch_rules` and checked
+  in as `docs/schemas/order-watch-v1.json` (unit 7).
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).

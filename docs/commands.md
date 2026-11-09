@@ -287,8 +287,8 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     60 s old). Limit: a record that reaches the relays after records stamped more than 60 s later, or one inside a raised range, is
     never returned by a later call. `meta.snapshot` is always null and every stage is `not_applicable`; the counterparty cache write
     is not reported. Codes: `invalid_arguments`, the configuration, identity and store codes, `order_unknown`, the relay read codes,
-    `read_limit_exceeded` and `internal_error`; warnings `invalid_event_timestamp` and `cleanup_incomplete`. The output schema is in
-    the discovery entry ([docs/schemas/discovery-v1.json](schemas/discovery-v1.json)) until its own file lands (spec 020, unit 7).
+    `read_limit_exceeded` and `internal_error`; warnings `invalid_event_timestamp` and `cleanup_incomplete`. Output schema:
+    [docs/schemas/order-watch-v1.json](schemas/order-watch-v1.json); the input schema is in the discovery entry.
     Example outcome: [contracts/examples.json](../specs/020-order-watch/contracts/examples.json).
   - **Timing**: 10 s to connect, 15 s for the replay, 15 s more when the counterparty is learned, then live until the end or
     `--timeout`, then 1 s of cleanup; up to 26 s more first when the counterparty must be looked up. `--pow`, `--transport` and

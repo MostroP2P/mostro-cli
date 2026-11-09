@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-09
 
-**Status**: In progress, unit 6 of 7: the contract types, the constitution amendment, the live subscription and its reconnects, the
-operation, the command in human mode and JSON output; the output schema file is unit 7. Progress is
+**Status**: Implemented, all seven units. Verified on Linux against isolated stores, loopback relays and scripted node and chat events
+only. Not probed on a real node: the local Mortsom stack is in use by another session, and there is no public node to use. Progress is
 tracked only in [tasks.md](tasks.md)
 
 **Input**: Issue #246. An agent that ran a full trade with mostro-cli 0.17.0 had to poll `message list` and `getdmuser` every 15 seconds
