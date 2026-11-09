@@ -39,7 +39,9 @@ After them: `order mine` ([spec](specs/011-order-mine/spec.md)), `order new --ex
 stores and the scripted node only. The global `--reply-timeout` ([spec](specs/016-reply-timeout/spec.md)) sets the reply deadline of the
 commands that wait for the node. The commands that wait for the node also mine the proof of work it advertises, up to 20 bits, and a
 `pow_required` names `required` and `configured` ([spec](specs/017-advertised-pow/spec.md)); verified against the scripted node and
-probed on a local regtest node.
+probed on a local regtest node. `order chat` ([spec](specs/019-order-chat/spec.md), in progress) reads the peer chat of an order held
+and sends one message without the counterparty's key being passed; human output only so far, verified on Linux against isolated stores
+and loopback relays only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
@@ -50,4 +52,4 @@ The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
 clones and outside both repositories. Only the `order list`, `order info`, `order new`, the two
 `order take-*`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`,
-`dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` modules are migrated; the other planned modules are not yet implemented.
+`dispute open`, `order chat`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` modules are migrated; the other planned modules are not yet implemented.

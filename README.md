@@ -382,15 +382,27 @@ If you want to *post* a buy order instead of taking one, use `order new --side b
 
 ## Direct messages with your counterpart
 
-Every order has a counterparty pubkey. You can chat over kind-14 envelopes:
+`order chat` reads and sends the kind-14 chat of an order you hold. It finds the counterparty's trade key itself, from the order's row
+or the node's messages (it is known once the escrow is locked), so you never pass a key:
 
 ```bash
-# Get the conversation key for a counterpart (informational)
-mostro-cli conversationkey -p <their-pubkey>
+# Read both sides of the chat for an order (oldest first; --since defaults to 7 days)
+mostro-cli order chat --order <order-id>
+
+# Send one message (no prompt); the conversation is shown with it
+mostro-cli order chat --order <order-id> --message "hi, sending now"
 
 # Read what Mostro sent you (read-only; `--order` limits it to one order)
 mostro-cli message list --since 30
 mostro-cli message list --order <order-id>
+```
+
+The legacy commands also need the order's row and take the counterparty's key. Use them when `order chat` answers
+`counterparty_unknown` and you know that key:
+
+```bash
+# Get the conversation key for a counterpart (informational)
+mostro-cli conversationkey -p <their-pubkey>
 
 # Read both sides of the kind-14 chat for an order
 mostro-cli getdmuser -p <their-pubkey> -o <order-id> --since 120
@@ -641,10 +653,11 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `bond add-invoice --order <id> --invoice <bolt11> [--yes]` — reply to a bond payout request with an invoice for your share of a slashed bond (supports `--output json`, which requires `--yes`; BOLT-11 only). Replaces `addbondinvoice`; without a confirmation from the node the result is `uncertain`, not success.
 
 ### Messaging
-- `message list [--since <min>] [--order <id>]` — what Mostro sent you; read-only (replaces `getdm`; peer chat is `getdmuser`).
-- `getdmuser -p <pubkey> -o <id> [--since <min>]` — both sides of that order's kind-14 chat.
+- `message list [--since <min>] [--order <id>]` — what Mostro sent you; read-only (replaces `getdm`; peer chat is `order chat`).
+- `order chat --order <id> [--message <text>] [--since <min>]` — read the kind-14 chat of an order you hold and send one message, without passing the counterparty's key (human output for now; the message is sent without a prompt). It replaces `getdmuser` and `dmtouser`.
+- `getdmuser -p <pubkey> -o <id> [--since <min>]` — both sides of that order's kind-14 chat; needs the order's row. The fallback when `order chat` answers `counterparty_unknown` and you know the key.
 - `senddm -p <pubkey> -o <id> -m <message>` — DM your counterpart.
-- `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat.
+- `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat; needs the order's row. The same fallback as `getdmuser`.
 - `disputechat -o <id> [-s <min>] [-m <message>]` — read or answer the solver on the dispute chat.
 - `conversationkey -p <pubkey>` — show the conversation key.
 

@@ -14,13 +14,14 @@ settable via the matching env var):
 - `-p, --pow <BITS>` (`POW`): the least NIP-13 proof of work mined on outgoing events, default 0. The commands that go
   through `msg::exchange` (the JSON-capable writes and `order info`) raise it to what the node advertises for the
   request's lane, up to 20 bits; above that they fail with `pow_required` carrying `required` and `configured` (spec 017).
-  The legacy commands mine exactly this value.
+  The legacy commands mine exactly this value. `order chat` mines nothing and does not read it.
 - `-s, --secret` (`SECRET=true`): full-privacy mode (unsigned inner tuple; identity = trade key).
 - `-t, --transport <nip44>` (`TRANSPORT`): wire transport. Only `nip44`
   (protocol v2, signed kind 14) is supported.
   **Optional**: when omitted, the CLI auto-detects it at startup from the node's
   `protocol_version` tag on its kind-38385 info event (a node that advertises
-  nothing is treated as `nip44`). A v1 node is an error.
+  nothing is treated as `nip44`). A v1 node is an error. `order chat` does not read it: its message goes to relays, never to
+  the node.
 - `-v, --verbose`: enable info-level logging (also surfaces the resolved transport).
 - `--reply-timeout <SECONDS>` (spec 016): how long to wait for the node's reply, 5 to 300 seconds, default 15; accepted before, between or
   after the command words, like `--output`. It is the deadline of the commands that wait for a reply: `order new`, `order take-sell`,
@@ -194,10 +195,47 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     - `--since <minutes>`: 1 to 10080 (default 30); anything else is `invalid_arguments`.
     - `--order <UUID>`: read only the messages of that order (`order_unknown` if the database has no key for it).
   - **Handler**: `message_list` in `src/commands/message/list.rs`; dispatch in `src/cli/message.rs`; contract in [specs/006-message-list-json](../specs/006-message-list-json/contracts/cli.md).
-  - **Migration**: `getdm`, `-s` and `--from-user` are gone with no alias. Peer chat is `getdmuser`; the solver's key is read from the `peer` payload of `admin-took-dispute`. The existing MCP server has no DM tool.
+  - **Migration**: `getdm`, `-s` and `--from-user` are gone with no alias. Peer chat is `order chat` (`getdmuser -p` when it answers `counterparty_unknown` and you know the key); the solver's key is read from the `peer` payload of `admin-took-dispute`. The existing MCP server has no DM tool.
+
+- **`order chat`** (spec 019; replaces `getdmuser` and `dmtouser`)
+  - **Description**: Reads the peer chat (kind 14) of an order you hold and, with `--message`, sends one message to its counterparty; you
+    never pass the counterparty's key. Needs `MOSTRO_PUBKEY`, `RELAYS`, an existing identity (it never creates one) and the order's row.
+    Human output only for now: `--output json` is `output_not_supported` (exit 2) before anything runs.
+  - **Args**:
+    - `--order <UUID>`: an order in the local store; otherwise `order_unknown`, before any relay is contacted.
+    - `--message <TEXT>`: one value, trimmed, 1 to 4096 bytes; a second `--message` is an argument error; write `--message=<TEXT>` for a
+      text that starts with `-`. It is sent without a prompt, as `dmtouser` does.
+    - `--since <minutes>`: 1 to 10080 (default 10080, the seven-day chat window).
+    - `--yes`: accepted; human mode never asks, so it changes nothing there.
+    - Any invalid value exits 2 before any relay is contacted, and the message text is never shown.
+  - **Counterparty**: the order row's `counterparty_pubkey`, when it parses and is not your own trade key, is used as it is, with no relay
+    contacted. The legacy `getdm` may have stored it (from the first node message naming both trade keys) and never refreshes it.
+    Otherwise all the node's messages to the order's trade key are read once, and only the newest `buyer-took-order` or
+    `hold-invoice-payment-accepted` naming both trade keys, or `fiat-sent-ok` with its peer, names it; the key is then cached in the row (a
+    failed save is not reported). Neither is `counterparty_unknown` (exit 1): the counterparty is known once the escrow is locked. A trade
+    whose lock-time messages are gone (beyond the newest 50 per relay, or expired after the node's `dm_days`) gets it too; `getdmuser -p`
+    and `dmtouser -p` stay the fallback when you know the key.
+  - **Behavior**: the read comes before the send, so a failed read sends nothing. One bounded read of both sides in the window, oldest
+    first, at most 200, opened only with your trade key and the counterparty's as writers. A message no relay confirmed while one failed
+    without a clear answer may have been delivered; it is never resent. `--pow`, `--transport` and `--reply-timeout` do not apply: the
+    message goes to relays, never to the node, mines nothing and waits for no reply. Worst case 52 s for a read and 78 s with `--message`.
+  - **Human output**: "💬 Order Chat", the order and the counterparty, then "📭 No chat messages" or one block per message (UTC time, "🫵
+    You" or "👤 Counterparty", the text indented with control, format and line separator characters escaped); a line when older messages
+    may be missing; "📤 Your message (id ...)" when one was sent. Errors are one `error: <fixed message>` line on stderr, never with the
+    message text. A send that may have reached a relay adds "The message may have reached a relay. Run `order chat --order <id>` and look
+    for your message before sending it again." and still prints the conversation and the message. `--verbose` adds one line,
+    `verbose: order.chat <ok|code>`.
+  - **Stages** (for the JSON contract; an amendment for this command): publication is `not_applicable` until the send step runs, with or
+    without `--message` (arguments, configuration, identity, store, `order_unknown`, `counterparty_unknown`, a failed lookup or read). The
+    send step reports `published`; `not_attempted` when the wrap fails (`internal_error`), the relays cannot be connected (the connect
+    code) or every relay refused (`request_rejected`); `unknown` (`uncertain`, `request_rejected`) when no relay confirmed and one failed
+    without a clear answer. Node acceptance and persistence are always `not_applicable`: the counterparty cache is not reported. Proposed
+    outcomes: [contracts/examples.json](../specs/019-order-chat/contracts/examples.json).
+  - **Handler**: `order_chat` in `src/commands/order/chat.rs`; dispatch in `src/cli/order_chat.rs`; contract in
+    [specs/019-order-chat](../specs/019-order-chat/contracts/cli.md).
 
 - **`getdmuser`**
-  - **Description**: Read both sides of the kind-14 chat for an order. The pubkey is the counterparty the conversation is derived from.
+  - **Description**: Read both sides of the kind-14 chat for an order. The pubkey is the counterparty the conversation is derived from. Needs the order's row and its trade key, as `order chat` does; `order chat` also finds the counterparty itself, so this command is the fallback when it answers `counterparty_unknown` and you know the key.
   - **Args**:
     - `--since <i64>`: Minutes back from now to query (default: 30).
   - **Handler**: `execute_get_dm_user(since, ctx)` in `src/cli/get_dm_user.rs`.
@@ -211,7 +249,7 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Handler**: `execute_send_dm(PublicKey::from_str(pubkey)?, ctx, order_id, &msg)` in `src/cli/send_dm.rs`.
 
 - **`dmtouser`**
-  - **Description**: Send a kind-14 peer chat message (`K_conv` / `K_sign`). Derives chat keys from the order’s trade keys and the recipient pubkey.
+  - **Description**: Send a kind-14 peer chat message (`K_conv` / `K_sign`). Derives chat keys from the order’s trade keys and the recipient pubkey, so it needs the order's row, as `order chat` does; `order chat --message` also finds the recipient itself, so this command is the fallback when it answers `counterparty_unknown` and you know the key.
   - **Args**:
     - `--pubkey <NPUB/HEX>`: Recipient pubkey.
     - `--order-id <UUID>`: Order id to derive trade keys and shared key.
@@ -350,7 +388,7 @@ mode) without running anything.
 | `rate -o <UUID> -r <N>`, `rate --orderid <UUID> --rating <N>` (documented as `--order-id`) | `order rate --order <UUID> --rating <N> [--yes]` | JSON `order.rate`, requires `--yes`; `N` outside 1-5 is refused before anything is sent; a second rating gets no answer (`uncertain`) |
 
 Added in the same range, for the notes: `identity init`, `identity show`, `order mine`, `order new --expires-in`, `--invoice -` on the four
-invoice commands. The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
+invoice commands, `order chat` (human output). The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
 
 ---
 

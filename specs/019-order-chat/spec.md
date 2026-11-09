@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-08
 
-**Status**: In progress, unit 2 of 4 (the counterparty lookup, then the chat read and send, the outcome types and the human renderer;
-library only, no command uses them yet). Progress is tracked only in [tasks.md](tasks.md)
+**Status**: In progress, unit 3 of 4: `order chat` works in human mode; `--output json` is `output_not_supported` until unit 4. Progress
+is tracked only in [tasks.md](tasks.md)
 
 **Input**: Issue #245. An agent that ran a full trade with mostro-cli 0.17.0 had to find the counterparty's trade key itself and pass it to
 `getdmuser -p` and `dmtouser -p`, which print human text only. On the JSON flow nothing states that key: `message list` carries it inside
@@ -43,7 +43,8 @@ counterparty on its own, reads the conversation and, with `--message`, sends one
   never contains it. The issue asks for "the same shape the other writes use": they report publication in `meta.publication` and their
   result in `data`, so here `meta.publication` carries the publication and `data.sent` the message.
 - **D9 Names and schema files (a recorded departure)**: canonical name `order.chat`. `chat.history` (`getdmuser`) and `chat.send`
-  (`dmtouser`) stay, unchanged and human-only, for orders without a local row. The issue asks for input and result schemas under
+  (`dmtouser`) stay, unchanged and human-only, as the fallback when `order chat` answers `counterparty_unknown` and the caller knows the
+  counterparty's key; like `order chat`, both need the order's row and its trade key. The issue asks for input and result schemas under
   `docs/schemas/`; by the repository's convention the input schema is generated into the discovery entry only, and only the output schema gets
   its own file, `docs/schemas/order-chat-v1.json`. The book still gets `schemas/order.chat.input.json`.
 - **D10 Counterparty sources**: in the issue's order. A stored `counterparty_pubkey` that parses and is not our trade key is used as it

@@ -456,4 +456,12 @@ a relay at its limit of 200 marking the read truncated, a sent message the count
 `K_sign` with one `p` tag, one confirmation beside a refusing relay while a relay asking for NIP-42 auth still gets the message, refused,
 unconfirmed and unreachable relays) and the unit tests of `msg::chat` (3: replays, forged envelopes and third writers; the window and the
 cap of 200; the 60-second clock bound), `outcome::chat` (4, the D4 stage combinations included), `parse_human::chat` (4) and
-`parse_human::table::escape_untrusted` (1, the joiners kept); loopback relays only, no command yet.
+`parse_human::table::escape_untrusted` (1, the joiners kept); loopback relays only, no command yet. Unit 3 (2026-11-09):
+`tests/order_chat_process.rs` `mod operation` (5: a read of both sides that learns and caches the counterparty, `order_unknown` and
+`counterparty_unknown` before any chat read even with a message and the store codes, a send kept apart from the conversation and read back
+once, refused and unconfirmed sends, a failed read that sends nothing) and `mod binary` (6: the human conversation with forged lines and
+bidirectional controls escaped, a send without a question and `--yes` alone sending nothing, bad `--since` and `--message` (a 4097-byte one
+included) exiting 2 before any relay and `--message=-x` accepted, an uncertain send printing the advice line and still the conversation, a
+closed stdout giving one fixed line, no secret on any stream and one `--verbose` line); `chat_examples_conform_and_are_reproduced` and
+`invalid_chat_variants_do_not_conform` (`tests/integration_tests.rs`); `order.chat` in the registry mapping and in
+`every_legacy_command_rejects_json_before_any_effect`.

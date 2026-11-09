@@ -75,7 +75,7 @@ without aliases; other legacy spellings are unchanged.
 - No new database model, table or migration was added; the existing SQLite
   layer is untouched and described in [database.md](database.md).
 - The transport migration is **not** complete. There is a single door for public reads
-  (`msg::fetch_msg`), and the order chat of spec 019 (`msg::chat`, no command yet) reads through
+  (`msg::fetch_msg`), and the order chat of spec 019 (`msg::chat`, behind `order chat`) reads through
   it and publishes through the private door of `msg::send_msg`, but the legacy `getdmuser`,
   `dmtouser` and `disputechat` keep their own transport, and there is no shared
   `send_msg`/`receive_msg` for admin messages.
@@ -299,15 +299,15 @@ violation.
 - **`src/cli/stdin.rs`**: `--invoice -` (spec 010). The four dispatchers that take an invoice (`cli/invoice.rs`, `cli/order_take.rs`, `cli/order_new.rs`) call `stdin::invoice` right after the JSON `--yes` rule and before their validation: a literal value is kept as it is; `-` without `--yes`, or with a terminal as stdin, is `invalid_arguments` before stdin is read; with `--yes` at most 8 KiB + 1 byte is read and exactly one non-empty trimmed UTF-8 line is required. The prompt never reads stdin on this path.
 - **`src/commands/message/list.rs`**, **`src/msg/inbox.rs`**, **`src/cli/message.rs`**, **`src/outcome/messages.rs`** (and `messages/payload.rs`), **`src/parse_human/message.rs`**: `message list`, a read with an identity. `cli/write.rs::resolve_reader` resolves configuration, identity and an existing store (never writable, and without the work and transport settings, which concern only what is sent); `Store::trade_keys` derives the keys of indexes 1 to the recorded last (newest 200) or `Store::order_keys` gives the one of `--order`. `msg::inbox::read_inbox` asks every relay once (kind 14, the node as author, all keys as recipients, the window, 50 per relay) through the bounded read of `order list`, then re-checks author, kind, time and recipient itself and opens each event with the key it names; a filter with no recipient is never sent. `outcome/messages.rs` holds the validated input, the records with the typed `next_step`, and the payload summary (the bond, hold and payout invoices are data). The command writes nothing: it saves no counterparty or solver key, which `getdm` did.
 - **`src/store/counterparty.rs`**, **`src/msg/counterparty.rs`**, **`src/commands/order/counterparty.rs`**: the counterparty lookup of
-  spec 019 (`order chat`, in progress; no command uses it yet). `find_counterparty` returns the row's `counterparty_pubkey`
+  spec 019 (`order chat`). `find_counterparty` returns the row's `counterparty_pubkey`
   (`Store::counterparty`) as it is when it parses and is not our trade key, with no relay contacted. Otherwise it reads all the node's mail
   to the order's trade key since 0 (`read_inbox`) and takes the key from the newest post-lock message about the order
   (`msg::counterparty::counterparty_in`: `buyer-took-order` or `hold-invoice-payment-accepted` naming both trade keys, or `fiat-sent-ok`
   with its `Peer`), then saves it to the row as a best-effort cache (`Store::set_counterparty`; a failed save is not reported). None found
   is `counterparty_unknown`. `counterparty_from_trade_pubkeys`, which the legacy `persist_counterparty_pubkey` still uses, moved from
   `parser/dms.rs` to `msg/counterparty.rs`.
-- **`src/msg/chat.rs`**, **`src/outcome/chat.rs`**, **`src/parse_human/chat.rs`**: the order chat of spec 019 (no command uses them
-  yet). `msg::chat::read_chat` is one bounded read through `fetch_msg` of the envelopes the conversation's `K_sign` authored (the window as
+- **`src/msg/chat.rs`**, **`src/outcome/chat.rs`**, **`src/parse_human/chat.rs`**: the order chat of spec 019.
+  `msg::chat::read_chat` is one bounded read through `fetch_msg` of the envelopes the conversation's `K_sign` authored (the window as
   `since`, 200 per relay); `open_lines` opens each only through `unwrap_chat_message` with our trade key and the counterparty's as
   writers, counts a message once by its inner id, orders by (time, id) and keeps the newest 200. `send_chat`, the send step, wraps and
   opens its own envelope first, connects the relays, publishes once through `send_msg::publish`, waits for one confirmation within the read
@@ -318,12 +318,19 @@ violation.
   `not_attempted` (wrap, connection or every relay refusing) or `unknown`; acceptance and persistence are always `not_applicable` (the
   counterparty key the lookup may cache is not reported). `parse_human/chat.rs` renders the conversation with each text line escaped by
   `escape_untrusted` and indented; the indent does not survive the terminal wrapping a long line, which goes on at column 0.
+- **`src/commands/order/chat.rs`**, **`src/cli/order_chat.rs`**: `order chat` (spec 019), human output only until its JSON lands: the
+  registry marks it `JsonSupport::Unsupported` and `cli/migrated.rs` dispatches it in human mode only, so `--output json` gets
+  `output_not_supported` before anything runs. `cli/order_chat.rs` validates the arguments, resolves configuration, identity and store
+  with `cli/write.rs::resolve_reader` (read-only, without the work and transport settings) and presents the outcome with
+  `cli/write.rs::finish`; human mode sends without a prompt. `order_chat` takes the order's trade key (`Store::order_keys`, else
+  `order_unknown`), the counterparty (`find_counterparty`) and the conversation (`read_chat`), and only then sends the message
+  (`send_chat`), so a failed read publishes nothing; the message sent is `data.sent`, never one of `data.messages`.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).
 - **Command registry** (`REGISTRY` and `lookup` in `src/cli/registry.rs`): every subcommand's canonical name and JSON support. `run()` uses it to name the command in JSON rejections before RPC routing or context initialization.
 
-- **Peer / solver chat** (`src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
+- **Peer / solver chat** (`src/cli/order_chat.rs`, `src/cli/dm_to_user.rs`, `src/cli/get_dm_user.rs`, `src/cli/dispute_chat.rs`):
   - Protocol#52 kind-14 envelope: `derive_chat_keys` splits `K_conv` / `K_sign`; `wrap_chat_message` / `unwrap_chat_message` encrypt to `K_conv` and sign with `K_sign`. Used by `dmtouser`, `getdmuser`, `disputechat`, and `sendadmindmattach`, each with its own transport, and by `msg/chat.rs` for the migrated order chat (spec 019).
   - Attachment encryption still uses ECDH (`derive_shared_key_bytes`) for the Blossom blob only; the metadata DM is the same kind-14 chat envelope.
 
