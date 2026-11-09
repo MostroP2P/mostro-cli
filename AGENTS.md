@@ -41,8 +41,8 @@ commands that wait for the node. The commands that wait for the node also mine t
 `pow_required` names `required` and `configured` ([spec](specs/017-advertised-pow/spec.md)); verified against the scripted node and
 probed on a local regtest node. The node settings file ([spec 018](specs/018-config-file/spec.md), [tasks.md](specs/018-config-file/tasks.md)):
 every networked command, JSON-capable or human-only, reads `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` from `$MCLI_DIR/config` after
-the options and the environment, verified on Linux against loopback relays and the scripted node; the typed core of `config set` is in
-place, and `config set` and `config show` are proposed.
+the options and the environment, verified on Linux against loopback relays and the scripted node; `config set <key> <value>` writes one
+of them to the file (JSON `config.set`), verified on Linux against isolated sandboxes; `config show` is proposed.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
@@ -53,4 +53,4 @@ The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
 clones and outside both repositories. Only the `order list`, `order info`, `order new`, the two
 `order take-*`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`,
-`dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` modules are migrated; the other planned modules are not yet implemented.
+`dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `schema` modules are migrated; the other planned modules are not yet implemented.

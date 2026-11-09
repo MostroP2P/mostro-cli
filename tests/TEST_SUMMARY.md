@@ -4680,3 +4680,36 @@ manual run was made. Windows is not verified locally: only the CI runner, after 
   `cargo test --locked` 1032 passed, 0 failed, 0 ignored (1012 before), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-file-read...HEAD`
   gives 32 files changed, 1367 insertions, 128 deletions (1495 changed lines).
+
+## Node Settings File (spec 018) Unit 3: Config Set: 2026-11-08
+
+Branch `feat/config-set`, stacked on `feat/config-file-legacy` (b251edd), the third of four units of issue #244. Automated verification
+on Linux only (uid 1000, not root), with loopback relays and isolated sandboxes; no real node or relay was contacted. Windows is not
+verified locally: only the CI runner, after the branch is pushed, will run it.
+
+- **Failing first** (unit 2 code, with the new tests and the regenerated fixtures in place): `tests/config_process.rs` 9 of 9 failed
+  (exit 2, no `config` command); `tests/cli_functions.rs` did not compile; three `schema_fixtures` tests failed (the `config.set`
+  fixture, the discovery drift test, the positional discovery test) and so did the legacy count of `order_list_process` (20, not 19).
+- **The change**: `config set <key> <value>`: the key is a Clap possible value, the value a positional checked by `ConfigSetInput`
+  (`invalid_arguments`, never echoed). `cli/config.rs`, from the local block of `cli::migrated::run`, runs the unit 2 `config_set`
+  (strict read, then the locked rewrite), prints one `hint:` for a refused or unreachable file and finishes with `render_config`.
+  Registry `config.set` (Read), `required_configuration` [], `config-set-v1.json` added and discovery regenerated with the extended
+  `REGENERATE` list (`key` enum with `x-positional` 0, `value` with 1). No existing output schema changed; `schema_version` stays `"1"`.
+- **Moved to unit 4**, in the plan's order, to stay under 1500 changed lines (the two generated fixtures take 766): the round-trip test
+  of `config set` then `order list`, and the guidance rewording (`ENV_FILE_HINT`, the missing-setting messages and their tests, the
+  README setup).
+- **Tests**: grammar: the four keys, `pow -- -1`, an unknown key, a missing or extra value, resolved to `config.set`. Process: a new
+  data directory becomes 0700 with only `config` (0600) and `.config.lock`, the JSON conforming to the checked-in schema; a hand-written
+  file (BOM, comment, `export`, quotes, CRLF, a repeated key) keeps the other values and is rewritten as `NAME=value` lines; six refused
+  values and `admin-nsec <sentinel>` give exit 2 in both modes, nothing echoed or written; a refused file gives `configuration_invalid`
+  with exactly one `hint:` naming its line, its bytes unchanged; a data directory with mode 0600 (Unix) is refused, its mode and file
+  unchanged; a regular file or a missing parent as data directory gives `configuration_unwritable` / `not_attempted`, nothing created;
+  human output, `verbose: config.set ok`, a closed stdout; zero relay connections with a node configured, open stdin and no `--yes`. The
+  examples conform to the checked-in fixture. The debug binary was also run by hand in a scratch data directory, with no node: help,
+  JSON and human output, file modes.
+- **Review fixes** (docs only, no test changed): run by hand, a `.config.lock` directory gave `configuration_unwritable` / `not_attempted`
+  after the data directory had gone from 0755 to 0700, which the docs now say; SC-004 now reads as pending (unit 4).
+- **Gates** (final tree): `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
+  `cargo test --locked` 1044 passed, 0 failed, 0 ignored (1032 before), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-file-legacy...HEAD`
+  gives 26 files changed, 1443 insertions, 56 deletions (1499 changed lines).

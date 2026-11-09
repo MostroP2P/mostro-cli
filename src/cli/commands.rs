@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub use super::command_args::{
-    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, NewArgs, RateArgs, StepArgs, SyncArgs,
-    TakeBuyArgs, TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, ConfigSetArgs, ListMessagesArgs, NewArgs, RateArgs,
+    StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
 };
 use crate::outcome::order::{SIDES, STATUSES};
 
@@ -45,6 +45,13 @@ pub enum Commands {
     Dispute {
         #[command(subcommand)]
         command: DisputeCommands,
+    },
+    /// The node settings file ($MCLI_DIR/config, else ~/.mcli/config). Needs
+    /// no node, relay or network
+    #[command(arg_required_else_help = true)]
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
     },
     /// Read both sides of the kind-14 chat for an order
     GetDmUser {
@@ -306,6 +313,16 @@ pub enum IdentityCommands {
     /// Show the identity public key and the last trade index of the local
     /// store. Read-only; never shows the mnemonic
     Show,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+#[clap(rename_all = "lower")]
+pub enum ConfigCommands {
+    /// Write one node setting to the config file, keeping the others: the
+    /// data directory is created or made owner-only and the file is rewritten
+    /// owner-only as NAME=value lines (comments are dropped). A file the
+    /// commands refuse is left untouched
+    Set(ConfigSetArgs),
 }
 
 #[derive(Subcommand, Clone)]

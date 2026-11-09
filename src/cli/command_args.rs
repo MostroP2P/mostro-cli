@@ -6,6 +6,7 @@ use clap::Args;
 use uuid::Uuid;
 
 use crate::outcome::order::SIDES;
+use crate::settings::SETTING_KEYS;
 
 #[derive(Args, Clone, Debug)]
 pub struct AddInvoiceArgs {
@@ -146,4 +147,16 @@ pub struct RateArgs {
     /// Send the rating without asking (required with --output json)
     #[arg(long)]
     pub yes: bool,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct ConfigSetArgs {
+    /// The setting: mostro-pubkey (MOSTRO_PUBKEY), relays (RELAYS), pow (POW)
+    /// or transport (TRANSPORT)
+    #[arg(value_parser = PossibleValuesParser::new(SETTING_KEYS))]
+    pub key: String,
+    /// The value, trimmed and checked as the commands check it: a public key
+    /// (hex or npub), comma-separated ws:// or wss:// relay URLs, a number
+    /// from 0 to 255, or nip44; put `--` before a value that starts with `-`
+    pub value: String,
 }

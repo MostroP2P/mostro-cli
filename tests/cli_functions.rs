@@ -1079,7 +1079,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 38] = [
+    const APPROVED: [(&[&str], &str); 39] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1118,6 +1118,7 @@ mod registry {
         (&["order", "mine"], "order.mine"),
         (&["order", "rate"], "order.rate"),
         (&["dispute", "open"], "dispute.open"),
+        (&["config", "set"], "config.set"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1178,7 +1179,7 @@ mod registry {
         for entry in REGISTRY {
             match entry.canonical {
                 "order.list" | "schema" | "message.list" | "order.sync" | "identity.init"
-                | "identity.show" | "order.mine" => {
+                | "identity.show" | "order.mine" | "config.set" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1271,7 +1272,8 @@ mod registry {
                 "identity.show",
                 "order.mine",
                 "order.rate",
-                "dispute.open"
+                "dispute.open",
+                "config.set"
             ]
         );
     }
@@ -1949,6 +1951,59 @@ mod identity_grammar {
             // Publishes nothing, like `order sync`: rejected invocations report
             // read stages.
             assert_eq!(entry.json, JsonSupport::Read, "{canonical}");
+        }
+    }
+}
+
+/// The grammar of `config set` (spec 018).
+mod config_grammar {
+    use clap::{CommandFactory, Parser};
+    use mostro_client::cli::invocation::{parse_invocation, Invocation};
+    use mostro_client::cli::{Cli, Commands, ConfigCommands};
+
+    fn parse(args: &[&str]) -> Result<ConfigCommands, clap::Error> {
+        let argv = ["mostro-cli", "config"]
+            .into_iter()
+            .chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Config { command }) => Ok(command),
+            _ => panic!("not config"),
+        }
+    }
+
+    #[test]
+    fn set_takes_a_known_key_and_one_value() {
+        for key in ["mostro-pubkey", "relays", "pow", "transport"] {
+            let Ok(ConfigCommands::Set(args)) = parse(&["set", key, "x"]) else {
+                panic!("{key}");
+            };
+            assert_eq!((args.key.as_str(), args.value.as_str()), (key, "x"));
+        }
+        // After `--` a value may start with `-`; the value check refuses it.
+        let Ok(ConfigCommands::Set(args)) = parse(&["set", "pow", "--", "-1"]) else {
+            panic!("pow -- -1");
+        };
+        assert_eq!(args.value, "-1");
+        for bad in [
+            &["set", "admin-nsec", "x"][..],
+            &["set", "MOSTRO_PUBKEY", "x"],
+            &["set", "pow"],
+            &["set", "pow", "1", "2"],
+            &["set"],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+            // In JSON these are invalid_arguments of config.set (exit 2).
+            let argv = ["mostro-cli", "--output", "json", "config"]
+                .into_iter()
+                .chain(bad.iter().copied());
+            let Invocation::Rejected(failure) = parse_invocation(Cli::command(), argv) else {
+                panic!("{bad:?} was accepted");
+            };
+            assert_eq!(
+                failure.command,
+                Some(vec!["config".to_string(), "set".to_string()]),
+                "{bad:?}"
+            );
         }
     }
 }
