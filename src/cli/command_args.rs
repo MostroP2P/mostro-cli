@@ -66,8 +66,9 @@ pub struct WatchArgs {
     /// Start where an earlier JSON call stopped: its `cursor`, verbatim
     #[arg(long, value_name = "CURSOR", conflicts_with = "since")]
     pub after: Option<String>,
-    /// Stop after this many seconds without the trade ending (1 to 86400);
-    /// human mode has no deadline without it
+    /// Deadline in seconds, counted from the end of the first replay (1 to
+    /// 86400): JSON returns at the first new records or empty at it (default
+    /// 30); human mode stops at it, and has no deadline without it
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<i64>,
 }

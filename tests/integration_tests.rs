@@ -626,6 +626,7 @@ mod schema_fixtures {
                 "order.sync",
                 "order.take-buy",
                 "order.take-sell",
+                "order.watch",
                 "schema"
             ]
         );
@@ -4087,6 +4088,67 @@ mod schema_fixtures {
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label} on {case}"
             );
+        }
+    }
+
+    // --- Order watch (spec 020) ---
+
+    use mostro_client::outcome::watch::{Cursor, Observed, WatchData, COMMAND as ORDER_WATCH};
+
+    /// The counterparty of the watched trade, not the user's trade key.
+    const PEER: &str = "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9";
+
+    /// The proposed examples of `order.watch`, built with the owned
+    /// constructors: a node message and a chat line from the counterparty,
+    /// with the cursor that the call advanced over them.
+    fn watch_cases() -> Vec<(&'static str, Value, i32)> {
+        let at = 1_792_108_800;
+        let message = message_record(Action::FiatSentOk, Some(id(1)), None, 1);
+        let line_id = EventId::from_byte_array([0x22; 32]);
+        let line = ChatRecord::new(
+            &line_id,
+            ChatSender::Counterparty,
+            at,
+            "Fiat sent by bank transfer.",
+            &mut Warnings::new(),
+        );
+        let observed = [
+            Observed::mail(EventId::from_byte_array([7; 32]), at + 60),
+            Observed::chat(line_id, at, at),
+        ];
+        let cursor = Cursor::start(at - 1_800).advance(&observed, at + 120);
+        let counterparty = PublicKey::from_hex(PEER).unwrap();
+        let records = (vec![message], vec![line]);
+        let data = WatchData::new(id(1), Some(&counterparty), records, false, false, &cursor);
+        let ok = Envelope::<WatchData, ()>::ok(
+            ORDER_WATCH,
+            data,
+            Warnings::new(),
+            ExecutionMeta::read(None),
+        );
+        vec![("new_records", to_value(ok).unwrap(), 0)]
+    }
+
+    #[test]
+    fn watch_examples_conform_and_are_reproduced() {
+        // Checked against the schema inside discovery until order.watch has
+        // its own fixture (spec 020, unit 7).
+        let schema = read_json(DISCOVERY_FIXTURE)["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|command| command["name"] == ORDER_WATCH)
+            .map(|command| command["output_schema"].clone())
+            .unwrap();
+        let examples = examples_of("020-order-watch");
+        let built = watch_cases();
+        assert_eq!(examples.len(), built.len());
+        for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+            examples.iter().zip(&built)
+        {
+            assert_eq!(name, built_name);
+            assert_eq!((outcome, exit), (built_outcome, built_exit), "{name}");
+            assert!(schema_check::conforms(&schema, &schema, outcome), "{name}");
         }
     }
 }

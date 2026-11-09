@@ -1,5 +1,5 @@
 //! `order.watch` input and data: the contract of a watch on one order (spec
-//! 020). Not reachable from the binary yet.
+//! 020), emitted by `order watch` in human mode and with `--output json`.
 //!
 //! A watch follows the node's messages to the order's trade key and, once the
 //! counterparty is known, the order's peer chat: the window is replayed first,

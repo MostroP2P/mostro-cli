@@ -284,7 +284,8 @@ pub enum OrderCommands {
     /// Follow an order you hold until its trade ends: the node's messages and,
     /// once the counterparty is known, its peer chat, replayed from --since
     /// and then live. Read-only; needs an existing local identity (it never
-    /// creates one). Human output only for now
+    /// creates one). With --output json it prints one document per call,
+    /// carrying a cursor to pass back with --after
     Watch(WatchArgs),
 }
 

@@ -1,5 +1,6 @@
 //! Tests for `order watch` (spec 020): the live subscription (units 2 and 3),
-//! the operation (unit 4) and the binary in human mode (unit 5).
+//! the operation (unit 4), the binary in human mode (unit 5) and in JSON
+//! (unit 6).
 //!
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
@@ -1092,7 +1093,7 @@ mod binary {
 
     /// The binary in `desk`'s sandbox, with its node and relay, watching
     /// `ORDER` with `extra` arguments after `front` ones.
-    fn command(desk: &Desk, front: &[&str], extra: &[&str]) -> Command {
+    pub(super) fn command(desk: &Desk, front: &[&str], extra: &[&str]) -> Command {
         let order = ORDER.to_string();
         let mut args = front.to_vec();
         args.extend(["order", "watch", "--order", &order]);
@@ -1104,13 +1105,13 @@ mod binary {
         command
     }
 
-    async fn run(command: Command) -> Captured {
+    pub(super) async fn run(command: Command) -> Captured {
         let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
         assert!(run.reaped && run.status.is_some());
         run
     }
 
-    async fn quiet_desk() -> Desk {
+    pub(super) async fn quiet_desk() -> Desk {
         Desk::new(Role::Taker, true, &[]).await
     }
 
@@ -1246,5 +1247,136 @@ mod binary {
             assert_eq!(run.code(), Some(0), "{front:?}: {}", run.stderr_text());
             assert!(run.stdout_text().ends_with(DEADLINE_LINE), "{front:?}");
         }
+    }
+}
+
+mod json {
+    use super::binary::{command, quiet_desk, run};
+    use super::operation::Desk;
+    use super::*;
+    use harness::{Captured, SENTINEL};
+    use mostro_client::store::Role;
+    use serde_json::{json, Value};
+
+    const JSON: [&str; 2] = ["--output", "json"];
+
+    /// The `order.watch` output schema checked in inside discovery.
+    fn schema() -> Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/docs/schemas/discovery-v1.json"
+        );
+        let discovery: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        discovery["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|command| command["name"] == "order.watch")
+            .map(|command| command["output_schema"].clone())
+            .unwrap()
+    }
+
+    /// The one document of a run, checked against the schema.
+    fn document(run: &Captured) -> Value {
+        let out = run.stdout_text();
+        assert_eq!(out.lines().count(), 1, "{out}");
+        let outcome: Value = serde_json::from_str(&out).unwrap();
+        let schema = schema();
+        assert!(schema_check::conforms(&schema, &schema, &outcome), "{out}");
+        outcome
+    }
+
+    fn texts(outcome: &Value) -> Vec<String> {
+        let messages = outcome["data"]["messages"].as_array().unwrap();
+        messages
+            .iter()
+            .map(|message| message["payload"]["text"].as_str().unwrap().into())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn json_returns_one_document_at_the_first_new_record() {
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let to = chat.trade.public_key();
+        let replayed = mail_text(ORDER, "replayed");
+        let replayed = node_event(&node, to, &replayed, Timestamp::from(now() - 600)).await;
+        let desk = Desk::with(Role::Taker, true, chat, node, &[&replayed]).await;
+
+        let first = run(command(&desk, &JSON, &[])).await;
+
+        assert_eq!(first.code(), Some(0), "{}", first.stderr_text());
+        assert!(first.stderr.is_empty(), "{}", first.stderr_text());
+        let first = document(&first);
+        assert_eq!(first["status"], "ok");
+        assert_eq!(texts(&first), ["replayed"]);
+        assert_eq!(first["data"]["ended"], false);
+        let cursor = first["data"]["cursor"].as_str().unwrap().to_string();
+
+        let live = desk.mail(&mail_text(ORDER, "live"), now()).await;
+        desk.publish(live, QUIET);
+        let next = run(command(&desk, &JSON, &["--after", &cursor])).await;
+
+        assert_eq!(next.code(), Some(0), "{}", next.stderr_text());
+        let next = document(&next);
+        assert_eq!(texts(&next), ["live"], "only the record after the cursor");
+        assert_ne!(next["data"]["cursor"], json!(cursor));
+    }
+
+    #[tokio::test]
+    async fn json_timeout_is_an_empty_success_with_the_given_cursor() {
+        let desk = quiet_desk().await;
+        let cursor = (now() - 60).to_string();
+        let started = Instant::now();
+
+        let run = run(command(
+            &desk,
+            &JSON,
+            &["--after", &cursor, "--timeout", "1"],
+        ))
+        .await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        assert!(started.elapsed() < Duration::from_secs(15), "bounded");
+        let outcome = document(&run);
+        let data = &outcome["data"];
+        assert_eq!(outcome["status"], "ok");
+        assert_eq!((&data["messages"], &data["chat"]), (&json!([]), &json!([])));
+        assert_eq!(
+            (&data["ended"], &data["cursor"]),
+            (&json!(false), &json!(cursor))
+        );
+    }
+
+    #[tokio::test]
+    async fn json_errors_conform_with_null_data() {
+        let desk = quiet_desk().await;
+        let unknown = Uuid::from_u128(0xdead).to_string();
+        let mut args = JSON.to_vec();
+        args.extend(["order", "watch", "--order", &unknown, "--timeout", "1"]);
+        let mut unknown = desk.sandbox.command(&args);
+        unknown
+            .env("MOSTRO_PUBKEY", desk.node.public_key().to_hex())
+            .env("RELAYS", &desk.relay.url);
+        let cases = [
+            (run(unknown).await, 1, "order_unknown"),
+            (
+                run(command(&desk, &JSON, &["--after", SENTINEL])).await,
+                2,
+                "invalid_arguments",
+            ),
+        ];
+
+        for (run, exit, code) in cases {
+            assert_eq!(run.code(), Some(exit), "{code}: {}", run.stderr_text());
+            assert!(run.stderr.is_empty(), "{code}: {}", run.stderr_text());
+            assert!(!run.stdout_text().contains(SENTINEL), "{code}");
+            let outcome = document(&run);
+            assert_eq!(outcome["status"], "error", "{code}");
+            assert_eq!(outcome["error"]["code"], code);
+            assert_eq!(outcome["data"], Value::Null, "{code}");
+        }
+        assert_eq!(desk.relay.connections(), 0, "no relay was contacted");
     }
 }
