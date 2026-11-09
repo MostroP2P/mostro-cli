@@ -13,7 +13,7 @@ use crate::outcome::info::OrderRecord;
 use crate::outcome::order::rfc3339_utc;
 use crate::outcome::{schema, Warnings};
 
-pub(super) const TEXT_BYTES: usize = 4096;
+pub(crate) const TEXT_BYTES: usize = 4096;
 const PUBKEY_TEXT_BYTES: usize = 128;
 
 /// A summary of the payload of a message.
@@ -77,7 +77,7 @@ fn other(payload: &Payload) -> MessagePayload {
 }
 
 /// At most `limit` bytes of `text`, cut on a character boundary.
-fn bounded(text: &str, limit: usize) -> String {
+pub(crate) fn bounded(text: &str, limit: usize) -> String {
     if text.len() <= limit {
         return text.to_string();
     }

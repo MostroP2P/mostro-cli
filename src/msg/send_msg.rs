@@ -1,5 +1,6 @@
-//! Wrapping and publishing one request. Private to `msg`: the wrapper only
-//! ever sees the result of an exchange.
+//! Wrapping and publishing one request, and publishing one chat message.
+//! Private to `msg`: the wrapper only ever sees the result of an exchange or
+//! of a chat send.
 
 use std::convert::Infallible;
 
@@ -100,6 +101,16 @@ impl Publishing<'_> {
                 Err(_) => return Err(Unconfirmed::Ambiguous),
             }
         }
+    }
+
+    /// Drive the relays that have not answered yet until each has, or until
+    /// `deadline`: after one relay confirmed, the others still get the event
+    /// (a relay may be authenticating first) before the connection closes.
+    pub(super) async fn settle(&mut self, deadline: Instant) {
+        let _ = timeout_at(deadline, async {
+            while self.sends.next().await.is_some() {}
+        })
+        .await;
     }
 
     /// Drive the relays that have not answered yet, then wait forever. Polled

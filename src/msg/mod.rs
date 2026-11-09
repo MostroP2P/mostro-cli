@@ -15,8 +15,9 @@
 //! use mostro_client::msg::orders::reduce_orders;
 //! ```
 //!
-//! So are the doors of the request and reply exchange: publishing, waiting for the
-//! reply and reading the node's information happen only inside `exchange`.
+//! So are the doors of the request and reply exchange: publishing happens only
+//! inside `exchange` and the chat send (`chat::send_chat`); waiting for the
+//! reply and reading the node's information only inside `exchange`.
 //!
 //! ```compile_fail,E0603
 //! use mostro_client::msg::send_msg::publish;
@@ -37,6 +38,7 @@
 //!     exchange, fetch_msg, ExchangeFailure, ExchangeLimits, Exchanged, Expect, FetchFailure,
 //!     Fetched, Lane, Outbound, PublicReadConfig, ReadLimits, AUTO_POW_CEILING,
 //! };
+//! use mostro_client::msg::chat::{read_chat, send_chat, ChatLine, Conversation, SendFailure};
 //! ```
 
 use std::str::FromStr;
@@ -47,6 +49,7 @@ use nostr_sdk::prelude::{Client, Keys, PublicKey, RelayUrl, SignerAuthenticator}
 use crate::outcome::ErrorCode;
 use crate::util::net::install_rustls_crypto_provider;
 
+pub mod chat;
 pub mod counterparty;
 pub mod exchange;
 pub mod inbox;

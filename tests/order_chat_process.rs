@@ -1,15 +1,25 @@
-//! Tests for `order chat` (spec 019), unit 1: the counterparty column of the
-//! store and the lookup of the counterparty in the node's messages.
+//! Tests for `order chat` (spec 019): the counterparty column of the store and
+//! the lookup of the counterparty in the node's messages (unit 1), and the
+//! chat read and send (unit 2).
 //!
 //! Every store is an isolated sandbox seeded the way the CLI creates one; the
-//! node's mail sits on an in-process loopback relay, authored by generated node
-//! keys. Nothing else is contacted.
+//! node's mail and the chat sit on in-process loopback relays, signed by
+//! generated keys. Nothing else is contacted.
 
+use std::future::Future;
+use std::net::SocketAddr;
 use std::path::Path;
+use std::pin::Pin;
 use std::time::Duration;
 
-use mostro_core::prelude::{Action, Message};
-use nostr_sdk::prelude::{Event, Keys, LocalRelay, PublicKey, Timestamp};
+use mostro_client::msg::chat::{read_chat, send_chat, ChatLine, SendFailure};
+use mostro_client::msg::fetch_msg;
+use mostro_client::outcome::{Publication, Warnings};
+use mostro_core::prelude::{derive_chat_keys, wrap_chat_message, Action, Message};
+use nostr_sdk::prelude::{
+    Event, Filter, Keys, Kind, LocalRelay, LocalRelayBuilderNip42, MachineReadablePrefix,
+    PublicKey, Timestamp, WritePolicy, WritePolicyResult,
+};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -49,6 +59,22 @@ fn dead_relay() -> String {
     let url = format!("ws://{}", free.local_addr().unwrap());
     drop(free);
     url
+}
+
+/// Rejects every write with a machine-readable refusal.
+#[derive(Debug)]
+struct BlockWrites;
+
+impl WritePolicy for BlockWrites {
+    fn admit_event<'a>(
+        &'a self,
+        _event: &'a Event,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = WritePolicyResult> + Send + 'a>> {
+        Box::pin(async {
+            WritePolicyResult::reject(MachineReadablePrefix::Blocked, "writes are off")
+        })
+    }
 }
 
 /// A user who took `ORDER` (and `OTHER`) as the buyer with `trade`; `them` is
@@ -420,5 +446,200 @@ mod counterparty {
             Err(ErrorCode::RelayConnectionFailed)
         );
         assert_eq!(room.bytes(), bytes, "the store is unchanged");
+    }
+}
+
+mod transport {
+    use super::*;
+
+    /// Our trade key and the counterparty's, and relays at `url`.
+    struct Chat {
+        me: Keys,
+        them: Keys,
+        config: PublicReadConfig,
+    }
+
+    impl Chat {
+        fn new(url: &str) -> Self {
+            let config = PublicReadConfig::new(Keys::generate().public_key(), url).unwrap();
+            let (me, them) = (Keys::generate(), Keys::generate());
+            Self { me, them, config }
+        }
+
+        async fn send(&self, text: &str) -> Result<(ChatLine, Warnings), SendFailure> {
+            let them = self.them.public_key();
+            send_chat(&self.config, &self.me, &them, text, &limits()).await
+        }
+
+        /// The last hour of the conversation as `reader` sees it with `peer`.
+        async fn read(&self, reader: &Keys, peer: &Keys) -> (Vec<ChatLine>, bool) {
+            let now = Timestamp::now();
+            let since = Timestamp::from(now.as_secs() - 3_600);
+            let peer = peer.public_key();
+            let read = read_chat(&self.config, reader, &peer, since, now, &limits())
+                .await
+                .unwrap();
+            assert!(read.warnings.is_empty());
+            (read.lines, read.truncated)
+        }
+    }
+
+    async fn serve(backend: Backend) -> LoopbackRelay {
+        LoopbackRelay::start(backend).await.unwrap()
+    }
+
+    /// The code and publication of a failed send, and the text of its line.
+    fn failure(
+        sent: Result<(ChatLine, Warnings), SendFailure>,
+    ) -> (ErrorCode, Publication, Option<String>) {
+        let failure = sent.unwrap_err();
+        let text = failure.line().map(|line| line.text.clone());
+        (failure.code(), failure.publication(), text)
+    }
+
+    #[tokio::test]
+    async fn the_conversation_is_one_bounded_read_from_both_sides() {
+        let local = LocalRelay::new();
+        let relay = serve(Backend::Relay(Box::new(local.clone()))).await;
+        let chat = Chat::new(&relay.url);
+        let stranger = Keys::generate();
+        let ours = derive_chat_keys(&chat.me, &chat.them.public_key()).unwrap();
+        let other = derive_chat_keys(&chat.me, &stranger.public_key()).unwrap();
+        for (writer, (conv, sign), text) in [
+            (&chat.me, &ours, "fiat sent"),
+            (&chat.them, &ours, "got it"),
+            (&stranger, &ours, "intruder"),
+            (&chat.me, &other, "another chat"),
+        ] {
+            let event = wrap_chat_message(writer, conv, sign, text).await.unwrap();
+            local.add_event(event).await.unwrap();
+        }
+
+        let (lines, truncated) = chat.read(&chat.me, &chat.them).await;
+
+        let mut written: Vec<(&str, PublicKey)> = lines
+            .iter()
+            .map(|line| (line.text.as_str(), line.sender))
+            .collect();
+        written.sort_unstable();
+        assert_eq!(
+            written,
+            [
+                ("fiat sent", chat.me.public_key()),
+                ("got it", chat.them.public_key())
+            ]
+        );
+        let order = |line: &ChatLine| (line.created_at, line.message_id);
+        assert!(lines
+            .windows(2)
+            .all(|pair| order(&pair[0]) < order(&pair[1])));
+        assert!(!truncated);
+        assert_eq!(relay.connections(), 1, "one read");
+        assert_eq!(chat.read(&chat.them, &chat.me).await.0, lines, "both ways");
+    }
+
+    #[tokio::test]
+    async fn a_sent_message_is_one_kind_14_event_the_counterparty_opens() {
+        let relay = serve(Backend::Relay(Box::new(LocalRelay::new()))).await;
+        let chat = Chat::new(&relay.url);
+
+        let (line, warnings) = chat.send("on my way\nsee you").await.unwrap();
+
+        assert!(warnings.is_empty());
+        assert_eq!(line.text, "on my way\nsee you");
+        assert_eq!(
+            line.sender,
+            chat.me.public_key(),
+            "signed inside by our trade key"
+        );
+        assert_eq!(chat.read(&chat.them, &chat.me).await.0, vec![line]);
+        let everything = Filter::new()
+            .kind(Kind::PrivateDirectMessage)
+            .since(Timestamp::from(0))
+            .limit(10);
+        let stored = fetch_msg(&chat.config, everything, &limits())
+            .await
+            .unwrap();
+        assert_eq!(stored.events().len(), 1, "one event");
+        let event = stored.events().first().unwrap();
+        let (conv, sign) = derive_chat_keys(&chat.them, &chat.me.public_key()).unwrap();
+        assert_eq!(event.pubkey, sign.public_key(), "authored by K_sign");
+        let tagged: Vec<PublicKey> = event.tags.public_keys().collect();
+        assert_eq!(tagged, [conv.public_key()]);
+        assert_eq!(event.tags.len(), 1, "one p tag, no nonce");
+    }
+
+    #[tokio::test]
+    async fn relays_that_refuse_it_mean_nothing_was_published() {
+        let refusing = LocalRelay::builder().write_policy(BlockWrites).build();
+        let relay = serve(Backend::Relay(Box::new(refusing))).await;
+
+        let refused = Chat::new(&relay.url).send("hello").await;
+
+        let expected = (ErrorCode::RequestRejected, Publication::NotAttempted, None);
+        assert_eq!(failure(refused), expected);
+    }
+
+    #[tokio::test]
+    async fn one_confirmation_is_enough_and_a_relay_asking_for_auth_still_gets_it() {
+        // `auth` answers the first EVENT with `auth-required:` and stores the message only when it
+        // is sent again after the AUTH, so after `open` confirmed. NIP-42 checks the relay URL.
+        let refusing = LocalRelay::builder().write_policy(BlockWrites).build();
+        let refusing = serve(Backend::Relay(Box::new(refusing))).await;
+        let open = serve(Backend::Relay(Box::new(LocalRelay::new()))).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let auth_url = format!("ws://{}", listener.local_addr().unwrap());
+        let auth = LocalRelay::builder()
+            .port(listener.local_addr().unwrap().port())
+            .nip42(LocalRelayBuilderNip42::write())
+            .build();
+        let backend = Backend::Relay(Box::new(auth));
+        tokio::spawn(harness::accept_loop(listener, backend, Default::default()));
+        let chat = Chat::new(&format!("{},{},{auth_url}", refusing.url, open.url));
+
+        let (line, _) = chat.send("hello").await.unwrap();
+
+        let config = PublicReadConfig::new(Keys::generate().public_key(), &auth_url).unwrap();
+        let auth = Chat { config, ..chat };
+        assert_eq!(auth.read(&auth.them, &auth.me).await.0, vec![line]);
+    }
+
+    #[tokio::test]
+    async fn a_relay_at_its_limit_of_200_marks_the_read_truncated() {
+        let local = LocalRelay::new();
+        let relay = serve(Backend::Relay(Box::new(local.clone()))).await;
+        let chat = Chat::new(&relay.url);
+        let (conv, sign) = derive_chat_keys(&chat.me, &chat.them.public_key()).unwrap();
+        for n in 0..201 {
+            let event = wrap_chat_message(&chat.me, &conv, &sign, &n.to_string()).await;
+            local.add_event(event.unwrap()).await.unwrap();
+        }
+
+        let (lines, truncated) = chat.read(&chat.me, &chat.them).await;
+
+        assert_eq!((lines.len(), truncated), (200, true), "the relay's limit");
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_never_confirms_is_ambiguous() {
+        let relay = serve(Backend::Silent).await;
+
+        let unconfirmed = Chat::new(&relay.url).send("hello").await;
+
+        let line = Some("hello".to_string());
+        let expected = (ErrorCode::RequestRejected, Publication::Unknown, line);
+        assert_eq!(failure(unconfirmed), expected);
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_relay_fails_before_sending() {
+        let unsent = Chat::new(&dead_relay()).send("hello").await;
+
+        let expected = (
+            ErrorCode::RelayConnectionFailed,
+            Publication::NotAttempted,
+            None,
+        );
+        assert_eq!(failure(unsent), expected);
     }
 }

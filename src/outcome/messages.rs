@@ -19,6 +19,7 @@ use uuid::Uuid;
 mod payload;
 
 pub use payload::MessagePayload;
+pub(crate) use payload::{bounded, TEXT_BYTES};
 
 use super::order::rfc3339_utc;
 use super::{schema, ErrorCode, WarningCode, Warnings};
@@ -298,7 +299,6 @@ impl MessageListData {
 
 #[cfg(test)]
 mod tests {
-    use super::payload::TEXT_BYTES;
     use super::*;
     use crate::outcome::order::Snapshot;
     use crate::outcome::schema::schema_check::conforms;

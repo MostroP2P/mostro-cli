@@ -189,6 +189,7 @@ impl Drop for LoopbackRelay {
 }
 
 /// Connection counters shared by a listener and its sessions.
+#[derive(Default)]
 pub struct Sessions {
     pub accepted: Arc<AtomicUsize>,
     pub open: Arc<AtomicUsize>,
