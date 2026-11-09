@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 
 pub fn uppercase_first(s: &str) -> String {
     let mut c = s.chars();
@@ -36,7 +37,8 @@ pub fn get_mcli_path() -> String {
 /// created with mode `0700` on Unix. We also tighten the permissions of a
 /// pre-existing directory, so users who created `~/.mcli` with an older version
 /// (or a loose `umask`) get hardened on the next run. See issue #179.
-pub fn ensure_private_dir(path: &str) -> io::Result<()> {
+pub fn ensure_private_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
     match create_dir_private(path) {
         Ok(()) => {}
         // Another thread/process won the race, or the path already existed.
@@ -50,7 +52,7 @@ pub fn ensure_private_dir(path: &str) -> io::Result<()> {
     if !std::fs::metadata(path)?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("{} exists but is not a directory", path),
+            format!("{} exists but is not a directory", path.display()),
         ));
     }
 
@@ -65,19 +67,19 @@ pub fn ensure_private_dir(path: &str) -> io::Result<()> {
 /// Returns an `AlreadyExists` error when the directory is already present, so
 /// callers can treat that case as success.
 #[cfg(unix)]
-fn create_dir_private(path: &str) -> io::Result<()> {
+fn create_dir_private(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new().mode(0o700).create(path)
 }
 
 #[cfg(not(unix))]
-fn create_dir_private(path: &str) -> io::Result<()> {
+fn create_dir_private(path: &Path) -> io::Result<()> {
     std::fs::create_dir(path)
 }
 
 /// Set the Unix permission bits of `path` to `mode`.
 #[cfg(unix)]
-pub fn set_mode(path: &str, mode: u32) -> io::Result<()> {
+pub fn set_mode(path: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 }

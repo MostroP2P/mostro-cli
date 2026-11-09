@@ -173,6 +173,18 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "dispute.open",
         json: JsonSupport::Write,
     },
+    // Writes the config file only and publishes nothing, like `identity init`.
+    CommandEntry {
+        path: &["config", "set"],
+        canonical: "config.set",
+        json: JsonSupport::Read,
+    },
+    // Reads the config file only, like `identity show`.
+    CommandEntry {
+        path: &["config", "show"],
+        canonical: "config.show",
+        json: JsonSupport::Read,
+    },
     // The peer chat of an order held. Its publication stays `not_applicable`
     // until the send step runs, so a rejected invocation reports read stages
     // even with `--message`; it never sends the node anything.
