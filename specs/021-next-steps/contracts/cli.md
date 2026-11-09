@@ -13,11 +13,20 @@ No grammar change. Applies to `message list` (`message.list`) and to the records
 
 - `hold-invoice-payment-accepted` gives `fiat_sent` (act only while `order info` says `active`); `rate` gives `rate` (act once the order
   is `success`, or `settled-hold-invoice` for a seller). `fiat-sent-ok`, `purchase-completed` and `hold-invoice-payment-settled` stay
-  `null` (`release` on the seller's `fiat-sent-ok` is unit 3).
+  `null`, except `fiat-sent-ok` for the seller (unit 3).
 - `order watch` ends at `rate` as well; an update that holds `purchase-completed` or `hold-invoice-payment-settled` without a `rate`
   waits for it up to 10 s, never past `--timeout`, then reports `ended` either way. The end line still names the end action.
 
-Proposed outcomes: [examples.json](examples.json) (`payment_failed_while_the_node_retries`, `messages_of_the_trade_steps`), checked against
+## Behaviour (unit 3)
+
+- `fiat-sent-ok` gives `release` only on the seller's copy: the local order row says the user is the seller (`orders.kind` and
+  `orders.is_mine`), the message went to the key stored for that order, and it answers no request. Act only while `order info` says
+  `fiat-sent`, and only after checking that the fiat is in the account. No row, `is_mine` NULL or another key: `null`.
+- The order rows are read once, before any relay is contacted; rows that cannot be read are `store_unreadable` (in `message list` and
+  `order watch`).
+
+Proposed outcomes: [examples.json](examples.json) (`payment_failed_while_the_node_retries`, `messages_of_the_trade_steps`,
+`the_seller_is_asked_to_release`), checked against
 `docs/schemas/message-list-v1.json` and the generated schema, and reproduced by the owned constructors.
 
 ## Human output (unit 1)
@@ -29,6 +38,7 @@ Next lines, with `ID` the record's order id (`<id>` when the record names none):
 - `pay_hold_invoice`: "pay the hold invoice above with any Lightning wallet"
 - `add_bond_invoice`: "send an invoice for your share: `bond add-invoice --order ID --invoice <bolt11>`"
 - `fiat_sent` (unit 2): "send the fiat, then: `order fiat-sent --order ID`"
+- `release` (unit 3): "once the fiat is in your account: `order release --order ID`"
 - `rate` (unit 2): "rate your counterparty: `order rate --order ID --rating <1-5>`"
 
 The `payment_failed` payload line:

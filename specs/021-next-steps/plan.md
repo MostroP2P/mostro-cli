@@ -1,7 +1,7 @@
 # Implementation Plan: Next Steps Of Message Records
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-09 | **Status**: Units 1 and 2 implemented with Linux evidence against the scripted node;
-unit 3 proposed.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-09 | **Status**: Units 1, 2 and 3 implemented with Linux evidence against the scripted node;
+the regtest probe was not run.
 
 ## Unit 1 (implemented)
 
@@ -27,8 +27,11 @@ unit 3 proposed.
   In an update, a `rate` sorts after the other records of its second, so it follows the end even when both share a `created_at`.
 - Fixtures: the same three regenerated; the `messages_of_the_trade_steps` example.
 
-## Unit 3 (proposed)
+## Unit 3
 
-`NextStep::Release` with `NextStep::of(&MessageKind, Option<TradeRole>)`; `StoredOrder.is_mine`; a `Roles` lookup in
-`commands/message/roles.rs` loaded once before any relay read by `message list` and `order watch`; the role passed to every
-`MessageRecord::from_message` call (group the addressing data in a struct if clippy's argument limit is reached).
+`NextStep::Release` with `NextStep::of(&MessageKind, Option<TradeRole>)`; `TradeRole` and `TradeRole::of_order` move from
+`messages.rs` to `messages/next_step.rs` (`StoredOrder.is_mine` already came with spec 020). A `Roles` lookup in
+`commands/message/roles.rs` (`from_rows`, `load`, `of`) is loaded once before any relay read by `message list` and `order watch`;
+`order watch` takes its own side from it too, replacing its private row lookup. `MessageRecord::from_message` gains a seventh
+parameter, `role: Option<TradeRole>` (within clippy's limit, so no struct); `commands::message::list::record` passes
+`roles.of(order, &mail.key)`. Fixtures: the same three regenerated; the `the_seller_is_asked_to_release` example.

@@ -322,7 +322,7 @@ This is the seller flow when you create the order (maker, sell).
 
 4. **Buyer adds an invoice (if they didn't include one when taking)** — Mostro forwards their invoice.
 
-5. **Buyer marks fiat as sent.** You'll see a `fiat-sent` message via `message list`. **Confirm you actually received the fiat** outside the CLI before releasing.
+5. **Buyer marks fiat as sent.** You'll see a `fiat-sent-ok` message via `message list`, with a "👉 Next:" line naming `order release --order <order-id>` (from the local order row, so not for a trade made in another client or after a restore). **Confirm you actually received the fiat** outside the CLI before releasing.
 
 6. **Release the hold invoice** so the buyer gets the sats:
 

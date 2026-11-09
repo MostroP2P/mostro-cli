@@ -45,10 +45,12 @@ against isolated stores, loopback relays and the scripted node's mail only. `ord
 follows an order held until its trade ends, the node's messages and the peer chat, replayed then live; human mode streams,
 and `--output json` returns one document per call with a cursor for `--after` (output schema `docs/schemas/order-watch-v1.json`);
 implemented and verified on Linux against isolated stores, loopback relays and scripted node and chat events only, not on a real node.
-[Next steps](specs/021-next-steps/spec.md) (#243) is partly implemented: a failed payout is the typed payload `payment_failed`
-(`next_step` `add_invoice` only with no attempt left), `hold-invoice-payment-accepted` asks `fiat_sent` and `rate` asks `rate` (and
-`order watch` ends after that `rate`), each human "👉 Next:" line names the record's order id, and `docs/commands.md` makes `next_step`
-and the payload `kind` open enums within v1; verified on Linux against the scripted node only. `release` is still proposed.
+[Next steps](specs/021-next-steps/spec.md) (#243) is implemented: a failed payout is the typed payload `payment_failed`
+(`next_step` `add_invoice` only with no attempt left), `hold-invoice-payment-accepted` asks `fiat_sent`, the seller's `fiat-sent-ok`
+asks `release` (side from the local order row, same key, no request id; in `message list` and `order watch`) and `rate` asks `rate`
+(and `order watch` ends after that `rate`), each human "👉 Next:" line names the record's order id, and `docs/commands.md` makes
+`next_step` and the payload `kind` open enums within v1; verified on Linux against the scripted node only. The regtest probe of the
+`fiat-sent-ok` request ids was not run.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

@@ -23,7 +23,14 @@ authorization.
 - [x] **6. Fixtures and docs.** Three schema fixtures regenerated; `docs/commands.md` (`message list`, `order release`, `order watch`,
   versioning), architecture, README walkthroughs, AGENTS, spec 020 D9 pointer, evidence.
 
-## Unit 3: release (proposed)
+## Unit 3: release
 
-- [ ] Failing tests, `is_mine` in `StoredOrder`, `Roles`, `NextStep::Release`, fixtures and docs.
-- [ ] Regtest probe with two identities: the request ids of both `fiat-sent-ok` copies.
+- [x] **7. Failing tests.** Unit: the `next_step.rs` table over the three sides and both request-id cases, the side derivation, the
+  `Roles` lookup, the release Next line. Process: the four kind and role rows (seller release, buyer none, the buyer's copy with a
+  request id none); no row, NULL `is_mine` and another key; a legacy row; the human release line; a store without its orders table is
+  `store_unreadable` with no relay asked; a seller's `order watch` reports `release`, a buyer's does not. Integration: the
+  `the_seller_is_asked_to_release` example. Nine behaviour tests failed against stubs.
+- [x] **8. Roles, the release step and the line.** As in [plan.md](plan.md).
+- [x] **9. Fixtures and docs.** Three schema fixtures regenerated; `docs/commands.md` (`message list`, versioning), `docs/database.md`
+  (`is_mine`), architecture, README seller walkthrough, AGENTS, evidence.
+- [ ] Regtest probe with two identities: the request ids of both `fiat-sent-ok` copies. Not run: this unit used no node.
