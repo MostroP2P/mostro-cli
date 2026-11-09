@@ -1317,9 +1317,11 @@ mod list_contract {
 
     #[test]
     fn human_text_escapes_terminal_controls() {
+        // Not ESC[1m: on a terminal the table emits that itself for its bold
+        // headings, so it could not tell a leak from the table's own styling.
         let order = SmallOrder {
             fiat_code: "U\r\u{7}".to_string(),
-            payment_method: "\u{1b}[1m\n\u{9b}".to_string(),
+            payment_method: "\u{1b}[7m\n\u{9b}".to_string(),
             ..selected(1_700_000_000)
         };
         let (row_text, json) = both_views(pending(), &[order]);
@@ -1327,7 +1329,7 @@ mod list_contract {
         // Short values: a wrapped cell would split across table lines.
         let cells = human_cells(&row_text, "00000000-0000-0000-0000-000000000001");
         assert_eq!(cells[5], "U\\r\\u{7}", "{row_text}");
-        assert_eq!(cells[7], "\\u{1b}[1m\\n\\u{9b}", "{row_text}");
+        assert_eq!(cells[7], "\\u{1b}[7m\\n\\u{9b}", "{row_text}");
 
         let (filter_text, _) = both_views(filters(None, Some("\u{1b}[2j"), None), &[]);
         assert!(
@@ -1336,7 +1338,7 @@ mod list_contract {
         );
 
         for text in [row_text, filter_text] {
-            for raw in ["\u{1b}[1m", "\u{1b}[2J", "\u{7}", "\u{9b}", "\r"] {
+            for raw in ["\u{1b}[7m", "\u{1b}[2J", "\u{7}", "\u{9b}", "\r"] {
                 assert!(!text.contains(raw), "raw {raw:?} reached the terminal");
             }
         }
