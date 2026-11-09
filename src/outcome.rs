@@ -28,6 +28,7 @@ pub mod schema;
 pub mod step;
 pub mod sync;
 pub mod take;
+pub mod watch;
 
 /// Contract version, independent of the executable version.
 pub const SCHEMA_VERSION: &str = "1";

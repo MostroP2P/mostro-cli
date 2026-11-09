@@ -10,7 +10,7 @@
 
 use std::fmt;
 
-use mostro_core::prelude::{Action, Message};
+use mostro_core::prelude::{Action, Kind, Message};
 use nostr_sdk::prelude::{EventId, PublicKey};
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::Serialize;
@@ -113,6 +113,25 @@ impl NextStep {
             Action::PayInvoice => Some(Self::PayHoldInvoice),
             Action::AddBondInvoice => Some(Self::AddBondInvoice),
             _ => None,
+        }
+    }
+}
+
+/// The user's side of a trade.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TradeRole {
+    Buyer,
+    Seller,
+}
+
+impl TradeRole {
+    /// The user's side in an order of `kind` that the user made (`made`) or
+    /// took. The local row records both (`kind`, `is_mine`); rows written by
+    /// 0.16.3 and earlier say "made" for every order.
+    pub fn of_order(kind: Kind, made: bool) -> Self {
+        match (kind, made) {
+            (Kind::Sell, true) | (Kind::Buy, false) => Self::Seller,
+            (Kind::Sell, false) | (Kind::Buy, true) => Self::Buyer,
         }
     }
 }
@@ -755,5 +774,13 @@ mod tests {
             edit(&mut outcome);
             assert!(!conforms(&schema, &schema, &outcome), "accepted: {label}");
         }
+    }
+
+    #[test]
+    fn trade_role_of_order_maps_all_four_pairs() {
+        assert_eq!(TradeRole::of_order(Kind::Sell, true), TradeRole::Seller);
+        assert_eq!(TradeRole::of_order(Kind::Buy, false), TradeRole::Seller);
+        assert_eq!(TradeRole::of_order(Kind::Sell, false), TradeRole::Buyer);
+        assert_eq!(TradeRole::of_order(Kind::Buy, true), TradeRole::Buyer);
     }
 }
