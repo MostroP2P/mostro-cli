@@ -362,7 +362,8 @@ violation.
   `Watch`. A node message that names the counterparty while watching (`counterparty_in`) brings the chat in through `follow_chat`, its
   replay in the same update; that key is not saved. `Follow::FirstChange` returns the first new records or an empty update at the
   deadline (one JSON document); `Follow::UntilEnd` hands each update to a sink, the first at once even when empty, until a message about
-  the order ends the trade for the user's side (`ends_trade`), the deadline passes or the sink cannot write. The outcome is `ok` with
+  the order ends the trade for the user's side (`ends_trade`), the deadline passes, the sink cannot write or its `Gone` future resolves
+  (checked only while waiting, after the first update). The outcome is `ok` with
   the last update and a cursor advanced over everything observed; `Watched::ended_by` names the ending action for the human end line.
   `parse_human/watch.rs` renders the header (order, window start, counterparty or its absence), the node's messages with `message
   list`'s block and the chat with `order chat`'s block (escaped by `escape_untrusted`), the learned counterparty and `truncated`, and
@@ -371,8 +372,9 @@ violation.
   (constitution 1.0.1). It validates `WatchArgs`, resolves the reader (`write::resolve_reader(cli, false)`: no work or transport
   setting), then runs `order_watch` with `Follow::UntilEnd` and a sink that renders each update whole (`Shown::First` with the window
   start, then `Shown::Later`, flagged when the counterparty first appears), writes and flushes it; a failed write stops the watch with
-  one fixed line (exit 1). It then prints the end or deadline line (exit 0), or the error line. The registry marks `order.watch`
-  `JsonSupport::Unsupported`, and the `cli/migrated.rs` arm is guarded by human output, so JSON falls through to
+  one fixed line (exit 1), and so does, on Unix, its `Gone` future: `poll(2)` on stdout every 250 ms reporting `POLLERR` or `POLLHUP`
+  (a pipe whose reader closed, a hung-up terminal). It then prints the end or deadline line (exit 0), or the error line. The registry
+  marks `order.watch` `JsonSupport::Unsupported`, and the `cli/migrated.rs` arm is guarded by human output, so JSON falls through to
   `output_not_supported`.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
