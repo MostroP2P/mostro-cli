@@ -75,7 +75,9 @@ pub struct CommandDescriptor {
     pub input_schema: Option<SchemaDocument>,
     /// `null` for commands without machine output.
     pub output_schema: Option<SchemaDocument>,
-    /// Environment variable names read; `null` when not modeled.
+    /// Names of the required settings, each from its root option, its
+    /// environment variable or the config-file key of that name; `null` when
+    /// not modeled.
     pub required_configuration: Option<Vec<&'static str>>,
 }
 
