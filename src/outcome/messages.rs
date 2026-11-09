@@ -16,8 +16,10 @@ use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::Serialize;
 use uuid::Uuid;
 
+mod next_step;
 mod payload;
 
+pub use next_step::NextStep;
 pub use payload::MessagePayload;
 pub(crate) use payload::{bounded, TEXT_BYTES};
 
@@ -91,32 +93,6 @@ impl MessageListInput {
     }
 }
 
-/// What the node asks the user to do next, for the actions that ask.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum NextStep {
-    /// Pay the bond invoice in the payload.
-    PayBondInvoice,
-    /// Send an invoice for the order: `order add-invoice`.
-    AddInvoice,
-    /// Pay the hold invoice in the payload.
-    PayHoldInvoice,
-    /// Send a payout invoice for a slashed bond: `bond add-invoice`.
-    AddBondInvoice,
-}
-
-impl NextStep {
-    pub fn of(action: &Action) -> Option<Self> {
-        match action {
-            Action::PayBondInvoice => Some(Self::PayBondInvoice),
-            Action::AddInvoice => Some(Self::AddInvoice),
-            Action::PayInvoice => Some(Self::PayHoldInvoice),
-            Action::AddBondInvoice => Some(Self::AddBondInvoice),
-            _ => None,
-        }
-    }
-}
-
 /// The user's side of a trade.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TradeRole {
@@ -152,6 +128,8 @@ pub struct MessageRecord {
     /// The wire name of the action.
     #[schemars(schema_with = "action_schema")]
     action: String,
+    /// What the message asked the user to do when the node sent it; null when
+    /// it asks nothing. A consumer treats a value it does not know as null.
     next_step: Option<NextStep>,
     /// The index of the key the message was addressed to; null when unknown.
     #[schemars(schema_with = "schema::nullable_decimal")]
@@ -191,7 +169,7 @@ impl MessageRecord {
             order_id: kind.id.map(|id| id.to_string()),
             request_id: kind.request_id.map(|id| id.to_string()),
             action: wire_action(&kind.action),
-            next_step: NextStep::of(&kind.action),
+            next_step: NextStep::of(kind),
             trade_index: trade_index.map(|index| index.to_string()),
             trade_pubkey: trade.to_hex(),
             payload: summarize(kind.id, kind.payload.as_ref(), warnings),
@@ -324,7 +302,7 @@ mod tests {
     use crate::outcome::schema::{output_schema, OutcomeRules};
     use crate::outcome::{Envelope, ExecutionMeta};
     use mostro_core::order::{Kind, SmallOrder, Status};
-    use mostro_core::prelude::{BondPayoutRequest, CantDoReason, Payload, Peer};
+    use mostro_core::prelude::{BondPayoutRequest, CantDoReason, Payload, PaymentFailedInfo, Peer};
     use nostr_sdk::prelude::{Keys, Timestamp};
     use serde_json::{json, Value};
 
@@ -358,6 +336,17 @@ mod tests {
         Message::new_order(order_id, Some(77), None, action, payload)
     }
 
+    fn failed_payment(attempts: u32) -> Message {
+        message(
+            Action::PaymentFailed,
+            Some(id(1)),
+            Some(Payload::PaymentFailed(PaymentFailedInfo {
+                payment_attempts: attempts,
+                payment_retries_interval: 60,
+            })),
+        )
+    }
+
     fn record(message: &Message) -> (MessageRecord, Warnings) {
         let mut warnings = Warnings::new();
         let event = EventId::from_byte_array([7; 32]);
@@ -383,36 +372,6 @@ mod tests {
         }
         let kept = MessageListInput::validate(Some(5), Some(id(4))).unwrap();
         assert_eq!(kept.order(), Some(id(4)));
-    }
-
-    #[test]
-    fn only_the_actions_that_ask_for_something_have_a_next_step() {
-        assert_eq!(
-            NextStep::of(&Action::PayBondInvoice),
-            Some(NextStep::PayBondInvoice)
-        );
-        assert_eq!(
-            NextStep::of(&Action::AddInvoice),
-            Some(NextStep::AddInvoice)
-        );
-        assert_eq!(
-            NextStep::of(&Action::PayInvoice),
-            Some(NextStep::PayHoldInvoice)
-        );
-        assert_eq!(
-            NextStep::of(&Action::AddBondInvoice),
-            Some(NextStep::AddBondInvoice)
-        );
-        for quiet in [
-            Action::WaitingSellerToPay,
-            Action::CantDo,
-            Action::HoldInvoicePaymentAccepted,
-            Action::BondInvoiceAccepted,
-            Action::NewOrder,
-            Action::Released,
-        ] {
-            assert_eq!(NextStep::of(&quiet), None, "{quiet:?}");
-        }
     }
 
     #[test]
@@ -488,6 +447,14 @@ mod tests {
                     Some(Payload::Peer(Peer::new("ab".repeat(32), None))),
                 ),
                 json!({"kind": "peer", "counterparty_pubkey": "ab".repeat(32)}),
+            ),
+            (
+                failed_payment(2),
+                json!({
+                    "kind": "payment_failed",
+                    "payment_attempts": "2",
+                    "payment_retries_interval": "60",
+                }),
             ),
             (
                 message(Action::RateUser, Some(id(1)), Some(Payload::RatingUser(5))),
@@ -671,6 +638,7 @@ mod tests {
                 Some(Payload::TextMessage("hi".into())),
             ),
             message(Action::RateUser, Some(id(1)), Some(Payload::RatingUser(4))),
+            failed_payment(0),
         ]
         .iter()
         .map(|message| record(message).0)

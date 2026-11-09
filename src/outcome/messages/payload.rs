@@ -16,7 +16,8 @@ use crate::outcome::{schema, Warnings};
 pub(crate) const TEXT_BYTES: usize = 4096;
 const PUBKEY_TEXT_BYTES: usize = 128;
 
-/// A summary of the payload of a message.
+/// A summary of the payload of a message. A consumer treats a payload whose
+/// `kind` it does not know as opaque and reads only its `kind`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MessagePayload {
@@ -55,7 +56,24 @@ pub enum MessagePayload {
         #[schemars(schema_with = "schema::decimal")]
         amount: String,
     },
-    /// Any other payload, by variant name only.
+    /// The node could not pay the buyer's invoice. It retries on its own and
+    /// asks for a new invoice (`add-invoice`) only when every attempt fails.
+    /// With no attempt left (`payment_attempts` "0") it neither retries nor
+    /// asks, and the record's `next_step` is `add_invoice`. Sent once per
+    /// buyer invoice: on the first failed payout to it, and again after a
+    /// replacement invoice resets the count; never updated in between.
+    PaymentFailed {
+        /// How many more times the node will try to pay, as of this message
+        /// (mostrod v0.20.2 sends its setting minus one).
+        #[schemars(schema_with = "schema::decimal")]
+        payment_attempts: String,
+        /// Seconds between two attempts.
+        #[schemars(schema_with = "schema::decimal")]
+        payment_retries_interval: String,
+    },
+    /// Any other payload, by variant name only. The name is informative, not a
+    /// stable identifier: a later executable may give that payload a kind of
+    /// its own.
     Other {
         variant: String,
     },
@@ -131,6 +149,10 @@ pub(super) fn summarize(
         },
         Payload::Amount(amount) => MessagePayload::Amount {
             amount: amount.to_string(),
+        },
+        Payload::PaymentFailed(info) => MessagePayload::PaymentFailed {
+            payment_attempts: info.payment_attempts.to_string(),
+            payment_retries_interval: info.payment_retries_interval.to_string(),
         },
         _ => other(payload),
     }
