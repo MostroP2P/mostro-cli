@@ -28,19 +28,19 @@ temporary owner-only (0600) file is written, synced and renamed over `config` (a
 Stages: `not_applicable`, `not_applicable`, persistence `applied`. Errors: `invalid_arguments`, `configuration_invalid`,
 `configuration_unwritable` (a proposed new code, awaiting approval), `internal_error`.
 
-## `config show` (proposed, unit 4)
+## `config show` (implemented, unit 4)
 
 ```text
 mostro-cli config show [--output human|json]
 ```
 
 Canonical name `config.show`; read-only, needs nothing. Reports the file's path and the four values stored in it, each null when absent
-(every value null without a file; the path null when no data directory can be determined). Options and environment are not reported. The
-file is read strictly, so one it cannot reach is `configuration_invalid` with the hint, never a set of nulls. Stages: `not_applicable` x3.
-Errors: `invalid_arguments`, `configuration_invalid`, `internal_error`. The values shown are only ones the commands accept (a key, relay
-URLs, a number, `nip44`); this is not a secrecy promise.
+(every value null without a file; the path null when no data directory can be determined or its path is not UTF-8). Options and environment
+are not reported. The file is read strictly, so one it cannot reach is `configuration_invalid` with the hint, never a set of nulls. Stages:
+`not_applicable` x3. Errors: `invalid_arguments`, `configuration_invalid`, `internal_error`. The values shown are only ones the commands
+accept (a key, relay URLs, a number, `nip44`); this is not a secrecy promise.
 
-## Human output (implemented for `config set`)
+## Human output (implemented)
 
-`Config file: <path>`, then one `<NAME>: <value>` or `<NAME>: not set` line per setting; `--verbose` adds `verbose: config.set ok` or
-`verbose: config.show ok`.
+`Config file: <path>` (`Config file: unknown (no data directory, or its path is not UTF-8)` for a null path), then one `<NAME>: <value>`
+or `<NAME>: not set` line per setting; `--verbose` adds `verbose: config.set ok` or `verbose: config.show ok`.

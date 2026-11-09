@@ -1,14 +1,56 @@
-//! `config set`: the config file of the data directory, read and rewritten
-//! under a lock without any node, relay or network. It returns a typed
-//! outcome and never prints, prompts or exits.
+//! `config set` and `config show`: the config file of the data directory,
+//! rewritten under a lock or only read, without any node, relay or network.
+//! They return typed outcomes and never print, prompt or exit.
 
 use std::path::Path;
 
-use crate::outcome::config::{ConfigData, ConfigSetInput, CONFIG_SET_COMMAND};
+use crate::outcome::config::{ConfigData, ConfigSetInput, CONFIG_SET_COMMAND, CONFIG_SHOW_COMMAND};
 use crate::outcome::{Envelope, ErrorCode, ExecutionMeta, Persistence, Warnings};
-use crate::settings::{config_path, update_config, ConfigFile, ConfigProblem, WriteError};
+use crate::settings::{
+    config_path, read_config_strict, update_config, ConfigFile, ConfigFileError, ConfigProblem,
+    WriteError,
+};
 
 pub type SetOutcome = Envelope<ConfigData, ()>;
+pub type ShowOutcome = Envelope<ConfigData, ()>;
+
+/// Report the config file of `dir` and the values stored in it, read-only
+/// and strictly: a file that was refused or could not be reached is an error,
+/// never a set of nulls, and its problem comes back for the caller's hint.
+/// `dir` is `None` when no data directory can be determined, so there is no
+/// file.
+pub fn config_show(dir: Option<&Path>) -> (ShowOutcome, Option<ConfigProblem>) {
+    let read = dir.map_or(Ok(None), read_config_strict);
+    let problem = match (dir, &read) {
+        (Some(dir), Err(error)) => Some(ConfigProblem {
+            path: config_path(dir),
+            error: *error,
+        }),
+        _ => None,
+    };
+    (show_outcome(dir, read), problem)
+}
+
+/// The outcome of one strict read of the config file of `dir`.
+pub fn show_outcome(
+    dir: Option<&Path>,
+    read: Result<Option<ConfigFile>, ConfigFileError>,
+) -> ShowOutcome {
+    let meta = ExecutionMeta::read(None);
+    match read {
+        Ok(file) => {
+            let path = dir.map(config_path);
+            let data = ConfigData::new(path.as_deref(), file.as_ref());
+            Envelope::ok(CONFIG_SHOW_COMMAND, data, Warnings::new(), meta)
+        }
+        Err(_) => Envelope::error(
+            Some(CONFIG_SHOW_COMMAND),
+            ErrorCode::ConfigurationInvalid,
+            Warnings::new(),
+            meta,
+        ),
+    }
+}
 
 /// Set one setting in the config file of `dir`, keeping the other settings'
 /// values ([`update_config`]). `dir` is `None` when no data directory can be
@@ -76,7 +118,6 @@ fn set_failed(code: ErrorCode, persistence: Persistence) -> SetOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::ConfigFileError;
     use serde_json::{json, to_value, Value};
     use std::fs;
     use std::path::PathBuf;
@@ -168,6 +209,51 @@ mod tests {
             row(invalid_input()),
             json!(["error", "invalid_arguments", "not_applicable"])
         );
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn config_show_reports_the_file_and_refuses_one_it_cannot_read() {
+        let data = |outcome: ShowOutcome| to_value(outcome).unwrap()["data"].clone();
+        let nulls = json!({"path": null, "mostro_pubkey": null, "relays": null, "pow": null, "transport": null});
+        let (nowhere, problem) = config_show(None);
+        assert_eq!(row(nowhere.clone()), json!(["ok", null, "not_applicable"]));
+        assert_eq!((data(nowhere), problem), (nulls.clone(), None));
+
+        let root = temporary("show");
+        let absent = root.join("absent");
+        let (empty, problem) = config_show(Some(&absent));
+        let path = config_path(&absent);
+        let mut expected = nulls;
+        expected["path"] = json!(path.to_str());
+        assert_eq!((data(empty), problem), (expected, None));
+        assert!(!absent.exists());
+
+        let dir = root.join("data");
+        fs::create_dir(&dir).unwrap();
+        fs::write(config_path(&dir), "export POW='2'\nTRANSPORT=nip44\n").unwrap();
+        let (values, problem) = config_show(Some(&dir));
+        assert_eq!(problem, None);
+        assert_eq!(
+            data(values),
+            json!({"path": config_path(&dir).to_str(), "mostro_pubkey": null, "relays": null, "pow": "2", "transport": "nip44"})
+        );
+
+        fs::write(config_path(&dir), "POW=1\nADMIN_NSEC=x\n").unwrap();
+        let (refused, problem) = config_show(Some(&dir));
+        assert_eq!(
+            row(refused),
+            json!(["error", "configuration_invalid", "not_applicable"])
+        );
+        let error = ConfigFileError::KeyNotAllowed { line: 2 };
+        let path = config_path(&dir);
+        assert_eq!(problem, Some(ConfigProblem { path, error }));
+
+        fs::remove_file(config_path(&dir)).unwrap();
+        fs::create_dir(config_path(&dir)).unwrap();
+        let (unreadable, problem) = config_show(Some(&dir));
+        assert_eq!(row(unreadable)[1], "configuration_invalid");
+        assert_eq!(problem.map(|p| p.error), Some(ConfigFileError::Unreadable));
         fs::remove_dir_all(&root).unwrap();
     }
 }

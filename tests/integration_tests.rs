@@ -4,7 +4,7 @@ use std::path::Path;
 
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
-use mostro_client::commands::config::{config_set, invalid_input, set_outcome};
+use mostro_client::commands::config::{config_set, invalid_input, set_outcome, show_outcome};
 use mostro_client::outcome::config::ConfigSetInput;
 use mostro_client::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use mostro_client::outcome::identity::{
@@ -296,8 +296,8 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 
 mod schema_fixtures {
     use super::{
-        config_set, invalid_input, set_outcome, ConfigFile, ConfigFileError, ConfigSetInput, Path,
-        WriteError,
+        config_set, invalid_input, set_outcome, show_outcome, ConfigFile, ConfigFileError,
+        ConfigSetInput, Path, WriteError,
     };
     use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
@@ -393,6 +393,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/config-set-v1.json"
     );
+    const CONFIG_SHOW_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/config-show-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -410,7 +414,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine order.rate dispute.open config.set; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open config.set config.show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -557,10 +561,20 @@ mod schema_fixtures {
         );
     }
 
-    /// `config set` takes its key and value as positional arguments, marked
-    /// `x-positional`, reads no node setting and waits for no reply.
     #[test]
-    fn discovery_describes_config_set_with_positional_input() {
+    fn config_show_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("config.show"),
+            read_json(CONFIG_SHOW_FIXTURE),
+            "stale {CONFIG_SHOW_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    /// `config set` takes its key and value as positional arguments, marked
+    /// `x-positional`, and `config show` takes no input; neither reads a node
+    /// setting or waits for a reply.
+    #[test]
+    fn discovery_describes_the_config_commands() {
         let discovery = generated_discovery();
         let find = |list: &str, key: &str, name: &str| {
             discovery[list]
@@ -584,15 +598,17 @@ mod schema_fixtures {
             (&key["x-positional"], &value["x-positional"]),
             (&json!(0), &json!(1))
         );
+        let show = find("commands", "name", "config.show");
+        assert_eq!(show["required_configuration"], json!([]));
+        assert_eq!(show["input_schema"]["properties"], json!({}));
         let applies = |option| find("global_options", "name", option)["applies_to"].clone();
-        assert!(applies("output")
-            .as_array()
-            .unwrap()
-            .contains(&json!("config.set")));
-        assert!(!applies("reply-timeout")
-            .as_array()
-            .unwrap()
-            .contains(&json!("config.set")));
+        for name in ["config.set", "config.show"] {
+            assert!(applies("output").as_array().unwrap().contains(&json!(name)));
+            assert!(!applies("reply-timeout")
+                .as_array()
+                .unwrap()
+                .contains(&json!(name)));
+        }
     }
 
     #[test]
@@ -655,6 +671,7 @@ mod schema_fixtures {
             [
                 "bond.add-invoice",
                 "config.set",
+                "config.show",
                 "dispute.open",
                 "identity.init",
                 "identity.show",
@@ -3992,7 +4009,7 @@ mod schema_fixtures {
         }
     }
 
-    // --- config set (spec 018) ---
+    // --- config set and config show (spec 018) ---
 
     fn config_cases() -> Vec<(&'static str, Value, i32)> {
         // The trailing `/` keeps `join` from adding `\` on Windows.
@@ -4001,9 +4018,14 @@ mod schema_fixtures {
             "MOSTRO_PUBKEY={NODE}\nRELAYS=wss://relay.example\n"
         ))
         .unwrap();
+        let shown = ConfigFile::parse(&format!(
+            "MOSTRO_PUBKEY={NODE}\nRELAYS=wss://relay.example\nPOW=0\nTRANSPORT=nip44\n"
+        ))
+        .unwrap();
         let input = ConfigSetInput::new("relays", "wss://relay.example").unwrap();
         let line_one = ConfigFileError::KeyNotAllowed { line: 1 };
         let set = |result| to_value(set_outcome(dir, result)).unwrap();
+        let show = |read| to_value(show_outcome(Some(dir), read)).unwrap();
         vec![
             ("set_saved", set(Ok(saved)), 0),
             ("set_invalid_value", to_value(invalid_input()).unwrap(), 2),
@@ -4022,16 +4044,27 @@ mod schema_fixtures {
                 set(Err(WriteError::Failed)),
                 1,
             ),
+            ("show_values", show(Ok(Some(shown))), 0),
+            ("show_no_file", show(Ok(None)), 0),
+            ("show_configuration_invalid", show(Err(line_one)), 1),
         ]
     }
 
     #[test]
-    fn config_set_examples_conform_to_the_generated_schema() {
+    fn config_examples_conform_to_the_generated_schemas() {
         let examples = examples_of("018-config-file");
-        assert_eq!(examples.len(), 5);
-        let schema = read_json(CONFIG_SET_FIXTURE);
+        assert_eq!(examples.len(), 8);
+        let (set, show) = (
+            read_json(CONFIG_SET_FIXTURE),
+            read_json(CONFIG_SHOW_FIXTURE),
+        );
         for (name, exit, outcome) in examples {
-            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let schema = if outcome["command"] == "config.show" {
+                &show
+            } else {
+                &set
+            };
+            assert!(schema_check::conforms(schema, schema, &outcome), "{name}");
             let expected = match (
                 outcome["status"].as_str(),
                 outcome["error"]["code"].as_str(),

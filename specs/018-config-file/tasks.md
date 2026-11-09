@@ -21,5 +21,9 @@ only. One `tests/TEST_SUMMARY.md` entry per unit.
   `order_list_process`. Then the grammar, `cli/config.rs`, the registry entry, the schema arm, the regenerated `discovery-v1.json` and the
   new `config-set-v1.json`, docs. Moved to unit 4 to stay under 1500 changed lines: the set-then-`order list` round-trip test, and the
   guidance rewording (`ENV_FILE_HINT`, the missing-setting messages and their tests, the README setup).
-- [ ] **4. `config show`** (`feat/config-show`), with its typed core: `config_show`, `config_show_rules` and its examples; plus, from
-  unit 3, the set-then-`order list` round-trip test and the guidance rewording (`config set` and `config show` in the messages).
+- [x] **4. `config show`** (`feat/config-show`), with its typed core and, from unit 3, the set-then-`order list` round-trip test and the
+  guidance rewording. Failing first: `tests/config_process.rs` (7 of 7 new failed: no `config show`), the new unit tests of
+  `outcome::config` and `commands::config`, `tests/cli_functions.rs` and `tests/integration_tests.rs` (did not compile), then the two
+  renamed `cli::context` message tests (failed until the reword) and four `schema_fixtures` tests (failed until the fixtures were
+  regenerated). Then `config_show_rules`, `config_show` and `show_outcome`, the grammar, the dispatch, the registry entry, the schema arm,
+  `config-show-v1.json` and the regenerated discovery, the three `config.show` examples, docs.

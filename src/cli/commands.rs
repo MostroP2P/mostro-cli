@@ -323,6 +323,10 @@ pub enum ConfigCommands {
     /// owner-only as NAME=value lines (comments are dropped). A file the
     /// commands refuse is left untouched
     Set(ConfigSetArgs),
+    /// Report the config file's path and the node settings stored in it
+    /// (not set when absent), read-only; options and environment variables
+    /// are not reported. A file the commands refuse is an error
+    Show,
 }
 
 #[derive(Subcommand, Clone)]

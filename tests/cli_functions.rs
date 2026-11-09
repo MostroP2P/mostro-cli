@@ -1079,7 +1079,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 39] = [
+    const APPROVED: [(&[&str], &str); 40] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1119,6 +1119,7 @@ mod registry {
         (&["order", "rate"], "order.rate"),
         (&["dispute", "open"], "dispute.open"),
         (&["config", "set"], "config.set"),
+        (&["config", "show"], "config.show"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1179,7 +1180,7 @@ mod registry {
         for entry in REGISTRY {
             match entry.canonical {
                 "order.list" | "schema" | "message.list" | "order.sync" | "identity.init"
-                | "identity.show" | "order.mine" | "config.set" => {
+                | "identity.show" | "order.mine" | "config.set" | "config.show" => {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
@@ -1273,7 +1274,8 @@ mod registry {
                 "order.mine",
                 "order.rate",
                 "dispute.open",
-                "config.set"
+                "config.set",
+                "config.show"
             ]
         );
     }
@@ -2004,6 +2006,22 @@ mod config_grammar {
                 Some(vec!["config".to_string(), "set".to_string()]),
                 "{bad:?}"
             );
+        }
+    }
+
+    #[test]
+    fn show_takes_no_argument() {
+        assert!(matches!(parse(&["show"]), Ok(ConfigCommands::Show)));
+        for bad in [&["show", "pow"][..], &["show", "--key", "pow"]] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+            let argv = ["mostro-cli", "--output", "json", "config"]
+                .into_iter()
+                .chain(bad.iter().copied());
+            let Invocation::Rejected(failure) = parse_invocation(Cli::command(), argv) else {
+                panic!("{bad:?} was accepted");
+            };
+            let show = vec!["config".to_string(), "show".to_string()];
+            assert_eq!(failure.command, Some(show), "{bad:?}");
         }
     }
 }

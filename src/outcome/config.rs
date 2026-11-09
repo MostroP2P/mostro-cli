@@ -28,6 +28,21 @@ pub fn config_set_rules() -> OutcomeRules<'static> {
     OutcomeRules::local(CONFIG_SET_COMMAND, &CONFIG_SET_ERRORS)
 }
 
+/// Canonical name of `config show`.
+pub const CONFIG_SHOW_COMMAND: &str = "config.show";
+
+/// Codes that fail `config.show`.
+pub const CONFIG_SHOW_ERRORS: [ErrorCode; 3] = [
+    ErrorCode::InvalidArguments,
+    ErrorCode::InternalError,
+    ErrorCode::ConfigurationInvalid,
+];
+
+/// What `config.show` outcomes may contain: a local read, with no snapshot.
+pub fn config_show_rules() -> OutcomeRules<'static> {
+    OutcomeRules::read(CONFIG_SHOW_COMMAND, &CONFIG_SHOW_ERRORS, false)
+}
+
 /// A checked `config set` request: a setting and its trimmed value, which
 /// the setting accepts.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -234,6 +249,51 @@ mod tests {
             (
                 "a code of show",
                 edited(&invalid, |o| o["error"]["code"] = json!("identity_missing")),
+            ),
+        ];
+        check(&schema, &good, &bad);
+    }
+
+    #[test]
+    fn every_outcome_of_config_show_conforms_and_others_do_not() {
+        let schema = Value::Object(output_schema::<ConfigData, ()>(&config_show_rules()));
+        let meta = || ExecutionMeta::read(None);
+        let shown = |data| {
+            to_value(Envelope::<_, ()>::ok(
+                CONFIG_SHOW_COMMAND,
+                data,
+                Warnings::new(),
+                meta(),
+            ))
+            .unwrap()
+        };
+        let failed = |code| {
+            let outcome = Envelope::<ConfigData, ()>::error(
+                Some(CONFIG_SHOW_COMMAND),
+                code,
+                Warnings::new(),
+                meta(),
+            );
+            to_value(outcome).unwrap()
+        };
+        let values = shown(data());
+        let invalid = failed(ErrorCode::ConfigurationInvalid);
+        let mut good = vec![values.clone(), shown(ConfigData::new(None, None))];
+        good.extend(CONFIG_SHOW_ERRORS.map(failed));
+        let bad = [
+            (
+                "applied",
+                edited(&values, |o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "a code of set",
+                edited(&invalid, |o| {
+                    o["error"]["code"] = json!("configuration_unwritable")
+                }),
+            ),
+            (
+                "data on an error",
+                edited(&invalid, |o| o["data"] = values["data"].clone()),
             ),
         ];
         check(&schema, &good, &bad);
