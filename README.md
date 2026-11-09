@@ -424,6 +424,9 @@ mostro-cli order chat --order <order-id>
 # Send one message (no prompt); the conversation is shown with it
 mostro-cli order chat --order <order-id> --message "hi, sending now"
 
+# The same for a script: JSON requires --yes with --message
+mostro-cli --output json order chat --order <order-id> --message "hi, sending now" --yes
+
 # Read what Mostro sent you (read-only; `--order` limits it to one order)
 mostro-cli message list --since 30
 mostro-cli message list --order <order-id>
@@ -686,7 +689,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 
 ### Messaging
 - `message list [--since <min>] [--order <id>]` — what Mostro sent you; read-only (replaces `getdm`; peer chat is `order chat`).
-- `order chat --order <id> [--message <text>] [--since <min>]` — read the kind-14 chat of an order you hold and send one message, without passing the counterparty's key (human output for now; the message is sent without a prompt). It replaces `getdmuser` and `dmtouser`.
+- `order chat --order <id> [--message <text>] [--since <min>]` — read the kind-14 chat of an order you hold and send one message, without passing the counterparty's key (supports `--output json`, which requires `--yes` with `--message`; human mode sends without a prompt). It replaces `getdmuser` and `dmtouser`.
 - `getdmuser -p <pubkey> -o <id> [--since <min>]` — both sides of that order's kind-14 chat; needs the order's row. The fallback when `order chat` answers `counterparty_unknown` and you know the key.
 - `senddm -p <pubkey> -o <id> -m <message>` — DM your counterpart.
 - `dmtouser -p <pubkey> -o <id> -m <message>` — kind-14 peer chat; needs the order's row. The same fallback as `getdmuser`.
@@ -731,7 +734,7 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
 - `--reply-timeout <SECONDS>` — how long the commands that wait for the node's reply (`order new`, the takes, `order add-invoice`, the trade steps, `order info`, `dispute open`, `order rate`, `bond add-invoice`) wait for it: 5 to 300, default 15. Like `--output`, it may also follow the command words. Raise it for a slow node instead of repeating a write that came back `uncertain`.
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `order chat`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
@@ -747,7 +750,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Twenty commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `config set`, `config show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order rate`, `dispute open` and `bond add-invoice` (the last ten need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Twenty-one commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `config set`, `config show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order rate`, `dispute open` and `bond add-invoice` (the last ten need `--yes` and can report `uncertain`), and `order chat` (`--yes` and `uncertain` only with `--message`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr

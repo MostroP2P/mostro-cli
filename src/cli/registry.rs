@@ -7,7 +7,10 @@ use crate::outcome::{DaemonAcceptance, ExecutionMeta, Persistence, Publication};
 pub enum JsonSupport {
     /// Human output only; JSON is rejected with `output_not_supported`.
     Unsupported,
-    /// A read-only command whose JSON outcomes use read stages.
+    /// A command that sends the node no request: an outcome produced before
+    /// it runs uses read stages. Not always read-only: `order chat` with
+    /// `--message` publishes to the peer and reports that publication from
+    /// its send step on (spec 019, D4).
     Read,
     /// A read that publishes one request to the node and writes nothing
     /// locally; its stages tell whether the request was published.
@@ -182,11 +185,13 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "config.show",
         json: JsonSupport::Read,
     },
-    // The peer chat of an order held: human output until its JSON lands.
+    // The peer chat of an order held. Its publication stays `not_applicable`
+    // until the send step runs, so a rejected invocation reports read stages
+    // even with `--message`; it never sends the node anything.
     CommandEntry {
         path: &["order", "chat"],
         canonical: "order.chat",
-        json: JsonSupport::Unsupported,
+        json: JsonSupport::Read,
     },
 ];
 

@@ -5,8 +5,8 @@ This directory contains comprehensive unit and integration tests for the Mostro 
 ## Test Files
 
 Counts are the tests each target lists (`cargo test --locked --test <name> -- --list`,
-every `rstest` case counted) on Linux on 2026-11-09, at spec 018 unit 5 and spec 019 unit 3: 787 in
-the 24 targets below, plus the library's 313 unit tests and 6 doctests, 1106 in
+every `rstest` case counted) on Linux on 2026-11-09, at spec 018 unit 5 and spec 019 unit 4: 791 in
+the 24 targets below, plus the library's 314 unit tests and 6 doctests, 1111 in
 all. The order-list pilot ended with 428 tests, none ignored. Historical per-file
 narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 
@@ -15,7 +15,7 @@ narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 3. **`util_misc.rs`** (17 tests): path and string helpers.
 4. **`parser_orders.rs`** (123 tests): order event parsing, filters and tables (39); `list_contract` (71: the `order.list` DTO, selection and human-rendering contract); `info_contract` (13: the wire facts of the `order info` fixtures, checked against the pinned `mostro-core`).
 5. **`parser_disputes.rs`** (9 tests): dispute event parsing and display.
-6. **`integration_tests.rs`** (77 tests): context and filter integration (14); `schema_fixtures` (50: the checked-in `docs/schemas` files against the generated ones, proposed examples, mutations); `source_boundaries` (8: size, imports, transport ownership, no-I/O modules); `ci_wiring` (5: the workflow steps and jobs).
+6. **`integration_tests.rs`** (78 tests): context and filter integration (14); `schema_fixtures` (51: the checked-in `docs/schemas` files against the generated ones, proposed examples, mutations); `source_boundaries` (8: size, imports, transport ownership, no-I/O modules); `ci_wiring` (5: the workflow steps and jobs).
 7. **`order_list_process.rs`** (46 tests): runs the real `mostro-cli` binary against in-process loopback relays (OS-assigned ports, generated keys, allow-listed environment, sandboxed `HOME`/`MCLI_DIR`/working directory, closed stdin, 40 s watchdog). Covers listing in both modes, read failures, the event cap, configuration errors, every legacy JSON rejection, offline `schema`, secret sentinels, unwritable streams and no-effects.
 8. **`config_file_process.rs`** (10 tests, spec 018): the node settings file `$MCLI_DIR/config` against the real binary, loopback relays and the scripted node: `order list` and `order new` from the file alone, the precedence option > set variable > file counted by relay connections, a set `RELAYS` that is not UTF-8 beating the file (Unix), a refused file at five entry points in both modes (one `hint:`, nothing echoed, contacted or written), the local commands that never read it, a missing data directory that stays missing, the human-only `listdisputes` with the same precedence and stopped by a refused file before `mcli.db` exists, or by a set but empty `MOSTRO_PUBKEY` or `RELAYS` that hides the file (the missing-setting message, whose hint says so), and the human-only `admsenddm` mining at least the file's `POW` with its `TRANSPORT` (no probe).
 9. **`config_process.rs`** (17 tests, spec 018): `config set` and `config show` against the real binary. `config set`: a new directory and file (owner-only on Unix), the directory holding only `config` and `.config.lock`, one value replaced in a hand-written file that is rewritten as `NAME=value` lines, refused values and an unknown key (exit 2, nothing echoed or written), a refused file and an unreachable directory left untouched (one `hint:`), unusable data directories (`configuration_unwritable`), human output, `--verbose`, a closed stdout, and no network, stdin or `--yes`. `config show`: the path and the stored values (null when absent) in both modes, no file and a missing data directory left missing, only the file reported (not the options or environment, nothing contacted), a refused file and an unreachable directory (Unix) as `configuration_invalid` with one `hint:` and nothing echoed, `--verbose` and a closed stdout. Both: what `config set` writes is what `config show` reports and `order list` reads, and the `hint:` escapes control characters in the path (Unix).
@@ -33,10 +33,10 @@ narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 21. **`dispute_rate_process.rs`** (14 tests, spec 013, spec 014): `dispute open` (`dispute`, 6) and `order rate` (`rate`, 6) against the scripted node, the removed legacy commands, and answers that name another order.
 22. **`bond_flows_process.rs`** (4 tests, spec 015): `order cancel` of a take or an order that waits on its bond, and `message list` over the bond messages.
 23. **`reply_timeout_process.rs`** (4 tests, spec 016): `--reply-timeout`: its range, every waiting command stopped at the deadline, a late answer taken only with a longer one, public reads keeping their own limits.
-24. **`order_chat_process.rs`** (28 tests, spec 019): `order chat` and its building blocks against isolated stores and loopback relays: the `counterparty_pubkey` column read without writing and written alone (`store`), a stored key used with no relay contacted, the key found in post-lock mail and saved, `counterparty_unknown` before the lock, store and relay failures (`counterparty`), and the chat transport: one bounded read of both sides, a truncated read, a sent message the counterparty opens, confirmations, refusals and unreachable relays (`transport`, 7), and the command itself (`operation`, 5; `binary`, 6).
+24. **`order_chat_process.rs`** (31 tests, spec 019): `order chat` and its building blocks against isolated stores and loopback relays: the `counterparty_pubkey` column read without writing and written alone (`store`), a stored key used with no relay contacted, the key found in post-lock mail and saved, `counterparty_unknown` before the lock, store and relay failures (`counterparty`), and the chat transport: one bounded read of both sides, a truncated read, a sent message the counterparty opens, confirmations, refusals and unreachable relays (`transport`, 7), and the command itself (`operation`, 5; `binary`, 6; `json`, 3).
 25. **`common/schema_check.rs`**: the small JSON Schema checker shared with the `outcome::schema` unit tests (not a test target).
 
-The library also carries 313 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
+The library also carries 314 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
 
 ## Running Tests
 
@@ -483,4 +483,6 @@ bidirectional controls escaped, a send without a question and `--yes` alone send
 included) exiting 2 before any relay and `--message=-x` accepted, an uncertain send printing the advice line and still the conversation, a
 closed stdout giving one fixed line, no secret on any stream and one `--verbose` line); `chat_examples_conform_and_are_reproduced` and
 `invalid_chat_variants_do_not_conform` (`tests/integration_tests.rs`); `order.chat` in the registry mapping and in
-`every_legacy_command_rejects_json_before_any_effect`.
+`every_legacy_command_rejects_json_before_any_effect`. Unit 4 (2026-11-09): `mod json` (3: JSON `--message` without `--yes` refused with
+no relay, store or configuration touched, a read and a send conforming to `docs/schemas/order-chat-v1.json`, `counterparty_unknown` with
+`--message --yes`), `chat_schema_fixture_matches_the_generated_schema`, and `order.chat` among the machine commands (31 tests in the file).

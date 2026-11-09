@@ -322,9 +322,9 @@ violation.
   `not_attempted` (wrap, connection or every relay refusing) or `unknown`; acceptance and persistence are always `not_applicable` (the
   counterparty key the lookup may cache is not reported). `parse_human/chat.rs` renders the conversation with each text line escaped by
   `escape_untrusted` and indented; the indent does not survive the terminal wrapping a long line, which goes on at column 0.
-- **`src/commands/order/chat.rs`**, **`src/cli/order_chat.rs`**: `order chat` (spec 019), human output only until its JSON lands: the
-  registry marks it `JsonSupport::Unsupported` and `cli/migrated.rs` dispatches it in human mode only, so `--output json` gets
-  `output_not_supported` before anything runs. `cli/order_chat.rs` validates the arguments, resolves configuration, identity and store
+- **`src/commands/order/chat.rs`**, **`src/cli/order_chat.rs`**: `order chat` (spec 019). The registry marks it `JsonSupport::Read`:
+  publication stays `not_applicable` until the send step runs, so a rejected invocation reports read stages. `cli/order_chat.rs` refuses
+  JSON `--message` without `--yes` (`write::needs_yes`) first, validates the arguments, resolves configuration, identity and store
   with `cli/write.rs::resolve_reader` (read-only, without the work and transport settings) and presents the outcome with
   `cli/write.rs::finish`; human mode sends without a prompt. `order_chat` takes the order's trade key (`Store::order_keys`, else
   `order_unknown`), the counterparty (`find_counterparty`) and the conversation (`read_chat`), and only then sends the message
@@ -352,7 +352,7 @@ Each file in `src/cli/` encapsulates the logic of a specific feature or a group 
 - Disputes and admin: `list_disputes.rs`, `take_dispute.rs`, `adm_send_dm.rs`.
 - Messaging: `send_dm.rs`, `dm_to_user.rs`, `get_dm.rs`, `get_dm_user.rs`, `dispute_chat.rs`, `send_admin_dm_attach.rs`, `conversation_key.rs`.
 
-Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set`, `config show` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs`, `cli/invoice.rs`, `cli/step.rs`, `cli/sync.rs`, `cli/message.rs`, `cli/identity.rs`, `cli/mine.rs`, `cli/held.rs`, `cli/config.rs` and `cli/schema.rs`.
+Each legacy module exports an `execute_*` function that `Commands::run` in `src/cli/legacy.rs` calls. `order list`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `order chat`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set`, `config show` and `schema` are not in this group: they are migrated and live in `commands/`, `cli/migrated.rs`, `cli/order_new.rs`, `cli/order_take.rs`, `cli/invoice.rs`, `cli/step.rs`, `cli/sync.rs`, `cli/message.rs`, `cli/identity.rs`, `cli/mine.rs`, `cli/held.rs`, `cli/order_chat.rs`, `cli/config.rs` and `cli/schema.rs`.
 
 ### Typical flow: creating a new order
 

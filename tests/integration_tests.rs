@@ -389,6 +389,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/dispute-open-v1.json"
     );
+    const ORDER_CHAT_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/order-chat-v1.json"
+    );
     const CONFIG_SET_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/config-set-v1.json"
@@ -414,7 +418,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine order.rate dispute.open config.set config.show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open config.set config.show order.chat; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -553,6 +557,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn chat_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("order.chat"),
+            read_json(ORDER_CHAT_FIXTURE),
+            "stale {ORDER_CHAT_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn config_set_schema_fixture_matches_the_generated_schema() {
         assert_eq!(
             generated_output_schema("config.set"),
@@ -678,6 +691,7 @@ mod schema_fixtures {
                 "message.list",
                 "order.add-invoice",
                 "order.cancel",
+                "order.chat",
                 "order.fiat-sent",
                 "order.info",
                 "order.list",
@@ -4095,12 +4109,9 @@ mod schema_fixtures {
         }
     }
 
-    // --- Order chat (spec 019): no fixture until JSON lands; checked against the generated schema ---
+    // --- Order chat (spec 019) ---
 
-    use mostro_client::outcome::chat::{
-        chat_rules, ChatData, ChatRecord, ChatSender, COMMAND as ORDER_CHAT,
-    };
-    use mostro_client::outcome::schema::output_schema;
+    use mostro_client::outcome::chat::{ChatData, ChatRecord, ChatSender, COMMAND as ORDER_CHAT};
 
     fn chat_cases() -> Vec<(&'static str, Value, i32)> {
         let record = |byte, from, text: &str| {
@@ -4166,7 +4177,7 @@ mod schema_fixtures {
     }
 
     fn chat_schema() -> Value {
-        Value::Object(output_schema::<ChatData, ()>(&chat_rules()))
+        read_json(ORDER_CHAT_FIXTURE)
     }
 
     #[test]

@@ -44,8 +44,9 @@ every networked command, JSON-capable or human-only, reads `MOSTRO_PUBKEY`, `REL
 the options and the environment, verified on Linux against loopback relays and the scripted node; `config set <key> <value>` writes one
 of them to the file (JSON `config.set`) and `config show` reports the file's path and the values stored in it (JSON `config.show`),
 verified on Linux against isolated sandboxes and loopback relays. Spec 018 is implemented. `order chat`
-([spec](specs/019-order-chat/spec.md), in progress) reads the peer chat of an order held and sends one message without the
-counterparty's key being passed; human output only so far, verified on Linux against isolated stores and loopback relays only.
+([spec](specs/019-order-chat/spec.md)) reads the peer chat of an order held and sends one message without the counterparty's key being
+passed; it supports `--output json` (`--message` then requires `--yes`); verified on Linux against isolated stores, loopback relays and
+the scripted node's mail only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
