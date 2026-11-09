@@ -4146,6 +4146,7 @@ mod source_boundaries {
             &[
                 ("msg/exchange.rs", 1),
                 ("msg/receive_msg.rs", 1),
+                ("msg/watch.rs", 1),
                 ("util/messaging.rs", 1),
             ],
         ),
