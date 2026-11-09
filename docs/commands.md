@@ -61,11 +61,11 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
 
-- **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read for an answer; the only read of stdin is the invoice of `--invoice -` (spec 010), which requires `--yes`.
+- **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok`, `error`, or `uncertain` for a command that can act and could not confirm it: the write commands, `order sync` and `order chat` with `--message`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read for an answer; the only read of stdin is the invoice of `--invoice -` (spec 010), which requires `--yes`.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
 - **Listing semantics.** Public events of kind 38383 from the configured node, last seven days, limit 50 per relay, no upper time bound. The latest state of each order is chosen before the `--side`, `--currency` and `--status` filters (status defaults to `pending`; side and status are case-insensitive, currency is uppercased). Orders are sorted by event time, newest first. The snapshot in `meta` is a bounded read, never a complete history (`complete_history` is always `false`).
 - **Limits.** Every configured relay must reach EOSE: 10 s to connect, 15 s to read, 1 s of cleanup, at most 10,000 unique events. A closed, silent or disconnected relay, a lagging buffer or a larger result fails the whole read; nothing is retried and no partial rows are returned. An empty book is a success with `orders: []`.
-- **Errors.** Codes are stable, messages are fixed prose, `data` is `null` on every error, and `status` is never `uncertain` for these commands.
+- **Errors.** Codes are stable, messages are fixed prose, `data` is `null` on every error, and `status` is never `uncertain` for `order list`.
 
   | Code | Exit | When |
   | --- | --- | --- |
@@ -276,10 +276,12 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     escrow is locked"); "📭 Nothing yet; waiting for the node or the counterparty..." when the replay is empty; then each update as it
     comes: `message list`'s message block with its next step under "📨 From Mostro:", and `order chat`'s block under "💬 Chat:" (the
     text escaped); a line when the counterparty is learned and one when older records may be missing. Each update is written whole and
-    flushed. The last line is "🏁 The trade ended: <action>", or at `--timeout` "⏰ Stopped at the watch deadline; the trade has not
-    ended."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors are one `error: <fixed message>` line on stderr (exit 1,
-    2 for arguments); a stdout that cannot be written stops the watch with "error: the watch could not be written" (exit 1).
-    `--verbose` adds one line, `verbose: order.watch <ok|code>`.
+    flushed. The last line is "🏁 The trade ended: <action>", or at `--timeout` "⏰ Stopped at the watch deadline; no ending message
+    was seen. Run `order info` to check the order."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors after parsing
+    are one `error: <fixed message>` line on stderr (exit 1, 2 for a bad value); an argument the parser rejects (an unknown flag,
+    `--after` with `--since`) gets its fixed description and a `--help` hint (exit 2). A stdout that cannot be written stops the watch
+    with "error: the watch could not be written" (exit 1); on Unix so does a reader that closes stdout while the watch is idle,
+    elsewhere the watch notices at its next write. `--verbose` adds one line, `verbose: order.watch <ok|code>`.
   - **Output** (JSON): one document per call, at the first new records after the replays, or an empty success at the deadline. An empty
     result means nothing was observed (relays may have been down), not that nothing happened. `data.order_id`,
     `data.counterparty_pubkey` (null while the chat is not followed), `data.messages` (`message list`'s records, with `next_step`),

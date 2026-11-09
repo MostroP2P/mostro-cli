@@ -5,9 +5,9 @@
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
 
-use std::future::Future;
+use std::future::{pending, Future};
 use std::net::SocketAddr;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -768,7 +768,12 @@ mod operation {
                 true
             };
             let watched = self
-                .watch(ORDER, None, timeout, Follow::UntilEnd(&mut sink))
+                .watch(
+                    ORDER,
+                    None,
+                    timeout,
+                    Follow::UntilEnd(&mut sink, pin!(pending())),
+                )
                 .await;
             (updates, watched)
         }
@@ -1105,6 +1110,38 @@ mod operation {
     }
 
     #[tokio::test]
+    async fn the_rate_grace_never_runs_past_the_deadline() {
+        let limits = WatchLimits {
+            rate_grace: Duration::from_secs(30),
+            ..limits()
+        };
+        for json in [false, true] {
+            let desk = Desk::new(Role::Taker, true, &[]).await;
+            let over = desk
+                .mail(&about(ORDER, Action::PurchaseCompleted), now())
+                .await;
+            desk.publish(over, QUIET);
+            let input = WatchInput::validate(ORDER, None, None, Some(2), json).unwrap();
+            let config = config(&desk.node, &[&desk.relay.url]);
+            let mut sink = |_: &WatchData| true;
+            let follow = if json {
+                Follow::FirstChange
+            } else {
+                Follow::UntilEnd(&mut sink, pin!(pending()))
+            };
+            let started = Instant::now();
+
+            let watched =
+                order_watch(&input, &config, &desk.store, &limits, Utc::now(), follow).await;
+
+            // The 2 s deadline, the replay and the cleanup; not the 30 s grace.
+            assert!(started.elapsed() < Duration::from_secs(10), "json {json}");
+            assert_eq!(watched.ended_by.as_deref(), Some("purchase-completed"));
+            assert!(watched.outcome.error_code().is_none(), "json {json}");
+        }
+    }
+
+    #[tokio::test]
     async fn nothing_new_until_the_deadline_is_an_empty_success_in_both_modes() {
         let desk = Desk::new(Role::Taker, true, &[]).await;
         let before = now() - 1_800;
@@ -1132,7 +1169,12 @@ mod operation {
             false
         };
         let watched = desk
-            .watch(ORDER, None, 60, Follow::UntilEnd(&mut sink))
+            .watch(
+                ORDER,
+                None,
+                60,
+                Follow::UntilEnd(&mut sink, pin!(pending())),
+            )
             .await;
         assert_eq!(refused, 1);
         assert!(started.elapsed() < Duration::from_secs(10));
@@ -1241,7 +1283,8 @@ mod binary {
     use tokio::process::Command;
     use tokio::time::timeout;
 
-    const DEADLINE_LINE: &str = "⏰ Stopped at the watch deadline; the trade has not ended.\n";
+    const DEADLINE_LINE: &str =
+        "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order.\n";
 
     /// The binary in `desk`'s sandbox, with its node and relay, watching
     /// `ORDER` with `extra` arguments after `front` ones.
@@ -1357,22 +1400,67 @@ mod binary {
         );
     }
 
+    /// A human watch with no deadline whose reader goes away while it is
+    /// idle stops then, not at a write that may never come.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_idle_watch_stops_when_its_reader_closes_stdout() {
+        let desk = quiet_desk().await;
+        let mut command = command(&desk, &[], &[]);
+        command.kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        // The first update is written whole; its last line says it is empty.
+        loop {
+            let line = timeout(WATCHDOG, lines.next_line()).await.unwrap();
+            if line
+                .unwrap()
+                .expect("the first update")
+                .contains("📭 Nothing yet;")
+            {
+                break;
+            }
+        }
+
+        drop(lines);
+        let status = timeout(Duration::from_secs(5), child.wait()).await;
+
+        let status = status.expect("the watch stopped").unwrap();
+        let mut err = String::new();
+        stderr.read_to_string(&mut err).await.unwrap();
+        assert_eq!(status.code(), Some(1), "{err}");
+        assert_eq!(err, "error: the watch could not be written\n");
+    }
+
     #[tokio::test]
     async fn bad_arguments_exit_2_before_any_relay() {
+        // The first line is the command's own: a bad value gets the fixed
+        // `invalid_arguments` line, the conflict Clap's fixed description.
+        // Neither is what an unknown subcommand prints.
+        const INVALID: &str = "error: The command arguments are invalid.";
+        const CONFLICT: &str =
+            "error: an argument cannot be used with one or more of the other specified arguments";
         let desk = quiet_desk().await;
-        let bad: [&[&str]; 5] = [
-            &["--since", "0"],
-            &["--since", "10081"],
-            &["--timeout", "0"],
-            &["--after", SENTINEL],
-            &["--after", "100", "--since", "5"],
+        let bad: [(&[&str], &str); 5] = [
+            (&["--since", "0"], INVALID),
+            (&["--since", "10081"], INVALID),
+            (&["--timeout", "0"], INVALID),
+            (&["--after", SENTINEL], INVALID),
+            (&["--after", "100", "--since", "5"], CONFLICT),
         ];
-        for extra in bad {
+        for (extra, first_line) in bad {
             let run = run(command(&desk, &[], extra)).await;
 
-            assert_eq!(run.code(), Some(2), "{extra:?}: {}", run.stderr_text());
+            let stderr = run.stderr_text();
+            assert_eq!(run.code(), Some(2), "{extra:?}: {stderr}");
+            assert_eq!(
+                stderr.lines().next(),
+                Some(first_line),
+                "{extra:?}: {stderr}"
+            );
             assert!(run.stdout.is_empty(), "{extra:?}");
-            assert!(!run.stderr_text().contains(SENTINEL), "{extra:?}");
+            assert!(!stderr.contains(SENTINEL), "{extra:?}");
         }
         assert_eq!(desk.relay.connections(), 0, "no relay was contacted");
     }

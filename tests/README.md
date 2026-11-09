@@ -468,6 +468,12 @@ closed stdout giving one fixed line, no secret on any stream and one `--verbose`
 no relay, store or configuration touched, a read and a send conforming to `docs/schemas/order-chat-v1.json`, `counterparty_unknown` with
 `--message --yes`), `chat_schema_fixture_matches_the_generated_schema`, and `order.chat` among the machine commands (31 tests in the file).
 
+Order watch (spec 020, unit 1 of 7, 2026-11-09): the unit tests of `outcome::watch` (3: the `--since`, `--timeout` and `--after` bounds
+and defaults; the ending actions; `WatchData` outcomes checked against the generated schema), `outcome::watch::cursor` (5: round trips
+and 22 malformed cursors refused; the next cursor's time and ids; the cap of 200 raising the time only over records older than a minute;
+records stamped ahead never moving the time past now minus 60 s, and node messages kept ahead of chat dated ahead when the cap binds; a
+chat message held over five simulated calls) and the four `TradeRole` pairs in `outcome::messages`. No relay, store or command.
+
 Order watch (spec 020, unit 2 of 7, 2026-11-09): `tests/order_watch_process.rs` `mod live` (5: the window replayed once from two relays,
 one answering every REQ with all it holds, then new mail live once, foreign or old events never counted; the chat replayed and live when
 the counterparty is known, a re-wrapped line once, a line dated before the window in an envelope inside it kept, a third writer's dropped;
@@ -478,7 +484,7 @@ opening replay reconnects and delivers once the mail stored while it was away, w
 relay is away returns without waiting for it, the other relay's chat comes first and the away relay's line after its reconnect; a chat
 REQ the relay refused with CLOSED is not asked again while connected and is sent again on reconnect, and after a `rate-limited:` CLOSED
 the relay gets exactly one chat REQ on reconnect (four REQs in all); 51 mail events stored during an
-outage come back as 50 with `truncated`) and `msg::watch::state` (11 with the reconnect replay, a live replay of 50 cut before EOSE, and the dropped feeds). The harness
+outage come back as 50 with `truncated`) and `msg::watch::state` (11 with the reconnect replay, a live replay of 50 cut before EOSE or by a CLOSED, and the dropped feeds). The harness
 `Backend::Kickable(relay, notify)` serves like `Backend::Relay`; `LoopbackRelay::kick` ends every open session and keeps the port
 listening, so the client reconnects to the same URL.
 
@@ -494,10 +500,11 @@ schema) and `parse_human::watch` (4).
 Order watch unit 5 (2026-11-09): `tests/order_watch_process.rs` `mod binary` (6, the real binary in a sandbox with one loopback relay:
 a human watch shows the replay, then a live node message and a chat line with ESC and a bidirectional control escaped, then ends on
 `purchase-completed` with exit 0, empty stderr and no trade secret on either stream; `--timeout 1` prints the empty first update and the
-deadline line, exit 0; a closed stdout exits 1 with one fixed line well before the deadline; `--since 0`, `--since 10081`, `--timeout
-0`, a malformed `--after` and `--after` with `--since` exit 2 with no relay contacted and the value never echoed; one `--verbose` line;
-`--pow`, `--transport`, `POW` and `TRANSPORT` set to garbage change nothing), `order.watch` in the registry mapping and in
-`every_legacy_command_rejects_json_before_any_effect` (26 tests in the file).
+deadline line, exit 0; a closed stdout exits 1 with one fixed line well before the deadline; on Unix, a reader that closes stdout after
+the first update stops a watch with no deadline within 5 s (exit 1, the same line); `--since 0`, `--since 10081`, `--timeout 0` and a
+malformed `--after` exit 2 with the fixed `invalid_arguments` line and `--after` with `--since` with the parser's conflict line, no relay
+contacted and the value never echoed; one `--verbose` line; `--pow`, `--transport`, `POW` and `TRANSPORT` set to garbage change
+nothing), `order.watch` in the registry mapping and in `every_legacy_command_rejects_json_before_any_effect` (27 tests in the file).
 
 Order watch unit 6 (2026-11-09): `tests/order_watch_process.rs` `mod json` (3, the real binary with `--output json`: one conforming
 document at the replayed record, then `--after` its cursor returns only a node message published while the call waits; `--after` with
@@ -505,7 +512,7 @@ document at the replayed record, then `--after` its cursor returns only a node m
 conforming document with null data and no relay contacted), `watch_examples_conform_and_are_reproduced` and
 `order_watch_input_lists_order_since_after_and_timeout`; `order.watch` joins the machine lists of the registry and discovery tests;
 `mod reconnect` gains `a_reconnect_does_not_extend_the_chat_replay` (a relay dropped while the chat replays comes back before the
-replay's end, and `follow_chat` still returns within one replay budget) (30 tests in the process file).
+replay's end, and `follow_chat` still returns within one replay budget) (31 tests in the process file).
 
 Order watch unit 7 (2026-11-09): the process `mod json` documents are checked against `docs/schemas/order-watch-v1.json`;
 `watch_schema_fixture_matches_the_generated_schema` keeps that file equal to the generated schema, and
@@ -520,7 +527,7 @@ Order watch unit 7 (2026-11-09): the process `mod json` documents are checked ag
 | FR-001 `fiat_sent` on `hold-invoice-payment-accepted` | `next_step.rs` `the_actions_that_ask_something_have_a_next_step`, `every_message_of_the_flow_comes_back_oldest_first_with_its_next_step`, `next_step_examples_*` (`messages_of_the_trade_steps`) | Verified on Linux against the scripted mailbox (unit 2) |
 | FR-003 `rate` on `rate` | `next_step.rs` `the_actions_that_ask_something_have_a_next_step`, `the_end_of_a_trade_asks_both_sides_to_rate`, `next_step_examples_*` | Verified on Linux against the scripted mailbox (unit 2) |
 | FR-005 Next lines with the order id, the retry line | `parse_human::message` `the_next_step_names_the_command_with_the_order_filled_in` and `a_failed_payment_says_how_many_more_times_and_how_often_the_node_retries`, `human_shows_each_invoice_alone_on_its_line_and_says_what_to_do_next`, `a_failed_payout_is_typed_and_asks_nothing_until_the_node_gives_up`; the fiat-sent and rate lines: `the_steps_of_a_trade_name_their_command_with_the_order_id`, `human_names_the_fiat_and_rating_commands_with_the_order_id`, `human_streams_until_the_trade_ends`; the release line: the same `parse_human::message` test, `human_names_the_release_command_with_the_order_id` | Verified on Linux (units 1 to 3) |
-| FR-008 `order watch` (rate part): the same records, the end after the `rate` | `outcome::watch` `only_the_ending_actions_end_the_trade` and `a_rate_follows_only_the_end_of_a_completed_trade`, `a_watch_ends_after_the_rate_that_follows_the_end_of_the_trade` (both sides, JSON, the grace window), `human_streams_until_the_trade_ends` | Verified on Linux against loopback relays (unit 2) |
+| FR-008 `order watch` (rate part): the same records, the end after the `rate` | `outcome::watch` `only_the_ending_actions_end_the_trade` and `a_rate_follows_only_the_end_of_a_completed_trade`, `a_watch_ends_after_the_rate_that_follows_the_end_of_the_trade` (both sides, JSON, the grace window), `the_rate_grace_never_runs_past_the_deadline` (a 30 s grace, `--timeout 2`, both modes), `commands::order::watch` `an_empty_batch_that_ends_the_rate_grace_keeps_its_truncated_flag`, `human_streams_until_the_trade_ends` | Verified on Linux against loopback relays (unit 2) |
 | FR-006 the v1 open-enum rule, schemas stay closed | the versioning rule in `docs/commands.md`; `contradictory_outcomes_do_not_conform` and `invalid_message_list_variants_do_not_conform` still reject unknown values | Verified by reading and by the unchanged rejection tests (unit 1) |
 | FR-009 stale hints: check `order info`, act once per `event_id` | `docs/commands.md` `message list` entry | Verified by reading (unit 1) |
 | FR-002 `release` on the seller's `fiat-sent-ok` (seller row, same key, no request id) | `next_step.rs` `the_actions_that_ask_something_have_a_next_step` and `the_side_follows_the_order_kind_and_who_made_it`, `roles.rs` `a_role_needs_the_kind_the_maker_flag_and_the_same_key`, `the_seller_is_asked_to_release_and_the_buyer_is_not`, `an_order_with_no_known_side_is_never_asked_to_release`, `a_legacy_row_that_calls_the_buyer_its_maker_gets_no_release`, `next_step_examples_*` (`the_seller_is_asked_to_release`) | Verified on Linux against the scripted mailbox (unit 3); the regtest probe was not run |

@@ -20,7 +20,7 @@ public node.
   `msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv` and `inbox::mail_filter` (shared with `read_inbox`); a live CLOSED or disconnect
   drops that subscription or relay until unit 3. The review fixes (every stored event counts toward `truncated`, one held entry per
   record, the chat window on the envelope's time) reached about 1,610 lines, so the fallback applied: `follow_chat`, its tests and the
-  live-disconnect process test moved to unit 3. Production lines 338 (`msg/watch.rs`) and 379 (`msg/watch/state.rs`).
+  live CLOSED-or-disconnect process test moved to unit 3. Production lines 338 (`msg/watch.rs`) and 379 (`msg/watch/state.rs`).
 - [x] **3. Reconnects.** Failing tests first (the reconnect tests fail on unit 2), then `Session::live`, the dropped subscriptions sent
   again on Connected, the reconnect as a replay start, `Backend::Kickable` in the test harness. Moved from unit 2: `follow_chat(peer)`
   (the chat REQs on every relay, waiting for their replays), which skips a relay that went away (a test drops one first and expects no
@@ -29,7 +29,10 @@ public node.
   `WatchLimits::retry` documents the floor. `Seen` and `Batch` moved to `msg/watch/records.rs` and `WatchLimits` and `WatchFailure` to
   `msg/watch/limits.rs`, unchanged, to keep every file under 400 production lines (378 `watch.rs`, 372 `state.rs`). Review fixes: a
   live replay cut before EOSE gets the EOSE `truncated` verdict, and a CLOSED id is unsubscribed so the SDK does not send a
-  `rate-limited:` one again beside the new id (389 `watch.rs`, 381 `state.rs`).
+  `rate-limited:` one again beside the new id (389 `watch.rs`, 381 `state.rs`); a live replay cut by a CLOSED gets the same verdict (382
+  `state.rs`). The live CLOSED-or-disconnect process test moved from unit 2 landed as two `mod reconnect` tests:
+  `a_chat_follow_while_a_relay_is_down_reaches_it_after_reconnect` (the disconnect, with the other relay still serving) and
+  `a_closed_subscription_is_sent_again_on_reconnect` (the CLOSED, with the watch going on); neither ends the watch.
 - [x] **4. The operation and the human renderer.** Failing tests first (`tests/order_watch_process.rs` `mod operation`, which did not
   compile, and the `parse_human::watch` unit tests, which failed against stubs), then `commands/order/watch.rs`, `order_key` (extracted
   unchanged from `message list`), `StoredOrder.is_mine`, `parse_human/watch.rs` (the message and chat blocks made `pub(crate)`).
