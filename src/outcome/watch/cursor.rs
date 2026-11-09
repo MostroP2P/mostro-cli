@@ -28,6 +28,8 @@ pub struct Observed {
     time: u64,
     /// The latest outer time another envelope of the record can carry.
     last: u64,
+    /// A node message, listed ahead of chat messages when the cap binds.
+    mail: bool,
 }
 
 impl Observed {
@@ -37,6 +39,7 @@ impl Observed {
             id,
             time,
             last: time,
+            mail: true,
         }
     }
 
@@ -48,13 +51,14 @@ impl Observed {
             id,
             time: outer,
             last: outer.max(inner.saturating_add(CHAT_MAX_CLOCK_SKEW_SECS)),
+            mail: false,
         }
     }
 }
 
 /// Where the next JSON call starts: a time in Unix seconds, and the ids of the
-/// records at or after it that were already observed (the newest 200 when
-/// more were). Callers treat it as opaque and pass it back verbatim with
+/// records at or after it that were already observed (node messages first,
+/// then the newest, when more than 200 were). Callers treat it as opaque and pass it back verbatim with
 /// `--after`.
 ///
 /// The wire form is `<since>` or `<since>:<id>,<id>...`: decimal seconds with
@@ -117,17 +121,19 @@ impl Cursor {
     /// covers only seconds this call observed that ended more than the margin
     /// ago, whatever times the records claim. The ids are the records at or
     /// after the time; when more than [`MAX_CURSOR_IDS`] still qualify, the
-    /// cursor lists the newest of them and a later call returns the others
-    /// again. With nothing observed the cursor stays as it is. A record that
+    /// cursor lists node messages first, then the newest chat messages, and a
+    /// later call returns the others again. With nothing observed the cursor stays as it is. A record that
     /// reaches the relays after records stamped more than the margin later, or
     /// that falls inside a raised range, is never returned by a later call,
     /// and a chat message inside a raised range is returned again if another
     /// envelope of it, dated after the range, reaches the relays.
     pub fn advance(&self, observed: &[Observed], now: u64) -> Self {
         let mut spans: BTreeMap<EventId, (u64, u64)> = BTreeMap::new();
+        let mut mail: BTreeMap<EventId, bool> = BTreeMap::new();
         for seen in observed {
             let span = spans.entry(seen.id).or_insert((seen.time, seen.last));
             *span = (span.0.max(seen.time), span.1.max(seen.last));
+            *mail.entry(seen.id).or_default() |= seen.mail;
         }
         let Some(newest) = spans.values().map(|&(time, _)| time).max() else {
             return self.clone();
@@ -138,15 +144,20 @@ impl Cursor {
         let ceiling = self.since.max(now.saturating_sub(CURSOR_MARGIN_SECS));
         let held = held(floor, &spans).max(self.since);
         let since = raised(held, &spans).min(ceiling);
-        let mut kept: Vec<(u64, EventId)> = spans
+        let mut kept: Vec<(bool, u64, EventId)> = spans
             .into_iter()
             .filter(|&(_, (time, _))| time >= since)
-            .map(|(id, (time, _))| (time, id))
+            .map(|(id, (time, _))| (mail[&id], time, id))
             .collect();
-        // Newest first, so the oldest are the ones a later call returns again.
-        kept.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.as_bytes().cmp(b.1.as_bytes())));
+        // Node messages first, as chat dated ahead must not push them out;
+        // then newest first, so the oldest are the ones a later call returns.
+        kept.sort_unstable_by(|a, b| {
+            (b.0, b.1)
+                .cmp(&(a.0, a.1))
+                .then(a.2.as_bytes().cmp(b.2.as_bytes()))
+        });
         kept.truncate(MAX_CURSOR_IDS);
-        let mut ids: Vec<EventId> = kept.into_iter().map(|(_, id)| id).collect();
+        let mut ids: Vec<EventId> = kept.into_iter().map(|(_, _, id)| id).collect();
         ids.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         Self { since, ids }
     }
