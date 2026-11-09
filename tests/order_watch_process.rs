@@ -1203,20 +1203,32 @@ mod binary {
 
     #[tokio::test]
     async fn bad_arguments_exit_2_before_any_relay() {
+        // The first line is the command's own: a bad value gets the fixed
+        // `invalid_arguments` line, the conflict Clap's fixed description.
+        // Neither is what an unknown subcommand prints.
+        const INVALID: &str = "error: The command arguments are invalid.";
+        const CONFLICT: &str =
+            "error: an argument cannot be used with one or more of the other specified arguments";
         let desk = quiet_desk().await;
-        let bad: [&[&str]; 5] = [
-            &["--since", "0"],
-            &["--since", "10081"],
-            &["--timeout", "0"],
-            &["--after", SENTINEL],
-            &["--after", "100", "--since", "5"],
+        let bad: [(&[&str], &str); 5] = [
+            (&["--since", "0"], INVALID),
+            (&["--since", "10081"], INVALID),
+            (&["--timeout", "0"], INVALID),
+            (&["--after", SENTINEL], INVALID),
+            (&["--after", "100", "--since", "5"], CONFLICT),
         ];
-        for extra in bad {
+        for (extra, first_line) in bad {
             let run = run(command(&desk, &[], extra)).await;
 
-            assert_eq!(run.code(), Some(2), "{extra:?}: {}", run.stderr_text());
+            let stderr = run.stderr_text();
+            assert_eq!(run.code(), Some(2), "{extra:?}: {stderr}");
+            assert_eq!(
+                stderr.lines().next(),
+                Some(first_line),
+                "{extra:?}: {stderr}"
+            );
             assert!(run.stdout.is_empty(), "{extra:?}");
-            assert!(!run.stderr_text().contains(SENTINEL), "{extra:?}");
+            assert!(!stderr.contains(SENTINEL), "{extra:?}");
         }
         assert_eq!(desk.relay.connections(), 0, "no relay was contacted");
     }
