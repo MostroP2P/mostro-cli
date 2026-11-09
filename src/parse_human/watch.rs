@@ -90,7 +90,8 @@ fn header(out: &mut String, order: &str, since: u64, peer: Option<&str>) {
 pub fn render_watch_end(ended_by: Option<&str>) -> String {
     match ended_by {
         Some(action) => format!("🏁 The trade ended: {action}\n"),
-        None => "⏰ Stopped at the watch deadline; the trade has not ended.\n".to_string(),
+        None => "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order.\n"
+            .to_string(),
     }
 }
 
