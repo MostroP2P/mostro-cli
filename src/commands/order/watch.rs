@@ -1,5 +1,5 @@
-//! `order.watch`: follow one order the user holds (spec 020). Not reachable
-//! from the binary yet.
+//! `order.watch`: follow one order the user holds (spec 020). The binary
+//! reaches it through `src/cli/order_watch.rs`.
 //!
 //! The order's trade key and the user's side come from the store, the
 //! counterparty from [`find_counterparty`] (the row, else the node's post-lock

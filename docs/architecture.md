@@ -325,8 +325,8 @@ violation.
   `cli/write.rs::finish`; human mode sends without a prompt. `order_chat` takes the order's trade key (`Store::order_keys`, else
   `order_unknown`), the counterparty (`find_counterparty`) and the conversation (`read_chat`), and only then sends the message
   (`send_chat`), so a failed read publishes nothing; the message sent is `data.sent`, never one of `data.messages`.
-- **`src/outcome/watch.rs`**, **`src/outcome/watch/cursor.rs`**: the contract of `order watch` (spec 020, #246), pure types that no
-  command reaches yet. `WatchInput` validates the window (1 to 10080 minutes, default 30), the cursor given with `--after` and the
+- **`src/outcome/watch.rs`**, **`src/outcome/watch/cursor.rs`**: the contract of `order watch` (spec 020, #246), pure types that
+  `src/cli/order_watch.rs` reaches. `WatchInput` validates the window (1 to 10080 minutes, default 30), the cursor given with `--after` and the
   deadline (1 to 86400 seconds; without `--timeout`, 30 in JSON and none in human mode). `Cursor` is the opaque `<since>[:<id>,...]` that
   a JSON call returns and takes back: `advance` sets the time to the newest observed record time, clamped to local now, minus 60 s,
   holds it at a chat message's newest envelope while another envelope of it could still be dated at or after it (`Observed::chat` takes
@@ -337,7 +337,7 @@ violation.
   only. `TradeRole` (`outcome/messages.rs`) is the user's side from the order row's kind and whether the user made it (`of_order`); #243
   reuses it.
 - **`src/msg/watch.rs`**, **`src/msg/watch/state.rs`**: the live subscription of `order watch` (spec 020 units 2 and 3; the records
-  and limits types sit in `watch/records.rs` and `watch/limits.rs`); no command reaches it yet and it publishes nothing.
+  and limits types sit in `watch/records.rs` and `watch/limits.rs`); `src/cli/order_watch.rs` reaches it and it publishes nothing.
   `Watch::open` connects every relay (`Session::live`), arms the notifications (`reply::arm`;
   `Armed::recv` is the shared wait), then sends each relay one REQ per filter (`ReqTarget::single`): the node's mail to the trade key
   (`inbox::mail_filter`) and, when the counterparty is known, the chat (`chat_filter(K_sign)`), since the cursor's time, 50 stored events
