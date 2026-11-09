@@ -3932,6 +3932,152 @@ mod schema_fixtures {
             );
         }
     }
+
+    // --- Order chat (spec 019): no fixture until JSON lands; checked against the generated schema ---
+
+    use mostro_client::outcome::chat::{
+        chat_rules, ChatData, ChatRecord, ChatSender, COMMAND as ORDER_CHAT,
+    };
+    use mostro_client::outcome::schema::output_schema;
+
+    fn chat_cases() -> Vec<(&'static str, Value, i32)> {
+        let record = |byte, from, text: &str| {
+            let id = EventId::from_byte_array([byte; 32]);
+            ChatRecord::new(&id, from, 1_792_108_800, text, &mut Warnings::new())
+        };
+        let data = |sent: Option<ChatRecord>| {
+            let messages = vec![
+                record(0x11, ChatSender::Me, "Fiat sent by bank transfer."),
+                record(0x22, ChatSender::Counterparty, "Received, releasing now."),
+            ];
+            let counterparty = PublicKey::from_hex(TRADE).unwrap();
+            ChatData::new(id(1), &counterparty, (messages, false), sent)
+        };
+        let sent = || Some(record(0x33, ChatSender::Me, "Thanks!"));
+        let relays =
+            |publication| ExecutionMeta::request(publication, DaemonAcceptance::NotApplicable);
+        let ok =
+            |data, meta| to_value(Envelope::ok(ORDER_CHAT, data, Warnings::new(), meta)).unwrap();
+        let error = |code, meta| {
+            let failed =
+                Envelope::<ChatData, ()>::error(Some(ORDER_CHAT), code, Warnings::new(), meta);
+            to_value(failed).unwrap()
+        };
+        let uncertain = Envelope::uncertain(
+            ORDER_CHAT,
+            ErrorCode::RequestRejected,
+            Some(data(sent())),
+            Warnings::new(),
+            relays(Publication::Unknown),
+        );
+        vec![
+            (
+                "conversation_read",
+                ok(data(None), ExecutionMeta::read(None)),
+                0,
+            ),
+            (
+                "message_sent",
+                ok(data(sent()), relays(Publication::Published)),
+                0,
+            ),
+            (
+                "relays_refused",
+                error(
+                    ErrorCode::RequestRejected,
+                    relays(Publication::NotAttempted),
+                ),
+                1,
+            ),
+            ("send_uncertain", to_value(uncertain).unwrap(), 1),
+            (
+                "counterparty_unknown",
+                error(ErrorCode::CounterpartyUnknown, ExecutionMeta::read(None)),
+                1,
+            ),
+            (
+                "message_without_yes",
+                error(ErrorCode::InvalidArguments, ExecutionMeta::read(None)),
+                2,
+            ),
+        ]
+    }
+
+    fn chat_schema() -> Value {
+        Value::Object(output_schema::<ChatData, ()>(&chat_rules()))
+    }
+
+    #[test]
+    fn chat_examples_conform_and_are_reproduced() {
+        let schema = chat_schema();
+        let examples = examples_of("019-order-chat");
+        let built = chat_cases();
+        assert_eq!(examples.len(), built.len());
+        for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+            examples.iter().zip(&built)
+        {
+            assert_eq!(name, built_name);
+            assert_eq!((outcome, exit), (built_outcome, built_exit), "{name}");
+            assert!(schema_check::conforms(&schema, &schema, outcome), "{name}");
+            let failed = outcome["status"] == "error";
+            assert_eq!(outcome["data"].is_null(), failed, "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_chat_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, &str, Edit)> = vec![
+            (
+                "conversation_read",
+                "a third writer",
+                Box::new(|o| o["data"]["messages"][0]["from"] = json!("solver")),
+            ),
+            (
+                "conversation_read",
+                "a numeric time",
+                Box::new(|o| o["data"]["messages"][0]["created_at_unix"] = json!(1_792_108_800)),
+            ),
+            (
+                "conversation_read",
+                "a snapshot",
+                Box::new(|o| o["meta"]["snapshot"] = json!({})),
+            ),
+            (
+                "message_sent",
+                "acceptance by the node",
+                Box::new(|o| o["meta"]["daemon_acceptance"] = json!("accepted")),
+            ),
+            (
+                "relays_refused",
+                "a refusal after publishing",
+                Box::new(|o| o["meta"]["publication"] = json!("published")),
+            ),
+            (
+                "send_uncertain",
+                "uncertain without a send",
+                Box::new(|o| o["error"]["code"] = json!("read_timeout")),
+            ),
+            (
+                "message_without_yes",
+                "a code of another command",
+                Box::new(|o| o["error"]["code"] = json!("node_refused")),
+            ),
+        ];
+        let schema = chat_schema();
+        for (case, label, edit) in variants {
+            let (_, _, mut outcome) = examples_of("019-order-chat")
+                .into_iter()
+                .find(|(name, ..)| name == case)
+                .unwrap();
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{case}");
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label} on {case}"
+            );
+        }
+    }
 }
 
 // --- Source boundaries (T050) --------------------------------------------

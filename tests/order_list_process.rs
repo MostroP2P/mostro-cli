@@ -1888,6 +1888,7 @@ fn valid_legacy_args(canonical: &str, key: &str) -> Vec<String> {
         "admin.message-attach" => {
             [&peer[..], &order[..], &["--file", "synthetic.bin"][..]].concat()
         }
+        "order.chat" => vec!["--order", ORDER_ID, "--message", "hi", "--yes"],
         _ => Vec::new(),
     };
     rest.into_iter().map(str::to_owned).collect()

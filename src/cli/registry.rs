@@ -170,6 +170,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "dispute.open",
         json: JsonSupport::Write,
     },
+    // The peer chat of an order held: human output until its JSON lands.
+    CommandEntry {
+        path: &["order", "chat"],
+        canonical: "order.chat",
+        json: JsonSupport::Unsupported,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

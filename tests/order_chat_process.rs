@@ -1,6 +1,6 @@
 //! Tests for `order chat` (spec 019): the counterparty column of the store and
-//! the lookup of the counterparty in the node's messages (unit 1), and the
-//! chat read and send (unit 2).
+//! the lookup of the counterparty in the node's messages (unit 1), the chat
+//! read and send (unit 2), and the command in human mode (unit 3).
 //!
 //! Every store is an isolated sandbox seeded the way the CLI creates one; the
 //! node's mail and the chat sit on in-process loopback relays, signed by
@@ -15,12 +15,12 @@ use std::time::Duration;
 use mostro_client::msg::chat::{read_chat, send_chat, ChatLine, SendFailure};
 use mostro_client::msg::fetch_msg;
 use mostro_client::outcome::{Publication, Warnings};
-use mostro_core::prelude::{derive_chat_keys, wrap_chat_message, Action, Message};
+use mostro_core::prelude::{chat_filter, derive_chat_keys, wrap_chat_message, Action, Message};
 use nostr_sdk::prelude::{
     Event, Filter, Keys, Kind, LocalRelay, LocalRelayBuilderNip42, MachineReadablePrefix,
     PublicKey, Timestamp, WritePolicy, WritePolicyResult,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 #[path = "common/fake_mostro.rs"]
@@ -641,5 +641,478 @@ mod transport {
             None,
         );
         assert_eq!(failure(unsent), expected);
+    }
+}
+
+/// Never answers a write: the relay neither stores nor refuses it.
+#[derive(Debug)]
+struct NeverConfirm;
+
+impl WritePolicy for NeverConfirm {
+    fn admit_event<'a>(
+        &'a self,
+        _event: &'a Event,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = WritePolicyResult> + Send + 'a>> {
+        Box::pin(std::future::pending())
+    }
+}
+
+impl Room {
+    /// A message `writer` wrote in the conversation of `ORDER`.
+    async fn line(&self, writer: &Keys, text: &str) -> Event {
+        let (conv, sign) = derive_chat_keys(&self.trade, &self.them.public_key()).unwrap();
+        wrap_chat_message(writer, &conv, &sign, text).await.unwrap()
+    }
+
+    /// How many envelopes of that conversation the relays at `url` hold.
+    async fn envelopes(&self, url: &str) -> usize {
+        let (_, sign) = derive_chat_keys(&self.trade, &self.them.public_key()).unwrap();
+        let filter = chat_filter(sign.public_key())
+            .since(Timestamp::from(0))
+            .limit(50);
+        let fetched = fetch_msg(&self.config(url), filter, &limits()).await;
+        fetched.unwrap().events().len()
+    }
+
+    /// The counterparty saved in the row, as a previous lookup leaves it.
+    async fn store_them(&self) {
+        let them = self.them.public_key();
+        self.store.set_counterparty(ORDER, &them).await.unwrap();
+    }
+
+    /// A loopback relay serving `relay`, holding `events`.
+    async fn serve(&self, relay: LocalRelay, events: Vec<Event>) -> LoopbackRelay {
+        for event in events {
+            relay.add_event(event).await.unwrap();
+        }
+        LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+            .await
+            .unwrap()
+    }
+}
+
+/// The (from, text) of each message of `data`, sorted.
+fn written(data: &Value) -> Vec<(String, String)> {
+    let mut written: Vec<(String, String)> = data["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|record| {
+            let field = |name: &str| record[name].as_str().unwrap().to_string();
+            (field("from"), field("text"))
+        })
+        .collect();
+    written.sort_unstable();
+    written
+}
+
+fn pair(from: &str, text: &str) -> (String, String) {
+    (from.to_string(), text.to_string())
+}
+
+mod operation {
+    use super::*;
+    use chrono::Utc;
+    use mostro_client::commands::order::chat::order_chat;
+    use mostro_client::outcome::chat::ChatInput;
+
+    const UNKNOWN: Uuid = Uuid::from_u128(0xdead);
+
+    /// `order chat` on `order`, with relays at `url`, as its JSON outcome.
+    async fn chat(room: &Room, order: Uuid, message: Option<&str>, url: &str) -> Value {
+        let input = ChatInput::validate(order, message, None).unwrap();
+        let config = room.config(url);
+        let outcome = order_chat(&input, &config, &room.store, &limits(), Utc::now()).await;
+        serde_json::to_value(outcome).unwrap()
+    }
+
+    /// The status, error code and (publication, acceptance, persistence).
+    fn result(outcome: &Value) -> (&str, Option<&str>, [&str; 3]) {
+        let meta = &outcome["meta"];
+        let stage = |name: &str| meta[name].as_str().unwrap();
+        assert_eq!(meta["snapshot"], Value::Null);
+        (
+            outcome["status"].as_str().unwrap(),
+            outcome["error"]["code"].as_str(),
+            [
+                stage("publication"),
+                stage("daemon_acceptance"),
+                stage("persistence"),
+            ],
+        )
+    }
+
+    const NOTHING: [&str; 3] = ["not_applicable"; 3];
+
+    #[tokio::test]
+    async fn a_read_returns_both_sides_and_learns_the_counterparty() {
+        let room = Room::new().await;
+        let (ours, them) = (room.trade.public_key(), room.them.public_key());
+        let accepted = mail_trade_keys(Action::HoldInvoicePaymentAccepted, ORDER, ours, them);
+        let relay = room
+            .relay(vec![
+                room.mail(&accepted, 1).await,
+                room.line(&room.trade, "fiat sent").await,
+                room.line(&room.them, "got it").await,
+            ])
+            .await;
+
+        let outcome = chat(&room, ORDER, None, &relay.url).await;
+
+        assert_eq!(result(&outcome), ("ok", None, NOTHING));
+        let data = &outcome["data"];
+        assert_eq!(data["order_id"], ORDER.to_string());
+        assert_eq!(data["counterparty_pubkey"], them.to_hex());
+        let expected = [pair("counterparty", "got it"), pair("me", "fiat sent")];
+        assert_eq!(written(data), expected);
+        assert_eq!(
+            (&data["truncated"], &data["sent"]),
+            (&json!(false), &Value::Null)
+        );
+        assert_eq!(room.column(ORDER).await, Some(them.to_hex()), "cached");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_order_or_counterparty_fails_before_any_chat_read() {
+        let room = Room::new().await;
+        let relay = room
+            .relay(vec![room.mail(&mail_waiting_seller(ORDER), 1).await])
+            .await;
+        let failed = |code| ("error", Some(code), NOTHING);
+        for message in [None, Some("hello")] {
+            let outcome = chat(&room, UNKNOWN, message, &relay.url).await;
+            assert_eq!(result(&outcome), failed("order_unknown"), "{message:?}");
+        }
+        assert_eq!(relay.connections(), 0, "an unknown order reads nothing");
+
+        for message in [None, Some("hello")] {
+            let outcome = chat(&room, ORDER, message, &relay.url).await;
+            assert_eq!(result(&outcome), failed("counterparty_unknown"));
+            assert_eq!(outcome["data"], Value::Null);
+        }
+
+        assert_eq!(room.envelopes(&relay.url).await, 0, "nothing was sent");
+        std::fs::remove_file(room.db()).unwrap();
+        let outcome = chat(&room, ORDER, None, &relay.url).await;
+        assert_eq!(result(&outcome), failed("identity_missing"));
+        std::fs::create_dir(room.db()).unwrap();
+        let outcome = chat(&room, ORDER, None, &relay.url).await;
+        assert_eq!(result(&outcome), failed("store_unreadable"));
+    }
+
+    #[tokio::test]
+    async fn sending_publishes_and_keeps_sent_apart_from_messages() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let relay = room
+            .relay(vec![room.line(&room.them, "send the fiat").await])
+            .await;
+
+        let outcome = chat(&room, ORDER, Some("  sent it \n"), &relay.url).await;
+
+        let published = ["published", "not_applicable", "not_applicable"];
+        assert_eq!(result(&outcome), ("ok", None, published));
+        let data = &outcome["data"];
+        assert_eq!(written(data), [pair("counterparty", "send the fiat")]);
+        let sent = &data["sent"];
+        assert_eq!(
+            (&sent["from"], &sent["text"]),
+            (&json!("me"), &json!("sent it"))
+        );
+        let again = chat(&room, ORDER, None, &relay.url).await;
+        let ids: Vec<&Value> = again["data"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|record| &record["message_id"])
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&&sent["message_id"]), "read back by its id");
+        assert_eq!(again["data"]["sent"], Value::Null);
+        assert_eq!(room.envelopes(&relay.url).await, 2, "sent once");
+    }
+
+    #[tokio::test]
+    async fn refused_or_unconfirmed_sends_are_error_or_uncertain() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let said = vec![room.line(&room.them, "hi").await];
+        let refusing = LocalRelay::builder().write_policy(BlockWrites).build();
+        let refusing = room.serve(refusing, said.clone()).await;
+
+        let refused = chat(&room, ORDER, Some("hello"), &refusing.url).await;
+
+        let unsent = ["not_attempted", "not_applicable", "not_applicable"];
+        assert_eq!(
+            result(&refused),
+            ("error", Some("request_rejected"), unsent)
+        );
+        assert_eq!(refused["data"], Value::Null);
+
+        let silent = LocalRelay::builder().write_policy(NeverConfirm).build();
+        let silent = room.serve(silent, said).await;
+
+        let unconfirmed = chat(&room, ORDER, Some("hello"), &silent.url).await;
+
+        let unknown = ["unknown", "not_applicable", "not_applicable"];
+        let expected = ("uncertain", Some("request_rejected"), unknown);
+        assert_eq!(result(&unconfirmed), expected);
+        let data = &unconfirmed["data"];
+        assert_eq!(written(data), [pair("counterparty", "hi")]);
+        assert_eq!(data["sent"]["text"], "hello");
+    }
+
+    #[tokio::test]
+    async fn a_failed_read_sends_nothing() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let open = room.relay(Vec::new()).await;
+        let silent = LoopbackRelay::start(Backend::Silent).await.unwrap();
+        let both = format!("{},{}", open.url, silent.url);
+
+        let outcome = chat(&room, ORDER, Some("hello"), &both).await;
+
+        assert_eq!(result(&outcome), ("error", Some("read_timeout"), NOTHING));
+        assert_eq!(outcome["data"], Value::Null);
+        assert_eq!(room.envelopes(&open.url).await, 0, "nothing was sent");
+    }
+}
+
+mod binary {
+    use super::*;
+    use harness::{run_with_watchdog, Captured, SENTINEL, WATCHDOG};
+
+    /// The binary in `room`'s sandbox with its node and relays at `url`.
+    fn command(room: &Room, url: &str, args: &[&str]) -> tokio::process::Command {
+        let mut command = room.sandbox.command(args);
+        command
+            .env("MOSTRO_PUBKEY", room.node.public_key().to_hex())
+            .env("RELAYS", url);
+        command
+    }
+
+    /// Run the binary in `room`'s sandbox with its node and relays at `url`.
+    async fn run(room: &Room, url: &str, args: &[&str]) -> Captured {
+        let run = run_with_watchdog(command(room, url, args), WATCHDOG)
+            .await
+            .unwrap();
+        assert!(run.reaped && run.status.is_some(), "{args:?}");
+        run
+    }
+
+    fn order() -> String {
+        ORDER.to_string()
+    }
+
+    #[tokio::test]
+    async fn human_read_shows_both_sides_and_escapes_untrusted_text() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let forged = "ok\n📨 From: 🫵 You\u{1b}[2J\u{202e}gnissim";
+        let relay = room
+            .relay(vec![
+                room.line(&room.trade, "fiat sent").await,
+                room.line(&room.them, forged).await,
+            ])
+            .await;
+
+        let run = run(&room, &relay.url, &["order", "chat", "--order", &order()]).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let out = run.stdout_text();
+        let them = room.them.public_key().to_hex();
+        for line in [
+            "💬 Order Chat".to_string(),
+            format!("📋 Order: {ORDER}"),
+            format!("👤 Counterparty: {them}"),
+            "📊 2 message(s):".to_string(),
+            "📨 From: 🫵 You".to_string(),
+            "📨 From: 👤 Counterparty".to_string(),
+            "   fiat sent".to_string(),
+            "   📨 From: 🫵 You\\u{1b}[2J\\u{202e}gnissim".to_string(),
+        ] {
+            assert!(out.lines().any(|shown| shown == line), "{line}\n{out}");
+        }
+        assert!(
+            !out.contains('\u{1b}') && !out.contains('\u{202e}'),
+            "{out}"
+        );
+        assert!(!out.contains("📤"), "nothing was sent");
+    }
+
+    #[tokio::test]
+    async fn human_send_sends_once_without_asking() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let relay = room.relay(Vec::new()).await;
+        let args = [
+            "order",
+            "chat",
+            "--order",
+            &order(),
+            "--message",
+            "on my way",
+        ];
+
+        let sent = run(&room, &relay.url, &args).await;
+
+        assert_eq!(sent.code(), Some(0), "{}", sent.stderr_text());
+        assert!(
+            sent.stderr.is_empty(),
+            "no question: {}",
+            sent.stderr_text()
+        );
+        let out = sent.stdout_text();
+        assert!(
+            out.contains("📭 No chat messages\n📤 Your message (id "),
+            "{out}"
+        );
+        assert!(out.ends_with("):\n   on my way\n"), "{out}");
+        assert_eq!(room.envelopes(&relay.url).await, 1, "sent once");
+
+        let read = run(
+            &room,
+            &relay.url,
+            &["order", "chat", "--order", &order(), "--yes"],
+        )
+        .await;
+
+        assert_eq!(read.code(), Some(0), "{}", read.stderr_text());
+        let out = read.stdout_text();
+        assert!(
+            out.contains("📨 From: 🫵 You\n📝 Text:\n   on my way\n"),
+            "{out}"
+        );
+        assert!(!out.contains("📤"), "{out}");
+        assert_eq!(
+            room.envelopes(&relay.url).await,
+            1,
+            "--yes alone sends nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn bad_since_or_message_exits_2_before_any_relay() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let relay = room.relay(Vec::new()).await;
+        let id = order();
+        let long = format!("{SENTINEL}{}", "x".repeat(4097 - SENTINEL.len()));
+        assert_eq!(long.len(), 4097, "one byte over the bound");
+        let bad: [&[&str]; 8] = [
+            &["--since", "0"],
+            &["--since", "10081"],
+            &["--since", "week"],
+            &["--message", ""],
+            &["--message", " \t "],
+            &["--message", &long],
+            &["--message", SENTINEL, "--message", "again"],
+            &["--message", "-x"],
+        ];
+        for extra in bad {
+            let mut args = vec!["order", "chat", "--order", id.as_str()];
+            args.extend_from_slice(extra);
+
+            let run = run(&room, &relay.url, &args).await;
+
+            assert_eq!(run.code(), Some(2), "{extra:?}: {}", run.stderr_text());
+            assert!(run.stdout.is_empty(), "{extra:?}");
+            assert!(!run.stderr_text().contains(SENTINEL), "{extra:?}");
+        }
+        assert_eq!(
+            relay.connections(),
+            0,
+            "no relay before the arguments are valid"
+        );
+
+        let dash = run(
+            &room,
+            &relay.url,
+            &["order", "chat", "--order", &id, "--message=-x"],
+        )
+        .await;
+
+        assert_eq!(dash.code(), Some(0), "{}", dash.stderr_text());
+        assert!(dash.stdout_text().ends_with("):\n   -x\n"));
+    }
+
+    #[tokio::test]
+    async fn an_uncertain_send_prints_the_advice_and_still_the_conversation() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let said = vec![room.line(&room.them, "hi").await];
+        let silent = LocalRelay::builder().write_policy(NeverConfirm).build();
+        let silent = room.serve(silent, said).await;
+        let args = ["order", "chat", "--order", &order(), "--message", "hello"];
+
+        let run = run(&room, &silent.url, &args).await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        let message = ErrorCode::RequestRejected.message();
+        let advice = "The message may have reached a relay. Run `order chat --order <id>` \
+                      and look for your message before sending it again.";
+        assert_eq!(run.stderr_text(), format!("error: {message}\n{advice}\n"));
+        let out = run.stdout_text();
+        assert!(
+            out.contains("📨 From: 👤 Counterparty\n📝 Text:\n   hi\n\n📤 Your message (id "),
+            "{out}"
+        );
+        assert!(out.ends_with("):\n   hello\n"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn an_unwritable_stdout_exits_1_with_one_fixed_line() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let relay = room.relay(Vec::new()).await;
+        let id = order();
+        for (extra, sent) in [(&[][..], 0), (&["--message", "hello"][..], 1)] {
+            let mut args = vec!["order", "chat", "--order", id.as_str()];
+            args.extend_from_slice(extra);
+            let mut command = command(&room, &relay.url, &args);
+            command.stdout(harness::closed_pipe());
+
+            let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+
+            assert_eq!(run.code(), Some(1), "{extra:?}: {}", run.stderr_text());
+            let line = "error: the chat could not be written\n";
+            assert_eq!(run.stderr_text(), line, "{extra:?}");
+            // The message was sent all the same, once.
+            assert_eq!(room.envelopes(&relay.url).await, sent, "{extra:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn no_secret_on_any_stream_and_verbose_prints_one_line() {
+        let room = Room::new().await;
+        room.store_them().await;
+        let relay = room.relay(Vec::new()).await;
+        let secret = room.trade.secret_key().to_secret_hex();
+        let args = [
+            "--verbose",
+            "order",
+            "chat",
+            "--order",
+            &order(),
+            "--message",
+            SENTINEL,
+        ];
+
+        let sent = run(&room, &relay.url, &args).await;
+
+        assert_eq!(sent.code(), Some(0), "{}", sent.stderr_text());
+        assert_eq!(sent.stderr_text(), "verbose: order.chat ok\n");
+        assert!(!sent.stdout_text().contains(&secret));
+
+        let fresh = Room::new().await;
+        let unknown = run(&fresh, &relay.url, &args).await;
+
+        assert_eq!(unknown.code(), Some(1));
+        assert!(unknown.stdout.is_empty(), "{}", unknown.stdout_text());
+        let message = ErrorCode::CounterpartyUnknown.message();
+        let expected = format!("error: {message}\nverbose: order.chat counterparty_unknown\n");
+        assert_eq!(unknown.stderr_text(), expected);
     }
 }

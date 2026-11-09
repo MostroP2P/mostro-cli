@@ -4570,6 +4570,19 @@
       ]
     },
     {
+      "name": "order.chat",
+      "cli_path": [
+        "order",
+        "chat"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
       "name": "order.fiat-sent",
       "cli_path": [
         "order",

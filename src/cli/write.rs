@@ -33,7 +33,7 @@ pub(super) struct Base {
     pub store: Store,
 }
 
-/// Configuration, identity and store of a command that sends nothing.
+/// Configuration, identity and store of a command that sends the node nothing.
 pub(super) struct Reader {
     pub config: PublicReadConfig,
     pub identity: Keys,
@@ -42,7 +42,8 @@ pub(super) struct Reader {
 
 /// Resolve configuration, then the existing identity (read-only), then the
 /// store, which must accept a write when `writable`. The work and transport
-/// settings concern only what is sent, so a read does not look at them.
+/// settings concern only what is sent to the node, so neither a read nor the
+/// peer chat (to relays only, mining nothing) looks at them.
 pub(super) async fn resolve_reader(cli: &Cli, writable: bool) -> Result<Reader, ErrorCode> {
     let getenv = |name: &str| env::var(name).ok();
     let config =

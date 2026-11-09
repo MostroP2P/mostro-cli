@@ -1079,7 +1079,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 38] = [
+    const APPROVED: [(&[&str], &str); 39] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1118,6 +1118,7 @@ mod registry {
         (&["order", "mine"], "order.mine"),
         (&["order", "rate"], "order.rate"),
         (&["dispute", "open"], "dispute.open"),
+        (&["order", "chat"], "order.chat"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {

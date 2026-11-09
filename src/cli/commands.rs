@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub use super::command_args::{
-    AddBondInvoiceArgs, AddInvoiceArgs, ListMessagesArgs, NewArgs, RateArgs, StepArgs, SyncArgs,
-    TakeBuyArgs, TakeSellArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, ChatArgs, ListMessagesArgs, NewArgs, RateArgs, StepArgs,
+    SyncArgs, TakeBuyArgs, TakeSellArgs,
 };
 use crate::outcome::order::{SIDES, STATUSES};
 
@@ -276,6 +276,11 @@ pub enum OrderCommands {
     /// an existing local identity (it never creates one) and publishes one
     /// signed request. JSON output requires --yes
     Rate(RateArgs),
+    /// Read the peer chat of an order you hold and, with --message, send one
+    /// message to its counterparty. The counterparty's key comes from the
+    /// order's row or the node's messages, never from you. Needs an existing
+    /// local identity (it never creates one); human mode sends without asking
+    Chat(ChatArgs),
 }
 
 #[derive(Subcommand, Clone)]
