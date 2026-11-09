@@ -176,6 +176,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "config.set",
         json: JsonSupport::Read,
     },
+    // Reads the config file only, like `identity show`.
+    CommandEntry {
+        path: &["config", "show"],
+        canonical: "config.show",
+        json: JsonSupport::Read,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

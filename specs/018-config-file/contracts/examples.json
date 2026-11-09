@@ -107,6 +107,75 @@
         "status": "error",
         "warnings": []
       }
+    },
+    {
+      "exit_code": 0,
+      "name": "show_values",
+      "stdout": {
+        "command": "config.show",
+        "data": {
+          "mostro_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "path": "/home/user/.mcli/config",
+          "pow": "0",
+          "relays": "wss://relay.example",
+          "transport": "nip44"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "show_no_file",
+      "stdout": {
+        "command": "config.show",
+        "data": {
+          "mostro_pubkey": null,
+          "path": "/home/user/.mcli/config",
+          "pow": null,
+          "relays": null,
+          "transport": null
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "show_configuration_invalid",
+      "stdout": {
+        "command": "config.show",
+        "data": null,
+        "error": {
+          "code": "configuration_invalid",
+          "message": "The node configuration is invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
     }
   ],
   "contract_status": "proposed"

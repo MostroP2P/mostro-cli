@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 
 use super::{ConfigFile, ConfigFileError, Setting};
 use crate::identity::configured_dir;
+use crate::parse_human::table::escape_controls;
 use crate::store::create_private_db_file;
 use crate::util::misc::ensure_private_dir;
 
@@ -70,7 +71,8 @@ fn read_with(
 }
 
 /// A refused config file and where it is. Its text, `<path>: <problem>`,
-/// names the line, never the content.
+/// names the line, never the content, and escapes control characters in the
+/// path as the human output does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigProblem {
     pub path: PathBuf,
@@ -79,7 +81,8 @@ pub struct ConfigProblem {
 
 impl fmt::Display for ConfigProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.path.display(), self.error)
+        let path = escape_controls(&self.path.display().to_string());
+        write!(f, "{path}: {}", self.error)
     }
 }
 
