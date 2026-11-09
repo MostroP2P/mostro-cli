@@ -161,6 +161,26 @@ impl QueryPolicy for RefuseSecond {
     }
 }
 
+/// Serves the first REQ it gets and leaves every later one unanswered.
+#[derive(Debug, Default)]
+struct StallLater(AtomicUsize);
+
+impl QueryPolicy for StallLater {
+    fn admit_query<'a>(
+        &'a self,
+        _query: &'a mut Filter,
+        _addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = QueryPolicyResult> + Send + 'a>> {
+        let first = self.0.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if !first {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+            QueryPolicyResult::Accept
+        })
+    }
+}
+
 /// A watch that opened.
 async fn watching(
     config: &PublicReadConfig,
@@ -483,6 +503,46 @@ mod reconnect {
         let arrived = watch.next(Some(Instant::now() + OBSERVE)).await.unwrap();
         assert_eq!(texts(&arrived), ["on my way"], "after the reconnect");
         assert!(watch.close().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_reconnect_does_not_extend_the_chat_replay() {
+        let (node, chat) = (Keys::generate(), Chat::new());
+        let stalling = || {
+            LocalRelay::builder()
+                .query_policy(StallLater::default())
+                .build()
+        };
+        let (stays, comes_back) = (
+            serve(&stalling(), &[]).await,
+            kickable(&stalling(), &[]).await,
+        );
+        let config = config(&node, &[&stays.url, &comes_back.url]);
+        let read = ReadLimits {
+            read: Duration::from_millis(2_500),
+            ..limits().read
+        };
+        let limits = WatchLimits { read, ..limits() };
+        let start = Cursor::start(now() - 1_800);
+        let opened = Watch::open(&config, (Some(1), &chat.trade), None, &start, &limits).await;
+        let mut watch = opened.unwrap();
+
+        let kick = tokio::spawn(async move {
+            tokio::time::sleep(QUIET / 2).await;
+            drop_sessions(&comes_back).await;
+            comes_back
+        });
+        let started = Instant::now();
+        watch.follow_chat(&chat.them.public_key()).await.unwrap();
+        let elapsed = started.elapsed();
+
+        let comes_back = kick.await.unwrap();
+        assert_eq!(comes_back.connections(), 2, "back during the replay");
+        assert!(
+            elapsed < read.read + QUIET,
+            "{elapsed:?}: the reconnect replay is not waited for"
+        );
+        watch.close().await;
     }
 
     #[tokio::test]

@@ -292,7 +292,8 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     Example outcome: [contracts/examples.json](../specs/020-order-watch/contracts/examples.json).
   - **Timing**: 10 s to connect, 15 s for the replay, 15 s more when the counterparty is learned, then live until the end or
     `--timeout`, then 1 s of cleanup; up to 26 s more first when the counterparty must be looked up. `--pow`, `--transport` and
-    `--reply-timeout` do not apply. A JSON call takes at most `--timeout` + 67 s; allow `--timeout` + 70 s.
+    `--reply-timeout` do not apply. A JSON call takes at most `--timeout` + 67 s (a reconnect during a replay does not extend it);
+    allow `--timeout` + 70 s.
   - **Handler**: `order_watch` in `src/commands/order/watch.rs`; dispatch in `src/cli/order_watch.rs`; contract in
     [specs/020-order-watch](../specs/020-order-watch/contracts/cli.md).
 

@@ -156,6 +156,11 @@ impl State {
         feeds.iter().filter(missing).copied().collect()
     }
 
+    /// When a replay that starts at `now` runs out of time.
+    pub(super) fn replay_end(&self, now: Instant) -> Instant {
+        now + self.replay
+    }
+
     fn replay_from(&self, now: Instant) -> Replay {
         Replay {
             until: now + self.replay,

@@ -503,5 +503,6 @@ Order watch unit 6 (2026-11-09): `tests/order_watch_process.rs` `mod json` (3, t
 document at the replayed record, then `--after` its cursor returns only a node message published while the call waits; `--after` with
 `--timeout 1` is an empty success that keeps the given cursor; `order_unknown` exit 1 and a malformed `--after` exit 2 are one
 conforming document with null data and no relay contacted), `watch_examples_conform_and_are_reproduced` and
-`order_watch_input_lists_order_since_after_and_timeout`; `order.watch` joins the machine lists of the registry and discovery tests
-(29 tests in the process file). Until unit 7 the schema checked is the `order.watch` entry of `docs/schemas/discovery-v1.json`.
+`order_watch_input_lists_order_since_after_and_timeout`; `order.watch` joins the machine lists of the registry and discovery tests;
+`mod reconnect` gains `a_reconnect_does_not_extend_the_chat_replay` (a relay dropped while the chat replays comes back before the
+replay's end, and `follow_chat` still returns within one replay budget) (30 tests in the process file). Until unit 7 the schema checked is the `order.watch` entry of `docs/schemas/discovery-v1.json`.
