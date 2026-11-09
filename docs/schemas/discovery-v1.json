@@ -3354,6 +3354,16 @@
                 "const": "add_bond_invoice",
                 "description": "Send a payout invoice for a slashed bond: `bond add-invoice`.",
                 "type": "string"
+              },
+              {
+                "const": "fiat_sent",
+                "description": "Send the fiat, then `order fiat-sent`. Sent to the buyer once the\nseller's hold invoice is paid; act only while the order is `active`.",
+                "type": "string"
+              },
+              {
+                "const": "rate",
+                "description": "Rate the counterparty: `order rate`. Sent to both sides when the trade\nis over.",
+                "type": "string"
               }
             ]
           },
@@ -13289,6 +13299,16 @@
               {
                 "const": "add_bond_invoice",
                 "description": "Send a payout invoice for a slashed bond: `bond add-invoice`.",
+                "type": "string"
+              },
+              {
+                "const": "fiat_sent",
+                "description": "Send the fiat, then `order fiat-sent`. Sent to the buyer once the\nseller's hold invoice is paid; act only while the order is `active`.",
+                "type": "string"
+              },
+              {
+                "const": "rate",
+                "description": "Rate the counterparty: `order rate`. Sent to both sides when the trade\nis over.",
                 "type": "string"
               }
             ]

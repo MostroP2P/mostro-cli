@@ -5218,3 +5218,38 @@ regenerated with the `REGENERATE` command; `git diff --stat docs/schemas` lists 
   comment, `docs/commands.md` and the spec now say so, and "0.17.0" became "releases up to 0.17.0". The three schema fixtures
   failed their drift tests with the new comment and were regenerated with the `REGENERATE` command; gates rerun with the same numbers.
 - **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Next Steps (spec 021) Unit 2: fiat_sent And rate: 2026-11-09
+
+Branch `feat/fiat-sent-and-rate-steps` from `feat/payment-failed-payload` (ffdc17e), the second of three units of #243. User-visible:
+a record of `hold-invoice-payment-accepted` has `next_step` `fiat_sent` and a record of `rate` has `next_step` `rate`, with the human
+Next lines `` send the fiat, then: `order fiat-sent --order <id>` `` and `` rate your counterparty: `order rate --order <id> --rating
+<1-5>` ``. `order watch` ends at `rate` too, and an update that holds `purchase-completed` or `hold-invoice-payment-settled` without a
+`rate` waits for it, up to 10 s (`WatchLimits::rate_grace`) and never past the deadline; the end line still names the end action.
+Fixtures regenerated with the `REGENERATE` command; `git diff --stat docs/schemas` lists only `discovery-v1.json`,
+`message-list-v1.json` and `order-watch-v1.json`.
+
+- **Failing first**: with stubs that added `NextStep::FiatSent`, `NextStep::Rate`, an empty Next line, `rate_follows` returning false
+  and the `rate_grace` field unused, `cargo test --locked --no-fail-fast`: 10 behaviour tests failed
+  (`the_actions_that_ask_something_have_a_next_step`, `only_the_ending_actions_end_the_trade`,
+  `a_rate_follows_only_the_end_of_a_completed_trade`, `the_steps_of_a_trade_name_their_command_with_the_order_id`,
+  `next_step_examples_are_reproduced_by_the_owned_constructors`, `every_message_of_the_flow_comes_back_oldest_first_with_its_next_step`,
+  `the_end_of_a_trade_asks_both_sides_to_rate`, `human_names_the_fiat_and_rating_commands_with_the_order_id`,
+  `a_watch_ends_after_the_rate_that_follows_the_end_of_the_trade`, `human_streams_until_the_trade_ends`), plus the three fixture drift
+  tests, because the stubs already added the two enum values. With the change all passed.
+- **Tests** (5 new): `next_step.rs` (the table gains the two values; the quiet list gains `fiat-sent-ok`, `buyer-took-order`,
+  `purchase-completed`, `hold-invoice-payment-settled` and `rate-received`); `every_kind()` gains both records;
+  `parse_human::message` `the_steps_of_a_trade_name_their_command_with_the_order_id`; `outcome::watch`
+  `a_rate_follows_only_the_end_of_a_completed_trade` and `rate` in `only_the_ending_actions_end_the_trade`; the real binary on two
+  mailboxes: `the_end_of_a_trade_asks_both_sides_to_rate` (the seller's settled hold invoice and the buyer's completed purchase, each
+  then `rate`, JSON checked against `docs/schemas/message-list-v1.json`) and `human_names_the_fiat_and_rating_commands_with_the_order_id`;
+  `a_watch_ends_after_the_rate_that_follows_the_end_of_the_trade` (both sides in human mode, one JSON document with the end and its
+  `rate`, both stamped in the same second with event ids that would list the `rate` first, so an update lists the end first; and the grace window, shrunk to 1 s in the tests, ending a watch that gets no `rate` long before its 30 s deadline);
+  `human_streams_until_the_trade_ends` now publishes the `rate` and expects its Next line; the `messages_of_the_trade_steps` example.
+- **Evidence labels**: automated verification against the scripted node's mailbox and loopback relays; that the node sends
+  `hold-invoice-payment-accepted` only to the buyer and `rate` right after `purchase-completed` and `hold-invoice-payment-settled` is
+  read from the mostrod v0.20.2 source only.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1117 passed, 0 failed, 0 ignored (1112 at the base; +2 library, +2 `message_list_process`, +1
+  `order_watch_process`); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.

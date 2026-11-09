@@ -1161,6 +1161,11 @@ pub fn mail_payment_failed(order: Uuid, attempts: u32, interval: u32) -> Message
     )
 }
 
+/// `rate`: the node asks for a rating once the trade is over.
+pub fn mail_rate(order: Uuid) -> Message {
+    Message::new_order(Some(order), None, None, Action::Rate, None)
+}
+
 /// A message with a free-text payload.
 pub fn mail_text(order: Uuid, text: &str) -> Message {
     Message::new_order(

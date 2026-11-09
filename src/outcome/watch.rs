@@ -177,17 +177,29 @@ impl WatchInput {
 /// Whether a node message with `action`, about the watched order, ends its
 /// trade for a user on side `role` (`None` when the local row does not say).
 /// `admin-settled` ends it only for the seller: the node pays the buyer after
-/// it, and that payment can still fail and ask for a new invoice.
+/// it, and that payment can still fail and ask for a new invoice. `rate`, which
+/// follows the end of a completed trade, ends it too.
 pub fn ends_trade(action: &Action, role: Option<TradeRole>) -> bool {
     match action {
         Action::PurchaseCompleted
         | Action::HoldInvoicePaymentSettled
+        | Action::Rate
         | Action::Canceled
         | Action::CooperativeCancelAccepted
         | Action::AdminCanceled => true,
         Action::AdminSettled => role == Some(TradeRole::Seller),
         _ => false,
     }
+}
+
+/// Whether the node sends `rate` right after `action`: it does after
+/// `purchase-completed` (to the buyer) and `hold-invoice-payment-settled` (to
+/// the seller), so a watch that sees one waits a short while for the `rate`.
+pub fn rate_follows(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::PurchaseCompleted | Action::HoldInvoicePaymentSettled
+    )
 }
 
 /// One `order.watch` result: the document of a JSON call, or one update of a
@@ -347,6 +359,7 @@ mod tests {
         for action in [
             Action::PurchaseCompleted,
             Action::HoldInvoicePaymentSettled,
+            Action::Rate,
             Action::Canceled,
             Action::CooperativeCancelAccepted,
             Action::AdminCanceled,
@@ -361,7 +374,6 @@ mod tests {
         for action in [
             Action::HoldInvoicePaymentCanceled,
             Action::Released,
-            Action::Rate,
             Action::PaymentFailed,
             Action::AddInvoice,
             Action::BondSlashed,
@@ -369,6 +381,20 @@ mod tests {
             for side in sides {
                 assert!(!ends_trade(&action, side), "{action:?} {side:?}");
             }
+        }
+    }
+
+    #[test]
+    fn a_rate_follows_only_the_end_of_a_completed_trade() {
+        assert!(rate_follows(&Action::PurchaseCompleted));
+        assert!(rate_follows(&Action::HoldInvoicePaymentSettled));
+        for action in [
+            Action::Rate,
+            Action::Canceled,
+            Action::AdminSettled,
+            Action::Released,
+        ] {
+            assert!(!rate_follows(&action), "{action:?}");
         }
     }
 

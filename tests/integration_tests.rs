@@ -316,6 +316,7 @@ mod schema_fixtures {
     };
     use super::{IdentityInitData, IdentityShowData, IDENTITY_INIT, IDENTITY_SHOW};
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
+    use mostro_core::prelude::Peer;
 
     const DISCOVERY_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -4288,7 +4289,48 @@ mod schema_fixtures {
             ExecutionMeta::read(Some(read_snapshot(2, 1))),
         ))
         .unwrap();
-        vec![("payment_failed_while_the_node_retries", outcome, 0)]
+        vec![
+            ("payment_failed_while_the_node_retries", outcome, 0),
+            ("messages_of_the_trade_steps", trade_steps(), 0),
+        ]
+    }
+
+    /// The buyer is asked to send the fiat, the node confirms it was sent
+    /// (that asks nothing), and the trade's end asks for a rating.
+    fn trade_steps() -> Value {
+        let step = |byte: u8, action, payload, minute: u64| {
+            let message = Message::new_order(Some(id(1)), None, None, action, payload);
+            MessageRecord::from_message(
+                &EventId::from_byte_array([byte; 32]),
+                1_792_108_800 + minute * 60,
+                &message,
+                Some(3),
+                &PublicKey::from_hex(TRADE).unwrap(),
+                &mut Warnings::new(),
+            )
+        };
+        let peer = Peer {
+            pubkey: PEER.to_string(),
+            reputation: None,
+        };
+        let records = vec![
+            step(
+                0x31,
+                Action::HoldInvoicePaymentAccepted,
+                Some(Payload::Order(pending_order(OrderStatus::Active))),
+                1,
+            ),
+            step(0x32, Action::FiatSentOk, Some(Payload::Peer(peer)), 2),
+            step(0x33, Action::Rate, None, 3),
+        ];
+        let data = message_data(records, false, (3, 0));
+        to_value(MessageEnvelope::ok(
+            MESSAGE_LIST,
+            to_value(data).unwrap(),
+            Warnings::new(),
+            ExecutionMeta::read(Some(read_snapshot(2, 3))),
+        ))
+        .unwrap()
     }
 
     fn next_step_example(name: &str) -> Value {

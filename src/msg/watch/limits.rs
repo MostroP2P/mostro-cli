@@ -7,6 +7,8 @@ use crate::outcome::{ErrorCode, Warnings};
 
 /// The fixed wait before a relay that went away is tried again.
 const RETRY: Duration = Duration::from_secs(10);
+/// How long a watch waits for the `rate` that follows the end of a trade.
+const RATE_GRACE: Duration = Duration::from_secs(10);
 
 /// Bounds of a watch. Tests shrink them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +22,10 @@ pub struct WatchLimits {
     /// seconds and sends a subscription again only when the reconnect falls
     /// in a later second than its REQ.
     pub retry: Duration,
+    /// How long a watch that saw `purchase-completed` or
+    /// `hold-invoice-payment-settled` waits for the `rate` the node sends
+    /// right after (10 s), never past the watch deadline.
+    pub rate_grace: Duration,
 }
 
 impl Default for WatchLimits {
@@ -27,6 +33,7 @@ impl Default for WatchLimits {
         Self {
             read: ReadLimits::default(),
             retry: RETRY,
+            rate_grace: RATE_GRACE,
         }
     }
 }

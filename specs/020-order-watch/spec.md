@@ -87,7 +87,9 @@ D2, D5, D7, D8, D9 and D14 depart from the issue's wording; each says why.
   (`is_mine` NULL) does not end on `admin-settled`. `hold-invoice-payment-canceled`, `released`, `rate`, `payment-failed` and
   `add-invoice` do not end the watch. Documented, not detected: `rate` follows a successful end and `order rate` does not need it;
   `bond-slashed` and `add-bond-invoice` can follow an end (see `message list --order`); an untaken order that expires sends the maker
-  nothing; an end before the window is not seen. For these the docs advise `--timeout` and `order info`.
+  nothing; an end before the window is not seen. For these the docs advise `--timeout` and `order info`. Amended by
+  [spec 021](../021-next-steps/spec.md) FR-008: `rate` now ends the watch too, and an update that holds `purchase-completed` or
+  `hold-invoice-payment-settled` waits for the `rate` that follows (up to 10 s, never past the deadline).
 - **D10 Interrupt**: no signal handler; Ctrl-C ends the process by its default action. Human output is flushed after each update; JSON
   prints no document, the contract's existing exception for a killed process. No exit status is promised. A killed JSON call is safe to
   repeat with the same cursor.
