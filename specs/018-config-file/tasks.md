@@ -27,3 +27,12 @@ only. One `tests/TEST_SUMMARY.md` entry per unit.
   renamed `cli::context` message tests (failed until the reword) and four `schema_fixtures` tests (failed until the fixtures were
   regenerated). Then `config_show_rules`, `config_show` and `show_outcome`, the grammar, the dispatch, the registry entry, the schema arm,
   `config-show-v1.json` and the regenerated discovery, the three `config.show` examples, docs.
+- [x] **5. Review fixes** (`feat/config-review-fixes`), stacked on unit 4: unit 2's second review round (cherry-picked from its local
+  branch) and unit 3's review, which do not fit those units' 1500 lines. Failing first, on this branch:
+  `settings::file::tests::update_refuses_a_symlinked_lock` (`Ok` instead of `NotCreated`, the link's target created outside the data
+  directory, with `O_NOFOLLOW` removed) and the two `cli::context` message tests (until the hint said that a set variable wins over the
+  file). Then `O_NOFOLLOW` on `.config.lock`, the temporary written through its handle, the directory sync, the flag docs, the owner-only
+  claims limited to Unix and the `tests/README.md` counts. The directory sync and the docs have no test. From the review of this unit,
+  failing first: `cli::context::tests::blank_mostro_pubkey_gets_the_missing_message` (`Ok("")`) and
+  `an_empty_variable_hides_the_file_from_a_legacy_command` in `config_file_process` (`Invalid input length 64`); then the blank key
+  treated as missing, `libc` without its default features (no test: the build is unchanged) and the 14 missing test targets listed.

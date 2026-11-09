@@ -24,8 +24,8 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
   - `store::create_store(dir)` (`identity init`): the same steps without printing, after refusing an existing `mcli.db` or a leftover
     `mcli.db-journal`, `-wal` or `-shm`, creating the directory owner-only (0700) like `get_mcli_path`, and removing a half-created file
     again on failure.
-  - `config set` (spec 018) may create the data directory owner-only (0700) before any store exists; it writes only `config` and
-    `.config.lock` and never touches `mcli.db`.
+  - `config set` (spec 018) may create the data directory before any store exists (owner-only, 0700, on Unix; on Windows it keeps the
+    inherited ACLs); it writes only `config` and `.config.lock` and never touches `mcli.db`.
 
 ### Tables
 

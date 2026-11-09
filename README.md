@@ -237,7 +237,7 @@ mostro-cli order list
 - An option wins over an environment variable that is set (even empty), which wins over the file.
 - Only `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` are allowed. Any other key, `ADMIN_NSEC` included, makes the whole file invalid, so keep secrets in the environment. Every value is checked like an option.
 - Reading it never creates `~/.mcli` or anything in it, and its values never enter the environment.
-- `mostro-cli config set <key> <value>` writes one setting for you (`mostro-pubkey`, `relays`, `pow` or `transport`), checked like an option and never echoed when refused: it creates the data directory owner-only, rewrites the file owner-only as `NAME=value` lines (comments are dropped) and leaves a file it refuses untouched.
+- `mostro-cli config set <key> <value>` writes one setting for you (`mostro-pubkey`, `relays`, `pow` or `transport`), checked like an option and never echoed when refused: it creates the data directory if needed, rewrites the file as `NAME=value` lines (comments are dropped) and leaves a file it refuses untouched. On Unix it makes the directory (0700) and the file (0600) owner-only; on Windows it sets no permissions of its own, so both keep the ACLs they inherit from the parent folder.
 - `mostro-cli config show` prints the file's path and the values stored in it (`not set` when absent), read-only. It shows only the file: an option or a set variable still wins over what it shows.
 - A refused file stops the command before anything else happens: a JSON-capable one prints `hint: <path>: line N ...` and fails with `configuration_invalid`, a human-only one prints `Invalid config file <path>: line N ...`.
 
@@ -724,6 +724,8 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-s, --secret` — secret mode for inner event tuple.
 - `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; only nip44 is supported).
 
+`-m`, `-r`, `-p` and `-t` also override the [config file](#config-file): the file fills in a setting only when neither an option nor a variable that is set (even empty) gives it, and the transport is auto-detected when the `TRANSPORT` that wins is absent or empty.
+
 ```bash
 mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 ```
@@ -790,13 +792,13 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 **"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
 
-**`MOSTRO_PUBKEY not set`** — Export it, put it in the [config file](#config-file) (`mostro-cli config set mostro-pubkey <npub>`; `mostro-cli config show` lists what the file holds), or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> order list`, not `mostro-cli order list -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance).
+**`MOSTRO_PUBKEY not set`** — Export it, put it in the [config file](#config-file) (`mostro-cli config set mostro-pubkey <npub>`; `mostro-cli config show` lists what the file holds), or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> order list`, not `mostro-cli order list -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance). The same message means the value that wins is blank: an empty `-m`, or a `MOSTRO_PUBKEY` that is set but empty, whatever the config file holds; unset the variable to use the file.
 
 **`The node configuration is invalid.`** after a `hint: <path>: line N ...` line, or **`Invalid config file <path>: line N ...`** — The config file was refused. The hint names the file and the line: a key other than the four settings, a line without `=`, or a value that is not a key, relay URLs, a number up to 255 or `nip44`. Fix or remove that line (`mostro-cli config show` names it too); the whole file is refused even when the options give every value. Without a hint, the option or variable itself is invalid.
 
-**`The configuration file cannot be written, so nothing was changed.`** (`configuration_unwritable`) — `config set` could not create the data directory, its lock or temporary file, or could not write or rename the file. The old file is intact, but the data directory may already have been created or made owner-only (0700), with an empty `.config.lock` in it. Make `MCLI_DIR` (else `~/.mcli`) a directory you own on a disk with free space, then run it again.
+**`The configuration file cannot be written, so nothing was changed.`** (`configuration_unwritable`) — `config set` could not create the data directory, its lock or temporary file (on Unix a `.config.lock` that is a symlink is refused), or could not write or rename the file. The old file is intact, but the data directory may already have been created (or, on Unix, made owner-only, 0700), with an empty `.config.lock` in it. Make `MCLI_DIR` (else `~/.mcli`) a directory you own on a disk with free space, then run it again.
 
-**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs), put it in the [config file](#config-file) (`mostro-cli config set relays <relay[,relay...]>`) or pass `-r <relay[,relay...]>` before the subcommand.
+**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs), put it in the [config file](#config-file) (`mostro-cli config set relays <relay[,relay...]>`) or pass `-r <relay[,relay...]>` before the subcommand. As with the key, a blank `-r` or a `RELAYS` that is set but empty counts as missing, whatever the file holds.
 
 **`error: unexpected argument '-m' found`** (or `-r`, `-p`, `-t`, `-v`) — Global flags belong before the subcommand: `mostro-cli -m <npub> order list`. Placed after it, clap parses them against the subcommand, which either rejects them or silently means something else. See [Global flags](#global-flags).
 
