@@ -24,7 +24,7 @@ unit 6.
 | `since` | Decimal Unix seconds, no sign, no leading zeros, within 64 bits |
 | `ids` | 1 to 200 distinct lowercase 64-hex record ids, written sorted |
 | `Observed` | A record a call accepted: `mail(id, time)`, a node message, whose re-publication keeps its time; `chat(id, outer, inner)`, a chat message by its inner id, another envelope of which can be dated up to 60 s after `inner` |
-| `advance(observed, now)` | Time: the newest observed outer time, clamped to `now`, minus 60 s, never lower than before, held at the newest envelope of any chat message whose envelopes all fall before it while another one could still be dated at or after it; above 200 records at or after it, the time rises to the smallest second that leaves at most 200, never past `now` minus 60 s (nor past the old time when later); ids: those observed at or after the time, the newest 200 when more still qualify; nothing observed keeps the cursor |
+| `advance(observed, now)` | Time: the newest observed outer time, clamped to `now`, minus 60 s, never lower than before, held at the newest envelope of any chat message whose envelopes all fall before it while another one could still be dated at or after it; above 200 records at or after it, the time rises to the smallest second that leaves at most 200, never past `now` minus 60 s (nor past the old time when later); ids: those observed at or after the time, node messages first, then the newest chat messages, when more than 200 still qualify; nothing observed keeps the cursor |
 
 ## `TradeRole`
 

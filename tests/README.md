@@ -468,6 +468,12 @@ closed stdout giving one fixed line, no secret on any stream and one `--verbose`
 no relay, store or configuration touched, a read and a send conforming to `docs/schemas/order-chat-v1.json`, `counterparty_unknown` with
 `--message --yes`), `chat_schema_fixture_matches_the_generated_schema`, and `order.chat` among the machine commands (31 tests in the file).
 
+Order watch (spec 020, unit 1 of 7, 2026-11-09): the unit tests of `outcome::watch` (3: the `--since`, `--timeout` and `--after` bounds
+and defaults; the ending actions; `WatchData` outcomes checked against the generated schema), `outcome::watch::cursor` (5: round trips
+and 22 malformed cursors refused; the next cursor's time and ids; the cap of 200 raising the time only over records older than a minute;
+records stamped ahead never moving the time past now minus 60 s, and node messages kept ahead of chat dated ahead when the cap binds; a
+chat message held over five simulated calls) and the four `TradeRole` pairs in `outcome::messages`. No relay, store or command.
+
 Order watch (spec 020, unit 2 of 7, 2026-11-09): `tests/order_watch_process.rs` `mod live` (5: the window replayed once from two relays,
 one answering every REQ with all it holds, then new mail live once, foreign or old events never counted; the chat replayed and live when
 the counterparty is known, a re-wrapped line once, a line dated before the window in an envelope inside it kept, a third writer's dropped;
@@ -478,7 +484,7 @@ opening replay reconnects and delivers once the mail stored while it was away, w
 relay is away returns without waiting for it, the other relay's chat comes first and the away relay's line after its reconnect; a chat
 REQ the relay refused with CLOSED is not asked again while connected and is sent again on reconnect, and after a `rate-limited:` CLOSED
 the relay gets exactly one chat REQ on reconnect (four REQs in all); 51 mail events stored during an
-outage come back as 50 with `truncated`) and `msg::watch::state` (11 with the reconnect replay, a live replay of 50 cut before EOSE, and the dropped feeds). The harness
+outage come back as 50 with `truncated`) and `msg::watch::state` (11 with the reconnect replay, a live replay of 50 cut before EOSE or by a CLOSED, and the dropped feeds). The harness
 `Backend::Kickable(relay, notify)` serves like `Backend::Relay`; `LoopbackRelay::kick` ends every open session and keeps the port
 listening, so the client reconnects to the same URL.
 
