@@ -4,22 +4,23 @@ This directory contains comprehensive unit and integration tests for the Mostro 
 
 ## Test Files
 
-Counts are from `cargo test --locked --no-fail-fast` on Linux at the end of the
-order-list pilot (428 tests, none ignored). Historical per-file narratives from
-earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
+Counts are the tests each target lists (`cargo test --locked --test <name> -- --list`,
+every `rstest` case counted) on Linux on 2026-11-08, at spec 018 unit 5; the
+order-list pilot ended with 428 tests, none ignored. Historical per-file
+narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 
 1. **`parser_dms.rs`** (19 tests): direct message parsing and display, payload handling, Mostro identification, error cases.
-2. **`cli_functions.rs`** (67 tests): command logic and message creation; `output_intent` (output recovery from malformed argv and the contract decision table, including `schema`) and `registry` (the approved canonical names and JSON capability); `new_order_preflight_process` (closed stdin, Enter, rejection).
+2. **`cli_functions.rs`** (86 tests): command logic and message creation (26); `output_intent` (17: output recovery from malformed argv and the contract decision table, including `schema`) and `registry` (6: the approved canonical names and JSON capability); `maintenance_commands` (4); the grammar of the migrated commands (33, one `*_grammar` module per command group).
 3. **`util_misc.rs`** (17 tests): path and string helpers.
-4. **`parser_orders.rs`** (110 tests): order event parsing, filters and tables; `list_contract`, the `order.list` DTO, selection and human-rendering contract.
+4. **`parser_orders.rs`** (123 tests): order event parsing, filters and tables (39); `list_contract` (71: the `order.list` DTO, selection and human-rendering contract); `info_contract` (13: the wire facts of the `order info` fixtures, checked against the pinned `mostro-core`).
 5. **`parser_disputes.rs`** (9 tests): dispute event parsing and display.
-6. **`integration_tests.rs`** (33 tests): context and filter integration (14); `schema_fixtures` (8: the checked-in `docs/schemas` files against the generated ones, proposed examples, mutations); `source_boundaries` (7: size, imports, transport ownership, no-I/O modules); `ci_wiring` (4: the workflow steps and jobs).
+6. **`integration_tests.rs`** (75 tests): context and filter integration (14); `schema_fixtures` (48: the checked-in `docs/schemas` files against the generated ones, proposed examples, mutations); `source_boundaries` (8: size, imports, transport ownership, no-I/O modules); `ci_wiring` (5: the workflow steps and jobs).
 7. **`order_list_process.rs`** (46 tests): runs the real `mostro-cli` binary against in-process loopback relays (OS-assigned ports, generated keys, allow-listed environment, sandboxed `HOME`/`MCLI_DIR`/working directory, closed stdin, 40 s watchdog). Covers listing in both modes, read failures, the event cap, configuration errors, every legacy JSON rejection, offline `schema`, secret sentinels, unwritable streams and no-effects.
 8. **`config_file_process.rs`** (9 tests, spec 018): the node settings file `$MCLI_DIR/config` against the real binary, loopback relays and the scripted node: `order list` and `order new` from the file alone, the precedence option > set variable > file counted by relay connections, a set `RELAYS` that is not UTF-8 beating the file (Unix), a refused file at five entry points in both modes (one `hint:`, nothing echoed, contacted or written), the local commands that never read it, a missing data directory that stays missing, the human-only `listdisputes` with the same precedence and stopped by a refused file before `mcli.db` exists, and the human-only `admsenddm` mining at least the file's `POW` with its `TRANSPORT` (no probe).
 9. **`config_process.rs`** (17 tests, spec 018): `config set` and `config show` against the real binary. `config set`: a new directory and file (owner-only on Unix), the directory holding only `config` and `.config.lock`, one value replaced in a hand-written file that is rewritten as `NAME=value` lines, refused values and an unknown key (exit 2, nothing echoed or written), a refused file and an unreachable directory left untouched (one `hint:`), unusable data directories (`configuration_unwritable`), human output, `--verbose`, a closed stdout, and no network, stdin or `--yes`. `config show`: the path and the stored values (null when absent) in both modes, no file and a missing data directory left missing, only the file reported (not the options or environment, nothing contacted), a refused file and an unreachable directory (Unix) as `configuration_invalid` with one `hint:` and nothing echoed, `--verbose` and a closed stdout. Both: what `config set` writes is what `config show` reports and `order list` reads, and the `hint:` escapes control characters in the path (Unix).
 10. **`common/schema_check.rs`**: the small JSON Schema checker shared with the `outcome::schema` unit tests (not a test target).
 
-The library also carries 124 unit tests and 3 doctests (`msg` privacy examples).
+The library also carries 295 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
 
 ## Running Tests
 
