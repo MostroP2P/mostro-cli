@@ -1,10 +1,11 @@
-# CLI Contract: order watch (proposed)
+# CLI Contract: order watch
 
 ```text
 mostro-cli order watch --order UUID [--since MINUTES | --after CURSOR] [--timeout SECONDS] [--output human|json]
 ```
 
-Canonical name `order.watch`. Not reachable yet: unit 5 adds the command in human mode and unit 6 its JSON output. Needs `MOSTRO_PUBKEY`,
+Canonical name `order.watch`. Human mode since unit 5; unit 6 adds JSON output, and until then `--output json` is
+`output_not_supported` (exit 2) before any configuration, store or relay access. Needs `MOSTRO_PUBKEY`,
 `RELAYS`, the identity and the order's row. `--pow`, `--transport` and `--reply-timeout` do not apply: nothing is published.
 
 - `--order`: an order in the local store; otherwise `order_unknown` before any relay.
@@ -19,10 +20,14 @@ With `--output json` a call returns one document at the first new records after 
 the next cursor. Human mode streams updates until the trade ends or the deadline passes, and exits 0 in both cases. Data, outcomes and
 stable errors: [data model](../data-model.md). The ending actions and the `admin-settled` side rule: [spec](../spec.md) D9.
 
-## Human output (proposed, unit 5)
+## Human output (unit 5)
 
 A header with the order, the window and the counterparty (or "not known yet; the chat is followed once the escrow is locked"); "📭
 Nothing yet; waiting for the node or the counterparty..." when the first update is empty; `message list`'s message block with its next
-step; `order chat`'s chat block, escaped; a line when the counterparty is learned and one when older records may be missing; "🏁 The
-trade ended: ACTION" at the end, or "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order."
-at the deadline. Errors and warnings on stderr; `--verbose` prints one line `verbose: order.watch <ok|code>`.
+step; `order chat`'s chat block, escaped; a line when the counterparty is learned and one when older records may be missing; "🏁 The trade
+ended: ACTION" at the end, or "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order." at the
+deadline. Errors on stderr; the read warnings are reported only in JSON. `--verbose` prints one line `verbose: order.watch <ok|code>`.
+Each update is rendered whole, written and flushed; a stdout that cannot be written stops the watch with `error: the watch could not be
+written` (exit 1). On Unix a reader that closes stdout while the watch is idle stops it the same way; elsewhere the watch notices at its
+next write. Other errors after parsing are one `error: <fixed message>` line (exit 1, 2 for a bad value); an argument the parser rejects
+gets its fixed description and a `--help` hint (exit 2). Ctrl-C stops the process by its default action; no exit status is promised.

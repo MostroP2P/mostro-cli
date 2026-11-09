@@ -5105,3 +5105,24 @@ command reaches the operation yet, nothing is user-visible and no fixture change
   `cargo test --locked` 1093 passed, 0 failed, 0 ignored (1079 at the base; +4 unit, +10 process); `cargo build --locked`;
   `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.
+
+## Order Watch (spec 020) Unit 5: The Command In Human Mode: 2026-11-09
+
+Branch `feat/order-watch-command` from `feat/order-watch-operation` (39cdd09), the fifth of seven units of #246. User-visible:
+`order watch --order <uuid> [--since <minutes> | --after <cursor>] [--timeout <seconds>]` in human mode (`cli/order_watch.rs`,
+`WatchArgs`, `OrderCommands::Watch`, a human-only registry entry, a dispatch arm guarded by human output); `--output json` stays
+`output_not_supported`. `docs/schemas/discovery-v1.json` regenerated with `cargo run -q -- schema` (+13: the human-only entry).
+
+- **Failing first**: `cargo test --locked --test order_watch_process binary` failed 5 of 6 with "unrecognized subcommand" (the sixth,
+  bad arguments exiting 2, passed for that reason); `tests/cli_functions.rs` did not compile with `order.watch` in the approved
+  mapping (40 entries against 39). With the command in place all passed.
+- **Tests** (6 new): `mod binary` (see [README.md](README.md)); the registry mapping and
+  `every_legacy_command_rejects_json_before_any_effect` gain `order.watch`; `discovery_fixture_matches_the_generated_document` passes
+  on the regenerated fixture. The process file's 26 tests passed five runs in a row. `source_boundaries` passes: `cli/migrated.rs` is
+  at 399 production lines (396 at the base), so order info's dispatch did not move; `cli/order_watch.rs` is 106.
+- **Departures recorded in tasks.md**: no `counterparty_not_saved` line (none exists on this base, D11); JSON `output_not_supported`
+  is covered by the legacy rejection test instead of a second process test.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1099 passed, 0 failed, 0 ignored (1093 at the base; +6 process); `cargo build --locked`;
+  `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.

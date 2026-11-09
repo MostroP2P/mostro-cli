@@ -515,3 +515,12 @@ end of the trade (`purchase-completed`, an end already in the replay, `canceled`
 ending the seller's watch but not the buyer's; an empty success at the deadline in both modes and a sink that cannot write; store
 failures before any relay; a lookup failure's code; a frozen store that still watches, warning-free, and conforms to the generated
 schema) and `parse_human::watch` (4).
+
+Order watch unit 5 (2026-11-09): `tests/order_watch_process.rs` `mod binary` (6, the real binary in a sandbox with one loopback relay:
+a human watch shows the replay, then a live node message and a chat line with ESC and a bidirectional control escaped, then ends on
+`purchase-completed` with exit 0, empty stderr and no trade secret on either stream; `--timeout 1` prints the empty first update and the
+deadline line, exit 0; a closed stdout exits 1 with one fixed line well before the deadline; on Unix, a reader that closes stdout after
+the first update stops a watch with no deadline within 5 s (exit 1, the same line); `--since 0`, `--since 10081`, `--timeout 0` and a
+malformed `--after` exit 2 with the fixed `invalid_arguments` line and `--after` with `--since` with the parser's conflict line, no relay
+contacted and the value never echoed; one `--verbose` line; `--pow`, `--transport`, `POW` and `TRANSPORT` set to garbage change
+nothing), `order.watch` in the registry mapping and in `every_legacy_command_rejects_json_before_any_effect` (27 tests in the file).

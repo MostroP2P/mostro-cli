@@ -12787,6 +12787,19 @@
       ]
     },
     {
+      "name": "order.watch",
+      "cli_path": [
+        "order",
+        "watch"
+      ],
+      "output_modes": [
+        "human"
+      ],
+      "input_schema": null,
+      "output_schema": null,
+      "required_configuration": null
+    },
+    {
       "name": "schema",
       "cli_path": [
         "schema"

@@ -41,10 +41,14 @@ public node.
   header shows the window start and a later update announces a learned counterparty. With no `counterparty_not_saved` warning (D11), the
   frozen-store test checks that a failed cache write leaves the outcome warning-free and conforming. Measured before documents: 1,092
   changed lines, so the fallback did not apply. Production lines 264 (`commands/order/watch.rs`) and 96 (`parse_human/watch.rs`).
-- [ ] **5. The command in human mode.** Failing tests first (the registry mapping, the legacy JSON list, the discovery fixture,
-  `tests/order_watch_process.rs` `mod binary`), then `WatchArgs`, `OrderCommands::Watch`, `cli/order_watch.rs`, registry `Unsupported`,
-  the dispatch arm (re-measure `cli/migrated.rs` first), discovery, command reference, README, architecture, AGENTS.md. The book update is
-  its own PR.
+- [x] **5. The command in human mode.** Failing tests first (`tests/order_watch_process.rs` `mod binary`, 5 of 6 failing with
+  "unrecognized subcommand", and the registry mapping, which did not compile), then `WatchArgs`, `OrderCommands::Watch`,
+  `cli/order_watch.rs`, registry `Unsupported`, the dispatch arm, discovery (+13), command reference, README, architecture, AGENTS.md.
+  Re-measured: `cli/migrated.rs` was at 396 production lines; the guarded arm and the import take it to 399, so order info's dispatch
+  stays where it is (no `cli/info.rs`). The legacy `Commands::Order { .. }` unreachable arm already covers the new variant. No
+  `counterparty_not_saved` exists on this base (D11, unit 4), so there is no warning line to print and no test for it; JSON
+  `output_not_supported` is covered by `every_legacy_command_rejects_json_before_any_effect` rather than a second test in the process
+  file. Production size 106 (`cli/order_watch.rs`). The book update is its own PR.
 - [ ] **6. JSON.** Failing tests first, then registry `Read`, the unguarded arm, the schema arms, the regenerated discovery,
   `contracts/examples.json` (`new_records`). Fallback above 1450: the example and its test move to unit 7. The book update is its own PR.
 - [ ] **7. The output schema file.** Failing first (the fixture is missing), then `docs/schemas/order-watch-v1.json`, its drift test, the

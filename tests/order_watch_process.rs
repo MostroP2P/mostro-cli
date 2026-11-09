@@ -1,12 +1,12 @@
-//! Tests for `order watch` (spec 020): the live subscription (units 2 and 3)
-//! and the operation (unit 4).
+//! Tests for `order watch` (spec 020): the live subscription (units 2 and 3),
+//! the operation (unit 4) and the binary in human mode (unit 5).
 //!
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
 
-use std::future::Future;
+use std::future::{pending, Future};
 use std::net::SocketAddr;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -583,22 +583,22 @@ mod operation {
     /// A user holding `ORDER` as the seller (`Role::Maker` of a sell order)
     /// or the buyer (`Role::Taker`), with the conversation's keys and one
     /// loopback relay.
-    struct Desk {
-        sandbox: Sandbox,
+    pub(super) struct Desk {
+        pub(super) sandbox: Sandbox,
         store: Store,
-        node: Keys,
-        chat: Chat,
+        pub(super) node: Keys,
+        pub(super) chat: Chat,
         local: LocalRelay,
-        relay: LoopbackRelay,
+        pub(super) relay: LoopbackRelay,
     }
 
     impl Desk {
         /// The row stores the counterparty's key when `peer_stored`.
-        async fn new(role: Role, peer_stored: bool, events: &[&Event]) -> Self {
+        pub(super) async fn new(role: Role, peer_stored: bool, events: &[&Event]) -> Self {
             Self::with(role, peer_stored, Chat::new(), Keys::generate(), events).await
         }
 
-        async fn with(
+        pub(super) async fn with(
             role: Role,
             peer_stored: bool,
             chat: Chat,
@@ -641,7 +641,7 @@ mod operation {
         }
 
         /// `message` from the node to our trade key at `at`.
-        async fn mail(&self, message: &Message, at: u64) -> Event {
+        pub(super) async fn mail(&self, message: &Message, at: u64) -> Event {
             node_event(
                 &self.node,
                 self.chat.trade.public_key(),
@@ -652,12 +652,12 @@ mod operation {
         }
 
         /// A message `writer` wrote at `at`, in an envelope of the same time.
-        fn line(&self, writer: &Keys, text: &str, at: u64) -> Event {
+        pub(super) fn line(&self, writer: &Keys, text: &str, at: u64) -> Event {
             self.chat.envelope(&Chat::note(writer, text, at), at)
         }
 
         /// Put `event` on the relay after `delay`, while a watch runs.
-        fn publish(&self, event: Event, delay: Duration) {
+        pub(super) fn publish(&self, event: Event, delay: Duration) {
             let local = self.local.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(delay).await;
@@ -692,13 +692,18 @@ mod operation {
                 true
             };
             let watched = self
-                .watch(ORDER, None, timeout, Follow::UntilEnd(&mut sink))
+                .watch(
+                    ORDER,
+                    None,
+                    timeout,
+                    Follow::UntilEnd(&mut sink, pin!(pending())),
+                )
                 .await;
             (updates, watched)
         }
     }
 
-    fn about(order: Uuid, action: Action) -> Message {
+    pub(super) fn about(order: Uuid, action: Action) -> Message {
         Message::new_order(Some(order), None, None, action, None)
     }
 
@@ -979,7 +984,12 @@ mod operation {
             false
         };
         let watched = desk
-            .watch(ORDER, None, 60, Follow::UntilEnd(&mut sink))
+            .watch(
+                ORDER,
+                None,
+                60,
+                Follow::UntilEnd(&mut sink, pin!(pending())),
+            )
             .await;
         assert_eq!(refused, 1);
         assert!(started.elapsed() < Duration::from_secs(10));
@@ -1075,5 +1085,222 @@ mod operation {
             schema_check::conforms(&schema, &schema, &outcome),
             "{outcome}"
         );
+    }
+}
+
+mod binary {
+    use super::operation::{about, Desk};
+    use super::*;
+    use harness::{closed_pipe, run_with_watchdog, Captured, SENTINEL, WATCHDOG};
+    use mostro_client::store::Role;
+    use mostro_core::prelude::Action;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    use tokio::process::Command;
+    use tokio::time::timeout;
+
+    const DEADLINE_LINE: &str =
+        "⏰ Stopped at the watch deadline; no ending message was seen. Run `order info` to check the order.\n";
+
+    /// The binary in `desk`'s sandbox, with its node and relay, watching
+    /// `ORDER` with `extra` arguments after `front` ones.
+    fn command(desk: &Desk, front: &[&str], extra: &[&str]) -> Command {
+        let order = ORDER.to_string();
+        let mut args = front.to_vec();
+        args.extend(["order", "watch", "--order", &order]);
+        args.extend_from_slice(extra);
+        let mut command = desk.sandbox.command(&args);
+        command
+            .env("MOSTRO_PUBKEY", desk.node.public_key().to_hex())
+            .env("RELAYS", &desk.relay.url);
+        command
+    }
+
+    async fn run(command: Command) -> Captured {
+        let run = run_with_watchdog(command, WATCHDOG).await.unwrap();
+        assert!(run.reaped && run.status.is_some());
+        run
+    }
+
+    async fn quiet_desk() -> Desk {
+        Desk::new(Role::Taker, true, &[]).await
+    }
+
+    #[tokio::test]
+    async fn human_streams_until_the_trade_ends() {
+        let base = now();
+        let (chat, node) = (Chat::new(), Keys::generate());
+        let to = chat.trade.public_key();
+        let replayed = mail_text(ORDER, "replayed");
+        let replayed = node_event(&node, to, &replayed, Timestamp::from(base - 600)).await;
+        let desk = Desk::with(Role::Taker, true, chat, node, &[&replayed]).await;
+        let mut child = command(&desk, &[], &[]).spawn().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let mut out = String::new();
+        // The first update is written whole: once its header arrives, the
+        // replay is over and the watch is live.
+        while !out.contains("👀 Watching order") {
+            let line = timeout(WATCHDOG, lines.next_line()).await.unwrap();
+            out.push_str(&line.unwrap().expect("the header"));
+            out.push('\n');
+        }
+        let live = desk.mail(&mail_text(ORDER, "live"), now()).await;
+        let forged = "paid\u{1b}[2J\u{202e}gnissim";
+        let line = desk.line(&desk.chat.them, forged, now());
+        let completed = desk
+            .mail(&about(ORDER, Action::PurchaseCompleted), now())
+            .await;
+        desk.publish(live, QUIET);
+        desk.publish(line, QUIET * 2);
+        desk.publish(completed, QUIET * 3);
+
+        while let Some(line) = timeout(WATCHDOG, lines.next_line()).await.unwrap().unwrap() {
+            out.push_str(&line);
+            out.push('\n');
+        }
+        let status = timeout(WATCHDOG, child.wait()).await.unwrap().unwrap();
+        let mut err = String::new();
+        stderr.read_to_string(&mut err).await.unwrap();
+
+        assert_eq!(status.code(), Some(0), "{err}");
+        assert!(err.is_empty(), "{err}");
+        let at = |text: &str| out.find(text).unwrap_or_else(|| panic!("{text}\n{out}"));
+        assert!(at("👀 Watching order") < at("replayed"), "{out}");
+        assert!(at("replayed") < at("live"), "{out}");
+        assert!(at("live") < at("💬 Chat:"), "{out}");
+        assert!(out.contains("   paid\\u{1b}[2J\\u{202e}gnissim\n"), "{out}");
+        assert!(
+            !out.contains('\u{1b}') && !out.contains('\u{202e}'),
+            "{out}"
+        );
+        assert!(
+            out.ends_with("🏁 The trade ended: purchase-completed\n"),
+            "{out}"
+        );
+        let secret = desk.chat.trade.secret_key().to_secret_hex();
+        assert!(!out.contains(&secret) && !err.contains(&secret));
+    }
+
+    #[tokio::test]
+    async fn human_deadline_prints_the_final_line_and_exits_0() {
+        let desk = quiet_desk().await;
+
+        let run = run(command(&desk, &[], &["--timeout", "1"])).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+        let out = run.stdout_text();
+        assert!(out.contains("📭 Nothing yet;"), "{out}");
+        assert!(out.ends_with(DEADLINE_LINE), "{out}");
+    }
+
+    #[tokio::test]
+    async fn a_closed_stdout_exits_1_with_one_fixed_line() {
+        let desk = quiet_desk().await;
+        let mut command = command(&desk, &[], &["--timeout", "30"]);
+        command.stdout(closed_pipe());
+        let started = Instant::now();
+
+        let run = run(command).await;
+
+        assert_eq!(run.code(), Some(1), "{}", run.stderr_text());
+        assert_eq!(run.stderr_text(), "error: the watch could not be written\n");
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "not the deadline"
+        );
+    }
+
+    /// A human watch with no deadline whose reader goes away while it is
+    /// idle stops then, not at a write that may never come.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_idle_watch_stops_when_its_reader_closes_stdout() {
+        let desk = quiet_desk().await;
+        let mut command = command(&desk, &[], &[]);
+        command.kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        // The first update is written whole; its last line says it is empty.
+        loop {
+            let line = timeout(WATCHDOG, lines.next_line()).await.unwrap();
+            if line
+                .unwrap()
+                .expect("the first update")
+                .contains("📭 Nothing yet;")
+            {
+                break;
+            }
+        }
+
+        drop(lines);
+        let status = timeout(Duration::from_secs(5), child.wait()).await;
+
+        let status = status.expect("the watch stopped").unwrap();
+        let mut err = String::new();
+        stderr.read_to_string(&mut err).await.unwrap();
+        assert_eq!(status.code(), Some(1), "{err}");
+        assert_eq!(err, "error: the watch could not be written\n");
+    }
+
+    #[tokio::test]
+    async fn bad_arguments_exit_2_before_any_relay() {
+        // The first line is the command's own: a bad value gets the fixed
+        // `invalid_arguments` line, the conflict Clap's fixed description.
+        // Neither is what an unknown subcommand prints.
+        const INVALID: &str = "error: The command arguments are invalid.";
+        const CONFLICT: &str =
+            "error: an argument cannot be used with one or more of the other specified arguments";
+        let desk = quiet_desk().await;
+        let bad: [(&[&str], &str); 5] = [
+            (&["--since", "0"], INVALID),
+            (&["--since", "10081"], INVALID),
+            (&["--timeout", "0"], INVALID),
+            (&["--after", SENTINEL], INVALID),
+            (&["--after", "100", "--since", "5"], CONFLICT),
+        ];
+        for (extra, first_line) in bad {
+            let run = run(command(&desk, &[], extra)).await;
+
+            let stderr = run.stderr_text();
+            assert_eq!(run.code(), Some(2), "{extra:?}: {stderr}");
+            assert_eq!(
+                stderr.lines().next(),
+                Some(first_line),
+                "{extra:?}: {stderr}"
+            );
+            assert!(run.stdout.is_empty(), "{extra:?}");
+            assert!(!stderr.contains(SENTINEL), "{extra:?}");
+        }
+        assert_eq!(desk.relay.connections(), 0, "no relay was contacted");
+    }
+
+    #[tokio::test]
+    async fn verbose_prints_one_line() {
+        let desk = quiet_desk().await;
+
+        let run = run(command(&desk, &["--verbose"], &["--timeout", "1"])).await;
+
+        assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+        assert_eq!(run.stderr_text(), "verbose: order.watch ok\n");
+    }
+
+    #[tokio::test]
+    async fn a_bad_pow_or_transport_setting_does_not_change_order_watch() {
+        let desk = quiet_desk().await;
+        for (front, set) in [
+            (&["--pow", SENTINEL][..], &[][..]),
+            (&["--transport", SENTINEL][..], &[][..]),
+            (&[][..], &[("POW", SENTINEL), ("TRANSPORT", SENTINEL)][..]),
+        ] {
+            let mut command = command(&desk, front, &["--timeout", "1"]);
+            command.envs(set.iter().copied());
+
+            let run = run(command).await;
+
+            assert_eq!(run.code(), Some(0), "{front:?}: {}", run.stderr_text());
+            assert!(run.stdout_text().ends_with(DEADLINE_LINE), "{front:?}");
+        }
     }
 }

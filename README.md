@@ -315,6 +315,12 @@ mostro-cli --output json message list --since 60   # the same for a script: read
 
 Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
 
+**Follow a trade.** `order watch` is the one command that stays connected: it replays the last 30 minutes (`--since`), then prints each new message from Mostro and each chat message of one order as it arrives, until the trade ends. Human output only for now; `--timeout SECONDS` stops it earlier with a final line, and Ctrl-C stops it at any time.
+
+```bash
+mostro-cli order watch --order <order-id>
+```
+
 Pending orders also expire (24 hours on a typical instance — the exact value is the `expiration_hours` tag of the node's info event). If nobody takes your order before then, it disappears from the orderbook and any locked sats are returned; you can pass `--expiration-days N` (or `--expires-in SECONDS`, 1 to 31536000) to `order new` to request a different window; the node lowers it to its own maximum.
 
 ---

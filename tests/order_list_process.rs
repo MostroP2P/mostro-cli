@@ -1880,6 +1880,7 @@ fn valid_legacy_args(canonical: &str, key: &str) -> Vec<String> {
         | "dispute.chat"
         | "maintenance.cancel-pending" => order.to_vec(),
         "order.add-invoice" | "bond.add-invoice" => [&order[..], &invoice[..]].concat(),
+        "order.watch" => vec!["--order", ORDER_ID],
         "chat.history" | "message.send" | "chat.send" => [&peer[..], &order[..]].concat(),
         "maintenance.set" => vec!["--enabled", "true"],
         "admin.add-solver" => vec!["--npubkey", key],

@@ -193,6 +193,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "order.chat",
         json: JsonSupport::Read,
     },
+    // Follows one order live; human output only for now (spec 020, unit 5).
+    CommandEntry {
+        path: &["order", "watch"],
+        canonical: "order.watch",
+        json: JsonSupport::Unsupported,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

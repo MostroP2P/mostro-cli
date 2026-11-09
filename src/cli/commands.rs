@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 pub use super::command_args::{
     AddBondInvoiceArgs, AddInvoiceArgs, ChatArgs, ConfigSetArgs, ListMessagesArgs, NewArgs,
-    RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs,
+    RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs, WatchArgs,
 };
 use crate::outcome::order::{SIDES, STATUSES};
 
@@ -288,6 +288,11 @@ pub enum OrderCommands {
     /// order's row or the node's messages, never from you. Needs an existing
     /// local identity (it never creates one); human mode sends without asking
     Chat(ChatArgs),
+    /// Follow an order you hold until its trade ends: the node's messages and,
+    /// once the counterparty is known, its peer chat, replayed from --since
+    /// and then live. Read-only; needs an existing local identity (it never
+    /// creates one). Human output only for now
+    Watch(WatchArgs),
 }
 
 #[derive(Subcommand, Clone)]

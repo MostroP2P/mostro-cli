@@ -85,7 +85,9 @@ tonic = { version = "0.14.2", features = ["tls-ring", "tls-native-roots"] }
 tonic-prost = "0.14.1"
 prost = "0.14.1"
 
-# O_NOFOLLOW for the config lock file; already in the lockfile.
+# O_NOFOLLOW for the config lock file, and `poll(2)` on stdout so an idle human
+# `order watch` stops when its reader closes the pipe (spec 020 plan); already
+# in the lockfile through tokio.
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2.189", default-features = false }
 
