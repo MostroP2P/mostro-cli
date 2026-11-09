@@ -467,3 +467,9 @@ closed stdout giving one fixed line, no secret on any stream and one `--verbose`
 `every_legacy_command_rejects_json_before_any_effect`. Unit 4 (2026-11-09): `mod json` (3: JSON `--message` without `--yes` refused with
 no relay, store or configuration touched, a read and a send conforming to `docs/schemas/order-chat-v1.json`, `counterparty_unknown` with
 `--message --yes`), `chat_schema_fixture_matches_the_generated_schema`, and `order.chat` among the machine commands (31 tests in the file).
+
+Order watch (spec 020, unit 1 of 7, 2026-11-09): the unit tests of `outcome::watch` (3: the `--since`, `--timeout` and `--after` bounds
+and defaults; the ending actions; `WatchData` outcomes checked against the generated schema), `outcome::watch::cursor` (5: round trips
+and 22 malformed cursors refused; the next cursor's time and ids; the cap of 200 raising the time only over records older than a minute;
+records stamped ahead never moving the time past now minus 60 s, and node messages kept ahead of chat dated ahead when the cap binds; a
+chat message held over five simulated calls) and the four `TradeRole` pairs in `outcome::messages`. No relay, store or command.

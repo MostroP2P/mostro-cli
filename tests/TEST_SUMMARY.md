@@ -4805,6 +4805,9 @@ folder and constitution amendment 1.0.1; nothing is user-visible and no generate
   the next call observes and skips the message again. The hold comes before the cap: tried after the raise, it failed the crowded case
   above (a time 570 s back with 200 of the 250 ids listed, so the other 50 records would be returned again). D7, the data model and
   `docs/architecture.md` say so, with the new documented limit (a chat message inside a raised range).
+- **Review fix (the cap order)**: a review found that when the cap binds, 250 chat envelopes dated 60 s ahead pushed node message ids
+  out of the cursor, so the next call returned those messages again. The case was added to the records-stamped-ahead test first and
+  failed; `advance` now lists node messages first, then the newest chat messages (`Observed` records which it is).
 - **Measured**: `output_schema::<WatchData, ()>(&watch_rules())` pretty-printed is 842 lines, with a throwaway test removed afterwards
   (the same method gives 492 for `order.chat` and 851 for `message.list`, their fixtures' sizes); the projections are in the spec's
   `tasks.md`.
