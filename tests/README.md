@@ -5,8 +5,8 @@ This directory contains comprehensive unit and integration tests for the Mostro 
 ## Test Files
 
 Counts are the tests each target lists (`cargo test --locked --test <name> -- --list`,
-every `rstest` case counted) on Linux on 2026-11-09, at spec 018 unit 5: 757 in
-the 23 targets below, plus the library's 296 unit tests and 6 doctests, 1059 in
+every `rstest` case counted) on Linux on 2026-11-09, at spec 018 unit 5 and spec 019 unit 1: 767 in
+the 24 targets below, plus the library's 301 unit tests and 6 doctests, 1074 in
 all. The order-list pilot ended with 428 tests, none ignored. Historical per-file
 narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 
@@ -33,9 +33,10 @@ narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 21. **`dispute_rate_process.rs`** (14 tests, spec 013, spec 014): `dispute open` (`dispute`, 6) and `order rate` (`rate`, 6) against the scripted node, the removed legacy commands, and answers that name another order.
 22. **`bond_flows_process.rs`** (4 tests, spec 015): `order cancel` of a take or an order that waits on its bond, and `message list` over the bond messages.
 23. **`reply_timeout_process.rs`** (4 tests, spec 016): `--reply-timeout`: its range, every waiting command stopped at the deadline, a late answer taken only with a longer one, public reads keeping their own limits.
-24. **`common/schema_check.rs`**: the small JSON Schema checker shared with the `outcome::schema` unit tests (not a test target).
+24. **`order_chat_process.rs`** (10 tests, spec 019): the counterparty lookup of `order chat` against isolated stores and loopback relays: the `counterparty_pubkey` column read without writing and written alone (`store`), a stored key used with no relay contacted, the key found in post-lock mail and saved, `counterparty_unknown` before the lock, store and relay failures (`counterparty`).
+25. **`common/schema_check.rs`**: the small JSON Schema checker shared with the `outcome::schema` unit tests (not a test target).
 
-The library also carries 296 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
+The library also carries 301 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
 
 ## Running Tests
 

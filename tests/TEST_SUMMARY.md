@@ -4836,3 +4836,6 @@ fixture or output changes, and no command emits `counterparty_unknown` yet.
   `cargo test --locked` 1012 passed, 0 failed, 0 ignored (997 at the base; +5 unit and +10 process tests, the 3 moved tests counted
   once); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`. All schema fixture drift tests pass unchanged.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual.
+- **Merged with `main`** (2026-11-09, after spec 018): the error code lists keep both `configuration_unwritable` and
+  `counterparty_unknown`; `cargo test --locked` 1074 passed, 0 failed, 0 ignored (1059 on `main`, +15); `tests/README.md` counts 24
+  targets.
