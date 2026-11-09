@@ -257,13 +257,14 @@ async fn with_rate(
     Ok(batch)
 }
 
-/// Add `more` to `batch`; `false` when `more` was empty (the wait ended).
+/// Add `more` to `batch`, its `truncated` flag even when it is empty;
+/// `false` when `more` was empty (the wait ended).
 fn absorb(batch: &mut Batch, more: Batch) -> bool {
+    batch.truncated |= more.truncated;
     if more.items.is_empty() {
         return false;
     }
     batch.items.extend(more.items);
-    batch.truncated |= more.truncated;
     true
 }
 
