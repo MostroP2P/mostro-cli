@@ -29,7 +29,10 @@ public node.
   `WatchLimits::retry` documents the floor. `Seen` and `Batch` moved to `msg/watch/records.rs` and `WatchLimits` and `WatchFailure` to
   `msg/watch/limits.rs`, unchanged, to keep every file under 400 production lines (378 `watch.rs`, 372 `state.rs`). Review fixes: a
   live replay cut before EOSE gets the EOSE `truncated` verdict, and a CLOSED id is unsubscribed so the SDK does not send a
-  `rate-limited:` one again beside the new id (389 `watch.rs`, 381 `state.rs`).
+  `rate-limited:` one again beside the new id (389 `watch.rs`, 381 `state.rs`); a live replay cut by a CLOSED gets the same verdict (382
+  `state.rs`). The live CLOSED-or-disconnect process test moved from unit 2 landed as two `mod reconnect` tests:
+  `a_chat_follow_while_a_relay_is_down_reaches_it_after_reconnect` (the disconnect, with the other relay still serving) and
+  `a_closed_subscription_is_sent_again_on_reconnect` (the CLOSED, with the watch going on); neither ends the watch.
 - [ ] **4. The operation and the human renderer.** Failing tests first (`tests/order_watch_process.rs` `mod operation`, the
   `parse_human::watch` unit tests), then `commands/order/watch.rs`, `order_key`, `StoredOrder.is_mine`, `parse_human/watch.rs`.
   Fallback above 1450: the renderer and its tests move to unit 5.

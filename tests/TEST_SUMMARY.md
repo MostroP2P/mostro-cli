@@ -4855,13 +4855,17 @@ reconnect replay in `msg/watch/state.rs`, `Backend::Kickable` in the test harnes
   EOSE, then releases only what was missed, and 50 new events in a reconnect replay set `truncated`; only the feeds a relay no longer
   holds are reported for sending again, their stale ids forgotten, and a new id replaces a feed's old one) and `mod reconnect` (4; see
   [README.md](README.md)). The file's nine tests passed eight runs in a row (the last five on the final code). `source_boundaries`:
-  `.add_relay(` still once in `msg/mod.rs` and `.subscribe(` once in `msg/watch.rs`; production sizes 378 (`watch.rs`) and 372
-  (`state.rs`) after `Seen`/`Batch` and `WatchLimits`/`WatchFailure` moved unchanged into `watch/records.rs` and `watch/limits.rs`.
+  `.add_relay(` still once in `msg/mod.rs` and `.subscribe(` once in `msg/watch.rs`; production sizes 389 (`src/msg/watch.rs`) and 381
+  (`src/msg/watch/state.rs`) after `Seen`/`Batch` and `WatchLimits`/`WatchFailure` moved unchanged into `watch/records.rs` and
+  `watch/limits.rs` and the two review fixes below (382 for `state.rs` after the CLOSED fix).
 - **Review fixes** (failing first, each seen red): `a_live_replay_of_fifty_cut_before_eose_sets_truncated` (a reconnect replay of 50
   new events cut by a second disconnect, the 15 s budget or the end of the notifications released them with `truncated` false; now
   judged as at EOSE, and 49 still is not) and `a_rate_limited_subscription_is_sent_again_once` (after a `rate-limited:` CLOSED,
   which nostr-sdk 0.45.4 keeps and resends, the relay saw 5 REQs, two of them for the chat; the watch now unsubscribes a closed id and it
   sees 4). The process test passed three runs in a row.
+- **Review fix (CLOSED)**: a review found that `State::closed` dropped a live replay cut by a CLOSED before EOSE without the `truncated`
+  verdict that a disconnect, the budget and the end of the notifications get. A CLOSED case was added to
+  `a_live_replay_of_fifty_cut_before_eose_sets_truncated` first and failed; `closed` now judges the removed replay with `cut_short`.
 - **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
   `cargo test --locked` 1079 passed, 0 failed, 0 ignored (1071 at the base; +3 unit, +5 process; 17 doctests among them);
   `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
