@@ -4,12 +4,12 @@ use nostr::nips::nip44;
 use nostr_sdk::prelude::*;
 use secp256k1::{ecdh, PublicKey as Secp256k1PublicKey};
 use std::collections::BTreeSet;
-use std::env::var;
 use std::str::FromStr;
 
 use crate::cli::Context;
 use crate::parser::dms::print_commands_results;
 use crate::parser::parse_dm_events;
+use crate::settings::var;
 use crate::util::reply::{select_reply_event, ExpectedReply};
 
 /// Helper function to retrieve and validate admin keys from context

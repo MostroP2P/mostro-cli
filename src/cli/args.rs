@@ -36,15 +36,16 @@ pub struct Cli {
     #[arg(short, long)]
     pub relays: Option<String>,
     /// Least NIP-13 proof of work, in bits, mined on requests; overrides
-    /// `POW`. The JSON-capable commands raise it to what the node advertises,
-    /// up to 20 bits.
+    /// `POW` and the config file. The JSON-capable commands raise it to what
+    /// the node advertises, up to 20 bits.
     #[arg(short, long)]
     pub pow: Option<String>,
     #[arg(short, long)]
     pub secret: bool,
     /// Wire transport to speak to the node. Only `nip44` (protocol v2) is
-    /// supported. `gift-wrap` (protocol v1) is rejected. When omitted, the CLI
-    /// auto-detects from the node's `protocol_version` tag and defaults to
+    /// supported. `gift-wrap` (protocol v1) is rejected. Overrides `TRANSPORT`
+    /// and the config file; when the value that wins is absent or empty, the
+    /// CLI auto-detects from the node's `protocol_version` tag and defaults to
     /// nip44.
     #[arg(short, long)]
     pub transport: Option<String>,
