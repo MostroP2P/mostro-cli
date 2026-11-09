@@ -65,5 +65,7 @@ when it reads the node's mail; the chat read 26 s; the send 10 s connect, 15 s f
 - `read_inbox` asks each relay for its newest 50 messages, and the node's kind-14 messages expire on relays that honor NIP-40 after its
   `dm_days` (30 by default). A trade whose lock-time mail is beyond either and whose key was never stored gives `counterparty_unknown`,
   although the escrow was locked; units 3 and 4 say so in the command reference and the book, with the `getdmuser -p` fallback.
-- Relays that require proof of work or authentication on kind 14 refuse the unmined chat envelope (`request_rejected`); `--pow` cannot help.
+- Relays that require proof of work on kind 14 refuse the unmined chat envelope (`request_rejected`); `--pow` cannot help. A relay that
+  asks for authentication gets an answer signed with a throwaway key (`ephemeral_client`), so one that accepts only known keys refuses
+  it too.
 - `--message` is on argv, visible in the process list; a stdin form is out of scope.

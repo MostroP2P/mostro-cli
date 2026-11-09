@@ -4741,7 +4741,8 @@ Branch `feat/order-chat-json` from `feat/order-chat-command` (14d8ca7), the last
   `chat_examples_conform_and_are_reproduced` and `invalid_chat_variants_do_not_conform` failed (no fixture), 43 passed;
   `every_legacy_command_rejects_json_before_any_effect` failed on the count of machine commands (18, now 19). After the change and the
   regeneration, `discovery_fixture_is_raw_discovery_data_not_an_envelope` failed (its list of machine commands lacked `order.chat`) and
-  was updated. The fixtures were regenerated right after the change, so the two drift tests were not observed failing in this unit.
+  was updated. Discovery was regenerated right after the change, so `discovery_fixture_matches_the_generated_document` was not
+  observed failing in this unit; `chat_schema_fixture_matches_the_generated_schema` failed before the change, as listed above.
 - **The change**: registry `Read` with the stage note; the dispatch arm without its human-only guard (`cli/migrated.rs` stays at 396);
   `cli/order_chat.rs` refuses `--message` without `--yes` in JSON with `invalid_arguments` and read stages before anything else;
   `cli/schema.rs` gives `order.chat` `MOSTRO_PUBKEY` and `RELAYS` and the output schema of `ChatData`; the contract examples are now
