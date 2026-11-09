@@ -40,10 +40,10 @@ TRANSPORT=nip44
 On the JSON-capable path a refusal is `configuration_invalid` (exit 1, stages unchanged: nothing published or written) and stderr has
 exactly one line `hint: <path>: <text>`; in human mode it is followed by `error: The node configuration is invalid.`
 
-## Typed core (unit 2) of the proposed commands (units 3 and 4; the new code and keyword await the maintainer's approval)
+## Data of `config set` and `config show` (the new code and keyword await the maintainer's approval)
 
-The `config set` core is in the code since unit 2 and emitted by `config set` since unit 3 (examples in
-[contracts/examples.json](contracts/examples.json)); the `config show` core comes with unit 4.
+The `config set` core is in the code since unit 2 and emitted by `config set` since unit 3; the `config show` core and command came with
+unit 4 (examples of both in [contracts/examples.json](contracts/examples.json)).
 
 - `ConfigData` (data of `config.set` and `config.show`): `path`, `mostro_pubkey`, `relays`, `pow`, `transport`, each a string or null,
   the values as stored in the file.

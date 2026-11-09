@@ -2,13 +2,13 @@
 
 **Feature**: `018-config-file`
 
-**Working Branch**: `feat/config-file-read`, `feat/config-file-legacy` and `feat/config-set`, the first three of four stacked branches (feature directory naming does not change Git branches)
+**Working Branch**: `feat/config-file-read`, `feat/config-file-legacy`, `feat/config-set` and `feat/config-show`, four stacked branches (feature directory naming does not change Git branches)
 
 **Created**: 2026-11-08
 
-**Status**: Units 1 to 3 implemented and verified on Linux against loopback relays, the scripted node and isolated sandboxes (see
-`tests/TEST_SUMMARY.md`): every networked command, JSON-capable or human-only, reads the file, and `config set` writes it (examples in
-[contracts/examples.json](contracts/examples.json)). Proposed: `config show` (unit 4). Progress is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented (units 1 to 4) and verified on Linux against loopback relays, the scripted node and isolated sandboxes (see
+`tests/TEST_SUMMARY.md`): every networked command, JSON-capable or human-only, reads the file, `config set` writes it and `config show`
+reports it (examples in [contracts/examples.json](contracts/examples.json)). Windows only by CI. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: issue #244. An agent drove a whole trade with mostro-cli 0.17.0 and repeated `-m <npub> -r <relays> -p <bits>` on every
 call: coding agents and MCP hosts run each command in a fresh shell, so an `export` does not survive from one call to the next. The node
@@ -59,7 +59,7 @@ see [plan.md](plan.md).
   answered by the file, whose values never enter the environment); a refused file stops them before `mcli.db` exists or `ADMIN_NSEC` is
   read, with `Invalid config file <path>: <problem>` and exit 1. The RPC commands never read it.
 - **FR-009 `config set <key> <value>`** (unit 3, implemented), JSON `config.set`: see [contracts/cli.md](contracts/cli.md).
-- **FR-010 `config show`** (unit 4, proposed), JSON `config.show`: see [contracts/cli.md](contracts/cli.md).
+- **FR-010 `config show`** (unit 4, implemented), JSON `config.show`: see [contracts/cli.md](contracts/cli.md).
 - **FR-011 Windows**: the same location rules with the profile folder, no POSIX modes; verified only by CI after the branches are pushed.
 
 ## Success Criteria
@@ -70,5 +70,5 @@ see [plan.md](plan.md).
   legacy path in unit 2).
 - **SC-003**: An `ADMIN_NSEC` line gives `configuration_invalid` (or `Invalid config file`) at every entry point, with nothing echoed,
   created or published.
-- **SC-004**: `config set` round-trips with `order list` and with `config show` (both to be verified in unit 4, see [tasks.md](tasks.md)).
+- **SC-004**: `config set` round-trips with `order list` and with `config show` (verified in unit 4, see [tasks.md](tasks.md)).
 - **SC-005**: The existing per-command fixtures are unchanged and `schema_version` stays `"1"`.

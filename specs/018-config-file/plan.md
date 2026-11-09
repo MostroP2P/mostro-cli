@@ -1,6 +1,6 @@
 # Implementation Plan: Node Settings From A Config File
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 3 implemented with Linux evidence; unit 4 proposed.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 4 implemented with Linux evidence.
 
 ## Units
 

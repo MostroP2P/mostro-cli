@@ -4713,3 +4713,35 @@ verified locally: only the CI runner, after the branch is pushed, will run it.
   `cargo test --locked` 1044 passed, 0 failed, 0 ignored (1032 before), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-file-legacy...HEAD`
   gives 26 files changed, 1443 insertions, 56 deletions (1499 changed lines).
+
+## Node Settings File (spec 018) Unit 4: Config Show: 2026-11-08
+
+Branch `feat/config-show`, stacked on `feat/config-set` (e2af308), the last of four units of issue #244; spec 018 is now implemented.
+Automated verification on Linux only (uid 1000, not root), with loopback relays and isolated sandboxes; no real node or relay was
+contacted. Windows is not verified locally: only the CI runner, after the branch is pushed, will run it.
+
+- **Failing first** (unit 3 code with the new tests): `tests/config_process.rs` 7 of 7 new tests failed (exit 2, no `config show`);
+  the new unit tests of `outcome::config` and `commands::config`, `tests/cli_functions.rs` and `tests/integration_tests.rs` did not
+  compile; once the typed core compiled, the two renamed `cli::context` message tests failed until the reword. With the code in place and
+  the unit 3 fixtures, four `schema_fixtures` tests failed (the `config.show` fixture, the discovery drift test, the machine list, the
+  examples) until the fixtures were regenerated with the extended `REGENERATE` list.
+- **The change**: `config show`: `config_show_rules` (a read: all stages `not_applicable`; errors `invalid_arguments`,
+  `configuration_invalid`, `internal_error`), `config_show` and `show_outcome` (a strict read: a refused or unreachable file is
+  `configuration_invalid` with one `hint:`, never nulls; no file gives the path and nulls; no data directory a null path), the grammar,
+  the dispatch in `cli/config.rs`, registry `config.show` (Read), `required_configuration` [], `config-show-v1.json` added and discovery
+  regenerated, three `config.show` examples. From unit 3: the missing-setting messages now suggest `config set` and `config show`, and the
+  README setup uses them. No existing output schema changed; `schema_version` stays `"1"`; no new code or warning.
+- **Tests**: grammar (`show` takes no argument; extra ones are `invalid_arguments` of `config.show`). Process: the path and stored values
+  in both modes (an absent value null or `not set`), the file unchanged; no file, a missing data directory left missing; only the file
+  reported with `-r`, `-p` and the node variables set, zero relay connections, open stdin; an `ADMIN_NSEC` sentinel line refused in both
+  modes with exactly one `hint:` naming line 1 and nothing echoed; a data directory with mode 0600 refused (Unix); `config set` twice then
+  `config show` and `order list` agree, one loopback connection (SC-004); `verbose: config.show ok`; a closed stdout in both modes. The
+  debug binary was also run by hand in a scratch data directory, with no node: help, human and JSON output, a refused file, and the
+  reworded `listdisputes` message with nothing created.
+- **Review fix**: the `hint:` text (`ConfigProblem`, shared by both commands, the networked ones and the human-only message) escapes
+  control characters in the path, as the `Config file:` line does. `the_hint_escapes_control_characters_in_the_path` (Unix) failed
+  first with a raw ESC on stderr. The docs now give the human line of a null path.
+- **Gates** (final tree): `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
+  `cargo test --locked` 1056 passed, 0 failed, 0 ignored (1044 before), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-set...HEAD`
+  gives 26 files changed, 1375 insertions, 115 deletions (1490 changed lines).
