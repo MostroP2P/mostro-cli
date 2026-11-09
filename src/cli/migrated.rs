@@ -2,7 +2,6 @@
 //! discovery and the public listing. They need no identity, database, logger
 //! from user input or RPC, and they own what they write to stdout and stderr.
 
-use std::env;
 use std::io::{self, Write};
 
 use chrono::Utc;
@@ -10,13 +9,13 @@ use uuid::Uuid;
 
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
-use super::write::exchange_limits;
-use super::{held, identity, invoice, message, mine, order_new, order_take, step, sync};
+use super::write::{exchange_limits, node_lookup, request_options};
+use super::{config, held, identity, invoice, message, mine, order_new, order_take, step, sync};
 use super::{
     offline_discovery, BondCommands, Cli, Commands, DiscoveryData, DisputeCommands,
     MessageCommands, OrderCommands,
 };
-use crate::commands::order::info::{order_info, InfoOptions, InfoOutcome, COMMAND as INFO};
+use crate::commands::order::info::{order_info, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::identity::{load_identity_keys, IdentityError};
 use crate::msg::{PublicReadConfig, ReadLimits};
@@ -50,12 +49,13 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         });
     }
 
-    // The local identity and the local orders: no configuration, node, relay
-    // or legacy context.
+    // The local identity, the local orders and the config file: no node
+    // configuration, relay or legacy context.
     match &cli.command {
         Some(Commands::Identity { command }) => {
             return Some(identity::run(cli, command, output).await)
         }
+        Some(Commands::Config { command }) => return Some(config::run(cli, command, output)),
         Some(Commands::Order {
             command: OrderCommands::Mine,
         }) => return Some(mine::run(cli, output).await),
@@ -91,7 +91,7 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
                 PublicReadConfig::resolve(
                     cli.mostro_pubkey.as_deref(),
                     cli.relays.as_deref(),
-                    |name| env::var(name).ok(),
+                    node_lookup()?,
                 )
             },
             &ReadLimits::default(),
@@ -195,19 +195,22 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
 /// Resolve configuration and identity in order of cost and ask the node.
 /// Everything that can fail locally fails before anything is published.
 async fn info_outcome(cli: &Cli, orders: &[Uuid]) -> InfoOutcome {
-    let getenv = |name: &str| env::var(name).ok();
     let Some(requested) = OrderInfoInput::new(orders.iter().copied()) else {
         return unsent(ErrorCode::InvalidArguments);
+    };
+    let lookup = match node_lookup() {
+        Ok(lookup) => lookup,
+        Err(code) => return unsent(code),
     };
     let config = match PublicReadConfig::resolve(
         cli.mostro_pubkey.as_deref(),
         cli.relays.as_deref(),
-        getenv,
+        &lookup,
     ) {
         Ok(config) => config,
         Err(code) => return unsent(code),
     };
-    let options = match request_options(cli.pow.as_deref(), cli.transport.as_deref(), getenv) {
+    let options = match request_options(cli.pow.as_deref(), cli.transport.as_deref(), &lookup) {
         Ok(options) => options,
         Err(code) => return unsent(code),
     };
@@ -234,37 +237,6 @@ fn unsent(code: ErrorCode) -> InfoOutcome {
         Warnings::new(),
         ExecutionMeta::request(Publication::NotAttempted, DaemonAcceptance::Unknown),
     )
-}
-
-/// The least work to mine and whether to check the node's protocol: `--pow`
-/// over `POW` (0-255, default 0; the exchange raises it to what the node
-/// advertises, up to `AUTO_POW_CEILING`) and `--transport` over `TRANSPORT`,
-/// of which only `nip44` exists. An explicit transport skips the protocol check.
-pub(super) fn request_options(
-    pow: Option<&str>,
-    transport: Option<&str>,
-    getenv: impl Fn(&str) -> Option<String>,
-) -> Result<InfoOptions, ErrorCode> {
-    let given = |cli: Option<&str>, name: &str| {
-        cli.map(str::to_owned)
-            .or_else(|| getenv(name))
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-    };
-    let pow = match given(pow, "POW") {
-        None => 0,
-        Some(text) => text
-            .parse::<u8>()
-            .map_err(|_| ErrorCode::ConfigurationInvalid)?,
-    };
-    let transport = given(transport, "TRANSPORT");
-    if transport.as_deref().is_some_and(|value| value != "nip44") {
-        return Err(ErrorCode::ConfigurationInvalid);
-    }
-    Ok(InfoOptions {
-        pow,
-        check_protocol: transport.is_none(),
-    })
 }
 
 /// The only `--verbose` line of `order info`: codes and counts, never ids,
