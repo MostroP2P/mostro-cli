@@ -1201,6 +1201,39 @@ mod binary {
         );
     }
 
+    /// A human watch with no deadline whose reader goes away while it is
+    /// idle stops then, not at a write that may never come.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_idle_watch_stops_when_its_reader_closes_stdout() {
+        let desk = quiet_desk().await;
+        let mut command = command(&desk, &[], &[]);
+        command.kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        // The first update is written whole; its last line says it is empty.
+        loop {
+            let line = timeout(WATCHDOG, lines.next_line()).await.unwrap();
+            if line
+                .unwrap()
+                .expect("the first update")
+                .contains("📭 Nothing yet;")
+            {
+                break;
+            }
+        }
+
+        drop(lines);
+        let status = timeout(Duration::from_secs(5), child.wait()).await;
+
+        let status = status.expect("the watch stopped").unwrap();
+        let mut err = String::new();
+        stderr.read_to_string(&mut err).await.unwrap();
+        assert_eq!(status.code(), Some(1), "{err}");
+        assert_eq!(err, "error: the watch could not be written\n");
+    }
+
     #[tokio::test]
     async fn bad_arguments_exit_2_before_any_relay() {
         // The first line is the command's own: a bad value gets the fixed
