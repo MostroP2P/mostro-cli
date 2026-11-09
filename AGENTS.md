@@ -39,9 +39,14 @@ After them: `order mine` ([spec](specs/011-order-mine/spec.md)), `order new --ex
 stores and the scripted node only. The global `--reply-timeout` ([spec](specs/016-reply-timeout/spec.md)) sets the reply deadline of the
 commands that wait for the node. The commands that wait for the node also mine the proof of work it advertises, up to 20 bits, and a
 `pow_required` names `required` and `configured` ([spec](specs/017-advertised-pow/spec.md)); verified against the scripted node and
-probed on a local regtest node. `order chat` ([spec](specs/019-order-chat/spec.md)) reads the peer chat of an order held and sends one
-message without the counterparty's key being passed; it supports `--output json` (`--message` then requires `--yes`); verified on Linux
-against isolated stores, loopback relays and the scripted node's mail only. `order watch` ([spec](specs/020-order-watch/spec.md))
+probed on a local regtest node. The node settings file ([spec 018](specs/018-config-file/spec.md), [tasks.md](specs/018-config-file/tasks.md)):
+every networked command, JSON-capable or human-only, reads `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` from `$MCLI_DIR/config` after
+the options and the environment, verified on Linux against loopback relays and the scripted node; `config set <key> <value>` writes one
+of them to the file (JSON `config.set`) and `config show` reports the file's path and the values stored in it (JSON `config.show`),
+verified on Linux against isolated sandboxes and loopback relays. Spec 018 is implemented. `order chat`
+([spec](specs/019-order-chat/spec.md)) reads the peer chat of an order held and sends one message without the counterparty's key being
+passed; it supports `--output json` (`--message` then requires `--yes`); verified on Linux against isolated stores, loopback relays and
+the scripted node's mail only. `order watch` ([spec](specs/020-order-watch/spec.md))
 follows an order held until its trade ends, the node's messages and the peer chat, replayed then live; human mode streams,
 and `--output json` returns one document per call with a cursor for `--after`; verified on Linux against isolated stores and loopback relays only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
@@ -54,4 +59,4 @@ The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
 clones and outside both repositories. Only the `order list`, `order info`, `order new`, the two
 `order take-*`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`,
-`dispute open`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `schema` modules are migrated; the other planned modules are not yet implemented.
+`dispute open`, `order chat`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set`, `config show` and `schema` modules are migrated; the other planned modules are not yet implemented.
