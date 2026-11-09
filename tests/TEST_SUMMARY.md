@@ -4969,3 +4969,6 @@ Branch `feat/order-chat-json` from `feat/order-chat-command` (14d8ca7), the last
   `cargo test --locked` 1049 passed, 0 failed, 0 ignored (1044 at the base; +1 unit, +1 integration and +3 process tests);
   `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`. Every drift test passes after regeneration.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. The book update is a separate PR.
+- **Merged with `main`** (2026-11-09, after spec 018 and units 1 to 3): `cargo fmt --all -- --check` clean, `cargo clippy --locked --all-targets
+  --all-features -- -D warnings` clean, every drift test passes. `cargo test --locked` 1111 passed, 0 failed, 0 ignored (1106 on `main`, +5);
+  `tests/README.md` recounted.
