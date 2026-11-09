@@ -1,22 +1,25 @@
 //! The live watch of one order (spec 020): the node's mail to the order's
-//! trade key and, when the counterparty is known at the start, the order's
-//! peer chat. It only subscribes; nothing is published.
+//! trade key and, once the counterparty is known, the order's peer chat. It
+//! only subscribes; nothing is published.
 //!
 //! One connection to every configured relay, notifications armed before any
 //! REQ, and one REQ per relay and filter (`ReqTarget::single`), so a relay that
 //! takes one filter per REQ serves both. The opening replay is strict, as for
 //! the reads: every relay must take its REQs and send EOSE within the read
-//! budget. After it no relay event ends the watch: a CLOSED drops that one
-//! subscription on that relay, a disconnect drops the relay, and in this unit
-//! neither is asked again. New records are held back while any relay replays
-//! (`state.rs`).
+//! budget. After it no relay event ends the watch. A relay that goes away is
+//! retried at a fixed interval; when it is back the SDK sends again every
+//! subscription it still holds, and the watch sends again, under a new id,
+//! each one it no longer holds (after a CLOSED, or never sent while it was
+//! away). A relay that refuses while it stays connected is not asked again
+//! until it reconnects. New records are held back while any relay replays,
+//! a reconnect included (`state.rs`).
 //!
 //! Each event counts toward its replay's stored events, then is routed by its
 //! author: the node's through `open_events` (unless already seen), the
 //! conversation key's through `open_lines`, one event at a time. Anything else,
 //! or anything that does not open, is dropped and never returned.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::future::pending;
 use std::time::Duration;
 
@@ -31,47 +34,24 @@ use super::chat::open_lines;
 use super::inbox::{mail_filter, open_events};
 use super::orders::PER_RELAY_LIMIT;
 use super::reply::{arm, Armed, Received};
-use super::{PublicReadConfig, ReadLimits, Session};
+use super::{PublicReadConfig, Session};
 use crate::outcome::watch::{Cursor, Observed};
 use crate::outcome::{ErrorCode, WarningCode, Warnings};
 
+mod limits;
+mod records;
 mod state;
 
-use state::State;
-pub use state::{Batch, Seen};
-
-/// Bounds of a watch. Tests shrink them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct WatchLimits {
-    /// As for a read: `connect` for every relay, `read` for each replay,
-    /// `cleanup`, `max_unique_events` for the records of one run and
-    /// `notification_capacity` for one replay.
-    pub read: ReadLimits,
-}
-
-/// Why a watch did not open.
-#[derive(Clone, Debug)]
-pub struct WatchFailure {
-    code: ErrorCode,
-    warnings: Warnings,
-}
-
-impl WatchFailure {
-    pub fn code(&self) -> ErrorCode {
-        self.code
-    }
-
-    /// `cleanup_incomplete` when the connection was not closed in time.
-    pub fn warnings(&self) -> &Warnings {
-        &self.warnings
-    }
-}
+pub use limits::{WatchFailure, WatchLimits};
+pub use records::{Batch, Seen};
+use state::{Feed, State};
 
 /// The conversation once the counterparty is known.
 struct ChatKeys {
     conv: Keys,
     sign: PublicKey,
     writers: [PublicKey; 2],
+    filter: Filter,
 }
 
 /// A watch on one order. Close it with [`Watch::close`].
@@ -82,6 +62,7 @@ pub struct Watch {
     node: PublicKey,
     trade: [(Option<i64>, Keys); 1],
     since: Timestamp,
+    mail: Filter,
     chat: Option<ChatKeys>,
     state: State,
     cleanup: Duration,
@@ -102,7 +83,7 @@ impl Watch {
         start: &Cursor,
         limits: &WatchLimits,
     ) -> Result<Self, WatchFailure> {
-        let session = Session::connect(config, &limits.read)
+        let session = Session::live(config, &limits.read, limits.retry)
             .await
             .map_err(|code| WatchFailure {
                 code,
@@ -114,13 +95,16 @@ impl Watch {
             let code = ErrorCode::InternalError;
             return Err(WatchFailure { code, warnings });
         };
+        let (node, since) = (config.mostro_pubkey(), Timestamp::from(start.since()));
+        let trade = [(index, trade.clone())];
         let mut watch = Self {
             session,
             armed,
             relays: config.relays().to_vec(),
-            node: config.mostro_pubkey(),
-            trade: [(index, trade.clone())],
-            since: Timestamp::from(start.since()),
+            node,
+            mail: mail_filter(node, &trade, since),
+            trade,
+            since,
             chat: None,
             state: State::new(config.relays().len(), start.ids(), &limits.read),
             cleanup,
@@ -139,15 +123,33 @@ impl Watch {
 
     /// The opening replay: every REQ taken and every relay at EOSE.
     async fn replay(&mut self, peer: Option<&PublicKey>) -> Result<(), ErrorCode> {
-        let mut filters = vec![mail_filter(self.node, &self.trade, self.since)];
         if let Some(peer) = peer {
-            filters.push(self.chat_with(peer)?);
+            self.chat_with(peer)?;
         }
-        for filter in &filters {
+        for feed in self.feeds() {
             for relay in 0..self.relays.len() {
-                if !self.send_req(relay, filter).await {
+                if !self.send_req(relay, feed).await {
                     return Err(ErrorCode::RelayReadFailed);
                 }
+            }
+        }
+        self.settle().await
+    }
+
+    /// Follow the chat with `peer` as well, once it is learned while
+    /// watching: its REQ goes to every relay that is connected, and returns
+    /// when their replays end; the replayed records come back from the next
+    /// [`Watch::next`]. A relay that is away, or does not take the REQ, gets
+    /// it when it reconnects. Nothing changes when the chat is followed
+    /// already. Only more records than the run allows fail it.
+    pub async fn follow_chat(&mut self, peer: &PublicKey) -> Result<(), ErrorCode> {
+        if self.chat.is_some() {
+            return Ok(());
+        }
+        self.chat_with(peer)?;
+        for relay in 0..self.relays.len() {
+            if !self.state.is_down(relay) {
+                self.send_req(relay, Feed::Chat).await;
             }
         }
         self.settle().await
@@ -199,8 +201,8 @@ impl Watch {
         shut_down(&self.session, self.cleanup).await
     }
 
-    /// Keep the conversation with `peer` and return its filter.
-    fn chat_with(&mut self, peer: &PublicKey) -> Result<Filter, ErrorCode> {
+    /// Keep the conversation with `peer` and its filter.
+    fn chat_with(&mut self, peer: &PublicKey) -> Result<(), ErrorCode> {
         let trade = &self.trade[0].1;
         let (conv, sign) = derive_chat_keys(trade, peer).map_err(|_| ErrorCode::InternalError)?;
         let sign = sign.public_key();
@@ -210,13 +212,32 @@ impl Watch {
             conv,
             sign,
             writers,
+            filter,
         });
-        Ok(filter)
+        Ok(())
     }
 
-    /// Send `filter` to `relay` alone, under a new id; its replay starts.
-    /// `false` when the relay did not take the REQ.
-    async fn send_req(&mut self, relay: usize, filter: &Filter) -> bool {
+    /// The feeds followed: the mail, and the chat once its peer is known.
+    fn feeds(&self) -> Vec<Feed> {
+        match self.chat {
+            Some(_) => vec![Feed::Mail, Feed::Chat],
+            None => vec![Feed::Mail],
+        }
+    }
+
+    fn filter(&self, feed: Feed) -> Option<&Filter> {
+        match feed {
+            Feed::Mail => Some(&self.mail),
+            Feed::Chat => self.chat.as_ref().map(|chat| &chat.filter),
+        }
+    }
+
+    /// Send the filter of `feed` to `relay` alone, under a new id; its replay
+    /// starts. `false` when the relay did not take the REQ.
+    async fn send_req(&mut self, relay: usize, feed: Feed) -> bool {
+        let Some(filter) = self.filter(feed) else {
+            return false;
+        };
         let id = SubscriptionId::generate();
         let target = ReqTarget::single(&self.relays[relay], [filter.clone()]);
         let sent = self
@@ -227,9 +248,33 @@ impl Watch {
             .await;
         let taken = sent.is_ok_and(|output| output.failed.is_empty());
         if taken {
-            self.state.subscribed(relay, id, Instant::now());
+            self.state.subscribed(relay, feed, id, Instant::now());
         }
         taken
+    }
+
+    /// `relay` is back: everything it still holds replays, and each feed it
+    /// no longer holds is sent again under a new id.
+    async fn reconnected(&mut self, relay: usize) {
+        let handle = self.session.client.relay(&self.relays[relay]).await;
+        let held: HashSet<SubscriptionId> = match handle {
+            Ok(Some(handle)) => handle.subscriptions().await.into_keys().collect(),
+            _ => HashSet::new(),
+        };
+        let dropped = self.state.dropped(relay, &self.feeds(), &held);
+        self.state.reconnected(relay, Instant::now());
+        for feed in dropped {
+            self.send_req(relay, feed).await;
+        }
+    }
+
+    /// Drop `id` from what the SDK holds for `relay`: after a CLOSED it keeps
+    /// some (`rate-limited:`) and would send them again on reconnect, next to
+    /// the watch's own new id.
+    async fn forget(&self, relay: usize, id: &SubscriptionId) {
+        if let Ok(Some(handle)) = self.session.client.relay(&self.relays[relay]).await {
+            let _ = handle.unsubscribe(id).await;
+        }
     }
 
     /// Process notifications until no relay replays.
@@ -272,12 +317,18 @@ impl Watch {
                 RelayMessage::EndOfStoredEvents(id) => self.state.eose(relay, &id),
                 RelayMessage::Closed {
                     subscription_id, ..
-                } => self.state.closed(relay, &subscription_id)?,
+                } if self.state.is_ours(relay, &subscription_id) => {
+                    self.state.closed(relay, &subscription_id)?;
+                    self.forget(relay, &subscription_id).await;
+                }
                 _ => {}
             },
             RelayNotification::RelayStatus {
                 status: RelayStatus::Disconnected | RelayStatus::Terminated | RelayStatus::Shutdown,
             } => self.state.disconnected(relay)?,
+            RelayNotification::RelayStatus {
+                status: RelayStatus::Connected,
+            } => self.reconnected(relay).await,
             _ => {}
         }
         Ok(())

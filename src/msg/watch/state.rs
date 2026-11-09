@@ -6,7 +6,8 @@
 //!
 //! The opening replay is strict, as for the reads: a CLOSED or a disconnect
 //! before EOSE, the notification capacity or the read budget fails the watch.
-//! Once live, none of them does; the replay just ends.
+//! Once live, none of them does; the replay just ends. A reconnect starts a
+//! replay of every subscription the relay still holds (D5).
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -16,80 +17,29 @@ use std::time::Duration;
 use nostr_sdk::prelude::{EventId, SubscriptionId};
 use tokio::time::Instant;
 
-use crate::msg::chat::ChatLine;
-use crate::msg::inbox::Mail;
 use crate::msg::orders::PER_RELAY_LIMIT;
 use crate::msg::ReadLimits;
 use crate::outcome::watch::Observed;
 use crate::outcome::ErrorCode;
 
-/// One record the watch accepted: a message of the node, or a chat message
-/// opened from one of its envelopes.
-#[derive(Clone, Debug)]
-pub enum Seen {
-    Mail(Box<Mail>),
-    Chat {
-        /// The envelope it came in; other envelopes can carry the same message.
-        outer_id: EventId,
-        /// The envelope's time, which relays filter on.
-        created_at: u64,
-        line: ChatLine,
-    },
-}
+use super::records::{Batch, Seen};
 
-impl Seen {
-    /// The record's id: a node message's event id, a chat message's inner
-    /// `message_id`.
-    pub fn id(&self) -> EventId {
-        match self {
-            Self::Mail(mail) => mail.event,
-            Self::Chat { line, .. } => line.message_id,
-        }
-    }
-
-    /// The event it came in.
-    fn outer_id(&self) -> EventId {
-        match self {
-            Self::Mail(mail) => mail.event,
-            Self::Chat { outer_id, .. } => *outer_id,
-        }
-    }
-
-    /// The outer `created_at`.
-    pub fn created_at(&self) -> u64 {
-        match self {
-            Self::Mail(mail) => mail.created_at,
-            Self::Chat { created_at, .. } => *created_at,
-        }
-    }
-
-    fn observed(&self) -> Observed {
-        match self {
-            Self::Mail(mail) => Observed::mail(mail.event, mail.created_at),
-            Self::Chat {
-                created_at, line, ..
-            } => Observed::chat(line.message_id, *created_at, line.created_at),
-        }
-    }
-}
-
-/// New records, oldest first by outer time and id.
-#[derive(Clone, Debug, Default)]
-pub struct Batch {
-    pub items: Vec<Seen>,
-    /// Older records may be missing: since the last batch, a replay returned
-    /// its limit of stored events and the oldest was new, or a live replay
-    /// reached the notification capacity.
-    pub truncated: bool,
+/// What a subscription follows: the node's mail or the chat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Feed {
+    Mail,
+    Chat,
 }
 
 /// One subscription of the watch on one relay.
 struct Sub {
     id: SubscriptionId,
+    feed: Feed,
     replay: Option<Replay>,
 }
 
 /// A replay in progress.
+#[derive(Clone, Copy)]
 struct Replay {
     until: Instant,
     /// Events the relay sent under the subscription, opened or not.
@@ -99,6 +49,16 @@ struct Replay {
     oldest: Option<(u64, EventId, bool)>,
     /// Notifications from the relay since the replay started.
     notifications: usize,
+}
+
+impl Replay {
+    /// The relay sent its limit and the oldest of them was new: older records
+    /// may be missing. A live replay that ends before EOSE (a disconnect, its
+    /// budget or the notifications ending) is judged the same way.
+    fn cut_short(&self) -> bool {
+        let oldest_new = self.oldest.is_some_and(|(_, _, known)| !known);
+        self.stored >= PER_RELAY_LIMIT && oldest_new
+    }
 }
 
 /// A record not yet released: its first arrival, whether that was new, and
@@ -111,6 +71,8 @@ struct Held {
 
 pub(super) struct State {
     relays: Vec<Vec<Sub>>,
+    /// The relays that went away and have not reconnected.
+    down: Vec<bool>,
     /// Records not yet released, one entry each however often they arrive.
     held: HashMap<EventId, Held>,
     /// Records seen in this run: node messages by event id, chat by inner id.
@@ -131,6 +93,7 @@ impl State {
     pub(super) fn new(relays: usize, skip: &[EventId], limits: &ReadLimits) -> Self {
         Self {
             relays: (0..relays).map(|_| Vec::new()).collect(),
+            down: vec![false; relays],
             held: HashMap::new(),
             mail: HashSet::new(),
             chat: HashSet::new(),
@@ -149,18 +112,57 @@ impl State {
         self.strict = false;
     }
 
-    /// `relay` took the REQ `id`, sent at `now`: its replay starts.
-    pub(super) fn subscribed(&mut self, relay: usize, id: SubscriptionId, now: Instant) {
-        let replay = Replay {
+    /// `relay` took the REQ `id` for `feed`, sent at `now`: its replay starts.
+    /// It replaces the feed's earlier subscription there.
+    pub(super) fn subscribed(
+        &mut self,
+        relay: usize,
+        feed: Feed,
+        id: SubscriptionId,
+        now: Instant,
+    ) {
+        let replay = Some(self.replay_from(now));
+        self.relays[relay].retain(|sub| sub.feed != feed);
+        self.relays[relay].push(Sub { id, feed, replay });
+    }
+
+    /// `relay` is back at `now`: the SDK sends again every subscription it
+    /// still holds, so each of them replays.
+    pub(super) fn reconnected(&mut self, relay: usize, now: Instant) {
+        self.down[relay] = false;
+        let replay = self.replay_from(now);
+        for sub in &mut self.relays[relay] {
+            sub.replay = Some(replay);
+        }
+    }
+
+    /// Whether `relay` went away and has not reconnected.
+    pub(super) fn is_down(&self, relay: usize) -> bool {
+        self.down[relay]
+    }
+
+    /// The feeds of `feeds` whose subscription `relay` no longer holds, by
+    /// the ids the SDK keeps there (`held`): after a CLOSED, or never sent
+    /// while it was away. Their stale entries are forgotten.
+    pub(super) fn dropped(
+        &mut self,
+        relay: usize,
+        feeds: &[Feed],
+        held: &HashSet<SubscriptionId>,
+    ) -> Vec<Feed> {
+        self.relays[relay].retain(|sub| held.contains(&sub.id));
+        let kept = &self.relays[relay];
+        let missing = |feed: &&Feed| !kept.iter().any(|sub| sub.feed == **feed);
+        feeds.iter().filter(missing).copied().collect()
+    }
+
+    fn replay_from(&self, now: Instant) -> Replay {
+        Replay {
             until: now + self.replay,
             stored: 0,
             oldest: None,
             notifications: 0,
-        };
-        self.relays[relay].push(Sub {
-            id,
-            replay: Some(replay),
-        });
+        }
     }
 
     pub(super) fn is_ours(&self, relay: usize, id: &SubscriptionId) -> bool {
@@ -265,13 +267,12 @@ impl State {
         Ok(())
     }
 
-    /// `relay` sent every stored event of `id`. When it sent its limit and the
-    /// oldest of them was new, older records may be missing.
+    /// `relay` sent every stored event of `id`: older records may be missing
+    /// when the replay was cut short.
     pub(super) fn eose(&mut self, relay: usize, id: &SubscriptionId) {
         let sub = self.relays[relay].iter_mut().find(|sub| sub.id == *id);
         if let Some(replay) = sub.and_then(|sub| sub.replay.take()) {
-            let oldest_new = replay.oldest.is_some_and(|(_, _, known)| !known);
-            self.truncated |= replay.stored >= PER_RELAY_LIMIT && oldest_new;
+            self.truncated |= replay.cut_short();
         }
     }
 
@@ -287,13 +288,14 @@ impl State {
         Ok(())
     }
 
-    /// `relay` went away: its replays end.
+    /// `relay` went away: its replays end until it reconnects.
     pub(super) fn disconnected(&mut self, relay: usize) -> Result<(), ErrorCode> {
         if self.relays[relay].iter().any(|sub| sub.replay.is_some()) {
             self.strictly(ErrorCode::RelayReadFailed)?;
         }
+        self.down[relay] = true;
         for sub in &mut self.relays[relay] {
-            sub.replay = None;
+            self.truncated |= sub.replay.take().is_some_and(|r| r.cut_short());
         }
         Ok(())
     }
@@ -302,7 +304,7 @@ impl State {
     pub(super) fn lost(&mut self) -> Result<(), ErrorCode> {
         self.strictly(ErrorCode::RelayReadFailed)?;
         for sub in self.relays.iter_mut().flatten() {
-            sub.replay = None;
+            self.truncated |= sub.replay.take().is_some_and(|r| r.cut_short());
         }
         Ok(())
     }
@@ -319,7 +321,7 @@ impl State {
                 .as_ref()
                 .is_some_and(|replay| replay.until <= now)
             {
-                sub.replay = None;
+                self.truncated |= sub.replay.take().is_some_and(|r| r.cut_short());
             }
         }
         Ok(())
@@ -384,6 +386,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::msg::chat::ChatLine;
+    use crate::msg::inbox::Mail;
     use crate::outcome::watch::Cursor;
 
     const NOW: u64 = 1_792_108_800;
@@ -470,8 +474,8 @@ mod tests {
     fn records_are_held_until_every_replaying_relay_ends_its_replay() {
         let mut state = State::new(2, &[], &limits());
         let start = Instant::now();
-        state.subscribed(0, sub("a"), start);
-        state.subscribed(1, sub("b"), start);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
+        state.subscribed(1, Feed::Mail, sub("b"), start);
 
         got(&mut state, 0, "a", mail(1, 100));
         state.eose(0, &sub("a"));
@@ -485,7 +489,7 @@ mod tests {
         assert!(state.release().is_none(), "nothing new");
 
         state.live();
-        state.subscribed(1, sub("c"), start);
+        state.subscribed(1, Feed::Mail, sub("c"), start);
         got(&mut state, 0, "a", mail(3, 200));
         assert!(state.release().is_none(), "held while relay 1 replays");
         assert!(state.at_deadline().items.is_empty());
@@ -501,7 +505,7 @@ mod tests {
     fn a_replay_ends_at_eose_disconnect_or_fifteen_seconds() {
         let (mut state, start) = live(3, &[]);
         for (relay, name) in ["a", "b", "c"].into_iter().enumerate() {
-            state.subscribed(relay, sub(name), start);
+            state.subscribed(relay, Feed::Mail, sub(name), start);
         }
         assert_eq!(state.next_expiry(), Some(start + Duration::from_secs(15)));
         state.eose(0, &sub("a"));
@@ -512,7 +516,7 @@ mod tests {
         assert!(!state.replaying());
         assert_eq!(state.next_expiry(), None);
 
-        state.subscribed(0, sub("d"), start);
+        state.subscribed(0, Feed::Chat, sub("d"), start);
         state.closed(0, &sub("d")).unwrap();
         assert!(!state.replaying(), "a CLOSED ends it and drops it");
         assert!(!state.is_ours(0, &sub("d")));
@@ -520,7 +524,7 @@ mod tests {
         got(&mut state, 0, "d", mail(1, 100));
         assert!(state.release().is_none(), "nothing under a dropped id");
 
-        state.subscribed(2, sub("e"), start);
+        state.subscribed(2, Feed::Mail, sub("e"), start);
         for _ in 0..limits().notification_capacity {
             state.notified(2).unwrap();
         }
@@ -533,8 +537,8 @@ mod tests {
         let start = Instant::now();
         let opening = || {
             let mut state = State::new(2, &[], &limits());
-            state.subscribed(0, sub("a"), start);
-            state.subscribed(1, sub("b"), start);
+            state.subscribed(0, Feed::Mail, sub("a"), start);
+            state.subscribed(1, Feed::Mail, sub("b"), start);
             state
         };
         let mut state = opening();
@@ -563,8 +567,8 @@ mod tests {
     #[test]
     fn mail_counts_once_by_outer_id_and_chat_once_by_message_id() {
         let (mut state, start) = live(2, &[]);
-        state.subscribed(0, sub("a"), start);
-        state.subscribed(1, sub("b"), start);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
+        state.subscribed(1, Feed::Mail, sub("b"), start);
         state.eose(0, &sub("a"));
         state.eose(1, &sub("b"));
 
@@ -588,8 +592,8 @@ mod tests {
     #[test]
     fn repeats_while_a_relay_replays_are_held_once() {
         let (mut state, start) = live(2, &[]);
-        state.subscribed(0, sub("a"), start);
-        state.subscribed(1, sub("b"), start);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
+        state.subscribed(1, Feed::Mail, sub("b"), start);
         state.eose(1, &sub("b"));
         for n in 0..1_000 {
             got(&mut state, 1, "b", mail(1, 100));
@@ -604,7 +608,7 @@ mod tests {
     #[test]
     fn cursor_ids_are_skipped_but_observed() {
         let (mut state, start) = live(1, &[id(1), id(7)]);
-        state.subscribed(0, sub("a"), start);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
         got(&mut state, 0, "a", mail(1, NOW - 10));
         got(&mut state, 0, "a", chat(7, 70, NOW - 10, NOW - 10));
         state.eose(0, &sub("a"));
@@ -624,7 +628,7 @@ mod tests {
         };
         let mut state = State::new(1, &[id(9)], &small);
         state.live();
-        state.subscribed(0, sub("a"), Instant::now());
+        state.subscribed(0, Feed::Mail, sub("a"), Instant::now());
         for n in 1..=3 {
             got(&mut state, 0, "a", mail(n, 100));
         }
@@ -641,7 +645,7 @@ mod tests {
     fn truncated_only_when_the_oldest_of_fifty_is_new() {
         let replay = |known: &[EventId], stored: u16| {
             let (mut state, start) = live(1, known);
-            state.subscribed(0, sub("a"), start);
+            state.subscribed(0, Feed::Mail, sub("a"), start);
             for n in 1..=stored {
                 got(&mut state, 0, "a", mail(n, 1_000 + u64::from(n)));
             }
@@ -653,7 +657,7 @@ mod tests {
         assert!(!replay(&[id(1)], 50), "the oldest was listed in the cursor");
         assert!(replay(&[id(2)], 50), "only the oldest tells");
         let (mut state, start) = live(1, &[]);
-        state.subscribed(0, sub("a"), start);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
         for n in 1..=50 {
             state.stored(0, &sub("a"), (1_000 + u64::from(n), id(n)));
         }
@@ -664,11 +668,11 @@ mod tests {
         );
 
         let (mut state, start) = live(1, &[]);
-        state.subscribed(0, sub("a"), start);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
         got(&mut state, 0, "a", mail(1, 1_001));
         state.eose(0, &sub("a"));
         assert!(state.release().is_some());
-        state.subscribed(0, sub("b"), start);
+        state.subscribed(0, Feed::Mail, sub("b"), start);
         for n in 1..=50 {
             got(&mut state, 0, "b", mail(n, 1_000 + u64::from(n)));
         }
@@ -676,5 +680,103 @@ mod tests {
         let batch = state.release().unwrap();
         assert_eq!(batch.items.len(), 49);
         assert!(!batch.truncated, "the oldest was seen in this run");
+    }
+
+    #[test]
+    fn a_reconnect_starts_a_replay_and_holds_records() {
+        let (mut state, start) = live(2, &[]);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
+        state.subscribed(1, Feed::Mail, sub("b"), start);
+        state.eose(0, &sub("a"));
+        state.eose(1, &sub("b"));
+        state.disconnected(0).unwrap();
+        assert!(state.is_down(0));
+        got(&mut state, 1, "b", mail(1, 100));
+        assert_eq!(
+            ids(&state.release().unwrap()),
+            [id(1)],
+            "away, it holds nothing"
+        );
+
+        let back = start + Duration::from_secs(5);
+        state.reconnected(0, back);
+        assert!(!state.is_down(0));
+        assert_eq!(state.next_expiry(), Some(back + Duration::from_secs(15)));
+        got(&mut state, 1, "b", mail(2, 200));
+        got(&mut state, 0, "a", mail(1, 100));
+        got(&mut state, 0, "a", mail(3, 150));
+        assert!(
+            state.release().is_none(),
+            "held while relay 0 replays again"
+        );
+        state.eose(0, &sub("a"));
+        let resent = state.release().unwrap();
+        assert_eq!(ids(&resent), [id(3), id(2)], "what was missed, once");
+        assert!(!resent.truncated);
+
+        state.disconnected(0).unwrap();
+        state.reconnected(0, back);
+        for n in 10..60 {
+            got(&mut state, 0, "a", mail(n, 1_000 + u64::from(n)));
+        }
+        state.eose(0, &sub("a"));
+        let flooded = state.release().unwrap();
+        assert_eq!(flooded.items.len(), 50);
+        assert!(flooded.truncated, "fifty new events after a reconnect");
+    }
+
+    #[test]
+    fn a_live_replay_of_fifty_cut_before_eose_sets_truncated() {
+        let cut = |end: &dyn Fn(&mut State, Instant), stored: u16| {
+            let (mut state, start) = live(1, &[]);
+            state.subscribed(0, Feed::Mail, sub("a"), start);
+            state.eose(0, &sub("a"));
+            state.disconnected(0).unwrap();
+            state.reconnected(0, start);
+            for n in 1..=stored {
+                got(&mut state, 0, "a", mail(n, 1_000 + u64::from(n)));
+            }
+            end(&mut state, start);
+            state.release().unwrap().truncated
+        };
+        let away = |state: &mut State, _| state.disconnected(0).unwrap();
+        let slow = |state: &mut State, start| {
+            state.expire(start + Duration::from_secs(15)).unwrap();
+        };
+        let ended = |state: &mut State, _| state.lost().unwrap();
+        assert!(cut(&away, 50), "a second disconnect");
+        assert!(cut(&slow, 50), "the fifteen seconds");
+        assert!(cut(&ended, 50), "the notifications");
+        assert!(!cut(&away, 49), "short of the relay's limit");
+    }
+
+    #[test]
+    fn only_subscriptions_the_relay_dropped_are_sent_again() {
+        let (mut state, start) = live(1, &[]);
+        state.subscribed(0, Feed::Mail, sub("a"), start);
+        state.subscribed(0, Feed::Chat, sub("c"), start);
+        let feeds = [Feed::Mail, Feed::Chat];
+        let held = |names: &[&str]| names.iter().map(|name| sub(name)).collect::<HashSet<_>>();
+
+        let none: [Feed; 0] = [];
+        assert_eq!(state.dropped(0, &feeds, &held(&["a", "c"])), none);
+        assert_eq!(state.dropped(0, &feeds, &held(&["a"])), [Feed::Chat]);
+        assert!(!state.is_ours(0, &sub("c")), "the stale entry is forgotten");
+        assert!(state.is_ours(0, &sub("a")));
+        assert_eq!(
+            state.dropped(0, &feeds, &held(&["a"])),
+            [Feed::Chat],
+            "until it is sent again"
+        );
+        assert_eq!(state.dropped(0, &[Feed::Mail], &held(&["a"])), none);
+
+        state.subscribed(0, Feed::Chat, sub("d"), start);
+        assert_eq!(state.dropped(0, &feeds, &held(&["a", "d"])), none);
+        state.subscribed(0, Feed::Mail, sub("e"), start);
+        assert!(
+            !state.is_ours(0, &sub("a")),
+            "a new id replaces the old one"
+        );
+        assert_eq!(state.dropped(0, &feeds, &held(&["a", "d"])), [Feed::Mail]);
     }
 }

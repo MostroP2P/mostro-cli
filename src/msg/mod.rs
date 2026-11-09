@@ -205,18 +205,42 @@ impl Session {
     /// Connect every configured relay within `limits.connect`, without
     /// automatic reconnection. Any relay left unconnected fails the session.
     async fn connect(config: &PublicReadConfig, limits: &ReadLimits) -> Result<Self, ErrorCode> {
+        Self::open(config, limits, None).await
+    }
+
+    /// Connect like [`Session::connect`]; afterwards a relay that goes away
+    /// is tried again every `retry`, and on each reconnect the SDK sends
+    /// again the subscriptions it still holds. For the order watch.
+    async fn live(
+        config: &PublicReadConfig,
+        limits: &ReadLimits,
+        retry: Duration,
+    ) -> Result<Self, ErrorCode> {
+        Self::open(config, limits, Some(retry)).await
+    }
+
+    async fn open(
+        config: &PublicReadConfig,
+        limits: &ReadLimits,
+        retry: Option<Duration>,
+    ) -> Result<Self, ErrorCode> {
         let session = Self {
             client: ephemeral_client(),
         };
         for url in &config.relays {
-            session
+            let relay = session
                 .client
                 .add_relay(url)
-                .reconnect(false)
                 .connect_timeout(limits.connect)
-                .notification_channel_size(channel_size(limits))
-                .await
-                .map_err(|_| ErrorCode::InternalError)?;
+                .notification_channel_size(channel_size(limits));
+            let relay = match retry {
+                None => relay.reconnect(false),
+                Some(retry) => relay
+                    .reconnect(true)
+                    .retry_interval(retry)
+                    .adjust_retry_interval(false),
+            };
+            relay.await.map_err(|_| ErrorCode::InternalError)?;
         }
         let connected = session.client.try_connect().timeout(limits.connect).await;
         if connected.failed.is_empty() && connected.success.len() == config.relays.len() {
