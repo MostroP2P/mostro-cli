@@ -272,8 +272,8 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     escrow is locked"); "📭 Nothing yet; waiting for the node or the counterparty..." when the replay is empty; then each update as it
     comes: `message list`'s message block with its next step under "📨 From Mostro:", and `order chat`'s block under "💬 Chat:" (the
     text escaped); a line when the counterparty is learned and one when older records may be missing. Each update is written whole and
-    flushed. The last line is "🏁 The trade ended: <action>", or at `--timeout` "⏰ Stopped at the watch deadline; the trade has not
-    ended."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors are one `error: <fixed message>` line on stderr (exit 1,
+    flushed. The last line is "🏁 The trade ended: <action>", or at `--timeout` "⏰ Stopped at the watch deadline; no ending message
+    was seen. Run `order info` to check the order."; both exit 0. Ctrl-C stops it, with no exit status promised. Errors are one `error: <fixed message>` line on stderr (exit 1,
     2 for arguments); a stdout that cannot be written stops the watch with "error: the watch could not be written" (exit 1).
     `--verbose` adds one line, `verbose: order.watch <ok|code>`.
   - **Timing**: 10 s to connect, 15 s for the replay, 15 s more when the counterparty is learned, then live until the end or
