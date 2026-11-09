@@ -12,8 +12,9 @@ use nostr_sdk::prelude::Keys;
 use serde::Serialize;
 
 use super::invocation::OutputMode;
-use super::migrated::{code_name, diagnose, error_line, request_options};
+use super::migrated::{code_name, diagnose, error_line};
 use super::Cli;
+use crate::commands::order::info::InfoOptions;
 use crate::commands::order::WriteOptions;
 use crate::identity::{load_identity_keys, IdentityError};
 use crate::msg::{ExchangeLimits, PublicReadConfig};
@@ -22,6 +23,7 @@ use crate::outcome::{
     Warnings, INVALID_INVOICE, RUNTIME_ERROR_EXIT,
 };
 use crate::parse_machine::emit;
+use crate::settings::{configured_config, env_text, setting};
 use crate::store::{Store, StoreError, Trade};
 
 /// Configuration, identity and store, all checked; no trade is reserved (the
@@ -40,13 +42,56 @@ pub(super) struct Reader {
     pub store: Store,
 }
 
+/// The lookup of the node settings that a root option did not give: the
+/// environment variable when it is set (even empty, or not Unicode, which
+/// counts as empty), else the config file of the data directory, read once
+/// here. A file it refuses is `configuration_invalid`, with one `hint:` line
+/// on stderr naming the file and the line, never the content.
+pub(super) fn node_lookup() -> Result<impl Fn(&str) -> Option<String>, ErrorCode> {
+    match configured_config() {
+        Ok(file) => {
+            Ok(move |name: &str| setting(file.as_ref(), name, |name| env_text(env::var_os(name))))
+        }
+        Err(problem) => {
+            diagnose(&mut io::stderr().lock(), &format!("hint: {problem}"));
+            Err(ErrorCode::ConfigurationInvalid)
+        }
+    }
+}
+
 /// Resolve configuration, then the existing identity (read-only), then the
 /// store, which must accept a write when `writable`. The work and transport
 /// settings concern only what is sent, so a read does not look at them.
 pub(super) async fn resolve_reader(cli: &Cli, writable: bool) -> Result<Reader, ErrorCode> {
-    let getenv = |name: &str| env::var(name).ok();
+    let lookup = node_lookup()?;
     let config =
-        PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), getenv)?;
+        PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), lookup)?;
+    reader_with(config, writable).await
+}
+
+/// [`resolve_reader`] and then the work and transport settings, which a
+/// request needs. The order of the checks is that of a request: the config
+/// file, the configuration, then the settings, then identity and store.
+pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, ErrorCode> {
+    let lookup = node_lookup()?;
+    let config =
+        PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), &lookup)?;
+    let request = request_options(cli.pow.as_deref(), cli.transport.as_deref(), &lookup)?;
+    let reader = reader_with(config, writable).await?;
+    Ok(Base {
+        config: reader.config,
+        options: WriteOptions {
+            pow: request.pow,
+            check_protocol: request.check_protocol,
+        },
+        identity: reader.identity,
+        store: reader.store,
+    })
+}
+
+/// The existing identity (read-only) and the store of a resolved
+/// configuration; the store must accept a write when `writable`.
+async fn reader_with(config: PublicReadConfig, writable: bool) -> Result<Reader, ErrorCode> {
     let identity = load_identity_keys().await.map_err(|error| match error {
         IdentityError::Missing => ErrorCode::IdentityMissing,
         IdentityError::Unreadable => ErrorCode::IdentityUnreadable,
@@ -62,22 +107,35 @@ pub(super) async fn resolve_reader(cli: &Cli, writable: bool) -> Result<Reader, 
     })
 }
 
-/// [`resolve_reader`] and then the work and transport settings, which a
-/// request needs. The order of the checks is that of a request: configuration
-/// first, then the settings, then identity and store.
-pub(super) async fn resolve_base(cli: &Cli, writable: bool) -> Result<Base, ErrorCode> {
-    let getenv = |name: &str| env::var(name).ok();
-    PublicReadConfig::resolve(cli.mostro_pubkey.as_deref(), cli.relays.as_deref(), getenv)?;
-    let request = request_options(cli.pow.as_deref(), cli.transport.as_deref(), getenv)?;
-    let reader = resolve_reader(cli, writable).await?;
-    Ok(Base {
-        config: reader.config,
-        options: WriteOptions {
-            pow: request.pow,
-            check_protocol: request.check_protocol,
-        },
-        identity: reader.identity,
-        store: reader.store,
+/// The least work to mine and whether to check the node's protocol: `--pow`
+/// over `POW` (0-255, default 0; the exchange raises it to what the node
+/// advertises, up to `AUTO_POW_CEILING`) and `--transport` over `TRANSPORT`,
+/// of which only `nip44` exists. An explicit transport skips the protocol check.
+/// `getenv` answers for the variables: the environment, then the config file.
+pub(super) fn request_options(
+    pow: Option<&str>,
+    transport: Option<&str>,
+    getenv: impl Fn(&str) -> Option<String>,
+) -> Result<InfoOptions, ErrorCode> {
+    let given = |cli: Option<&str>, name: &str| {
+        cli.map(str::to_owned)
+            .or_else(|| getenv(name))
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    let pow = match given(pow, "POW") {
+        None => 0,
+        Some(text) => text
+            .parse::<u8>()
+            .map_err(|_| ErrorCode::ConfigurationInvalid)?,
+    };
+    let transport = given(transport, "TRANSPORT");
+    if transport.as_deref().is_some_and(|value| value != "nip44") {
+        return Err(ErrorCode::ConfigurationInvalid);
+    }
+    Ok(InfoOptions {
+        pow,
+        check_protocol: transport.is_none(),
     })
 }
 
@@ -240,6 +298,7 @@ fn print_human<D>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::ConfigFile;
 
     #[test]
     fn only_blank_and_y_accept_and_end_of_input_declines() {
@@ -249,6 +308,22 @@ mod tests {
         for no in ["", "n\n", "N\n", "n\r\n", "maybe\n", " y\n", "yes\n"] {
             assert!(!accepts(no.as_bytes()), "{no:?}");
         }
+    }
+
+    #[test]
+    fn request_options_takes_pow_and_transport_through_the_file_lookup() {
+        let file = ConfigFile::parse("POW=3\nTRANSPORT=nip44\n").unwrap();
+        let from_file = |name: &str| setting(Some(&file), name, |_| None);
+        let options = request_options(None, None, from_file).unwrap();
+        assert_eq!((options.pow, options.check_protocol), (3, false));
+        // A set but empty variable is 0 over the file's value.
+        let empty_pow = |name: &str| setting(Some(&file), name, |n| (n == "POW").then(String::new));
+        assert_eq!(request_options(None, None, empty_pow).unwrap().pow, 0);
+        // A flag beats both.
+        let options = request_options(Some("7"), Some("nip44"), empty_pow).unwrap();
+        assert_eq!((options.pow, options.check_protocol), (7, false));
+        let detect = request_options(None, None, |_| None).unwrap();
+        assert_eq!((detect.pow, detect.check_protocol), (0, true));
     }
 
     #[test]

@@ -13,6 +13,9 @@ use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
+use crate::outcome::config::{
+    config_set_rules, config_show_rules, ConfigData, CONFIG_SET_COMMAND, CONFIG_SHOW_COMMAND,
+};
 use crate::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use crate::outcome::identity::{
     IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT, INIT_ERRORS,
@@ -75,7 +78,9 @@ pub struct CommandDescriptor {
     pub input_schema: Option<SchemaDocument>,
     /// `null` for commands without machine output.
     pub output_schema: Option<SchemaDocument>,
-    /// Environment variable names read; `null` when not modeled.
+    /// Names of the required settings, each from its root option, its
+    /// environment variable or the config-file key of that name; `null` when
+    /// not modeled.
     pub required_configuration: Option<Vec<&'static str>>,
 }
 
@@ -147,7 +152,8 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
             Some(LISTING_CONFIGURATION.to_vec())
         }
         // Local only: the data directory, which has a default, is all they read.
-        SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW | ORDER_MINE => Some(Vec::new()),
+        SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW | ORDER_MINE | CONFIG_SET_COMMAND
+        | CONFIG_SHOW_COMMAND => Some(Vec::new()),
         _ => None,
     }
 }
@@ -342,6 +348,8 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &SHOW_ERRORS,
             false,
         )),
+        CONFIG_SET_COMMAND => output_schema::<ConfigData, ()>(&config_set_rules()),
+        CONFIG_SHOW_COMMAND => output_schema::<ConfigData, ()>(&config_show_rules()),
         SCHEMA_COMMAND => output_schema::<DiscoveryData, ()>(&OutcomeRules::read(
             SCHEMA_COMMAND,
             &DISCOVERY_ERRORS,
