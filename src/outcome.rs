@@ -14,6 +14,7 @@ pub use codes::{
 
 pub mod chat;
 mod codes;
+pub mod config;
 pub mod dispute;
 pub mod identity;
 pub mod info;
