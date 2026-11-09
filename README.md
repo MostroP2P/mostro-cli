@@ -157,7 +157,7 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 
 ## Configuration
 
-`mostro-cli` reads its configuration from environment variables (or equivalent CLI flags). The Mostro pubkey and at least one relay are mandatory. **Your own keys are not part of the configuration** — see [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
+`mostro-cli` reads its configuration from environment variables (or equivalent CLI flags); the commands that talk to a node also read the node settings from a [config file](#config-file) in the data directory. The Mostro pubkey and at least one relay are mandatory. **Your own keys are not part of the configuration** — see [You do not bring your own `nsec`](#you-do-not-bring-your-own-nsec).
 
 ### Required
 
@@ -178,6 +178,8 @@ The mnemonic-based user and the admin key are completely independent. You can ru
 | `MOSTRO_RPC_TOKEN` | — | Bearer token for the admin gRPC, required when the daemon sets `[rpc].auth_token`. Only used by the three commands above. Sent in cleartext only to a loopback URL (direct or through an SSH tunnel); any other `http://` host is refused, use `https://` via a TLS proxy instead. |
 | `RUST_LOG` | `-v, --verbose` | **Not actually configurable.** The logger is initialised only when `-v` is passed, and `-v` overwrites `RUST_LOG` with `info` first. So `RUST_LOG` alone produces no output, and `RUST_LOG=debug -v` still logs at `info`. `-v` is the only available level. |
 
+`MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` may also be set in the [config file](#config-file); the other variables are read from the environment only.
+
 ### Choosing a Mostro instance
 
 `mostro-cli` is only a client: it does not ship with a default node, and this README deliberately does not hard-code one. Mostro is a federation of independently operated daemons — any given instance can go offline, change its pubkey, or stop serving your currency at any time, so a pubkey pasted here would eventually send you to a dead node.
@@ -192,7 +194,16 @@ Whichever you pick, `RELAYS` must include at least one relay that the instance a
 
 ### Suggested setup
 
-Create a small env file you `source` before using the CLI:
+Write the node settings once into the [config file](#config-file), so every new shell finds them, and check what it holds:
+
+```bash
+mostro-cli config set mostro-pubkey <npub-of-your-mostro-node>
+mostro-cli config set relays wss://<relay-your-node-publishes-to>,wss://<another-relay>
+mostro-cli config show
+mostro-cli order list
+```
+
+Or write the file by hand (`mkdir -m 700`, `chmod 600`, as shown there), or create a small env file you `source` before using the CLI; it can also hold `ADMIN_NSEC`, which the config file refuses:
 
 ```bash
 # ~/.config/mostro/env.sh   (chmod 600)
@@ -207,11 +218,32 @@ source ~/.config/mostro/env.sh
 mostro-cli order list
 ```
 
-> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init`, `identity show` and `order mine` are the only exceptions).
+> Replace both placeholders with the real values of the instance you want to trade on — see [Choosing a Mostro instance](#choosing-a-mostro-instance). No networked command works until `MOSTRO_PUBKEY` points at a live node (`--version`, `--help`, the offline `schema` and the local `identity init`, `identity show`, `order mine`, `config set` and `config show` are the only exceptions).
+
+### Config file
+
+Every command that talks to a node (`order list`, `order new`, `message list`, `listdisputes`, `getdmuser`, the admin commands, ...; not the local `schema`, `identity init`, `identity show` and `order mine`, nor the admin RPC commands `admsetmaintenance`, `admmaintenancestatus` and `admcancelpending`) also reads the node settings from `config` in the data directory: `$MCLI_DIR/config`, else `~/.mcli/config` (`%USERPROFILE%\.mcli\config` on Windows). It holds `KEY=VALUE` lines with the variable names; `#` comment lines, blank lines, an `export` prefix and quotes are accepted, but a `#` after a value is part of the value. So the `MOSTRO_PUBKEY` and `RELAYS` lines of the `env.sh` above can be copied there as they are, a `POW` line without its trailing comment, and `ADMIN_NSEC` stays out (see below).
+
+```bash
+mkdir -m 700 -p ~/.mcli
+cat > ~/.mcli/config <<'END'
+MOSTRO_PUBKEY=<npub-of-your-mostro-node>
+RELAYS=wss://<relay-your-node-publishes-to>,wss://<another-relay>
+END
+chmod 600 ~/.mcli/config
+mostro-cli order list
+```
+
+- An option wins over an environment variable that is set (even empty), which wins over the file.
+- Only `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` are allowed. Any other key, `ADMIN_NSEC` included, makes the whole file invalid, so keep secrets in the environment. Every value is checked like an option.
+- Reading it never creates `~/.mcli` or anything in it, and its values never enter the environment.
+- `mostro-cli config set <key> <value>` writes one setting for you (`mostro-pubkey`, `relays`, `pow` or `transport`), checked like an option and never echoed when refused: it creates the data directory if needed, rewrites the file as `NAME=value` lines (comments are dropped) and leaves a file it refuses untouched. On Unix it makes the directory (0700) and the file (0600) owner-only; on Windows it sets no permissions of its own, so both keep the ACLs they inherit from the parent folder.
+- `mostro-cli config show` prints the file's path and the values stored in it (`not set` when absent), read-only. It shows only the file: an option or a set variable still wins over what it shows.
+- A refused file stops the command before anything else happens: a JSON-capable one prints `hint: <path>: line N ...` and fails with `configuration_invalid`, a human-only one prints `Invalid config file <path>: line N ...`.
 
 ### About `.env` files
 
-`mostro-cli` does **not** load a `.env` file automatically — there is no dotenv support in the binary, so dropping a `.env` next to the executable has no effect. Older guides (and some issue comments) suggest it; that advice is outdated.
+`mostro-cli` does **not** load a `.env` file automatically — there is no dotenv support in the binary, so dropping a `.env` next to the executable has no effect. Older guides (and some issue comments) suggest it; that advice is outdated. The only file it reads settings from is the [config file](#config-file), and only the four public node settings; `ADMIN_NSEC` stays in the environment.
 
 If you prefer keeping settings in a `.env`-style file, export them yourself before running the CLI:
 
@@ -233,7 +265,7 @@ mostro-cli order list
 
 ## Quick start
 
-Export your configuration first — every command below fails immediately without it:
+Export your configuration (or put it in the [config file](#config-file)) first — every command below fails immediately without it:
 
 ```bash
 export MOSTRO_PUBKEY="<npub-of-your-mostro-node>"
@@ -680,6 +712,10 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 ### Solver tooling (no `ADMIN_NSEC` needed)
 - `sendadmindmattach -p <pubkey> -o <id> -f <file>` — send an encrypted file attachment (uploaded to a Blossom server) over the order's trade key.
 
+### Configuration
+- `config set <mostro-pubkey|relays|pow|transport> <value>` — write one node setting to the [config file](#config-file), keeping the others; no node or relay (supports `--output json`).
+- `config show` — the config file's path and the node settings stored in it, read-only (supports `--output json`).
+
 ### Identity / recovery
 - `identity init` — create the local identity store (`MCLI_DIR`, else `~/.mcli`) with a fresh mnemonic, exactly as the first run of a legacy command does; no node, relay or `--yes`, and the mnemonic is never shown (supports `--output json`). Fails with `identity_exists` if a store is already there.
 - `identity show` — the identity public key and last trade index of the local store, read-only (supports `--output json`).
@@ -695,11 +731,13 @@ Every command supports `-h, --help`. The list below is a one-line summary; run `
 - `-v, --verbose` — enable info logging. This is the only log control; it overwrites `RUST_LOG` with `info`.
 - `-m, --mostro-pubkey <npub>` — overrides `MOSTRO_PUBKEY` (the old spelling `--mostropubkey` was removed).
 - `--reply-timeout <SECONDS>` — how long the commands that wait for the node's reply (`order new`, the takes, `order add-invoice`, the trade steps, `order info`, `dispute open`, `order rate`, `bond add-invoice`) wait for it: 5 to 300, default 15. Like `--output`, it may also follow the command words. Raise it for a slow node instead of repeating a write that came back `uncertain`.
-- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show` only; see [Machine-readable output](#machine-readable-output).
+- `--output <human|json>` — `json` is supported by `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show` only; see [Machine-readable output](#machine-readable-output).
 - `-r, --relays <list>` — overrides `RELAYS`.
 - `-p, --pow <bits>` — overrides `POW`.
 - `-s, --secret` — secret mode for inner event tuple.
 - `-t, --transport <nip44>` — overrides `TRANSPORT` (auto-detected when unset; only nip44 is supported).
+
+`-m`, `-r`, `-p` and `-t` also override the [config file](#config-file): the file fills in a setting only when neither an option nor a variable that is set (even empty) gives it, and the transport is auto-detected when the `TRANSPORT` that wins is absent or empty.
 
 ```bash
 mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
@@ -709,7 +747,7 @@ mostro-cli -m <npub> -r wss://<relay> order list --side sell --currency usd
 
 ## Machine-readable output
 
-Eighteen commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order rate`, `dispute open` and `bond add-invoice` (the last ten need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
+Twenty commands can answer in JSON so that scripts and agents do not have to parse tables: `order list`, `schema`, `message list`, `identity init`, `identity show`, `order mine`, `config set`, `config show`, `order info`, `order sync`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order rate`, `dispute open` and `bond add-invoice` (the last ten need `--yes` and can report `uncertain`). Every other command is human-only for now, and asking it for JSON fails safely (exit 2, `output_not_supported`, nothing executed).
 
 ```bash
 # one JSON document on stdout; diagnostics, if any, go to stderr
@@ -738,6 +776,7 @@ mostro-cli --output json schema    # the same data in the standard outcome
 | Path | What it is |
 |---|---|
 | `~/.mcli/` | The CLI's data directory. Created on first run. |
+| `~/.mcli/config` | Optional node settings as `KEY=VALUE` lines (see [Config file](#config-file)); never created by a read. `config set` writes it, with its lock `.config.lock` beside it. |
 | `~/.mcli/mcli.db` | SQLite database with your `users` row (mnemonic, identity key, last trade index) and `orders` cache. |
 
 Environment variables read by the CLI:
@@ -766,9 +805,13 @@ The database stores **secret material** (your mnemonic). Treat `~/.mcli/mcli.db`
 
 **"How do I generate my keys?"** — You don't. There is no key-generation step and no need for tools like `rana`. The first command you run creates `~/.mcli/mcli.db` with a fresh BIP39 mnemonic; every identity and trade key is derived from it (NIP-06). Back the mnemonic up — see [Backup, recovery and multi-device](#backup-recovery-and-multi-device).
 
-**`MOSTRO_PUBKEY not set`** — Export it, or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> order list`, not `mostro-cli order list -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance).
+**`MOSTRO_PUBKEY not set`** — Export it, put it in the [config file](#config-file) (`mostro-cli config set mostro-pubkey <npub>`; `mostro-cli config show` lists what the file holds), or pass `-m <npub>` **before** the subcommand (`mostro-cli -m <npub> order list`, not `mostro-cli order list -m <npub>` — see [Global flags](#global-flags)). Mind the underscore: only `MOSTRO_PUBKEY` is read, `MOSTROPUBKEY` is not. If you don't have a node pubkey yet, see [Choosing a Mostro instance](#choosing-a-mostro-instance). The same message means the value that wins is blank: an empty `-m`, or a `MOSTRO_PUBKEY` that is set but empty, whatever the config file holds; unset the variable to use the file.
 
-**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs) or pass `-r <relay[,relay...]>` before the subcommand.
+**`The node configuration is invalid.`** after a `hint: <path>: line N ...` line, or **`Invalid config file <path>: line N ...`** — The config file was refused. The hint names the file and the line: a key other than the four settings, a line without `=`, or a value that is not a key, relay URLs, a number up to 255 or `nip44`. Fix or remove that line (`mostro-cli config show` names it too); the whole file is refused even when the options give every value. Without a hint, the option or variable itself is invalid.
+
+**`The configuration file cannot be written, so nothing was changed.`** (`configuration_unwritable`) — `config set` could not create the data directory, its lock or temporary file (on Unix a `.config.lock` that is a symlink is refused), or could not write or rename the file. The old file is intact, but the data directory may already have been created (or, on Unix, made owner-only, 0700), with an empty `.config.lock` in it. Make `MCLI_DIR` (else `~/.mcli`) a directory you own on a disk with free space, then run it again.
+
+**`RELAYS not set`** — `RELAYS` is required too, and that exact name is the one the CLI reads. Export it (comma-separated `wss://` URLs), put it in the [config file](#config-file) (`mostro-cli config set relays <relay[,relay...]>`) or pass `-r <relay[,relay...]>` before the subcommand. As with the key, a blank `-r` or a `RELAYS` that is set but empty counts as missing, whatever the file holds.
 
 **`error: unexpected argument '-m' found`** (or `-r`, `-p`, `-t`, `-v`) — Global flags belong before the subcommand: `mostro-cli -m <npub> order list`. Placed after it, clap parses them against the subcommand, which either rejects them or silently means something else. See [Global flags](#global-flags).
 
