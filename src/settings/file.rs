@@ -3,6 +3,8 @@
 //! the process environment, the lookup the human-only commands use, and
 //! updating it under a lock.
 
+#[cfg(unix)]
+use libc::O_NOFOLLOW;
 use std::env::{self, VarError};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -138,7 +140,7 @@ pub enum WriteError {
     /// it is.
     Refused(ConfigFileError),
     /// The data directory, the lock or the temporary file could not be
-    /// created; nothing was written.
+    /// created, or the lock is a symlink (Unix); nothing was written.
     NotCreated,
     /// The temporary file could not be written or renamed; it was removed
     /// and the old file is intact.
@@ -150,8 +152,8 @@ pub enum WriteError {
 /// before anything is created, so a refused one is left as it is; then the
 /// directory is created one level deep or made owner-only (0700 on Unix) and
 /// the file is read again and rewritten while an exclusive lock on
-/// `.config.lock` (created owner-only, never removed) is held, so updates made
-/// at once by several processes or threads all land.
+/// `.config.lock` (owner-only, never removed, never a symlink on Unix) is held,
+/// so updates made at once by several processes or threads all land.
 pub fn update_config(dir: &Path, setting: Setting, value: &str) -> Result<ConfigFile, WriteError> {
     let value = value.trim();
     if !setting.accepts(value) {
@@ -173,34 +175,36 @@ fn lock(dir: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
-    options.mode(0o600);
+    options.mode(0o600).custom_flags(O_NOFOLLOW);
     let file = options.open(dir.join(LOCK_FILE))?;
     file.lock()?;
     Ok(file)
 }
 
 /// Replace the config file of the existing directory `dir` with `file`,
-/// atomically: a temporary owner-only (0600) file left by an earlier run of
-/// this process id is removed, a new one is written, synced and renamed over
-/// `config` (which replaces a symlink rather than its target).
+/// atomically: a stale temporary of this process id is removed, a new owner-only
+/// (0600) one is written through its handle, synced and renamed over `config`
+/// (replacing a symlink, not its target), then `dir` is synced (Unix, best effort).
 fn write_config(dir: &Path, file: &ConfigFile) -> Result<(), WriteError> {
     let temporary = dir.join(format!(".{CONFIG_FILE}.{}.tmp", process::id()));
     match fs::remove_file(&temporary) {
         Err(error) if error.kind() != ErrorKind::NotFound => return Err(WriteError::NotCreated),
         _ => {}
     }
-    create_private_db_file(&temporary).map_err(|_| WriteError::NotCreated)?;
-    fill(&temporary, file.render().as_bytes())
+    let out = create_private_db_file(&temporary).map_err(|_| WriteError::NotCreated)?;
+    fill(out, file.render().as_bytes())
         .and_then(|()| fs::rename(&temporary, config_path(dir)))
         .map_err(|_| {
             let _ = fs::remove_file(&temporary);
             WriteError::Failed
-        })
+        })?;
+    #[cfg(unix)]
+    let _ = File::open(dir).and_then(|dir| dir.sync_all());
+    Ok(())
 }
 
-/// Write `bytes` into the existing file at `path` and sync it.
-fn fill(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut out = OpenOptions::new().write(true).open(path)?;
+/// Write `bytes` into `out`, sync it and close it.
+fn fill(mut out: File, bytes: &[u8]) -> io::Result<()> {
     out.write_all(bytes)?;
     out.sync_all()
 }
@@ -479,6 +483,21 @@ mod tests {
             assert!(fs::symlink_metadata(&path).unwrap().is_file());
             assert_eq!(fs::read_to_string(&target).unwrap(), "POW=9\n");
         }
+    }
+
+    /// A symlinked `.config.lock` is never followed: the update fails and
+    /// nothing is created outside the data directory.
+    #[cfg(unix)]
+    #[test]
+    fn update_refuses_a_symlinked_lock() {
+        let root = Dir::new();
+        let dir = root.with_config("data", b"POW=1\n");
+        let outside = root.0.join("outside");
+        std::os::unix::fs::symlink(&outside, dir.join(LOCK_FILE)).unwrap();
+        let refused = update_config(&dir, Setting::Pow, "2");
+        assert_eq!(refused, Err(WriteError::NotCreated));
+        assert!(!outside.exists());
+        assert_eq!(fs::read(config_path(&dir)).unwrap(), b"POW=1\n");
     }
 
     #[test]

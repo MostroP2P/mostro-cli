@@ -48,7 +48,8 @@ unit 4 (examples of both in [contracts/examples.json](contracts/examples.json)).
 - `ConfigData` (data of `config.set` and `config.show`): `path`, `mostro_pubkey`, `relays`, `pow`, `transport`, each a string or null,
   the values as stored in the file.
 - `configuration_unwritable` (exit 1, "The configuration file cannot be written, so nothing was changed."): `config.set` only, persistence
-  `not_attempted` (no data directory, or the directory, the lock or the temporary file cannot be created) or `failed` (a write or rename
-  failed). The old file is intact either way, but the directory may already be created or made 0700, with an empty `.config.lock`.
+  `not_attempted` (no data directory, a symlinked lock on Unix, or the directory, the lock or the temporary file cannot be created) or
+  `failed` (a write or rename failed). The old file is intact either way, but the directory may already be created or made 0700, with
+  an empty `.config.lock`.
 - Discovery keyword `x-positional: N` on input properties passed as positional arguments: Clap's 0-based position, hidden positionals
   counted (additive within v1).

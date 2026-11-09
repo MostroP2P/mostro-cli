@@ -20,11 +20,11 @@ positional (`x-positional` 0 and 1 in discovery); another key is an argument err
 value that starts with `-`. The value is trimmed and checked
 like the file's (a refusal is `invalid_arguments`, exit 2, never echoed). The existing file is read strictly; a refused or unreachable
 one is left untouched (`configuration_invalid` plus the hint). Otherwise the data directory is created one level deep or made owner-only
-(0700), and while an exclusive lock on `.config.lock` there (owner-only, never removed) is held, so that `config set` calls made at once
-all land, the file is read again and rewritten atomically as `NAME=value` lines in fixed order, keeping the other keys' values and
-dropping comments, `export`, quotes, a byte order mark and repeated lines: a stale `.config.<pid>.tmp` of this process id is removed, a
-temporary owner-only (0600) file is written, synced and renamed over `config` (a symlinked `config` becomes a regular file). Data:
-`ConfigData` after the write.
+(0700), and while an exclusive lock on `.config.lock` there (owner-only, never removed, a symlink refused on Unix) is held, so that
+`config set` calls made at once all land, the file is read again and rewritten atomically as `NAME=value` lines in fixed order, keeping
+the other keys' values and dropping comments, `export`, quotes, a byte order mark and repeated lines: a stale `.config.<pid>.tmp` of this
+process id is removed, a temporary owner-only (0600) file is written through its handle, synced and renamed over `config` (a symlinked
+`config` becomes a regular file), then the directory is synced (Unix, best effort). Data: `ConfigData` after the write.
 Stages: `not_applicable`, `not_applicable`, persistence `applied`. Errors: `invalid_arguments`, `configuration_invalid`,
 `configuration_unwritable` (a proposed new code, awaiting approval), `internal_error`.
 
