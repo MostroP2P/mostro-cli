@@ -53,12 +53,13 @@ fn get_env_var(cli: &Cli) {
     }
 }
 
-/// Shared footnote for missing `MOSTRO_PUBKEY` / `RELAYS` errors: what the
-/// config file of the data directory may hold (spec 018).
+/// Shared footnote for missing `MOSTRO_PUBKEY` / `RELAYS` errors: how to check
+/// the config file of the data directory and what it may hold (spec 018).
 const ENV_FILE_HINT: &str = "\
-The config file holds only MOSTRO_PUBKEY, RELAYS, POW and TRANSPORT, one\n\
-KEY=VALUE line each; keep ADMIN_NSEC and other secrets in the environment.\n\
-See https://github.com/MostroP2P/mostro-cli#suggested-setup";
+Check what the config file holds with: mostro-cli config show\n\
+It takes only MOSTRO_PUBKEY, RELAYS, POW and TRANSPORT (one KEY=VALUE line\n\
+each, chmod 600 if written by hand); keep ADMIN_NSEC and other secrets in the\n\
+environment. See https://github.com/MostroP2P/mostro-cli#suggested-setup";
 
 /// Resolve the Mostro instance pubkey from `--mostro-pubkey` / `-m`, then
 /// `MOSTRO_PUBKEY`, then the config file. Fails with setup guidance if none
@@ -73,7 +74,7 @@ fn resolve_mostro_pubkey(cli: &Cli) -> Result<String> {
                  Provide it using one of the following methods:\n\
                  1) --mostro-pubkey <npub> (or -m)\n\
                  2) export MOSTRO_PUBKEY=<npub>\n\
-                 3) a line MOSTRO_PUBKEY=<npub> in $MCLI_DIR/config (else ~/.mcli/config; chmod 600)\n\
+                 3) mostro-cli config set mostro-pubkey <npub>, which writes it to $MCLI_DIR/config (else ~/.mcli/config)\n\
                  \n\
                  {ENV_FILE_HINT}"
             )
@@ -93,7 +94,7 @@ fn resolve_relays() -> Result<String> {
              Provide it using one of the following methods:\n\
              1) --relays <relay[,relay...]> (or -r)\n\
              2) export RELAYS=<relay[,relay...]>\n\
-             3) a line RELAYS=<relay[,relay...]> in $MCLI_DIR/config (else ~/.mcli/config; chmod 600)\n\
+             3) mostro-cli config set relays <relay[,relay...]>, which writes it to $MCLI_DIR/config (else ~/.mcli/config)\n\
              \n\
              {ENV_FILE_HINT}"
         )),
@@ -239,14 +240,16 @@ mod tests {
         result
     }
 
-    /// The guidance shared by both missing-setting messages.
-    fn assert_names_the_config_file(err: &str, line: &str) {
+    /// The guidance shared by both missing-setting messages: `config set`
+    /// writes the file, `config show` checks it.
+    fn assert_names_the_config_commands(err: &str, line: &str) {
         assert!(err.contains(line), "{err}");
         assert!(
             err.contains("$MCLI_DIR/config (else ~/.mcli/config"),
             "{err}"
         );
         assert!(err.contains("chmod 600"), "{err}");
+        assert!(err.contains("mostro-cli config show"), "{err}");
         assert!(err.contains("ADMIN_NSEC"), "{err}");
         assert!(!err.contains("does not read any config file"), "{err}");
         assert!(
@@ -257,24 +260,26 @@ mod tests {
 
     #[test]
     #[serial]
-    fn missing_mostro_pubkey_message_names_the_config_file() {
+    fn missing_mostro_pubkey_message_names_config_set_and_show() {
         with_env_cleared("MOSTRO_PUBKEY", || {
             let cli = Cli::try_parse_from(["mostro-cli", "listdisputes"]).unwrap();
             let err = resolve_mostro_pubkey(&cli).unwrap_err().to_string();
             assert!(err.contains("--mostro-pubkey <npub> (or -m)"), "{err}");
             assert!(err.contains("export MOSTRO_PUBKEY=<npub>"), "{err}");
-            assert_names_the_config_file(&err, "3) a line MOSTRO_PUBKEY=<npub> in ");
+            let line = "3) mostro-cli config set mostro-pubkey <npub>, which writes it to ";
+            assert_names_the_config_commands(&err, line);
         });
     }
 
     #[test]
     #[serial]
-    fn missing_relays_message_names_the_config_file() {
+    fn missing_relays_message_names_config_set_and_show() {
         with_env_cleared("RELAYS", || {
             let err = resolve_relays().unwrap_err().to_string();
             assert!(err.contains("--relays <relay[,relay...]> (or -r)"), "{err}");
             assert!(err.contains("export RELAYS=<relay[,relay...]>"), "{err}");
-            assert_names_the_config_file(&err, "3) a line RELAYS=<relay[,relay...]> in ");
+            let line = "3) mostro-cli config set relays <relay[,relay...]>, which writes it to ";
+            assert_names_the_config_commands(&err, line);
         });
     }
 
