@@ -4725,3 +4725,35 @@ generated change is the human-only `order.chat` entry in `docs/schemas/discovery
   `cargo +1.94.0 check --locked --all-targets --all-features`. Every drift test passes, the discovery fixture after regeneration.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual beyond the two legacy runs above. The book update is
   a separate PR.
+
+## Order Chat (spec 019) Unit 4: JSON Output: 2026-11-09
+
+Branch `feat/order-chat-json` from `feat/order-chat-command` (14d8ca7), the last of four units of #245. `order chat` supports
+`--output json` (`order.chat`, `JsonSupport::Read`); JSON `--message` requires `--yes`. Generated: `docs/schemas/order-chat-v1.json`
+(new, 492 lines) and `docs/schemas/discovery-v1.json` (+525, -4: the full `order.chat` entry, the `--yes` help and `order.chat` in the
+`applies_to` of `--output`; `--reply-timeout` still lists eleven commands). `schema_version` stays `1`.
+
+- **Failing first**: `tests/order_chat_process.rs` `mod json` 0 passed, 3 failed (exit 2 `output_not_supported` where 0 and 1 were
+  expected, and no fixture to read); `only_the_migrated_commands_support_json` and
+  `schema_is_a_registered_machine_command_with_a_non_dotted_name` failed (`order.chat` unsupported); `cli::schema`
+  `order_chat_input_lists_order_message_since_and_yes` (null configuration) and `the_global_options_are_listed_with_what_they_apply_to`
+  (`order.chat` not under `--output`) failed, 16 passed; `chat_schema_fixture_matches_the_generated_schema`,
+  `chat_examples_conform_and_are_reproduced` and `invalid_chat_variants_do_not_conform` failed (no fixture), 43 passed;
+  `every_legacy_command_rejects_json_before_any_effect` failed on the count of machine commands (18, now 19). After the change and the
+  regeneration, `discovery_fixture_is_raw_discovery_data_not_an_envelope` failed (its list of machine commands lacked `order.chat`) and
+  was updated. The fixtures were regenerated right after the change, so the two drift tests were not observed failing in this unit.
+- **The change**: registry `Read` with the stage note; the dispatch arm without its human-only guard (`cli/migrated.rs` stays at 396);
+  `cli/order_chat.rs` refuses `--message` without `--yes` in JSON with `invalid_arguments` and read stages before anything else;
+  `cli/schema.rs` gives `order.chat` `MOSTRO_PUBKEY` and `RELAYS` and the output schema of `ChatData`; the contract examples are now
+  checked against the checked-in fixture.
+- **Tests**: `mod json` 3/3 run the binary in a sandbox against loopback relays and the scripted node's mail: `--message` without
+  `--yes` exits 2 with one `invalid_arguments` document (read stages, null data), no relay connection, the store byte-identical and the
+  text on no stream, and the same without any node or relay configured; a read (`ok`, counterparty learned from the lock mail) and a send
+  with `--yes` (`published`, `sent` apart from `messages`, one envelope more on the relay) both conform to the checked-in schema; an
+  order before the lock gives `counterparty_unknown` (exit 1, read stages) with `--message --yes` and nothing sent. Unit tests: the
+  `order.chat` input schema (`order` required; `message`, `since` strings; `yes` boolean; no stdin) and configuration, `order.chat` under
+  `--output` and not `--reply-timeout`. `source_boundaries` passes.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1049 passed, 0 failed, 0 ignored (1044 at the base; +1 unit, +1 integration and +3 process tests);
+  `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`. Every drift test passes after regeneration.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. The book update is a separate PR.

@@ -1,7 +1,7 @@
 # Data Model: Order Chat
 
-The lookup types (unit 1), the transport types and the `order.chat` data types (unit 2) exist in the code; no command emits them until
-unit 3.
+The lookup types (unit 1), the transport types and the `order.chat` data types (unit 2); `order chat` emits them (unit 3) and serializes
+them with `--output json` (unit 4).
 
 ## The lookup (unit 1, `commands::order::counterparty`)
 

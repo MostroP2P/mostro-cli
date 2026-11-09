@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-08
 
-**Status**: In progress, unit 3 of 4: `order chat` works in human mode; `--output json` is `output_not_supported` until unit 4. Progress
-is tracked only in [tasks.md](tasks.md)
+**Status**: Implemented (units 1 to 4): `order chat` in human mode and `--output json`. Verified on Linux against isolated stores,
+loopback relays and the scripted node's mail only; not probed on a real node. Progress is tracked only in [tasks.md](tasks.md)
 
 **Input**: Issue #245. An agent that ran a full trade with mostro-cli 0.17.0 had to find the counterparty's trade key itself and pass it to
 `getdmuser -p` and `dmtouser -p`, which print human text only. On the JSON flow nothing states that key: `message list` carries it inside

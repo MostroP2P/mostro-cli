@@ -32,7 +32,7 @@ settable via the matching env var):
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `order chat`, `bond add-invoice`, `message list`, `identity init` and `identity show` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -59,7 +59,7 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `order chat`, `bond add-invoice`, `message list`, `identity init` and `identity show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read for an answer; the only read of stdin is the invoice of `--invoice -` (spec 010), which requires `--yes`.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -200,13 +200,14 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
 - **`order chat`** (spec 019; replaces `getdmuser` and `dmtouser`)
   - **Description**: Reads the peer chat (kind 14) of an order you hold and, with `--message`, sends one message to its counterparty; you
     never pass the counterparty's key. Needs `MOSTRO_PUBKEY`, `RELAYS`, an existing identity (it never creates one) and the order's row.
-    Human output only for now: `--output json` is `output_not_supported` (exit 2) before anything runs.
+    Supports `--output json` (`order.chat`), where `--message` requires `--yes`.
   - **Args**:
     - `--order <UUID>`: an order in the local store; otherwise `order_unknown`, before any relay is contacted.
     - `--message <TEXT>`: one value, trimmed, 1 to 4096 bytes; a second `--message` is an argument error; write `--message=<TEXT>` for a
-      text that starts with `-`. It is sent without a prompt, as `dmtouser` does.
+      text that starts with `-`. Human mode sends it without a prompt, as `dmtouser` does.
     - `--since <minutes>`: 1 to 10080 (default 10080, the seven-day chat window).
-    - `--yes`: accepted; human mode never asks, so it changes nothing there.
+    - `--yes`: required with `--message` in JSON (otherwise `invalid_arguments`, exit 2, before configuration, store or relays);
+      human mode never asks; without `--message` it does nothing.
     - Any invalid value exits 2 before any relay is contacted, and the message text is never shown.
   - **Counterparty**: the order row's `counterparty_pubkey`, when it parses and is not your own trade key, is used as it is, with no relay
     contacted. The legacy `getdm` may have stored it (from the first node message naming both trade keys) and never refreshes it.
@@ -225,11 +226,18 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
     message text. A send that may have reached a relay adds "The message may have reached a relay. Run `order chat --order <id>` and look
     for your message before sending it again." and still prints the conversation and the message. `--verbose` adds one line,
     `verbose: order.chat <ok|code>`.
-  - **Stages** (for the JSON contract; an amendment for this command): publication is `not_applicable` until the send step runs, with or
+  - **Output** (JSON): `data.order_id`, `data.counterparty_pubkey`, `data.messages` (oldest first by time and id, at most 200, never
+    the message sent on this run), `data.truncated` (a relay or the cap may have left out older messages) and `data.sent` (the message
+    sent, non-null exactly when publication is `published` or `unknown`). Each record has `message_id` (the inner event id), `from` (`me`
+    or `counterparty`), `created_at`, `created_at_unix` and `text` (untrusted, at most 4096 bytes). `meta.snapshot` is always null.
+    Codes: `invalid_arguments`, the configuration, identity and store codes, `order_unknown`, `counterparty_unknown`, the relay read codes,
+    `request_rejected` and `internal_error`; warnings `invalid_event_timestamp` and `cleanup_incomplete`. Output schema
+    [docs/schemas/order-chat-v1.json](schemas/order-chat-v1.json); the input schema is in the discovery entry.
+  - **Stages** (an amendment for this command): publication is `not_applicable` until the send step runs, with or
     without `--message` (arguments, configuration, identity, store, `order_unknown`, `counterparty_unknown`, a failed lookup or read). The
     send step reports `published`; `not_attempted` when the wrap fails (`internal_error`), the relays cannot be connected (the connect
     code) or every relay refused (`request_rejected`); `unknown` (`uncertain`, `request_rejected`) when no relay confirmed and one failed
-    without a clear answer. Node acceptance and persistence are always `not_applicable`: the counterparty cache is not reported. Proposed
+    without a clear answer. Node acceptance and persistence are always `not_applicable`: the counterparty cache is not reported. Example
     outcomes: [contracts/examples.json](../specs/019-order-chat/contracts/examples.json).
   - **Handler**: `order_chat` in `src/commands/order/chat.rs`; dispatch in `src/cli/order_chat.rs`; contract in
     [specs/019-order-chat](../specs/019-order-chat/contracts/cli.md).
@@ -388,7 +396,7 @@ mode) without running anything.
 | `rate -o <UUID> -r <N>`, `rate --orderid <UUID> --rating <N>` (documented as `--order-id`) | `order rate --order <UUID> --rating <N> [--yes]` | JSON `order.rate`, requires `--yes`; `N` outside 1-5 is refused before anything is sent; a second rating gets no answer (`uncertain`) |
 
 Added in the same range, for the notes: `identity init`, `identity show`, `order mine`, `order new --expires-in`, `--invoice -` on the four
-invoice commands, `order chat` (human output). The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
+invoice commands, `order chat` (`order.chat`). The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
 
 ---
 

@@ -25,5 +25,7 @@ relays, isolated stores and the scripted node only; no public node.
   production lines at the unit's start, so the guarded path was taken: `if output == OutputMode::Human` on an arm added to the existing
   match of the commands on an order already held, and `order_chat` in an existing import list; 396 lines after it. `request_options` did
   not move. The book update is its own PR.
-- [ ] **4. JSON.** Registry `Read`, the `--yes` rule, schema arms, `docs/schemas/order-chat-v1.json`, regenerated discovery, JSON tests,
-  command reference, book; spec status implemented.
+- [x] **4. JSON.** Failing tests first (the registry mapping and machine list, the `order.chat` input schema and configuration, the global
+  options, the missing fixture, the legacy JSON count, `tests/order_chat_process.rs` `mod json`), then registry `Read`, the unguarded arm,
+  the `--yes` rule, the schema arms, `docs/schemas/order-chat-v1.json` (492 lines) and the regenerated discovery (+525, -4), command
+  reference, README, architecture, AGENTS.md; spec status implemented. The book update is its own PR.

@@ -1,7 +1,7 @@
 # Implementation Plan: Order Chat Without Looking Up The Counterparty
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 3 implemented (the lookup, the chat transport, outcome types and renderer, the command in human mode); unit 4
-planned.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-08 | **Status**: Units 1 to 4 implemented (the lookup, the chat transport, outcome types and renderer, the command in human mode, its JSON
+output).
 
 ## Stack
 

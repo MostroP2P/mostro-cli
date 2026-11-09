@@ -464,4 +464,6 @@ bidirectional controls escaped, a send without a question and `--yes` alone send
 included) exiting 2 before any relay and `--message=-x` accepted, an uncertain send printing the advice line and still the conversation, a
 closed stdout giving one fixed line, no secret on any stream and one `--verbose` line); `chat_examples_conform_and_are_reproduced` and
 `invalid_chat_variants_do_not_conform` (`tests/integration_tests.rs`); `order.chat` in the registry mapping and in
-`every_legacy_command_rejects_json_before_any_effect`.
+`every_legacy_command_rejects_json_before_any_effect`. Unit 4 (2026-11-09): `mod json` (3: JSON `--message` without `--yes` refused with
+no relay, store or configuration touched, a read and a send conforming to `docs/schemas/order-chat-v1.json`, `counterparty_unknown` with
+`--message --yes`), `chat_schema_fixture_matches_the_generated_schema`, and `order.chat` among the machine commands (31 tests in the file).
