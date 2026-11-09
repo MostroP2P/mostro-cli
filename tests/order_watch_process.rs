@@ -4,9 +4,9 @@
 //! The node's mail and the chat sit on in-process loopback relays, signed by
 //! generated keys. Nothing else is contacted.
 
-use std::future::Future;
+use std::future::{pending, Future};
 use std::net::SocketAddr;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -692,7 +692,12 @@ mod operation {
                 true
             };
             let watched = self
-                .watch(ORDER, None, timeout, Follow::UntilEnd(&mut sink))
+                .watch(
+                    ORDER,
+                    None,
+                    timeout,
+                    Follow::UntilEnd(&mut sink, pin!(pending())),
+                )
                 .await;
             (updates, watched)
         }
@@ -979,7 +984,12 @@ mod operation {
             false
         };
         let watched = desk
-            .watch(ORDER, None, 60, Follow::UntilEnd(&mut sink))
+            .watch(
+                ORDER,
+                None,
+                60,
+                Follow::UntilEnd(&mut sink, pin!(pending())),
+            )
             .await;
         assert_eq!(refused, 1);
         assert!(started.elapsed() < Duration::from_secs(10));

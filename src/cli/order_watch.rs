@@ -3,12 +3,15 @@
 //! identity and the store in order of cost, before any relay is contacted; the
 //! work and transport settings and `--reply-timeout` are not read, since
 //! nothing is sent to the node. Each update is rendered whole, written and
-//! flushed as it comes; a stdout that cannot be written stops the watch. The
+//! flushed as it comes; a stdout that cannot be written stops the watch, and on
+//! Unix so does a reader that closes it while the watch is idle. The
 //! last line says why it stopped: the action that ended the trade, or the
 //! `--timeout` deadline. Both exit 0. JSON is not offered yet: the dispatch
 //! leaves it to the `output_not_supported` rejection.
 
+use std::cell::Cell;
 use std::io::{self, Write};
+use std::pin::pin;
 
 use chrono::Utc;
 
@@ -24,6 +27,10 @@ use crate::parse_human::watch::Shown;
 use crate::parse_human::{render_watch_end, render_watch_update};
 
 const UNWRITABLE: &str = "error: the watch could not be written";
+
+/// How often an idle watch checks whether stdout's reader is gone.
+#[cfg(unix)]
+const GONE_POLL: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// Run a human `order watch` and return its exit status.
 pub(super) async fn run(cli: &Cli, args: &WatchArgs) -> i32 {
@@ -50,7 +57,7 @@ pub(super) async fn run(cli: &Cli, args: &WatchArgs) -> i32 {
 }
 
 /// The watch, each update written to `out` as it comes, and whether every
-/// update could be written.
+/// update could be written and stdout's reader stayed.
 async fn watch(cli: &Cli, args: &WatchArgs, out: &mut impl Write) -> (Watched, bool) {
     let (order, after) = (args.order, args.after.as_deref());
     let Ok(input) = WatchInput::validate(order, args.since, after, args.timeout, false) else {
@@ -80,9 +87,41 @@ async fn watch(cli: &Cli, args: &WatchArgs, out: &mut impl Write) -> (Watched, b
     };
     let (config, store) = (&reader.config, &reader.store);
     let limits = WatchLimits::default();
-    let follow = Follow::UntilEnd(&mut sink);
+    let gone = Cell::new(false);
+    let reader_gone = pin!(async {
+        stdout_gone().await;
+        gone.set(true);
+    });
+    let follow = Follow::UntilEnd(&mut sink, reader_gone);
     let watched = order_watch(&input, config, store, &limits, now, follow).await;
-    (watched, written)
+    (watched, written && !gone.get())
+}
+
+/// Resolves once stdout's reader is gone. On Unix, polling stdout then
+/// reports an error or a hang-up: the write end of a pipe whose reader closed
+/// reports `POLLERR`. Elsewhere it never resolves, and a closed stdout stops
+/// the watch at its next write.
+async fn stdout_gone() {
+    #[cfg(unix)]
+    {
+        let mut tick = tokio::time::interval(GONE_POLL);
+        loop {
+            tick.tick().await;
+            let mut stdout = libc::pollfd {
+                fd: libc::STDOUT_FILENO,
+                events: 0,
+                revents: 0,
+            };
+            // SAFETY: `stdout` is one valid `pollfd` for the whole call, and a
+            // zero timeout never blocks.
+            let ready = unsafe { libc::poll(&mut stdout, 1, 0) };
+            if ready > 0 && stdout.revents & (libc::POLLERR | libc::POLLHUP) != 0 {
+                return;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    std::future::pending::<()>().await;
 }
 
 /// Write `text` whole and flush it; `false` when stdout refused it.

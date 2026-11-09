@@ -24,6 +24,10 @@ chat follow (`follow_chat`) and its tests move to unit 3; unit 4 above 1450, the
 the example and its test move to unit 7. A unit that still projects above 1450 after its fallback is split again before its documents
 are written.
 
+**Dependency (Principle III).** Unit 5 adds `libc` as a direct Unix-only dependency, at the version already in `Cargo.lock` through
+tokio: `poll(2)` on stdout is the only way to see a closed pipe while an idle watch writes nothing, and the standard library does not
+offer it.
+
 **Configuration.** `MOSTRO_PUBKEY` and `RELAYS` come from the root options or the environment through `cli/write.rs::resolve_reader`, as
 for `order chat`. The config file of #244 (spec 018) is developed in a parallel stack and is not below this one; once it lands, the
 watch reads it through the same `resolve_reader` and this plan does not restate its rules.
