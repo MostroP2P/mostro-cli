@@ -329,6 +329,17 @@ violation.
   `cli/write.rs::finish`; human mode sends without a prompt. `order_chat` takes the order's trade key (`Store::order_keys`, else
   `order_unknown`), the counterparty (`find_counterparty`) and the conversation (`read_chat`), and only then sends the message
   (`send_chat`), so a failed read publishes nothing; the message sent is `data.sent`, never one of `data.messages`.
+- **`src/outcome/watch.rs`**, **`src/outcome/watch/cursor.rs`**: the contract of `order watch` (spec 020, #246), pure types that no
+  command reaches yet. `WatchInput` validates the window (1 to 10080 minutes, default 30), the cursor given with `--after` and the
+  deadline (1 to 86400 seconds; without `--timeout`, 30 in JSON and none in human mode). `Cursor` is the opaque `<since>[:<id>,...]` that
+  a JSON call returns and takes back: `advance` sets the time to the newest observed record time, clamped to local now, minus 60 s,
+  holds it at a chat message's newest envelope while another envelope of it could still be dated at or after it (`Observed::chat` takes
+  the inner time for that), keeps the ids observed at or after it (at most 200, raising the time when more qualify, but never past local
+  now minus 60 s, else keeping node messages, then the newest chat) and never moves back. `ends_trade` says which node actions end the trade,
+  `admin-settled` only for the seller. `WatchData` carries the order, the counterparty key or null, the new
+  `MessageRecord`s and `ChatRecord`s, `ended`, `truncated` and the next cursor; `watch_rules` are read rules with the pilot's warnings
+  only. `TradeRole` (`outcome/messages.rs`) is the user's side from the order row's kind and whether the user made it (`of_order`); #243
+  reuses it.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).

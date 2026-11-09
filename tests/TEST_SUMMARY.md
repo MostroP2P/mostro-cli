@@ -4972,3 +4972,61 @@ Branch `feat/order-chat-json` from `feat/order-chat-command` (14d8ca7), the last
 - **Merged with `main`** (2026-11-09, after spec 018 and units 1 to 3): `cargo fmt --all -- --check` clean, `cargo clippy --locked --all-targets
   --all-features -- -D warnings` clean, every drift test passes. `cargo test --locked` 1111 passed, 0 failed, 0 ignored (1106 on `main`, +5);
   `tests/README.md` recounted.
+
+## Order Watch (spec 020) Unit 1: The Contract: 2026-11-09
+
+Branch `feat/order-watch-contract` from `feat/order-chat-json` (aab6e14), the first of seven units of #246. Pure contract types, the spec
+folder and constitution amendment 1.0.1; nothing is user-visible and no generated fixture changes.
+
+- **Failing first**: the new unit tests were written before the types. `cargo test --locked --lib outcome::` did not compile: 42 errors
+  (`Cursor`, `TradeRole`, `ends_trade`, `WatchData`, `WatchInput`, `InvalidWatch`, `COMMAND`, `JSON_TIMEOUT_SECS` and `watch_rules` not
+  found).
+- **The change**: `src/outcome/watch.rs` (`COMMAND`, the 12 `ERRORS`, `JSON_TIMEOUT_SECS`, `MAX_TIMEOUT_SECS`, `InvalidWatch`,
+  `WatchInput::validate`, `ends_trade`, `WatchData`, `watch_rules`) and `src/outcome/watch/cursor.rs` (`Cursor`: `start`, `parse`,
+  `advance`, `Display`; `Observed`). The cursor got its own file after the first version of `outcome/watch.rs` measured 417 production
+  lines; now 267 and 227. `TradeRole::of_order` in `src/outcome/messages.rs` (318 production lines).
+- **Tests** (9 unit tests): the bounds and defaults (`--since` 1 and 10080 accepted, 0, -1, 10081 and the i64 extremes refused;
+  `--timeout` 1 and 86400 accepted, 0, -1, 86401 and the extremes refused; 30 s in JSON and no deadline in human mode; `--since` with
+  `--after` refused; a refused cursor never echoed); cursor round trips (no ids, three ids written sorted, 200 ids) and 22 malformed
+  cursors refused (empty, signed, leading zeros, non-decimal, overflowing, a colon with no ids, uppercase, short, long or duplicate ids,
+  stray separators, 201 ids); the next cursor (the newest time minus 60 s, ids at or after it, nothing observed keeps it, never moves back,
+  a record 60 s in the future clamped to now, a record seen twice counted once at its newest time); the cap (250 records in one second
+  more than a minute old move the time past that second with no ids, 250 in a second 5 s old keep the newest 200 at now minus 60 s; 200
+  over an older minute fit, 201 leave out its oldest second; 201 over the last minute keep the newest 200 without raising the time);
+  records stamped ahead (201 at now + 60, 150 at now + 60 with 51 at now + 30, 201 at the last 64-bit second) give a time of now minus
+  60 s and the newest 200 ids, and an old time already later than that is kept; a chat message held (five JSON calls simulated over
+  relays that return every envelope at or after the cursor's time, with a second envelope of a line, dated 60 s after it was written,
+  arriving after the third call: each record returned once, the line released once no envelope of it can reach the time; a line held
+  again at the line before it; a line written 60 s before its envelope not held; 250 records in an old second with two lines that
+  would hold the time: the cap still passes the second, with no ids); the ending actions (five for any side, `admin-settled` only for
+  the seller, six that never end); the four `TradeRole` pairs; and `WatchData` outcomes checked against
+  `output_schema(&watch_rules())` (ok with records, ok empty, ok with the pilot warnings and three errors conform; a snapshot, an applied
+  persistence, a malformed cursor or counterparty key, `counterparty_unknown`, `node_refused`, `uncertain` and `trade_keys_limited` do
+  not).
+- **Review fix (the cursor bound)**: a review found that the raise above 200 ids ignored the clamp to now: 201 records stamped 60 s
+  ahead (a counterparty can date chat envelopes so, and mostro-core accepts them) gave a time of now + 61 with no ids, so the next call
+  would have subscribed past the node's next messages. The two cap tests above were written first and failed on the previous `advance`
+  (a time of now + 61 with 0 ids for the flood, now - 4 with 0 ids for 250 records 5 s old), then passed once the raise was bounded by
+  now minus 60 s and the newest 200 ids kept. The branch was also rebased onto `feat/order-chat-json`'s new tip (aab6e14, documentation
+  only).
+- **Review fix (late chat envelopes)**: a review found that a chat message delivered again in a second envelope came back in a later
+  JSON call. mostro-core accepts an envelope dated up to 60 s from the inner time, so two envelopes of one line can be 120 s apart,
+  while `advance` dropped the id once the newest envelope seen fell before the new time. The simulated-calls test above was written
+  first and failed on the previous `advance` (the fourth call returned the line again). The review's suggestion, keeping the id while
+  the inner time plus 60 s is at or after the new time, was tried and failed the same test: the next call no longer observes the first
+  envelope, dated before the time, so the id is dropped one call later. `advance` now takes `Observed` records (`mail(id, time)`,
+  `chat(id, outer, inner)`) and holds the time at the newest envelope of a chat message whose later envelope could still reach it, so
+  the next call observes and skips the message again. The hold comes before the cap: tried after the raise, it failed the crowded case
+  above (a time 570 s back with 200 of the 250 ids listed, so the other 50 records would be returned again). D7, the data model and
+  `docs/architecture.md` say so, with the new documented limit (a chat message inside a raised range).
+- **Review fix (the cap order)**: a review found that when the cap binds, 250 chat envelopes dated 60 s ahead pushed node message ids
+  out of the cursor, so the next call returned those messages again. The case was added to the records-stamped-ahead test first and
+  failed; `advance` now lists node messages first, then the newest chat messages (`Observed` records which it is).
+- **Measured**: `output_schema::<WatchData, ()>(&watch_rules())` pretty-printed is 842 lines, with a throwaway test removed afterwards
+  (the same method gives 492 for `order.chat` and 851 for `message.list`, their fixtures' sizes); the projections are in the spec's
+  `tasks.md`.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean (after one
+  `useless_vec` fix in a test, and one `unnecessary_sort_by` fix in the cursor); `cargo test --locked` 1058 passed, 0 failed, 0 ignored
+  (1049 at the base; +9 unit tests); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
+  `source_boundaries` (sizes, imports) passes.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.
