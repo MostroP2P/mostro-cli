@@ -48,6 +48,32 @@
         "status": "ok",
         "warnings": []
       }
+    },
+    {
+      "exit_code": 0,
+      "name": "timeout_empty",
+      "stdout": {
+        "command": "order.watch",
+        "data": {
+          "chat": [],
+          "counterparty_pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "cursor": "1792108800:0707070707070707070707070707070707070707070707070707070707070707,2222222222222222222222222222222222222222222222222222222222222222",
+          "ended": false,
+          "messages": [],
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "truncated": false
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
     }
   ],
   "contract_status": "proposed"

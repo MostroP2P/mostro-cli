@@ -1320,21 +1320,13 @@ mod json {
 
     const JSON: [&str; 2] = ["--output", "json"];
 
-    /// The `order.watch` output schema checked in inside discovery.
+    /// The checked-in `order.watch` output schema.
     fn schema() -> Value {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/docs/schemas/discovery-v1.json"
+            "/docs/schemas/order-watch-v1.json"
         );
-        let discovery: Value =
-            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        discovery["commands"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|command| command["name"] == "order.watch")
-            .map(|command| command["output_schema"].clone())
-            .unwrap()
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
     /// The one document of a run, checked against the schema.
