@@ -331,7 +331,7 @@ violation.
   a JSON call returns and takes back: `advance` sets the time to the newest observed record time, clamped to local now, minus 60 s,
   holds it at a chat message's newest envelope while another envelope of it could still be dated at or after it (`Observed::chat` takes
   the inner time for that), keeps the ids observed at or after it (at most 200, raising the time when more qualify, but never past local
-  now minus 60 s, else keeping the newest 200) and never moves back. `ends_trade` says which node actions end the trade,
+  now minus 60 s, else keeping node messages, then the newest chat) and never moves back. `ends_trade` says which node actions end the trade,
   `admin-settled` only for the seller. `WatchData` carries the order, the counterparty key or null, the new
   `MessageRecord`s and `ChatRecord`s, `ended`, `truncated` and the next cursor; `watch_rules` are read rules with the pilot's warnings
   only. `TradeRole` (`outcome/messages.rs`) is the user's side from the order row's kind and whether the user made it (`of_order`); #243
@@ -362,7 +362,8 @@ violation.
   `Watch`. A node message that names the counterparty while watching (`counterparty_in`) brings the chat in through `follow_chat`, its
   replay in the same update; that key is not saved. `Follow::FirstChange` returns the first new records or an empty update at the
   deadline (one JSON document); `Follow::UntilEnd` hands each update to a sink, the first at once even when empty, until a message about
-  the order ends the trade for the user's side (`ends_trade`), the deadline passes or the sink cannot write. The outcome is `ok` with
+  the order ends the trade for the user's side (`ends_trade`), the deadline passes, the sink cannot write or its `Gone` future resolves
+  (checked only while waiting, after the first update). The outcome is `ok` with
   the last update and a cursor advanced over everything observed; `Watched::ended_by` names the ending action for the human end line.
   `parse_human/watch.rs` renders the header (order, window start, counterparty or its absence), the node's messages with `message
   list`'s block and the chat with `order chat`'s block (escaped by `escape_untrusted`), the learned counterparty and `truncated`, and
@@ -371,9 +372,11 @@ violation.
   (constitution 1.0.1). It validates `WatchArgs`, resolves the reader (`write::resolve_reader(cli, false)`: no work or transport
   setting), then runs `order_watch` with `Follow::UntilEnd` and a sink that renders each update whole (`Shown::First` with the window
   start, then `Shown::Later`, flagged when the counterparty first appears), writes and flushes it; a failed write stops the watch with
-  one fixed line (exit 1). It then prints the end or deadline line (exit 0), or the error line. JSON runs `order_watch` with
-  `Follow::FirstChange` (the 30 s default deadline from `WatchInput::validate`) and writes its one outcome with `parse_machine::emit`.
-  The registry marks `order.watch` `JsonSupport::Read`; its output schema is generated from `WatchData` and `watch_rules`.
+  one fixed line (exit 1), and so does, on Unix, its `Gone` future: `poll(2)` on stdout every 250 ms reporting `POLLERR` or `POLLHUP`
+  (a pipe whose reader closed, a hung-up terminal). It then prints the end or deadline line (exit 0), or the error line. JSON runs
+  `order_watch` with `Follow::FirstChange` (the 30 s default deadline from `WatchInput::validate`) and writes its one outcome with
+  `parse_machine::emit`. The registry marks `order.watch` `JsonSupport::Read`; its output schema is generated from `WatchData` and
+  `watch_rules`.
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).
