@@ -9,7 +9,15 @@ No grammar change. Applies to `message list` (`message.list`) and to the records
 - `next_step` and the payload `kind` are open enums within `schema_version` `"1"`: see the versioning rule in `docs/commands.md`.
 - A `next_step` is what its message asked when the node sent it. Check `order info` before acting, and act on each `event_id` once.
 
-Proposed outcome: [examples.json](examples.json) (`payment_failed_while_the_node_retries`), checked against
+## Behaviour (unit 2)
+
+- `hold-invoice-payment-accepted` gives `fiat_sent` (act only while `order info` says `active`); `rate` gives `rate` (act once the order
+  is `success`, or `settled-hold-invoice` for a seller). `fiat-sent-ok`, `purchase-completed` and `hold-invoice-payment-settled` stay
+  `null` (`release` on the seller's `fiat-sent-ok` is unit 3).
+- `order watch` ends at `rate` as well; an update that holds `purchase-completed` or `hold-invoice-payment-settled` without a `rate`
+  waits for it up to 10 s, never past `--timeout`, then reports `ended` either way. The end line still names the end action.
+
+Proposed outcomes: [examples.json](examples.json) (`payment_failed_while_the_node_retries`, `messages_of_the_trade_steps`), checked against
 `docs/schemas/message-list-v1.json` and the generated schema, and reproduced by the owned constructors.
 
 ## Human output (unit 1)
@@ -20,6 +28,8 @@ Next lines, with `ID` the record's order id (`<id>` when the record names none):
 - `add_invoice`: "send an invoice for the sats: `order add-invoice --order ID --invoice <invoice>`"
 - `pay_hold_invoice`: "pay the hold invoice above with any Lightning wallet"
 - `add_bond_invoice`: "send an invoice for your share: `bond add-invoice --order ID --invoice <bolt11>`"
+- `fiat_sent` (unit 2): "send the fiat, then: `order fiat-sent --order ID`"
+- `rate` (unit 2): "rate your counterparty: `order rate --order ID --rating <1-5>`"
 
 The `payment_failed` payload line:
 

@@ -6,9 +6,10 @@
 
 **Created**: 2026-11-09
 
-**Status**: Partly implemented. Unit 1 (FR-004, FR-005 for the existing steps and the retry line, FR-006, FR-009) is implemented and
-verified on Linux against the scripted node only (see `tests/TEST_SUMMARY.md`). FR-001, FR-002, FR-003, FR-007 and FR-008 are proposed
-(units 2 and 3). Progress is tracked only in [tasks.md](tasks.md).
+**Status**: Partly implemented. Unit 1 (FR-004, FR-005 for the existing steps and the retry line, FR-006, FR-009) and unit 2 (FR-001,
+FR-003, FR-005 for their lines, FR-008 for `fiat_sent`, `rate` and the `order watch` end) are implemented and verified on Linux against
+the scripted node and loopback relays only (see `tests/TEST_SUMMARY.md`). FR-002, FR-007 and the `release` part of FR-008 are proposed
+(unit 3). Progress is tracked only in [tasks.md](tasks.md).
 
 **Input**: issue #243. A `message list` record names a `next_step` for four actions only, so an agent following a trade must know the
 rest of the protocol to send the fiat, release or rate. A failed payout arrived as `{"kind":"other","variant":"payment_failed"}`, without
@@ -45,8 +46,10 @@ unsynced, so the interval is approximate.
   payload of an unknown `kind` as opaque (it reads only `kind`); the `variant` of `other` is not a stable identifier. The generated
   schemas stay closed and describe the executable that generated them. Written in the versioning rule of `docs/commands.md`.
 - **FR-007** (unit 3): reading the order rows fails as `store_unreadable` before any relay is read.
-- **FR-008** (units 2 and 3): every command that reports message records applies these rules: `message list` and `order watch`
-  (which then ends after the `rate` that follows the end of the trade).
+- **FR-008** (units 2 and 3): every command that reports message records applies these rules: `message list` and `order watch`.
+  `order watch` ends after the `rate` that follows `purchase-completed` or `hold-invoice-payment-settled`: the update that holds the
+  end waits for that `rate` up to a grace window of 10 s, never past the deadline, and the trade ends even when no `rate` comes. A
+  `rate` alone (a call whose cursor already covers the end) ends it too.
 - **FR-009**: the docs state that a `next_step` is what its message asked when the node sent it: check the order's status with
   `order info` before acting, and act on each `event_id` once.
 

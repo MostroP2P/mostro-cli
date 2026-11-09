@@ -330,7 +330,7 @@ This is the seller flow when you create the order (maker, sell).
    mostro-cli order release --order <order-id>
    ```
 
-7. **Rate your counterpart:**
+7. **Rate your counterpart.** After `hold-invoice-payment-settled`, a `rate` message has the "👉 Next:" line with the `order rate` command:
 
    ```bash
    mostro-cli order rate --order <order-id> --rating 5
@@ -367,7 +367,7 @@ Buyer-as-taker flow against an existing sell order:
 
 4. **Pay the seller in fiat** using the agreed payment method.
 
-5. **Tell Mostro fiat is sent:**
+5. **Tell Mostro fiat is sent.** The `hold-invoice-payment-accepted` message in `message list` has the "👉 Next:" line `` send the fiat, then: `order fiat-sent --order <order-id>` ``:
 
    ```bash
    mostro-cli order fiat-sent --order <order-id>
@@ -375,7 +375,7 @@ Buyer-as-taker flow against an existing sell order:
 
 6. **Wait for the seller to release.** Check `message list`. When they release, Mostro pays your invoice. If that payment fails, `message list` shows "🔁 Payment failed: the node will retry the payment up to N more times, every M seconds"; Mostro retries on its own and asks for a new invoice only if every attempt fails. If it says the node will not retry, send a new invoice with the `order add-invoice` command its "👉 Next:" line names.
 
-7. **Rate the seller:**
+7. **Rate the seller.** After `purchase-completed`, a `rate` message has the "👉 Next:" line with the `order rate` command:
 
    ```bash
    mostro-cli order rate --order <order-id> --rating 5

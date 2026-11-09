@@ -10,9 +10,9 @@ Extends [spec 006](../006-message-list-json/data-model.md). Envelope, stages and
 | `add_invoice` | `add-invoice`; `payment-failed` with `payment_attempts` `"0"` | spec 006; the payment-failed case unit 1 |
 | `pay_hold_invoice` | `pay-invoice` | spec 006 |
 | `add_bond_invoice` | `add-bond-invoice` | spec 015 |
-| `fiat_sent` | `hold-invoice-payment-accepted` | unit 2 (proposed) |
+| `fiat_sent` | `hold-invoice-payment-accepted` (buyer only) | unit 2 |
 | `release` | the seller's `fiat-sent-ok` (stored seller row, same key, no request id) | unit 3 (proposed) |
-| `rate` | `rate` | unit 2 (proposed) |
+| `rate` | `rate` (both sides, after the end of a completed trade) | unit 2 |
 
 Every other message is `null`. The enum is open within v1: a consumer reads an unknown value as `null`.
 
