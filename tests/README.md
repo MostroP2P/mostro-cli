@@ -5,8 +5,8 @@ This directory contains comprehensive unit and integration tests for the Mostro 
 ## Test Files
 
 Counts are the tests each target lists (`cargo test --locked --test <name> -- --list`,
-every `rstest` case counted) on Linux on 2026-11-09, at spec 018 unit 5 and spec 019 unit 3: 787 in
-the 24 targets below, plus the library's 313 unit tests and 6 doctests, 1106 in
+every `rstest` case counted) on Linux on 2026-11-09, at spec 018 unit 5 and spec 019 unit 4: 791 in
+the 24 targets below, plus the library's 314 unit tests and 6 doctests, 1111 in
 all. The order-list pilot ended with 428 tests, none ignored. Historical per-file
 narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 
