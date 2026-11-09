@@ -99,6 +99,7 @@ impl Commands {
             Commands::Dispute { .. } => {
                 unreachable!("dispute commands run without a Context")
             }
+            Commands::Config { .. } => unreachable!("config commands run without a Context"),
 
             // DM retrieval commands
             Commands::GetDmUser {

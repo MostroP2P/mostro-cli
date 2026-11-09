@@ -788,6 +788,756 @@
       "required_configuration": null
     },
     {
+      "name": "config.set",
+      "cli_path": [
+        "config",
+        "set"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "The setting: mostro-pubkey (MOSTRO_PUBKEY), relays (RELAYS), pow (POW) or transport (TRANSPORT)",
+            "enum": [
+              "mostro-pubkey",
+              "relays",
+              "pow",
+              "transport"
+            ],
+            "type": "string",
+            "x-positional": 0
+          },
+          "value": {
+            "description": "The value, trimmed and checked as the commands check it: a public key (hex or npub), comma-separated ws:// or wss:// relay URLs, a number from 0 to 255, or nip44; put `--` before a value that starts with `-`",
+            "type": "string",
+            "x-positional": 1
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "ConfigData": {
+            "description": "The config file and the settings stored in it.",
+            "properties": {
+              "mostro_pubkey": {
+                "description": "`MOSTRO_PUBKEY` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "path": {
+                "description": "The config file's path; null when no data directory can be determined\nor its path is not UTF-8.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pow": {
+                "description": "`POW` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relays": {
+                "description": "`RELAYS` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "transport": {
+                "description": "`TRANSPORT` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "mostro_pubkey",
+              "relays",
+              "pow",
+              "transport"
+            ],
+            "type": "object"
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "configuration_unwritable"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "config.set"
+              },
+              "data": {
+                "$ref": "#/$defs/ConfigData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "applied"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "config.set"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "internal_error",
+                      "configuration_invalid",
+                      "configuration_unwritable"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "not_attempted"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "not_applicable"
+                      },
+                      "persistence": {
+                        "const": "failed"
+                      },
+                      "publication": {
+                        "const": "not_applicable"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "config.set outcome",
+        "type": "object"
+      },
+      "required_configuration": []
+    },
+    {
+      "name": "config.show",
+      "cli_path": [
+        "config",
+        "show"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "ConfigData": {
+            "description": "The config file and the settings stored in it.",
+            "properties": {
+              "mostro_pubkey": {
+                "description": "`MOSTRO_PUBKEY` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "path": {
+                "description": "The config file's path; null when no data directory can be determined\nor its path is not UTF-8.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pow": {
+                "description": "`POW` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relays": {
+                "description": "`RELAYS` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "transport": {
+                "description": "`TRANSPORT` as stored in the file; null when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "mostro_pubkey",
+              "relays",
+              "pow",
+              "transport"
+            ],
+            "type": "object"
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "config.show"
+              },
+              "data": {
+                "$ref": "#/$defs/ConfigData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "config.show"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "internal_error",
+                      "configuration_invalid"
+                    ]
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "not_applicable"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "not_applicable"
+                  },
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "config.show outcome",
+        "type": "object"
+      },
+      "required_configuration": []
+    },
+    {
       "name": "dispute.chat",
       "cli_path": [
         "disputechat"
@@ -13060,7 +13810,7 @@
                 ]
               },
               "required_configuration": {
-                "description": "Environment variable names read; `null` when not modeled.",
+                "description": "Names of the required settings, each from its root option, its\nenvironment variable or the config-file key of that name; `null` when\nnot modeled.",
                 "items": {
                   "type": "string"
                 },
@@ -13409,6 +14159,8 @@
     {
       "applies_to": [
         "bond.add-invoice",
+        "config.set",
+        "config.show",
         "dispute.open",
         "identity.init",
         "identity.show",

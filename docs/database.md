@@ -24,6 +24,8 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
   - `store::create_store(dir)` (`identity init`): the same steps without printing, after refusing an existing `mcli.db` or a leftover
     `mcli.db-journal`, `-wal` or `-shm`, creating the directory owner-only (0700) like `get_mcli_path`, and removing a half-created file
     again on failure.
+  - `config set` (spec 018) may create the data directory before any store exists (owner-only, 0700, on Unix; on Windows it keeps the
+    inherited ACLs); it writes only `config` and `.config.lock` and never touches `mcli.db`.
 
 ### Tables
 
@@ -136,6 +138,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
 
 - **Usage**:
   - `cli::init_context()`:
+    - Reads the config file first; a refused one stops it before `connect()` creates `mcli.db`.
     - Uses `User::get_identity_keys` and `User::get_next_trade_keys` to create identity and trade key pairs.
   - `util::save_order()`:
     - After saving an order, it raises `last_trade_index` to the order's index through `util::raise_trade_index` when that is higher, and never lowers it, so the next order cannot reuse a key the node has seen. The legacy `getlasttradeindex` handler uses the same raise-only path.

@@ -1908,8 +1908,8 @@ async fn every_legacy_command_rejects_json_before_any_effect() {
         .collect();
     assert_eq!(
         legacy.len(),
-        REGISTRY.len() - 20,
-        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine, order rate, dispute open, order chat and order watch are machine-capable"
+        REGISTRY.len() - 22,
+        "only order.list, schema, message.list, order.info, order.new, the two takes, the two invoices, the three trade steps, order sync, the two identity commands, order mine, order rate, dispute open, the two config commands, order chat and order watch are machine-capable"
     );
     for entry in legacy {
         let mut args = vec!["--output".to_string(), "json".to_string()];
