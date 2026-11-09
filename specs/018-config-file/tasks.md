@@ -10,6 +10,11 @@ only. One `tests/TEST_SUMMARY.md` entry per unit.
   the order new case was added afterwards and fails with the read disabled), the unit tests of `settings`, `settings::file` and
   `cli::write` (did not compile), the two `cli::context` hint tests and the discovery drift test. Then `settings.rs`, `settings/file.rs`,
   `node_lookup`, the regenerated discovery fixture, docs.
-- [ ] **2. Legacy path and typed core** (`feat/config-file-legacy`).
+- [x] **2. Legacy path and typed core** (`feat/config-file-legacy`). Failing first: the two `config_file_process` legacy tests (exit 1
+  `MOSTRO_PUBKEY not set`; exit 0 with `mcli.db` created despite the refused file), the new unit tests of `settings`, `settings::file`,
+  `outcome::config`, `commands::config`, `parse_human::config`, `cli::input_schema`, `outcome::tests` and the two `schema_fixtures`
+  example tests (did not compile), then the two renamed `cli::context` message tests (failed until the reword). Then `settings::var` and
+  `install`, the `init_context` read, `update_config`, `configuration_unwritable`, `x-positional`, `examples.json`, docs. Review fixes:
+  see `tests/TEST_SUMMARY.md`; the `config show` core moved to unit 4.
 - [ ] **3. `config set`** (`feat/config-set`).
-- [ ] **4. `config show`** (`feat/config-show`).
+- [ ] **4. `config show`** (`feat/config-show`), with its typed core: `config_show`, `config_show_rules` and its examples.

@@ -4631,3 +4631,52 @@ manual run was made. Windows is not verified locally: only the CI runner, after 
 - **Gates** (final tree): `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
   `cargo test --locked` 1012 passed, 0 failed, 0 ignored (997 before), `cargo build --locked`,
   `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat origin/main...HEAD` gives 21 files changed, 1399 insertions, 76 deletions (1475 changed lines).
+
+## Node Settings File (spec 018) Unit 2: The Human-Only Commands Read It, And The Typed Core: 2026-11-08
+
+Branch `feat/config-file-legacy`, stacked on `feat/config-file-read` (ef3d17b), the second of four units of issue #244. Automated
+verification on Linux only (uid 1000, not root), with loopback relays and isolated sandboxes; no real node or relay was contacted and no
+manual run was made. Windows is not verified locally: only the CI runner, after the branch is pushed, will run it.
+
+- **Failing first**: the two new `config_file_process` tests against the unit 1 code: `listdisputes` with only the file exited 1 with
+  `MOSTRO_PUBKEY not set`, and with a refused file plus `-m`/`-r` it exited 0, created `mcli.db` and listed. The new unit tests of
+  `settings` (`with`, `render`, keys), `settings::file` (`var`, `write_config`), `outcome::config`, `commands::config`,
+  `parse_human::config`, `cli::input_schema` (positionals), `outcome::tests` (`configuration_unwritable` in the exhaustive contract) and
+  the two `schema_fixtures` config example tests did not compile (77 errors in the library tests, 3 in `integration_tests`). With the
+  code in place and the messages not yet reworded, the two renamed `cli::context` message tests failed; they pass after the reword.
+- **The change**: (a) `init_context` reads the config file right after mirroring the options and before the key, relay and `ADMIN_NSEC`
+  checks and `mcli.db`; a refused file is `Invalid config file <path>: <problem>` (exit 1), otherwise it is installed in a `OnceLock` for
+  `settings::var`, which `cli/context.rs`, `util/net.rs` and `util/messaging.rs` now import instead of `std::env::var`: a variable that is
+  not present is answered by the file, and nothing is written into the environment. The missing-key and missing-relays messages name the
+  file (`3) a line ... in $MCLI_DIR/config (else ~/.mcli/config; chmod 600)`); `--pow` help names it. The RPC commands never read it.
+  (b) The typed core of `config set`, wired to no command: `ConfigFile::with` (private) and `render`, the `config set` keys,
+  `update_config` (checks the trimmed value and reads the file strictly before creating anything, then reads and rewrites it under an
+  exclusive lock on `.config.lock`: stale temporary of this process id removed, owner-only temporary synced and renamed), `ConfigSetInput`,
+  `ConfigData`, the rules, `config_set` (it returns a refused file's problem for the hint), `set_outcome`, `render_config`, the new code
+  `configuration_unwritable` (exit 1, in no schema yet), `x-positional` from Clap's index (no machine command has a positional, so no
+  fixture changed), and the proposed `specs/018-config-file/contracts/examples.json` (5 cases). The `config show` core moved to unit 4.
+- **Review fixes, failing first**: a quoted value with inner spaces is trimmed (the round-trip test failed); with the lock removed the
+  concurrency test failed in 3 of 3 runs, and with the UTF-8 conversion back the non-UTF-8 directory test failed with `NotCreated`; the
+  `x-positional` test with a hidden positional failed against the running counter; the `admsenddm` process test failed with the
+  `messaging.rs` import reverted (0 bits mined) and with `TRANSPORT` read from the environment only (no `(explicit)` log line).
+- **Windows fix, not reproducible on Linux**: the `set_saved` example joined `config` to `/home/user/.mcli`, which gives `\` on Windows,
+  so it would not match `examples.json`; it now starts from `/home/user/.mcli/`, after which `PathBuf::push` adds no separator (read in
+  the Rust 1.94.0 std source). No other new test compares a path built with `join` against a literal string.
+- **Tests**: unit: the legacy lookup through its pure helper (a present variable, even empty or not Unicode, wins; an absent one gets the
+  file's value; other names never do; with nothing installed it equals `std::env::var`); `with` leaves the original and
+  `parse(render(f)) == f`, quoted inner spaces included; `update_config` creates a 0700 directory, a 0600 lock and a 0600 file with no
+  temporary left and keeps the other values, refuses a value with a line break (or empty, or `https://`) touching nothing, keeps every value
+  of four threads updating at once (10 rounds), writes a directory whose path is not UTF-8 (Linux), replaces a 0644 file with a 0600 one
+  and a symlink without touching its target; `write_config` removes a stale temporary, gives `Failed` with `config` a non-empty directory
+  and `NotCreated` with the data directory a regular file, where `update_config` gives `Refused` and `NotCreated`, the tree unchanged;
+  `ConfigSetInput` accepts and refuses by key and value; every `config.set` outcome conforms to its in-memory schema and five edited ones
+  do not; `config_set` maps each case to its row (a refused existing file left byte-identical, its problem returned); `render_config`
+  escapes the path and names both cases of a null path; a synthetic Clap command gets `x-positional` 0 and 2 around a hidden positional.
+  Process: `listdisputes` from the file alone, then `RELAYS` over the file, then `-r` over both, counted on three loopback relays;
+  `admsenddm` with only the file mines at least its `POW=12` for the scripted node and logs `Transport: nip44 (explicit)`; a refused file
+  with `-m`/`-r` given: exit 1, stderr exactly `Invalid config file <path>: line 1 ...`, the sentinel nowhere, no `mcli.db`, zero relay
+  connections. The examples conform and are reproduced by the owned constructors. Every schema drift test passes with no fixture change.
+- **Gates** (final tree): `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
+  `cargo test --locked` 1032 passed, 0 failed, 0 ignored (1012 before), `cargo build --locked`,
+  `cargo +1.94.0 check --locked --all-targets --all-features`: all passed. Diff size: `git diff --shortstat feat/config-file-read...HEAD`
+  gives 32 files changed, 1367 insertions, 128 deletions (1495 changed lines).

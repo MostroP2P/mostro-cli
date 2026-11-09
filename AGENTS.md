@@ -40,9 +40,9 @@ stores and the scripted node only. The global `--reply-timeout` ([spec](specs/01
 commands that wait for the node. The commands that wait for the node also mine the proof of work it advertises, up to 20 bits, and a
 `pow_required` names `required` and `configured` ([spec](specs/017-advertised-pow/spec.md)); verified against the scripted node and
 probed on a local regtest node. The node settings file ([spec 018](specs/018-config-file/spec.md), [tasks.md](specs/018-config-file/tasks.md)):
-the JSON-capable networked commands read `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` from `$MCLI_DIR/config` after the options and the
-environment, verified on Linux against loopback relays and the scripted node; the human-only commands reading it, `config set` and
-`config show` are proposed.
+every networked command, JSON-capable or human-only, reads `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT` from `$MCLI_DIR/config` after
+the options and the environment, verified on Linux against loopback relays and the scripted node; the typed core of `config set` is in
+place, and `config set` and `config show` are proposed.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References

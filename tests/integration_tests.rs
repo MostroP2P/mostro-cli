@@ -4,6 +4,8 @@ use std::path::Path;
 
 use chrono::DateTime;
 use mostro_client::cli::{offline_discovery, Context};
+use mostro_client::commands::config::{config_set, invalid_input, set_outcome};
+use mostro_client::outcome::config::{config_set_rules, ConfigData, ConfigSetInput};
 use mostro_client::outcome::dispute::{DisputeOpenData, COMMAND as DISPUTE_OPEN};
 use mostro_client::outcome::identity::{
     IdentityInitData, IdentityShowData, INIT_COMMAND as IDENTITY_INIT,
@@ -18,11 +20,13 @@ use mostro_client::outcome::mine::{MineOrder, OrderMineData, COMMAND as ORDER_MI
 use mostro_client::outcome::new::{OrderNewData, OrderNewInput, OrderRequest};
 use mostro_client::outcome::order::ListOrdersInput;
 use mostro_client::outcome::rate::{RateData, RateInput, COMMAND as ORDER_RATE};
+use mostro_client::outcome::schema::output_schema;
 use mostro_client::outcome::take::{OrderTakeData, OrderTakeInput, TakeRequest, TakeSide, Taken};
 use mostro_client::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Persistence, Publication, WarningCode,
     Warnings, INVALID_INVOICE,
 };
+use mostro_client::settings::{ConfigFile, ConfigFileError, WriteError};
 use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
@@ -292,6 +296,10 @@ async fn correlating_wait_rejects_non_mostro_and_own_echo() {
 // --- Generated schema fixtures and proposed examples (T045) ---------------
 
 mod schema_fixtures {
+    use super::{
+        config_set, config_set_rules, invalid_input, output_schema, set_outcome, ConfigData,
+        ConfigFile, ConfigFileError, ConfigSetInput, Path, WriteError,
+    };
     use super::{
         json, offline_discovery, read_to_string, schema_check, to_value, DaemonAcceptance,
         Envelope, ErrorCode, ExecutionMeta, OrderInfoData, OrderInfoInput, OrderNewData,
@@ -3930,6 +3938,76 @@ mod schema_fixtures {
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label} on {feature}/{case}"
             );
+        }
+    }
+
+    // --- config set (spec 018; typed core, no command yet) ---
+
+    fn config_cases() -> Vec<(&'static str, Value, i32)> {
+        // The trailing `/` keeps `join` from adding `\` on Windows.
+        let dir = Path::new("/home/user/.mcli/");
+        let saved = ConfigFile::parse(&format!(
+            "MOSTRO_PUBKEY={NODE}\nRELAYS=wss://relay.example\n"
+        ))
+        .unwrap();
+        let input = ConfigSetInput::new("relays", "wss://relay.example").unwrap();
+        let line_one = ConfigFileError::KeyNotAllowed { line: 1 };
+        let set = |result| to_value(set_outcome(dir, result)).unwrap();
+        vec![
+            ("set_saved", set(Ok(saved)), 0),
+            ("set_invalid_value", to_value(invalid_input()).unwrap(), 2),
+            (
+                "set_configuration_invalid",
+                set(Err(WriteError::Refused(line_one))),
+                1,
+            ),
+            (
+                "set_configuration_unwritable",
+                to_value(config_set(None, &input).0).unwrap(),
+                1,
+            ),
+            (
+                "set_configuration_unwritable_failed",
+                set(Err(WriteError::Failed)),
+                1,
+            ),
+        ]
+    }
+
+    #[test]
+    fn config_examples_conform_to_the_in_memory_schemas() {
+        let examples = examples_of("018-config-file");
+        assert_eq!(examples.len(), 5);
+        let schema = Value::Object(output_schema::<ConfigData, ()>(&config_set_rules()));
+        for (name, exit, outcome) in examples {
+            assert!(schema_check::conforms(&schema, &schema, &outcome), "{name}");
+            let expected = match (
+                outcome["status"].as_str(),
+                outcome["error"]["code"].as_str(),
+            ) {
+                (Some("ok"), _) => 0,
+                (_, Some("invalid_arguments")) => 2,
+                _ => 1,
+            };
+            assert_eq!(exit, expected, "{name}");
+            assert_eq!(
+                outcome["data"].is_null(),
+                outcome["status"] != "ok",
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn config_examples_are_reproduced_by_the_owned_constructors() {
+        let examples = examples_of("018-config-file");
+        let built = config_cases();
+        assert_eq!(examples.len(), built.len());
+        for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+            examples.iter().zip(&built)
+        {
+            assert_eq!((name.as_str(), exit), (*built_name, built_exit));
+            assert_eq!(outcome, built_outcome, "{name}");
         }
     }
 }

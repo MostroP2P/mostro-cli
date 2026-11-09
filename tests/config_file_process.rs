@@ -1,16 +1,17 @@
 //! Tests for the node settings file `$MCLI_DIR/config` (spec 018): the
-//! JSON-capable networked commands read `MOSTRO_PUBKEY`, `RELAYS`, `POW` and
-//! `TRANSPORT` from it after the root options and the environment; a file
-//! they refuse stops them before any other effect; the local commands never
-//! read it.
+//! networked commands, JSON-capable and human-only, read `MOSTRO_PUBKEY`,
+//! `RELAYS`, `POW` and `TRANSPORT` from it after the root options and the
+//! environment; a file they refuse stops them before any other effect; the
+//! local commands never read it.
 //!
 //! Every run uses the real binary in a sandbox, loopback relays and generated
 //! keys; nothing here reaches a real relay or node.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use nostr_sdk::prelude::{Keys, LocalRelay};
+use nostr_sdk::prelude::{Keys, LocalRelay, ToBech32};
 use serde_json::Value;
 
 #[path = "common/fake_mostro.rs"]
@@ -18,7 +19,7 @@ mod fake_mostro;
 #[path = "common/harness.rs"]
 mod harness;
 
-use fake_mostro::{info_event, new_order_daemon, seed_identity, FakeMostro};
+use fake_mostro::{info_event, new_order_daemon, seed_identity, silent, FakeMostro};
 use harness::{
     is_empty_dir, run_with_watchdog, Backend, Captured, LoopbackRelay, Sandbox, SENTINEL, WATCHDOG,
 };
@@ -315,4 +316,104 @@ async fn without_a_data_directory_nothing_is_created() {
     assert_eq!(document(&run)["error"]["code"], "configuration_missing");
     assert!(!absent.exists());
     assert!(is_empty_dir(&sandbox.home()) && is_empty_dir(&sandbox.mcli_dir()));
+}
+
+/// `listdisputes`, a human-only command, takes the node and the relays from
+/// the file alone; a set `RELAYS` beats the file and `-r` beats both, counted
+/// by the connections each loopback relay accepts.
+#[tokio::test]
+async fn a_legacy_command_reads_the_file_with_the_same_precedence() {
+    let (a, b, c) = (relay().await, relay().await, relay().await);
+    let node = Keys::generate().public_key().to_hex();
+    let sandbox = Sandbox::new().unwrap();
+    write_config(
+        &sandbox,
+        &format!("MOSTRO_PUBKEY={node}\nRELAYS={}\n", a.url),
+    );
+    let counts = || [a.connections(), b.connections(), c.connections()];
+
+    let from_file = run(&sandbox, &["listdisputes"], &[]).await;
+    assert_eq!(from_file.code(), Some(0), "{}", from_file.stderr_text());
+    let [file_a, ..] = counts();
+    assert!(file_a > 0 && counts()[1..] == [0, 0], "{:?}", counts());
+
+    let from_env = run(&sandbox, &["listdisputes"], &[("RELAYS", &b.url)]).await;
+    assert_eq!(from_env.code(), Some(0), "{}", from_env.stderr_text());
+    let [env_a, env_b, env_c] = counts();
+    assert!(env_a == file_a && env_b > 0 && env_c == 0, "{:?}", counts());
+
+    let option = ["-r", c.url.as_str(), "listdisputes"];
+    let from_option = run(&sandbox, &option, &[("RELAYS", &b.url)]).await;
+    assert_eq!(from_option.code(), Some(0), "{}", from_option.stderr_text());
+    let [option_a, option_b, option_c] = counts();
+    assert!(
+        option_a == file_a && option_b == env_b && option_c > 0,
+        "{:?}",
+        counts()
+    );
+}
+
+/// `admsenddm`, a human-only command that publishes, takes `POW` and
+/// `TRANSPORT` from the file alone: the event the node receives carries at
+/// least that work, and the transport is explicit, so the node is not probed.
+#[tokio::test]
+async fn a_legacy_command_takes_the_work_and_transport_from_the_file() {
+    let relay = relay().await;
+    let fake = FakeMostro::start(&relay.url, Keys::generate(), silent()).await;
+    let node = fake.pubkey().to_hex();
+    let sandbox = Sandbox::new().unwrap();
+    let text = format!(
+        "MOSTRO_PUBKEY={node}\nRELAYS={}\nPOW=12\nTRANSPORT=nip44\n",
+        relay.url
+    );
+    write_config(&sandbox, &text);
+    let admin = Keys::generate().secret_key().to_bech32().unwrap();
+
+    let args = ["-v", "admsenddm", "--pubkey", &node, "--message", "hi"];
+    let run = run(&sandbox, &args, &[("ADMIN_NSEC", &admin)]).await;
+
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    let stderr = run.stderr_text();
+    assert!(stderr.contains("Transport: nip44 (explicit)"), "{stderr}");
+    for _ in 0..100 {
+        if !fake.received().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let received = fake.received();
+    assert_eq!(received.len(), 1);
+    assert!(received[0].work >= 12, "mined {} bits", received[0].work);
+}
+
+/// A refused file stops a human-only command before `mcli.db` exists or a
+/// relay is contacted, even with `-m` and `-r` given, and names the file and
+/// the line, never the content.
+#[tokio::test]
+async fn a_legacy_command_refuses_an_invalid_file_before_creating_the_store() {
+    let relay = relay().await;
+    let node = Keys::generate().public_key().to_hex();
+    let sandbox = Sandbox::new().unwrap();
+    let path = write_config(&sandbox, &format!("ADMIN_NSEC={SENTINEL}\n"));
+
+    let args = [
+        "-m",
+        node.as_str(),
+        "-r",
+        relay.url.as_str(),
+        "listdisputes",
+    ];
+    let run = run(&sandbox, &args, &[]).await;
+
+    assert_eq!(run.code(), Some(1), "{}", run.stdout_text());
+    let stderr = run.stderr_text();
+    let expected = format!("Invalid config file {}: {OTHER_KEY}\n", path.display());
+    assert_eq!(stderr, expected);
+    assert!(!run.stdout_text().contains(SENTINEL) && !stderr.contains(SENTINEL));
+    let names: Vec<String> = snapshot(&sandbox.mcli_dir())
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(names, ["config"], "no mcli.db");
+    assert_eq!(relay.connections(), 0, "no relay was contacted");
 }

@@ -1,0 +1,113 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "set_saved",
+      "stdout": {
+        "command": "config.set",
+        "data": {
+          "mostro_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "path": "/home/user/.mcli/config",
+          "pow": null,
+          "relays": "wss://relay.example",
+          "transport": null
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "applied",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "set_invalid_value",
+      "stdout": {
+        "command": "config.set",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_applicable",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "set_configuration_invalid",
+      "stdout": {
+        "command": "config.set",
+        "data": null,
+        "error": {
+          "code": "configuration_invalid",
+          "message": "The node configuration is invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_attempted",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "set_configuration_unwritable",
+      "stdout": {
+        "command": "config.set",
+        "data": null,
+        "error": {
+          "code": "configuration_unwritable",
+          "message": "The configuration file cannot be written, so nothing was changed."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "not_attempted",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "set_configuration_unwritable_failed",
+      "stdout": {
+        "command": "config.set",
+        "data": null,
+        "error": {
+          "code": "configuration_unwritable",
+          "message": "The configuration file cannot be written, so nothing was changed."
+        },
+        "meta": {
+          "daemon_acceptance": "not_applicable",
+          "persistence": "failed",
+          "publication": "not_applicable",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

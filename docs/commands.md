@@ -53,8 +53,8 @@ empty `POW` is 0, an empty `TRANSPORT` means detect.
 - **Location**: `config` in the data directory: `$MCLI_DIR/config`, else `~/.mcli/config` (on Windows the profile folder, normally
   `%USERPROFILE%\.mcli\config`). Without a data directory there is no file.
 - **Format**: UTF-8 `KEY=VALUE` lines with the variable names (LF or CRLF; a leading byte order mark is ignored). Blank lines and lines
-  starting with `#` are skipped, an `export` followed by whitespace is dropped, key and value are trimmed and one pair of matching `"` or `'` quotes around
-  the value is removed. No inline comments (a `#` after a value is part of the value), escapes or expansion. An empty value means unset;
+  starting with `#` are skipped, an `export` followed by whitespace is dropped, key and value are trimmed, one pair of matching `"` or `'` quotes around
+  the value is removed and the value is trimmed again. No inline comments (a `#` after a value is part of the value), escapes or expansion. An empty value means unset;
   a repeated key keeps its last line. From the README `env.sh`, the `MOSTRO_PUBKEY` and `RELAYS` lines can be copied as they are and a
   `POW` line without its trailing comment; an `ADMIN_NSEC` line refuses the file.
 - **Only the four keys.** Any other key (`ADMIN_NSEC`, `MOSTRO_RPC_TOKEN`, ...) refuses the file, so secrets stay in the environment.
@@ -65,9 +65,10 @@ empty `POW` is 0, an empty `TRANSPORT` means detect.
   naming the line, never its content. An error looking the file up (a data directory that does not exist, that the process may not search
   or whose path cannot be resolved) means no file, as before the file existed.
 - **When**: read once per run, before identity, store or network access, by the JSON-capable networked commands (every machine command
-  except `schema`, `identity init`, `identity show` and `order mine`, which never read it). The human-only commands do not read it yet and
-  the RPC commands never read it; set their settings in the environment or with the options. Reading never creates the data directory or any file and
-  never changes the process environment.
+  except `schema`, `identity init`, `identity show` and `order mine`, which never read it) and by the human-only commands that talk to a
+  node, right after their options are applied and before `mcli.db` is created or `ADMIN_NSEC` is read; a refused file stops those with
+  `Invalid config file <path>: <problem>` on stderr and exit 1. The RPC commands (`admsetmaintenance`, `admmaintenancestatus`,
+  `admcancelpending`) never read it. Reading never creates the data directory or any file and never changes the process environment.
 
 ### Discovery
 

@@ -1,5 +1,6 @@
 //! Human presentation. Renderers return text and perform no I/O.
 
+pub mod config;
 pub mod held;
 pub mod identity;
 pub mod invoice;
@@ -13,6 +14,7 @@ pub mod step;
 pub mod sync;
 pub mod table;
 
+pub use config::render_config;
 pub use held::{render_dispute, render_dispute_preview, render_rate, render_rate_preview};
 pub use identity::{render_identity_init, render_identity_show};
 pub use invoice::{render_bond_invoice, render_invoice_preview, render_order_invoice};

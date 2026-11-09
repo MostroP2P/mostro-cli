@@ -39,6 +39,8 @@ pub enum ErrorCode {
     StoreUnreadable,
     // Added for `identity.init`.
     IdentityExists,
+    // Added for `config.set`.
+    ConfigurationUnwritable,
 }
 
 impl ErrorCode {
@@ -79,7 +81,8 @@ impl ErrorCode {
             | Self::StoreUnwritable
             | Self::OrderUnknown
             | Self::StoreUnreadable
-            | Self::IdentityExists => RUNTIME_ERROR_EXIT,
+            | Self::IdentityExists
+            | Self::ConfigurationUnwritable => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -110,6 +113,9 @@ impl ErrorCode {
             Self::OrderUnknown => "No local order has this id, so nothing was sent.",
             Self::StoreUnreadable => "The local store cannot be read.",
             Self::IdentityExists => "A local identity already exists, so nothing was changed.",
+            Self::ConfigurationUnwritable => {
+                "The configuration file cannot be written, so nothing was changed."
+            }
         }
     }
 }

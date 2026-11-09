@@ -36,8 +36,8 @@ pub struct Cli {
     #[arg(short, long)]
     pub relays: Option<String>,
     /// Least NIP-13 proof of work, in bits, mined on requests; overrides
-    /// `POW`. The JSON-capable commands raise it to what the node advertises,
-    /// up to 20 bits.
+    /// `POW` and the config file. The JSON-capable commands raise it to what
+    /// the node advertises, up to 20 bits.
     #[arg(short, long)]
     pub pow: Option<String>,
     #[arg(short, long)]
