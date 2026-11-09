@@ -638,8 +638,8 @@ mod store {
 mod operation {
     use super::fake_mostro::{
         mail_add_invoice, mail_bond_payout_request, mail_cant_do, mail_pay_bond_invoice,
-        mail_pay_invoice, mail_text, mail_waiting_seller, node_event, seed_identity,
-        set_last_trade_index,
+        mail_pay_invoice, mail_payment_failed, mail_text, mail_waiting_seller, node_event,
+        seed_identity, set_last_trade_index,
     };
     use super::harness::Sandbox;
     use super::*;
@@ -1358,12 +1358,78 @@ mod operation {
             assert!(text.lines().any(|line| line == invoice), "{text}");
         }
         assert!(text.contains("Next: pay the bond invoice"), "{text}");
-        assert!(text.contains("`order add-invoice --order <id>"), "{text}");
-        assert!(text.contains("`bond add-invoice --order <id>"), "{text}");
+        assert!(
+            text.contains("`order add-invoice --order 00000000-0000-0000-0000-000000000001 "),
+            "{text}"
+        );
+        assert!(
+            text.contains("`bond add-invoice --order 00000000-0000-0000-0000-000000000003 "),
+            "{text}"
+        );
+        assert!(
+            !text.contains("<id>"),
+            "every record names its order: {text}"
+        );
         assert!(text.contains("Refused: invalid_peer"), "{text}");
         let bond = text.find("pay-bond-invoice").unwrap();
         let hold = text.find("Action: pay-invoice").unwrap();
         assert!(bond < hold, "oldest first");
+    }
+
+    /// The node's `payment-failed` to the buyer's key: retries left, then none.
+    async fn failed_payouts(node: Keys, keys: Vec<(i64, Keys)>, _: usize) -> Vec<Event> {
+        let buyer = keys[0].1.public_key();
+        vec![
+            node_event(
+                &node,
+                buyer,
+                &mail_payment_failed(id(1), 2, 60),
+                minutes_ago(9),
+            )
+            .await,
+            node_event(
+                &node,
+                buyer,
+                &mail_payment_failed(id(2), 0, 60),
+                minutes_ago(3),
+            )
+            .await,
+        ]
+    }
+
+    #[tokio::test]
+    async fn a_failed_payout_is_typed_and_asks_nothing_until_the_node_gives_up() {
+        let room = Mailroom::with(1, 1, failed_payouts).await;
+
+        let json = room.run(&["--output", "json", "message", "list"]).await;
+        let human = room.run(&["message", "list"]).await;
+
+        assert_eq!(json.code(), Some(0), "{}", json.stderr_text());
+        let outcome = one_document(&json);
+        conforms_to_the_checked_in_schema(&outcome);
+        let messages = &outcome["data"]["messages"];
+        assert_eq!(
+            messages[0]["payload"],
+            json!({"kind": "payment_failed", "payment_attempts": "2", "payment_retries_interval": "60"})
+        );
+        assert_eq!(messages[0]["next_step"], Value::Null, "the node retries");
+        assert_eq!(messages[1]["payload"]["payment_attempts"], "0");
+        assert_eq!(messages[1]["next_step"], "add_invoice", "no attempt left");
+        assert_eq!(human.code(), Some(0), "{}", human.stderr_text());
+        let text = human.stdout_text();
+        assert!(
+            text.contains("the node will retry the payment up to 2 more times, every 60 seconds"),
+            "{text}"
+        );
+        assert!(
+            text.contains("the node will not retry the payment"),
+            "{text}"
+        );
+        assert!(
+            text.contains("`order add-invoice --order 00000000-0000-0000-0000-000000000002 "),
+            "{text}"
+        );
+        assert_eq!(text.matches("Next:").count(), 1, "{text}");
     }
 
     #[tokio::test]

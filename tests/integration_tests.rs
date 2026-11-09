@@ -30,8 +30,8 @@ use mostro_client::util::events::create_seven_days_filter_at;
 use mostro_client::util::{create_filter, select_reply_event, ExpectedReply, ListKind};
 use mostro_core::order::Status;
 use mostro_core::prelude::{
-    wrap_message_with, Action, CantDoReason, Message, MessageKind, Payload, Transport, UserInfo,
-    WrapOptions,
+    wrap_message_with, Action, CantDoReason, Message, MessageKind, Payload, PaymentFailedInfo,
+    Transport, UserInfo, WrapOptions,
 };
 use nostr_sdk::prelude::*;
 use rstest::rstest;
@@ -308,7 +308,7 @@ mod schema_fixtures {
     use super::{
         Action, Answered, BondInvoiceData, CantDoReason, EventId, InvoiceInput, InvoiceKind,
         InvoiceRequest, Message, MessageListData, MessageListInput, MessageRecord,
-        OrderInvoiceData, Payload,
+        OrderInvoiceData, Payload, PaymentFailedInfo,
     };
     use super::{
         DisputeOpenData, MineOrder, OrderMineData, RateData, RateInput, WarningCode, DISPUTE_OPEN,
@@ -4262,6 +4262,102 @@ mod schema_fixtures {
             assert!(
                 !schema_check::conforms(&schema, &schema, &outcome),
                 "accepted: {label} on {case}"
+            );
+        }
+    }
+
+    // --- Next steps (spec 021) ---
+
+    /// The proposed examples of spec 021, built with the owned constructors: a
+    /// failed payout while the node still retries, so the record asks nothing.
+    fn next_step_cases() -> Vec<(&'static str, Value, i32)> {
+        let failed = message_record(
+            Action::PaymentFailed,
+            Some(id(1)),
+            Some(Payload::PaymentFailed(PaymentFailedInfo {
+                payment_attempts: 2,
+                payment_retries_interval: 60,
+            })),
+            1,
+        );
+        let data = message_data(vec![failed], false, (3, 0));
+        let outcome = to_value(MessageEnvelope::ok(
+            MESSAGE_LIST,
+            to_value(data).unwrap(),
+            Warnings::new(),
+            ExecutionMeta::read(Some(read_snapshot(2, 1))),
+        ))
+        .unwrap();
+        vec![("payment_failed_while_the_node_retries", outcome, 0)]
+    }
+
+    fn next_step_example(name: &str) -> Value {
+        examples_of("021-next-steps")
+            .into_iter()
+            .find(|(candidate, ..)| candidate == name)
+            .map(|(.., outcome)| outcome)
+            .unwrap_or_else(|| panic!("no example named {name}"))
+    }
+
+    #[test]
+    fn next_step_examples_conform_to_the_checked_in_schema() {
+        let schemas = [
+            read_json(MESSAGE_LIST_FIXTURE),
+            generated_output_schema(MESSAGE_LIST),
+        ];
+        for (name, exit, outcome) in examples_of("021-next-steps") {
+            assert_eq!(exit, 0, "{name}");
+            for schema in &schemas {
+                assert!(schema_check::conforms(schema, schema, &outcome), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn next_step_examples_are_reproduced_by_the_owned_constructors() {
+        let examples = examples_of("021-next-steps");
+        let built = next_step_cases();
+        assert_eq!(examples.len(), built.len());
+        for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+            examples.iter().zip(&built)
+        {
+            assert_eq!(name, built_name);
+            assert_eq!((outcome, exit), (built_outcome, built_exit), "{name}");
+        }
+    }
+
+    #[test]
+    fn invalid_next_step_variants_do_not_conform() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, Edit)> = vec![
+            (
+                "a count that is a number",
+                Box::new(|o| o["data"]["messages"][0]["payload"]["payment_attempts"] = json!(2)),
+            ),
+            (
+                "an interval that is not a decimal",
+                Box::new(|o| {
+                    o["data"]["messages"][0]["payload"]["payment_retries_interval"] = json!("1m")
+                }),
+            ),
+            (
+                "a missing count",
+                Box::new(|o| {
+                    o["data"]["messages"][0]["payload"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("payment_attempts");
+                }),
+            ),
+        ];
+        let schema = read_json(MESSAGE_LIST_FIXTURE);
+        for (label, edit) in variants {
+            let mut outcome = next_step_example("payment_failed_while_the_node_retries");
+            assert!(schema_check::conforms(&schema, &schema, &outcome));
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label}"
             );
         }
     }

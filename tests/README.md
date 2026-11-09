@@ -537,3 +537,13 @@ Order watch unit 7 (2026-11-09): the process `mod json` documents are checked ag
 `watch_schema_fixture_matches_the_generated_schema` keeps that file equal to the generated schema, and
 `watch_examples_conform_and_are_reproduced` covers `new_records` and `timeout_empty` against both the file and the discovery entry
 (`integration_tests.rs` 75 tests).
+
+## Next Steps (spec 021): Requirement Evidence
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-004 typed `payment_failed`, decimal strings, `next_step` null or `add_invoice` at "0" | `next_step.rs` `a_failed_payment_asks_for_an_invoice_only_with_no_attempt_left`, `messages.rs` `each_payload_has_its_summary` and `real_outcomes_conform_to_the_generated_schema`, `a_failed_payout_is_typed_and_asks_nothing_until_the_node_gives_up`, `next_step_examples_*`, `invalid_next_step_variants_do_not_conform` | Verified on Linux against the scripted mailbox (unit 1) |
+| FR-005 Next lines with the order id, the retry line | `parse_human::message` `the_next_step_names_the_command_with_the_order_filled_in` and `a_failed_payment_says_how_many_more_times_and_how_often_the_node_retries`, `human_shows_each_invoice_alone_on_its_line_and_says_what_to_do_next`, `a_failed_payout_is_typed_and_asks_nothing_until_the_node_gives_up` | Verified on Linux (unit 1) |
+| FR-006 the v1 open-enum rule, schemas stay closed | the versioning rule in `docs/commands.md`; `contradictory_outcomes_do_not_conform` and `invalid_message_list_variants_do_not_conform` still reject unknown values | Verified by reading and by the unchanged rejection tests (unit 1) |
+| FR-009 stale hints: check `order info`, act once per `event_id` | `docs/commands.md` `message list` entry | Verified by reading (unit 1) |
+| FR-001, FR-002, FR-003, FR-007, FR-008 | | Proposed (units 2 and 3) |

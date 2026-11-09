@@ -3035,7 +3035,7 @@
             "type": "object"
           },
           "MessagePayload": {
-            "description": "A summary of the payload of a message.",
+            "description": "A summary of the payload of a message. A consumer treats a payload whose\n`kind` it does not know as opaque and reads only its `kind`.",
             "oneOf": [
               {
                 "description": "The message carries none.",
@@ -3206,7 +3206,34 @@
                 "type": "object"
               },
               {
-                "description": "Any other payload, by variant name only.",
+                "description": "The node could not pay the buyer's invoice. It retries on its own and\nasks for a new invoice (`add-invoice`) only when every attempt fails.\nWith no attempt left (`payment_attempts` \"0\") it neither retries nor\nasks, and the record's `next_step` is `add_invoice`. Sent once per\nbuyer invoice: on the first failed payout to it, and again after a\nreplacement invoice resets the count; never updated in between.",
+                "properties": {
+                  "kind": {
+                    "const": "payment_failed",
+                    "type": "string"
+                  },
+                  "payment_attempts": {
+                    "description": "How many more times the node will try to pay, as of this message\n(mostrod v0.20.2 sends its setting minus one).",
+                    "maxLength": 20,
+                    "pattern": "^(0|-?[1-9][0-9]*)$",
+                    "type": "string"
+                  },
+                  "payment_retries_interval": {
+                    "description": "Seconds between two attempts.",
+                    "maxLength": 20,
+                    "pattern": "^(0|-?[1-9][0-9]*)$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "payment_attempts",
+                  "payment_retries_interval"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Any other payload, by variant name only. The name is informative, not a\nstable identifier: a later executable may give that payload a kind of\nits own.",
                 "properties": {
                   "kind": {
                     "const": "other",
@@ -3256,7 +3283,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "description": "What the message asked the user to do when the node sent it; null when\nit asks nothing. A consumer treats a value it does not know as null."
               },
               "order_id": {
                 "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -3305,7 +3333,7 @@
             "type": "object"
           },
           "NextStep": {
-            "description": "What the node asks the user to do next, for the actions that ask.",
+            "description": "What the node asks the user to do next, for the messages that ask.",
             "oneOf": [
               {
                 "const": "pay_bond_invoice",
@@ -3314,7 +3342,7 @@
               },
               {
                 "const": "add_invoice",
-                "description": "Send an invoice for the order: `order add-invoice`.",
+                "description": "Send an invoice for the order: `order add-invoice`. Also after a failed\npayout that the node will not retry.",
                 "type": "string"
               },
               {
@@ -12943,7 +12971,7 @@
             "type": "object"
           },
           "MessagePayload": {
-            "description": "A summary of the payload of a message.",
+            "description": "A summary of the payload of a message. A consumer treats a payload whose\n`kind` it does not know as opaque and reads only its `kind`.",
             "oneOf": [
               {
                 "description": "The message carries none.",
@@ -13114,7 +13142,34 @@
                 "type": "object"
               },
               {
-                "description": "Any other payload, by variant name only.",
+                "description": "The node could not pay the buyer's invoice. It retries on its own and\nasks for a new invoice (`add-invoice`) only when every attempt fails.\nWith no attempt left (`payment_attempts` \"0\") it neither retries nor\nasks, and the record's `next_step` is `add_invoice`. Sent once per\nbuyer invoice: on the first failed payout to it, and again after a\nreplacement invoice resets the count; never updated in between.",
+                "properties": {
+                  "kind": {
+                    "const": "payment_failed",
+                    "type": "string"
+                  },
+                  "payment_attempts": {
+                    "description": "How many more times the node will try to pay, as of this message\n(mostrod v0.20.2 sends its setting minus one).",
+                    "maxLength": 20,
+                    "pattern": "^(0|-?[1-9][0-9]*)$",
+                    "type": "string"
+                  },
+                  "payment_retries_interval": {
+                    "description": "Seconds between two attempts.",
+                    "maxLength": 20,
+                    "pattern": "^(0|-?[1-9][0-9]*)$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "payment_attempts",
+                  "payment_retries_interval"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Any other payload, by variant name only. The name is informative, not a\nstable identifier: a later executable may give that payload a kind of\nits own.",
                 "properties": {
                   "kind": {
                     "const": "other",
@@ -13164,7 +13219,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "description": "What the message asked the user to do when the node sent it; null when\nit asks nothing. A consumer treats a value it does not know as null."
               },
               "order_id": {
                 "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -13213,7 +13269,7 @@
             "type": "object"
           },
           "NextStep": {
-            "description": "What the node asks the user to do next, for the actions that ask.",
+            "description": "What the node asks the user to do next, for the messages that ask.",
             "oneOf": [
               {
                 "const": "pay_bond_invoice",
@@ -13222,7 +13278,7 @@
               },
               {
                 "const": "add_invoice",
-                "description": "Send an invoice for the order: `order add-invoice`.",
+                "description": "Send an invoice for the order: `order add-invoice`. Also after a failed\npayout that the node will not retry.",
                 "type": "string"
               },
               {

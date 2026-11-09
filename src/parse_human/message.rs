@@ -69,22 +69,38 @@ pub(crate) fn block(out: &mut String, number: usize, message: &MessageRecord) {
     }
     payload(out, message.payload());
     if let Some(step) = message.next_step() {
-        let _ = writeln!(out, "👉 Next: {}", next_step(step));
+        let _ = writeln!(out, "👉 Next: {}", next_step(step, message.order_id()));
     }
     out.push('\n');
 }
 
-fn next_step(step: NextStep) -> &'static str {
+/// The next step in words, with the record's order id (a UUID, never node
+/// text) filled in, or `<id>` when the record names no order.
+fn next_step(step: NextStep, order: Option<&str>) -> String {
+    let id = order.unwrap_or("<id>");
     match step {
-        NextStep::PayBondInvoice => "pay the bond invoice above with any Lightning wallet",
-        NextStep::AddInvoice => {
-            "send an invoice for the sats: `order add-invoice --order <id> --invoice <invoice>`"
-        }
-        NextStep::PayHoldInvoice => "pay the hold invoice above with any Lightning wallet",
-        NextStep::AddBondInvoice => {
-            "send an invoice for your share: `bond add-invoice --order <id> --invoice <bolt11>`"
-        }
+        NextStep::PayBondInvoice => "pay the bond invoice above with any Lightning wallet".into(),
+        NextStep::AddInvoice => format!(
+            "send an invoice for the sats: `order add-invoice --order {id} --invoice <invoice>`"
+        ),
+        NextStep::PayHoldInvoice => "pay the hold invoice above with any Lightning wallet".into(),
+        NextStep::AddBondInvoice => format!(
+            "send an invoice for your share: `bond add-invoice --order {id} --invoice <bolt11>`"
+        ),
     }
+}
+
+/// What the node will do after a failed payout: retry `attempts` more times
+/// every `interval` seconds, or nothing at "0".
+fn retry_line(attempts: &str, interval: &str) -> String {
+    if attempts == "0" {
+        return "🔁 Payment failed: the node will not retry the payment".to_string();
+    }
+    let times = if attempts == "1" { "time" } else { "times" };
+    let seconds = if interval == "1" { "second" } else { "seconds" };
+    format!(
+        "🔁 Payment failed: the node will retry the payment up to {attempts} more {times}, every {interval} {seconds}"
+    )
 }
 
 fn payload(out: &mut String, payload: &MessagePayload) {
@@ -138,6 +154,16 @@ fn payload(out: &mut String, payload: &MessagePayload) {
         MessagePayload::Amount { amount } => {
             let _ = writeln!(out, "💰 Amount: {amount} sats");
         }
+        MessagePayload::PaymentFailed {
+            payment_attempts,
+            payment_retries_interval,
+        } => {
+            let _ = writeln!(
+                out,
+                "{}",
+                retry_line(payment_attempts, payment_retries_interval)
+            );
+        }
         MessagePayload::Other { variant } => {
             let _ = writeln!(out, "📦 Payload: {}", escape_controls(variant));
         }
@@ -166,7 +192,7 @@ mod tests {
     use crate::outcome::messages::MessageListInput;
     use crate::outcome::Warnings;
     use mostro_core::order::{Kind, SmallOrder, Status};
-    use mostro_core::prelude::{Action, CantDoReason, Message, Payload};
+    use mostro_core::prelude::{Action, CantDoReason, Message, Payload, PaymentFailedInfo};
     use nostr_sdk::prelude::{EventId, Keys};
     use uuid::Uuid;
 
@@ -193,7 +219,11 @@ mod tests {
     }
 
     fn record(action: Action, payload: Option<Payload>) -> MessageRecord {
-        let message = Message::new_order(Some(Uuid::from_u128(1)), Some(77), None, action, payload);
+        record_of(Some(Uuid::from_u128(1)), action, payload)
+    }
+
+    fn record_of(order: Option<Uuid>, action: Action, payload: Option<Payload>) -> MessageRecord {
+        let message = Message::new_order(order, Some(77), None, action, payload);
         MessageRecord::from_message(
             &EventId::from_byte_array([7; 32]),
             AT,
@@ -240,19 +270,84 @@ mod tests {
     }
 
     #[test]
-    fn the_next_step_names_the_command_that_continues_the_flow() {
+    fn the_next_step_names_the_command_with_the_order_filled_in() {
         let add = render_messages(&data(
             vec![record(Action::AddInvoice, Some(Payload::Order(order())))],
             false,
             0,
         ));
-        assert!(add.contains("`order add-invoice --order <id> --invoice <invoice>`"));
+        assert!(
+            add.contains("`order add-invoice --order 00000000-0000-0000-0000-000000000001 --invoice <invoice>`"),
+            "{add}"
+        );
+        let bond = render_messages(&data(
+            vec![record_of(
+                Some(Uuid::from_u128(9)),
+                Action::AddBondInvoice,
+                None,
+            )],
+            false,
+            0,
+        ));
+        assert!(
+            bond.contains("`bond add-invoice --order 00000000-0000-0000-0000-000000000009 --invoice <bolt11>`"),
+            "{bond}"
+        );
+        let anonymous = render_messages(&data(
+            vec![record_of(None, Action::AddInvoice, None)],
+            false,
+            0,
+        ));
+        assert!(
+            anonymous.contains("`order add-invoice --order <id> --invoice <invoice>`"),
+            "no order id, a placeholder: {anonymous}"
+        );
         let informing = render_messages(&data(
             vec![record(Action::WaitingSellerToPay, None)],
             false,
             0,
         ));
         assert!(!informing.contains("Next:"));
+    }
+
+    #[test]
+    fn a_failed_payment_says_how_many_more_times_and_how_often_the_node_retries() {
+        let failed = |attempts, interval| {
+            let payload = Payload::PaymentFailed(PaymentFailedInfo {
+                payment_attempts: attempts,
+                payment_retries_interval: interval,
+            });
+            render_messages(&data(
+                vec![record(Action::PaymentFailed, Some(payload))],
+                false,
+                0,
+            ))
+        };
+        let retried = failed(2, 60);
+        assert!(
+            retried.contains(
+                "🔁 Payment failed: the node will retry the payment up to 2 more times, every 60 seconds\n"
+            ),
+            "{retried}"
+        );
+        assert!(!retried.contains("Next:"), "the node retries: {retried}");
+        let once = failed(1, 1);
+        assert!(
+            once.contains("up to 1 more time, every 1 second\n"),
+            "{once}"
+        );
+        assert!(!once.contains("Next:"), "{once}");
+        let given_up = failed(0, 60);
+        assert!(
+            given_up.contains("🔁 Payment failed: the node will not retry the payment\n"),
+            "{given_up}"
+        );
+        assert!(
+            given_up.contains(
+                "👉 Next: send an invoice for the sats: `order add-invoice --order 00000000-0000-0000-0000-000000000001 --invoice <invoice>`"
+            ),
+            "{given_up}"
+        );
     }
 
     #[test]

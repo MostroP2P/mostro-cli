@@ -29,6 +29,8 @@ Standard envelope (v1). Stages are those of `order list`: `not_applicable` for p
 `next_step` per action: `pay-bond-invoice` -> `pay_bond_invoice` (invoice in `payment_request`), `add-invoice` -> `add_invoice`, `pay-invoice` -> `pay_hold_invoice`,
 `add-bond-invoice` -> `add_bond_invoice`; every other action is `null`.
 
+[Spec 021](../021-next-steps/data-model.md) extends this table and the payload kinds (`payment_failed`), and makes both enums open within v1.
+
 ## Outcome table
 
 | Case | Status | Code |

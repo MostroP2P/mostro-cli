@@ -5180,3 +5180,41 @@ Branch `feat/order-watch-schema` from `feat/order-watch-json` (85f0e26), the las
   `cargo test --locked` 1106 passed, 0 failed, 0 ignored (1105 at the base; +1 integration); `cargo build --locked`;
   `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Next Steps (spec 021) Unit 1: The payment_failed Payload And The Order Id In Next Lines: 2026-11-09
+
+Branch `feat/payment-failed-payload` from `feat/order-watch-schema` (cbfe64f), the first of three units of #243. User-visible: a
+`payment-failed` message is the payload kind `payment_failed` (`payment_attempts`, `payment_retries_interval`, decimal strings), with
+`next_step` `add_invoice` only at `payment_attempts` `"0"`; the human "👉 Next:" lines name the record's order id (`<id>` only without
+one); human mode prints the retry line. `docs/commands.md` makes `next_step` and the payload `kind` open enums within v1. Fixtures
+regenerated with the `REGENERATE` command; `git diff --stat docs/schemas` lists only `discovery-v1.json`, `message-list-v1.json` and
+`order-watch-v1.json`.
+
+- **Failing first**: after moving `NextStep` to `src/outcome/messages/next_step.rs` with `NextStep::of(&MessageKind)` (behaviour kept;
+  the moved table passed), `cargo test --locked --lib -- outcome::messages parse_human::message`: 17 passed, 4 failed
+  (`a_failed_payment_asks_for_an_invoice_only_with_no_attempt_left`, `each_payload_has_its_summary`,
+  `a_failed_payment_says_how_many_more_times_and_how_often_the_node_retries`, `the_next_step_names_the_command_with_the_order_filled_in`);
+  `cargo test --locked --test message_list_process -- human_shows_each_invoice a_failed_payout`: 0 passed, 2 failed;
+  `cargo test --locked --test integration_tests -- next_step`: `next_step_examples_are_reproduced_by_the_owned_constructors` and
+  `invalid_next_step_variants_do_not_conform` failed (the example file had no case yet, so the conformance test passed vacuously).
+  With the change all passed.
+- **Tests** (6 new, net): `next_step.rs` (2: the moved table, now built from `MessageKind`; the counts 2, 1, 0 and no payload);
+  `messages.rs` `each_payload_has_its_summary` and `every_kind()` gain `payment_failed`; `parse_human::message` (the order id test
+  replaces the `<id>` one; the retry line for 2, 1 and 0 with an interval of 1); `a_failed_payout_is_typed_and_asks_nothing_until_the_node_gives_up`
+  (the real binary on a mailbox of two `payment-failed` messages, JSON checked against `docs/schemas/message-list-v1.json`, then
+  human); `human_shows_each_invoice_alone_on_its_line_and_says_what_to_do_next` now expects the ids `…0001` and `…0003` and no `<id>`;
+  `next_step_examples_conform_to_the_checked_in_schema`, `next_step_examples_are_reproduced_by_the_owned_constructors` and
+  `invalid_next_step_variants_do_not_conform` (a numeric count, a non-decimal interval, a missing count). `order watch` renders its
+  messages with the same block, and its 30 process tests pass unchanged. `source_boundaries` passes (`outcome/messages.rs` 296
+  production lines, `parse_human/message.rs` 188).
+- **Evidence labels**: automated verification against the scripted node's mailbox and loopback relays; node behaviour (who gets
+  `payment-failed`, that `payment_attempts` is the setting minus one, no retry and no `add-invoice` at 0) from reading the mostrod
+  v0.20.2 source only.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1112 passed, 0 failed, 0 ignored (1106 at the base; +2 library net, +1 process, +3 integration);
+  `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Review fix**: the contract said `payment-failed` is sent once; mostrod v0.20.2 sends it once per buyer invoice, because
+  `pay_new_invoice` resets `payment_attempts` to 0 when a replacement invoice arrives (read in its source, not probed). The doc
+  comment, `docs/commands.md` and the spec now say so, and "0.17.0" became "releases up to 0.17.0". The three schema fixtures
+  failed their drift tests with the new comment and were regenerated with the `REGENERATE` command; gates rerun with the same numbers.
+- **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.

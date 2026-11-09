@@ -313,7 +313,7 @@ mostro-cli message list --since 60     # everything Mostro sent you in the last 
 mostro-cli --output json message list --since 60   # the same for a script: read `next_step` and `payload`
 ```
 
-Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away.
+Run it after every step where you are waiting on the other side — an order being taken, an invoice arriving, fiat being marked as sent, sats being released. `--since` defaults to 30 minutes; widen it if you have been away. When a message asks you for something, its "👉 Next:" line names the command with the order id filled in.
 
 **Follow a trade.** `order watch` is the one command that stays connected: it replays the last 30 minutes (`--since`), then prints each new message from Mostro and each chat message of one order as it arrives, until the trade ends. `--timeout SECONDS` stops it earlier with a final line, and Ctrl-C stops it at any time. With `--output json` each call returns one document, at the first new records or empty after `--timeout` (30 s by default), with a `cursor`: pass it back with `--after` to get only newer records, so a script loops watch, act, watch.
 
@@ -405,7 +405,7 @@ Buyer-as-taker flow against an existing sell order:
    mostro-cli order fiat-sent --order <order-id>
    ```
 
-6. **Wait for the seller to release.** Check `message list`. When they release, Mostro pays your invoice.
+6. **Wait for the seller to release.** Check `message list`. When they release, Mostro pays your invoice. If that payment fails, `message list` shows "🔁 Payment failed: the node will retry the payment up to N more times, every M seconds"; Mostro retries on its own and asks for a new invoice only if every attempt fails. If it says the node will not retry, send a new invoice with the `order add-invoice` command its "👉 Next:" line names.
 
 7. **Rate the seller:**
 
@@ -773,7 +773,7 @@ mostro-cli --output json schema    # the same data in the standard outcome
 - Amounts and the event time are decimal strings, so 64-bit values survive any JSON consumer. `created_at` is the selected event's UTC time, or `null` if it is not representable.
 - Exit codes: `0` success, `2` invalid arguments or unsupported JSON, `1` configuration, relay or internal errors. `--help` and `--version` always print text and exit 0.
 - The [mostro-cli book](https://mostro.network/mostro-cli-book/) documents each of these commands with its fields, codes and examples, the trade flows and a [guide for AI agents](https://mostro.network/mostro-cli-book/wrapper/ai_agents.html).
-- The generated command reference is [docs/schemas/discovery-v1.json](docs/schemas/discovery-v1.json) and the listing result schema is [docs/schemas/order-list-v1.json](docs/schemas/order-list-v1.json). Field, limit, error and versioning details are in [docs/commands.md](docs/commands.md#machine-output-schema-v1). The output schema version is independent of the CLI version.
+- The generated command reference is [docs/schemas/discovery-v1.json](docs/schemas/discovery-v1.json) and the listing result schema is [docs/schemas/order-list-v1.json](docs/schemas/order-list-v1.json). Field, limit, error and versioning details are in [docs/commands.md](docs/commands.md#machine-output-schema-v1). The output schema version is independent of the CLI version. Two enums of the message records, `next_step` and the payload `kind`, are open within version 1: treat an unknown `next_step` as `null` and a payload of an unknown `kind` as opaque (see the versioning rule in docs/commands.md).
 
 **Migrating from `listorders`.** `listorders`, its `-k`, `-c` and `-s` flags and the root `--mostropubkey` spelling were removed without aliases. Use `order list --side <buy|sell> --currency <code> --status <status>` and `--mostro-pubkey` (or `-m`) before the command word.
 

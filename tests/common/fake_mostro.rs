@@ -1144,6 +1144,23 @@ pub fn mail_fiat_sent_ok(order: Uuid, other: PublicKey) -> Message {
     )
 }
 
+/// `payment-failed`: the node could not pay the buyer and will try `attempts`
+/// more times, every `interval` seconds.
+pub fn mail_payment_failed(order: Uuid, attempts: u32, interval: u32) -> Message {
+    Message::new_order(
+        Some(order),
+        None,
+        None,
+        Action::PaymentFailed,
+        Some(Payload::PaymentFailed(
+            mostro_core::prelude::PaymentFailedInfo {
+                payment_attempts: attempts,
+                payment_retries_interval: interval,
+            },
+        )),
+    )
+}
+
 /// A message with a free-text payload.
 pub fn mail_text(order: Uuid, text: &str) -> Message {
     Message::new_order(
