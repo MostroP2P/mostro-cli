@@ -24,7 +24,8 @@ one is left untouched (`configuration_invalid` plus the hint). Otherwise the dat
 `config set` calls made at once all land, the file is read again and rewritten atomically as `NAME=value` lines in fixed order, keeping
 the other keys' values and dropping comments, `export`, quotes, a byte order mark and repeated lines: a stale `.config.<pid>.tmp` of this
 process id is removed, a temporary owner-only (0600) file is written through its handle, synced and renamed over `config` (a symlinked
-`config` becomes a regular file), then the directory is synced (Unix, best effort). Data: `ConfigData` after the write.
+`config` becomes a regular file), then the directory is synced (Unix, best effort). The owner-only modes are Unix only: on Windows the
+directory, the lock and the file get no permissions of their own and keep the ACLs they inherit. Data: `ConfigData` after the write.
 Stages: `not_applicable`, `not_applicable`, persistence `applied`. Errors: `invalid_arguments`, `configuration_invalid`,
 `configuration_unwritable` (a proposed new code, awaiting approval), `internal_error`.
 

@@ -150,10 +150,11 @@ pub enum WriteError {
 /// Set `setting` to `value` (trimmed) in the config file of `dir`, keeping
 /// the other settings, and return the file written. The file is read strictly
 /// before anything is created, so a refused one is left as it is; then the
-/// directory is created one level deep or made owner-only (0700 on Unix) and
-/// the file is read again and rewritten while an exclusive lock on
-/// `.config.lock` (owner-only, never removed, never a symlink on Unix) is held,
-/// so updates made at once by several processes or threads all land.
+/// directory is created one level deep if missing and, on Unix, made
+/// owner-only (0700); then the file is read again and rewritten while an
+/// exclusive lock on `.config.lock` (never removed; owner-only and never a
+/// symlink on Unix) is held, so updates made at once by several processes or
+/// threads all land.
 pub fn update_config(dir: &Path, setting: Setting, value: &str) -> Result<ConfigFile, WriteError> {
     let value = value.trim();
     if !setting.accepts(value) {
@@ -182,9 +183,10 @@ fn lock(dir: &Path) -> io::Result<File> {
 }
 
 /// Replace the config file of the existing directory `dir` with `file`,
-/// atomically: a stale temporary of this process id is removed, a new owner-only
-/// (0600) one is written through its handle, synced and renamed over `config`
-/// (replacing a symlink, not its target), then `dir` is synced (Unix, best effort).
+/// atomically: a stale temporary of this process id is removed, a new one
+/// (owner-only, 0600, on Unix) is written through its handle, synced and
+/// renamed over `config` (replacing a symlink, not its target), then `dir` is
+/// synced (Unix, best effort).
 fn write_config(dir: &Path, file: &ConfigFile) -> Result<(), WriteError> {
     let temporary = dir.join(format!(".{CONFIG_FILE}.{}.tmp", process::id()));
     match fs::remove_file(&temporary) {

@@ -99,8 +99,9 @@ fn names(dir: &Path) -> Vec<String> {
     names
 }
 
-/// A data directory that does not exist yet becomes owner-only, the file too,
-/// and it holds only the file and its lock: no store, no temporary file.
+/// A data directory that does not exist yet is created holding only the file
+/// and its lock (no store, no temporary file); on Unix both the directory and
+/// the file are owner-only.
 #[tokio::test]
 async fn config_set_creates_an_owner_only_file() {
     let sandbox = Sandbox::new().unwrap();

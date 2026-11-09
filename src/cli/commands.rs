@@ -319,9 +319,9 @@ pub enum IdentityCommands {
 #[clap(rename_all = "lower")]
 pub enum ConfigCommands {
     /// Write one node setting to the config file, keeping the others: the
-    /// data directory is created or made owner-only and the file is rewritten
-    /// owner-only as NAME=value lines (comments are dropped). A file the
-    /// commands refuse is left untouched
+    /// data directory is created if missing and the file is rewritten as
+    /// NAME=value lines (comments are dropped); on Unix both are made
+    /// owner-only. A file the commands refuse is left untouched
     Set(ConfigSetArgs),
     /// Report the config file's path and the node settings stored in it
     /// (not set when absent), read-only; options and environment variables
