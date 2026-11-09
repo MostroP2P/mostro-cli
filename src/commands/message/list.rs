@@ -1,14 +1,16 @@
 //! `message.list`: read the messages the node sent to the user's trade keys.
 //!
 //! A pure read: the keys come from the identity in the store (opened without
-//! writing), one bounded relay read follows, and each message the node signed
-//! becomes a typed record. Nothing is written, printed or retried, and a repeated
-//! call returns the same messages.
+//! writing) and the user's side in each order from its rows, one bounded relay
+//! read follows, and each message the node signed becomes a typed record.
+//! Nothing is written, printed or retried, and a repeated call returns the
+//! same messages.
 
 use chrono::{DateTime, Utc};
 use nostr_sdk::prelude::{Keys, Timestamp};
 use uuid::Uuid;
 
+use super::roles::Roles;
 use crate::msg::inbox::{read_inbox, Mail};
 use crate::msg::{PublicReadConfig, ReadLimits};
 use crate::outcome::messages::{MessageListData, MessageListInput, MessageRecord, MAX_KEYS};
@@ -36,6 +38,10 @@ pub async fn message_list(
     if keys_not_read > 0 {
         warnings.add(WarningCode::TradeKeysLimited);
     }
+    let roles = match Roles::load(store).await {
+        Ok(roles) => roles,
+        Err(error) => return failed(store_code(error), warnings, None),
+    };
     let seconds = u64::try_from(now.timestamp()).unwrap_or(0);
     let since = Timestamp::from(seconds.saturating_sub(input.since_minutes() as u64 * 60));
     let inbox = match read_inbox(config, &keys, since, Timestamp::from(seconds), limits).await {
@@ -50,7 +56,7 @@ pub async fn message_list(
     let messages: Vec<MessageRecord> = inbox
         .mail
         .iter()
-        .map(|mail| record(mail, &mut warnings))
+        .map(|mail| record(mail, &roles, &mut warnings))
         .collect();
     let data = MessageListData::new(
         &node,
@@ -67,14 +73,17 @@ pub async fn message_list(
     )
 }
 
-/// The record of one message of the node, as `message list` returns it.
-pub(crate) fn record(mail: &Mail, warnings: &mut Warnings) -> MessageRecord {
+/// The record of one message of the node, as `message list` returns it,
+/// with the user's side in its order from `roles`.
+pub(crate) fn record(mail: &Mail, roles: &Roles, warnings: &mut Warnings) -> MessageRecord {
+    let order = mail.message.get_inner_message_kind().id;
     MessageRecord::from_message(
         &mail.event,
         mail.created_at,
         &mail.message,
         mail.index,
         &mail.key,
+        roles.of(order, &mail.key),
         warnings,
     )
 }

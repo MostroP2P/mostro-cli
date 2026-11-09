@@ -5253,3 +5253,47 @@ Fixtures regenerated with the `REGENERATE` command; `git diff --stat docs/schema
   `cargo test --locked` 1117 passed, 0 failed, 0 ignored (1112 at the base; +2 library, +2 `message_list_process`, +1
   `order_watch_process`); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Next Steps (spec 021) Unit 3: release: 2026-11-09
+
+Branch `feat/release-step` from `feat/fiat-sent-and-rate-steps` (f869c28), the last of three units of #243. User-visible: a record of
+`fiat-sent-ok` has `next_step` `release` when the local order row says the user is the seller (`orders.kind` and `orders.is_mine`), the
+message went to the key stored for that order and it answers no request; the human Next line is `` once the fiat is in your account:
+`order release --order <id>` ``. `message list` and `order watch` read the rows once (`commands/message/roles.rs::Roles`) before any
+relay is contacted; rows that cannot be read are `store_unreadable`. `TradeRole` moves to `outcome/messages/next_step.rs`, and
+`MessageRecord::from_message` gains `role: Option<TradeRole>` (seven parameters, within clippy's limit). Fixtures regenerated with the
+`REGENERATE` commands; `git diff --stat docs/schemas` lists only `discovery-v1.json`, `message-list-v1.json` and `order-watch-v1.json`.
+
+- **Failing first**: with stubs that added `NextStep::Release` (never returned, an empty Next line) and a `Roles` that read no row,
+  `cargo test --locked --no-fail-fast`: 9 behaviour tests failed (`the_actions_that_ask_something_have_a_next_step`,
+  `a_role_needs_the_kind_the_maker_flag_and_the_same_key`, `the_steps_of_a_trade_name_their_command_with_the_order_id`,
+  `next_step_examples_are_reproduced_by_the_owned_constructors`, `the_seller_is_asked_to_release_and_the_buyer_is_not`,
+  `human_names_the_release_command_with_the_order_id`, `without_its_order_rows_the_store_is_unreadable_and_no_relay_is_asked`,
+  `a_sellers_watch_reports_release_and_a_buyers_does_not`, and `admin_settled_ends_the_seller_but_not_the_buyer`, because the stub
+  also hid the watch's own side), plus the three fixture drift tests, because the stub already added the enum value. With the change
+  all passed.
+- **Tests** (7 new): `next_step.rs` (the table over no side, buyer and seller, each with and without a request id: `release` only for
+  the seller with none; `the_side_follows_the_order_kind_and_who_made_it`, moved from `messages.rs`); `roles.rs`
+  `a_role_needs_the_kind_the_maker_flag_and_the_same_key` (NULL `is_mine`, an unknown kind, no key, another key, no row and a bad id
+  give no side); the release line in `the_steps_of_a_trade_name_their_command_with_the_order_id`; in-process `message_list` on scripted
+  mailboxes: `the_seller_is_asked_to_release_and_the_buyer_is_not` (sell and buy rows saved as maker and taker with `save_order_as`;
+  both copies once with no request id, so the stored side alone keeps the buyer out, and the buyer's copy once with one),
+  `an_order_with_no_known_side_is_never_asked_to_release` (no row, `is_mine` set to NULL with SQL, another key) and
+  `a_legacy_row_that_calls_the_buyer_its_maker_gets_no_release`; the real binary: `human_names_the_release_command_with_the_order_id`
+  and `without_its_order_rows_the_store_is_unreadable_and_no_relay_is_asked` (orders table dropped; in-process, JSON checked against
+  `docs/schemas/message-list-v1.json`, and human exit 1, with a relay address nobody listens on and no snapshot, so no relay was
+  asked); `a_sellers_watch_reports_release_and_a_buyers_does_not` (`order watch` JSON on a loopback relay); the
+  `the_seller_is_asked_to_release` example.
+- **Evidence labels**: automated verification against the scripted node's mailbox and loopback relays; that the node sends
+  `fiat-sent-ok` to both sides, the seller's copy with no request id and the buyer's with the buyer's `fiat-sent` request id, is read
+  from the mostrod v0.20.2 source only.
+- **Manual observation**: none. The regtest probe with two identities that would record the request ids of both `fiat-sent-ok`
+  copies was not run: this unit used no node, regtest stack or relay outside the tests.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1124 passed, 0 failed, 0 ignored (1117 at the base; +1 library, +5 `message_list_process`, +1
+  `order_watch_process`); `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; no manual run of the binary. The book update is its own PR.
+
+## Stacks 245, 246 and 243 merged: 2026-11-09
+
+After merging specs 019, 020 and 021 into `main`, `cargo test --locked -- --list` lists 1189 tests: 838 in 25 targets, 345 library unit tests and 6 doctests. `tests/README.md` recounted; its per-module breakdowns of `message_list_process.rs` are as of the last unit that updated them.

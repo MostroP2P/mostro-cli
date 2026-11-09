@@ -122,6 +122,7 @@ mod tests {
             &message,
             Some(2),
             &trade,
+            None,
             &mut Warnings::new(),
         )
     }

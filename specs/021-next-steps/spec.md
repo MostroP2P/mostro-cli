@@ -6,16 +6,16 @@
 
 **Created**: 2026-11-09
 
-**Status**: Partly implemented. Unit 1 (FR-004, FR-005 for the existing steps and the retry line, FR-006, FR-009) and unit 2 (FR-001,
-FR-003, FR-005 for their lines, FR-008 for `fiat_sent`, `rate` and the `order watch` end) are implemented and verified on Linux against
-the scripted node and loopback relays only (see `tests/TEST_SUMMARY.md`). FR-002, FR-007 and the `release` part of FR-008 are proposed
-(unit 3). Progress is tracked only in [tasks.md](tasks.md).
+**Status**: Implemented. Unit 1 (FR-004, FR-005 for the existing steps and the retry line, FR-006, FR-009), unit 2 (FR-001, FR-003,
+FR-005 for their lines, FR-008 for `fiat_sent`, `rate` and the `order watch` end) and unit 3 (FR-002, FR-005 for the release line,
+FR-007, FR-008 for `release`) are verified on Linux against the scripted node and loopback relays only (see `tests/TEST_SUMMARY.md`).
+The regtest probe of SC-003 was not run, so the node table stays source reading only. Progress is tracked only in [tasks.md](tasks.md).
 
 **Input**: issue #243. A `message list` record names a `next_step` for four actions only, so an agent following a trade must know the
 rest of the protocol to send the fiat, release or rate. A failed payout arrived as `{"kind":"other","variant":"payment_failed"}`, without
 its retry count. The human "👉 Next:" lines printed `<id>` instead of the order id the record carries.
 
-Node behaviour, read from the mostrod v0.20.2 source only (not observed on a node; unit 3 adds a regtest probe):
+Node behaviour, read from the mostrod v0.20.2 source only (not observed on a node; the regtest probe of SC-003 was not run):
 
 | Action | Recipient | Request id | Payload |
 | --- | --- | --- | --- |

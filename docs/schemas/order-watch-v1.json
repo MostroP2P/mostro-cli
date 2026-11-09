@@ -445,6 +445,11 @@
           "type": "string"
         },
         {
+          "const": "release",
+          "description": "Check that the fiat is in the account, then `order release`. Only on\nthe seller's copy of `fiat-sent-ok`, when the local order row says the\nuser is the seller; act only while the order is `fiat-sent`.",
+          "type": "string"
+        },
+        {
           "const": "rate",
           "description": "Rate the counterparty: `order rate`. Sent to both sides when the trade\nis over.",
           "type": "string"

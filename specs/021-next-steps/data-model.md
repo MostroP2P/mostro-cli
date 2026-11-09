@@ -11,7 +11,7 @@ Extends [spec 006](../006-message-list-json/data-model.md). Envelope, stages and
 | `pay_hold_invoice` | `pay-invoice` | spec 006 |
 | `add_bond_invoice` | `add-bond-invoice` | spec 015 |
 | `fiat_sent` | `hold-invoice-payment-accepted` (buyer only) | unit 2 |
-| `release` | the seller's `fiat-sent-ok` (stored seller row, same key, no request id) | unit 3 (proposed) |
+| `release` | the seller's `fiat-sent-ok` (stored seller row, same key, no request id) | unit 3 |
 | `rate` | `rate` (both sides, after the end of a completed trade) | unit 2 |
 
 Every other message is `null`. The enum is open within v1: a consumer reads an unknown value as `null`.
@@ -29,7 +29,7 @@ as `{"kind":"other","variant":"payment_failed"}`; the change comes after 0.17.0 
 buyer invoice: on the first failed payout to it, and again after a replacement invoice resets the count, never updated in between. The payload kind is open within v1: a consumer reads only the `kind` of a kind it does not
 know, and the `variant` of `other` is informative only.
 
-## The user's side (unit 3, proposed)
+## The user's side (unit 3)
 
 | `orders.kind` | `orders.is_mine` | Side |
 | --- | --- | --- |

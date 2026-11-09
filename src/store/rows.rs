@@ -1,6 +1,6 @@
-//! The order rows of the store, read-only, for `order mine` and `order watch`.
-//! The trade key's secret never leaves this module: a row carries the public
-//! key only.
+//! The order rows of the store, read-only, for `order mine`, `order watch` and
+//! the user's side in message records. The trade key's secret never leaves
+//! this module: a row carries the public key only.
 
 use nostr_sdk::prelude::{Keys, PublicKey};
 

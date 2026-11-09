@@ -629,7 +629,7 @@ const QUIET: Duration = Duration::from_millis(500);
 mod operation {
     use super::*;
     use chrono::Utc;
-    use fake_mostro::{mail_trade_keys, seed_identity, Traded};
+    use fake_mostro::{mail_fiat_sent_ok, mail_trade_keys, seed_identity, Traded};
     use harness::Sandbox;
     use mostro_client::commands::order::watch::{order_watch, Follow, Watched};
     use mostro_client::outcome::messages::NextStep;
@@ -871,6 +871,29 @@ mod operation {
         assert_eq!(result(&second), ("ok", None, NOTHING));
         assert_eq!(event_ids(&second["data"]), [sibling.id.to_hex()]);
         assert!(chat_texts(&second["data"]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_sellers_watch_reports_release_and_a_buyers_does_not() {
+        for (role, asked) in [(Role::Maker, json!("release")), (Role::Taker, Value::Null)] {
+            let (chat, node) = (Chat::new(), Keys::generate());
+            let peer = chat.them.public_key();
+            let copy = node_event(
+                &node,
+                chat.trade.public_key(),
+                &mail_fiat_sent_ok(ORDER, peer),
+                Timestamp::from(now() - 60),
+            )
+            .await;
+            let desk = Desk::with(role, true, chat, node, &[&copy]).await;
+
+            let outcome = desk.json(None, 2).await;
+
+            assert_eq!(result(&outcome), ("ok", None, NOTHING));
+            let message = &outcome["data"]["messages"][0];
+            assert_eq!(message["action"], "fiat-sent-ok");
+            assert_eq!(message["next_step"], asked, "{role:?}");
+        }
     }
 
     #[tokio::test]

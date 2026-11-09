@@ -10,7 +10,7 @@
 
 use std::fmt;
 
-use mostro_core::prelude::{Action, Kind, Message};
+use mostro_core::prelude::{Action, Message};
 use nostr_sdk::prelude::{EventId, PublicKey};
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::Serialize;
@@ -19,7 +19,7 @@ use uuid::Uuid;
 mod next_step;
 mod payload;
 
-pub use next_step::NextStep;
+pub use next_step::{NextStep, TradeRole};
 pub use payload::MessagePayload;
 pub(crate) use payload::{bounded, TEXT_BYTES};
 
@@ -93,25 +93,6 @@ impl MessageListInput {
     }
 }
 
-/// The user's side of a trade.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TradeRole {
-    Buyer,
-    Seller,
-}
-
-impl TradeRole {
-    /// The user's side in an order of `kind` that the user made (`made`) or
-    /// took. The local row records both (`kind`, `is_mine`); rows written by
-    /// 0.16.3 and earlier say "made" for every order.
-    pub fn of_order(kind: Kind, made: bool) -> Self {
-        match (kind, made) {
-            (Kind::Sell, true) | (Kind::Buy, false) => Self::Seller,
-            (Kind::Sell, false) | (Kind::Buy, true) => Self::Buyer,
-        }
-    }
-}
-
 /// One message of the node to one of the user's trade keys.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct MessageRecord {
@@ -146,6 +127,8 @@ fn action_schema(_: &mut SchemaGenerator) -> Schema {
 impl MessageRecord {
     /// Summarize `message`, which was addressed to `trade` (index `trade_index`
     /// when known) and published at `created_at` seconds as event `event`.
+    /// `role` is the user's side in the message's order, from the local row;
+    /// `None` when it is not known.
     /// A time outside four-digit UTC years adds the aggregate
     /// `invalid_event_timestamp` warning and leaves the RFC 3339 field null.
     pub fn from_message(
@@ -154,6 +137,7 @@ impl MessageRecord {
         message: &Message,
         trade_index: Option<i64>,
         trade: &PublicKey,
+        role: Option<TradeRole>,
         warnings: &mut Warnings,
     ) -> Self {
         let kind = message.get_inner_message_kind();
@@ -169,7 +153,7 @@ impl MessageRecord {
             order_id: kind.id.map(|id| id.to_string()),
             request_id: kind.request_id.map(|id| id.to_string()),
             action: wire_action(&kind.action),
-            next_step: NextStep::of(kind),
+            next_step: NextStep::of(kind, role),
             trade_index: trade_index.map(|index| index.to_string()),
             trade_pubkey: trade.to_hex(),
             payload: summarize(kind.id, kind.payload.as_ref(), warnings),
@@ -352,7 +336,7 @@ mod tests {
         let event = EventId::from_byte_array([7; 32]);
         let trade = Keys::generate().public_key();
         let record =
-            MessageRecord::from_message(&event, AT, message, Some(3), &trade, &mut warnings);
+            MessageRecord::from_message(&event, AT, message, Some(3), &trade, None, &mut warnings);
         (record, warnings)
     }
 
@@ -562,6 +546,7 @@ mod tests {
             &message(Action::WaitingSellerToPay, Some(id(1)), None),
             None,
             &Keys::generate().public_key(),
+            None,
             &mut warnings,
         );
         assert_eq!(record.created_at(), None);
@@ -748,13 +733,5 @@ mod tests {
             edit(&mut outcome);
             assert!(!conforms(&schema, &schema, &outcome), "accepted: {label}");
         }
-    }
-
-    #[test]
-    fn trade_role_of_order_maps_all_four_pairs() {
-        assert_eq!(TradeRole::of_order(Kind::Sell, true), TradeRole::Seller);
-        assert_eq!(TradeRole::of_order(Kind::Buy, false), TradeRole::Seller);
-        assert_eq!(TradeRole::of_order(Kind::Sell, false), TradeRole::Buyer);
-        assert_eq!(TradeRole::of_order(Kind::Buy, true), TradeRole::Buyer);
     }
 }

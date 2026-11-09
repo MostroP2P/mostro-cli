@@ -88,6 +88,9 @@ fn next_step(step: NextStep, order: Option<&str>) -> String {
             "send an invoice for your share: `bond add-invoice --order {id} --invoice <bolt11>`"
         ),
         NextStep::FiatSent => format!("send the fiat, then: `order fiat-sent --order {id}`"),
+        NextStep::Release => {
+            format!("once the fiat is in your account: `order release --order {id}`")
+        }
         NextStep::Rate => {
             format!("rate your counterparty: `order rate --order {id} --rating <1-5>`")
         }
@@ -193,7 +196,7 @@ fn order_lines(out: &mut String, order: &OrderRecord) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::outcome::messages::MessageListInput;
+    use crate::outcome::messages::{MessageListInput, TradeRole};
     use crate::outcome::Warnings;
     use mostro_core::order::{Kind, SmallOrder, Status};
     use mostro_core::prelude::{Action, CantDoReason, Message, Payload, PaymentFailedInfo};
@@ -234,6 +237,28 @@ mod tests {
             &message,
             Some(3),
             &Keys::generate().public_key(),
+            None,
+            &mut Warnings::new(),
+        )
+    }
+
+    /// The seller's copy of `fiat-sent-ok`: no request id, and the store says
+    /// the user is the seller.
+    fn sellers_fiat_sent_ok() -> MessageRecord {
+        let message = Message::new_order(
+            Some(Uuid::from_u128(1)),
+            None,
+            None,
+            Action::FiatSentOk,
+            None,
+        );
+        MessageRecord::from_message(
+            &EventId::from_byte_array([8; 32]),
+            AT,
+            &message,
+            Some(3),
+            &Keys::generate().public_key(),
+            Some(TradeRole::Seller),
             &mut Warnings::new(),
         )
     }
@@ -320,6 +345,7 @@ mod tests {
             vec![
                 record(Action::HoldInvoicePaymentAccepted, None),
                 record(Action::FiatSentOk, None),
+                sellers_fiat_sent_ok(),
                 record(Action::Rate, None),
             ],
             false,
@@ -337,10 +363,16 @@ mod tests {
             ),
             "{text}"
         );
+        assert!(
+            text.contains(
+                "👉 Next: once the fiat is in your account: `order release --order 00000000-0000-0000-0000-000000000001`\n"
+            ),
+            "{text}"
+        );
         assert_eq!(
             text.matches("Next:").count(),
-            2,
-            "fiat-sent-ok asks nothing: {text}"
+            3,
+            "only the seller's fiat-sent-ok asks: {text}"
         );
     }
 

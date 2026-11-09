@@ -405,8 +405,15 @@ mod tests {
         let trade = Keys::generate().public_key();
         let peer = Keys::generate().public_key();
         let message = Message::new_order(Some(ORDER), None, None, Action::PurchaseCompleted, None);
-        let record =
-            MessageRecord::from_message(&id(1), NOW, &message, Some(3), &trade, &mut warnings);
+        let record = MessageRecord::from_message(
+            &id(1),
+            NOW,
+            &message,
+            Some(3),
+            &trade,
+            None,
+            &mut warnings,
+        );
         let line = ChatRecord::new(&id(2), ChatSender::Counterparty, NOW, "paid", &mut warnings);
         let start = Cursor::start(NOW - 1_800);
         let seen = [Observed::mail(id(1), NOW), Observed::chat(id(2), NOW, NOW)];
