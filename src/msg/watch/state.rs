@@ -744,7 +744,9 @@ mod tests {
             state.expire(start + Duration::from_secs(15)).unwrap();
         };
         let ended = |state: &mut State, _| state.lost().unwrap();
+        let refused = |state: &mut State, _| state.closed(0, &sub("a")).unwrap();
         assert!(cut(&away, 50), "a second disconnect");
+        assert!(cut(&refused, 50), "a CLOSED");
         assert!(cut(&slow, 50), "the fifteen seconds");
         assert!(cut(&ended, 50), "the notifications");
         assert!(!cut(&away, 49), "short of the relay's limit");
