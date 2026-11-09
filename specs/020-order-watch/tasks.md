@@ -20,7 +20,7 @@ public node.
   `msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv` and `inbox::mail_filter` (shared with `read_inbox`); a live CLOSED or disconnect
   drops that subscription or relay until unit 3. The review fixes (every stored event counts toward `truncated`, one held entry per
   record, the chat window on the envelope's time) reached about 1,610 lines, so the fallback applied: `follow_chat`, its tests and the
-  live-disconnect process test moved to unit 3. Production lines 338 (`msg/watch.rs`) and 379 (`msg/watch/state.rs`).
+  live CLOSED-or-disconnect process test moved to unit 3. Production lines 338 (`msg/watch.rs`) and 379 (`msg/watch/state.rs`).
 - [ ] **3. Reconnects.** Failing tests first (the reconnect tests fail on unit 2), then `Session::live`, the dropped subscriptions sent
   again on Connected, the reconnect as a replay start, `Backend::Kickable` in the test harness. Moved from unit 2: `follow_chat(peer)`
   (the chat REQs on every relay, waiting for their replays), which skips a relay that went away (a test drops one first and expects no
