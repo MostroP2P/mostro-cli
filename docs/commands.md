@@ -10,7 +10,7 @@ These flags apply to every subcommand (parsed on the top-level `Cli`; each also
 settable via the matching env var, and `-m`, `-r`, `-p` and `-t` also through the config file, see
 [Where the settings come from](#where-the-settings-come-from)):
 
-- `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`, `identity init`, `identity show`, `order mine` and `config set`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
+- `-m, --mostro-pubkey <NPUB|HEX>` (`MOSTRO_PUBKEY`): the Mostro node to talk to. Required for every command except `schema`, `identity init`, `identity show`, `order mine`, `config set` and `config show`. The old spelling `--mostropubkey` was removed without an alias; scripts must switch.
 - `-r, --relays <CSV>` (`RELAYS`): comma-separated relay URLs.
 - `-p, --pow <BITS>` (`POW`): the least NIP-13 proof of work mined on outgoing events, default 0. The commands that go
   through `msg::exchange` (the JSON-capable writes and `order info`) raise it to what the node advertises for the
@@ -32,7 +32,7 @@ settable via the matching env var, and `-m`, `-r`, `-p` and `-t` also through th
 - `--output <human|json>`: output format, accepted before, between or after
   command words (`--output json` and `--output=json`; case-sensitive, default
   `human` whatever the terminal, no environment variable). Only `order list`,
-  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `config set` support `json`; on any other command it prints one JSON error outcome
+  `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show` support `json`; on any other command it prints one JSON error outcome
   (`output_not_supported`, or `invalid_arguments` for bad arguments) on stdout
   and exits 2 before anything runs. The outcome's `command` is the canonical
   name from the [command registry](../specs/001-order-list-json/contracts/cli.md#canonical-command-names),
@@ -48,7 +48,8 @@ such as `error: unexpected argument found`, without echoing the arguments given.
 Spec 018 ([contract](../specs/018-config-file/contracts/cli.md)). Each node setting, `MOSTRO_PUBKEY`, `RELAYS`, `POW` and `TRANSPORT`,
 comes from its root option (`-m`, `-r`, `-p`, `-t`), even empty; else from its environment variable when that is set, even empty (a
 value that is not valid UTF-8 counts as empty); else from the config file; else it is missing. An empty value keeps its meaning: an empty key or relay list is `configuration_missing`, an
-empty `POW` is 0, an empty `TRANSPORT` means detect.
+empty `POW` is 0, an empty `TRANSPORT` means detect. [`config set`](#configuration) writes the file and
+[`config show`](#configuration) reports what it holds.
 
 - **Location**: `config` in the data directory: `$MCLI_DIR/config`, else `~/.mcli/config` (on Windows the profile folder, normally
   `%USERPROFILE%\.mcli\config`). Without a data directory there is no file.
@@ -62,11 +63,12 @@ empty `POW` is 0, an empty `TRANSPORT` means detect.
 - **Refusals**: a refused file (another key, a line without `=`, a value refused, not a readable UTF-8 file) fails the command with
   `configuration_invalid` (exit 1) after the command's own argument checks (the `--yes` rule and the `--invoice -` read included) and
   before identity, store or network access, even when the options give every value, and stderr gets one line `hint: <path>: <problem>`
-  naming the line, never its content. An error looking the file up (a data directory that does not exist, that the process may not search
-  or whose path cannot be resolved) means no file, as before the file existed.
+  naming the line, never its content (control characters in the path are escaped, as in human output). An error looking the file up (a
+  data directory that does not exist, that the process may not search or whose path cannot be resolved) means no file, as before the
+  file existed.
 - **When**: read once per run, before identity, store or network access, by the JSON-capable networked commands (every machine command
-  except `schema`, `identity init`, `identity show` and `order mine`, which never read it, and [`config set`](#configuration), which reads
-  it strictly to rewrite it) and by the human-only commands that talk to a
+  except `schema`, `identity init`, `identity show` and `order mine`, which never read it, and `config set` and `config show`, which read
+  it strictly to rewrite or report it) and by the human-only commands that talk to a
   node, right after their options are applied and before `mcli.db` is created or `ADMIN_NSEC` is read; a refused file stops those with
   `Invalid config file <path>: <problem>` on stderr and exit 1. The RPC commands (`admsetmaintenance`, `admmaintenancestatus`,
   `admcancelpending`) never read it. Reading never creates the data directory or any file and never changes the process environment.
@@ -88,7 +90,7 @@ empty `POW` is 0, an empty `TRANSPORT` means detect.
 
 ### Machine output (schema v1)
 
-This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show` and `config set`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
+This applies to `order list`, `schema`, `order info`, `order new`, `order take-sell`, `order take-buy`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`, `dispute open`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set` and `config show`. Other commands print human text only. The errors below are those of the listing; `order info`, `order new`, the takes, the invoice commands and the identity commands add their own codes, listed in their contracts ([info](../specs/002-order-info-json/contracts/cli.md#stable-errors), [new](../specs/003-order-new-json/contracts/cli.md#stable-errors), [take](../specs/004-order-take-json/contracts/cli.md#stable-errors), [invoice](../specs/005-invoice-json/contracts/cli.md#stable-errors), [identity](../specs/009-identity-json/contracts/cli.md#stable-errors)).
 
 - **One document.** With `--output json`, a controlled outcome is exactly one UTF-8 JSON object plus a newline on stdout, with the keys `schema_version`, `command`, `status` (`ok` or `error`), `data`, `error`, `warnings` and `meta`; every key is always present. Diagnostics and `--verbose` output go to stderr and never contain relay URLs, arguments or secrets. No prompt is shown and stdin is never read for an answer; the only read of stdin is the invoice of `--invoice -` (spec 010), which requires `--yes`.
 - **Encodings.** Amounts and the event Unix time are canonical signed 64-bit decimal strings, never JSON numbers (`"0"` for sats means market price; fiat amounts are in the currency's advertised units, not cents). `created_at` is UTC RFC3339 with `Z`, or `null` outside years 0000-9999 (with one `invalid_event_timestamp` warning); `created_at_unix` keeps the exact integer. Range endpoints are `null` when absent. `created_at` is the selected event's time, not the order's creation time.
@@ -326,6 +328,13 @@ This applies to `order list`, `schema`, `order info`, `order new`, `order take-s
   - **Output**: `data` has `path` and `mostro_pubkey`, `relays`, `pow` and `transport` as stored after the write, each a string or null; human mode prints `Config file: <path>` and one `<NAME>: <value>` or `<NAME>: not set` line per setting. Publication and node acceptance are `not_applicable`; persistence is `applied` on success, `not_applicable` for `invalid_arguments`, `not_attempted` for `configuration_invalid` and for `configuration_unwritable` when no data directory can be determined or the directory, lock or temporary file could not be created, and `failed` for `configuration_unwritable` after a failed write or rename. `configuration_unwritable` (exit 1, "The configuration file cannot be written, so nothing was changed.") is emitted by `config set` only; either way the config file is left intact, but the data directory may already have been created or made owner-only (0700), with an empty `.config.lock` in it. The values are ones the commands accept; this is not a secrecy promise (a hex private key can pass the public key check).
   - **Handler**: `commands::config::config_set` through `settings::update_config`; dispatch in `cli/config.rs`; contract in [specs/018-config-file](../specs/018-config-file/contracts/cli.md).
 
+- **`config show`** (new; spec 018)
+  - **Description**: Reports the config file's path and the four values stored in it, read-only. It needs no node, relay, identity, stdin or `--yes`, connects to nothing and creates nothing. Supports `--output json` (`config.show`).
+  - **Args**: none.
+  - **Behavior**: only the file is reported: an option or a set environment variable still wins over a value it shows, and neither is listed. The file is read strictly: one the commands refuse, or one the process cannot reach, is `configuration_invalid` (exit 1) with the `hint:` line, never a set of nulls. Without a file every value is null.
+  - **Output**: `data` as for `config set`: `path` (null when no data directory can be determined or its path is not UTF-8) and the four values as stored, each null when absent; the same human lines, where a null path prints `Config file: unknown (no data directory, or its path is not UTF-8)`. All three stages are `not_applicable`. Errors: `invalid_arguments`, `configuration_invalid`, `internal_error`. The values are ones the commands accept; this is not a secrecy promise.
+  - **Handler**: `commands::config::config_show` through `settings::read_config_strict`; dispatch in `cli/config.rs`.
+
 ### Session & restore
 
 - **`restore`**
@@ -389,7 +398,7 @@ mode) without running anything.
 | `rate -o <UUID> -r <N>`, `rate --orderid <UUID> --rating <N>` (documented as `--order-id`) | `order rate --order <UUID> --rating <N> [--yes]` | JSON `order.rate`, requires `--yes`; `N` outside 1-5 is refused before anything is sent; a second rating gets no answer (`uncertain`) |
 
 Added in the same range, for the notes: `identity init`, `identity show`, `order mine`, `order new --expires-in`, `--invoice -` on the four
-invoice commands, the config file and `config set`. The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
+invoice commands, the config file, `config set` and `config show`. The canonical JSON names `dispute.open` and `order.rate` are unchanged from the registry; only their paths changed.
 
 ---
 
