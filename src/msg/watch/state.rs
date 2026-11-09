@@ -53,8 +53,8 @@ struct Replay {
 
 impl Replay {
     /// The relay sent its limit and the oldest of them was new: older records
-    /// may be missing. A live replay that ends before EOSE (a disconnect, its
-    /// budget or the notifications ending) is judged the same way.
+    /// may be missing. A live replay that ends before EOSE (a CLOSED, a
+    /// disconnect, its budget or the notifications ending) is judged the same way.
     fn cut_short(&self) -> bool {
         let oldest_new = self.oldest.is_some_and(|(_, _, known)| !known);
         self.stored >= PER_RELAY_LIMIT && oldest_new
@@ -284,7 +284,8 @@ impl State {
         if self.relays[relay][at].replay.is_some() {
             self.strictly(ErrorCode::RelayReadFailed)?;
         }
-        self.relays[relay].remove(at);
+        let sub = self.relays[relay].remove(at);
+        self.truncated |= sub.replay.is_some_and(|r| r.cut_short());
         Ok(())
     }
 
