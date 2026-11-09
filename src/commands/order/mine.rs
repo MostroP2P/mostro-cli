@@ -147,6 +147,7 @@ mod tests {
                 status: "pending".to_string(),
                 trade_pubkey: Some(keys.public_key()),
                 created_at: Some(index),
+                is_mine: Some(true),
             });
         }
     }
@@ -196,6 +197,7 @@ mod tests {
             status: "pending".to_string(),
             trade_pubkey: key,
             created_at: Some(created),
+            is_mine: Some(true),
         };
         let source = Fixed {
             keys: vec![(1, known.clone())],

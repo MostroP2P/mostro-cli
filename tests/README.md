@@ -506,3 +506,12 @@ the relay gets exactly one chat REQ on reconnect (four REQs in all); 51 mail eve
 outage come back as 50 with `truncated`) and `msg::watch::state` (11 with the reconnect replay, a live replay of 50 cut before EOSE or by a CLOSED, and the dropped feeds). The harness
 `Backend::Kickable(relay, notify)` serves like `Backend::Relay`; `LoopbackRelay::kick` ends every open session and keeps the port
 listening, so the client reconnects to the same URL.
+
+Order watch unit 4 (2026-11-09): `tests/order_watch_process.rs` `mod operation` (10, `order_watch` against an isolated store and one
+loopback relay: a JSON call returns the replay with a cursor and the next call with it returns only a record published while it waits,
+stamped in the same second as the newest; a chat line from a clock 30 s behind and a node message stamped before a future-dated chat
+line are not lost; a counterparty that a live node message names brings its chat replay into the same document and is not saved; the
+end of the trade (`purchase-completed`, an end already in the replay, `canceled` for another order not counting) and `admin-settled`
+ending the seller's watch but not the buyer's; an empty success at the deadline in both modes and a sink that cannot write; store
+failures before any relay; a lookup failure's code; a frozen store that still watches, warning-free, and conforms to the generated
+schema) and `parse_human::watch` (4).

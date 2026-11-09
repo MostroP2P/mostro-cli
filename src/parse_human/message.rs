@@ -46,7 +46,7 @@ pub fn render_messages(data: &MessageListData) -> String {
     out
 }
 
-fn block(out: &mut String, number: usize, message: &MessageRecord) {
+pub(crate) fn block(out: &mut String, number: usize, message: &MessageRecord) {
     let _ = writeln!(out, "📄 Message {number}:\n{THIN_RULE}");
     match message.created_at() {
         Some(at) => {

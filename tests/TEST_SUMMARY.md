@@ -5084,3 +5084,24 @@ reconnect replay in `msg/watch/state.rs`, `Backend::Kickable` in the test harnes
   `cargo test --locked` 1079 passed, 0 failed, 0 ignored (1071 at the base; +3 unit, +5 process; 17 doctests among them);
   `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.
+
+## Order Watch (spec 020) Unit 4: The Operation And The Human Renderer: 2026-11-09
+
+Branch `feat/order-watch-operation` from `feat/order-watch-reconnect` (710e184), the fourth of seven units of #246. Library only
+(`commands/order/watch.rs`, `parse_human/watch.rs`, `order_key` extracted unchanged from `message list`, `StoredOrder.is_mine`); no
+command reaches the operation yet, nothing is user-visible and no fixture changes.
+
+- **Failing first**: `cargo test --locked --test order_watch_process --no-run` did not compile (`mostro_client::commands::order::watch`
+  unresolved). `cargo test --locked --lib parse_human::watch` ran against stubs and failed 4 of 4; with the renderer in place it passed.
+- **Tests** (14): `mod operation` (10; see [README.md](README.md)) and `parse_human::watch` (4: the first update names the order, the
+  window start and the counterparty or its absence; node messages and chat render in their own blocks, a forged line, bidirectional
+  controls, ESC and U+2028 in chat escaped and indented; the learned counterparty and truncation announced; the end and deadline lines).
+  Existing `message list` and `order mine` tests stay green after the `order_key` extraction and `is_mine`. The process file's 20 tests
+  passed five runs in a row. `source_boundaries` passes; production sizes 264 (`commands/order/watch.rs`) and 96
+  (`parse_human/watch.rs`).
+- **Departure recorded in tasks.md**: no `counterparty_not_saved` exists on this base (D11), so the frozen-store test asserts a
+  warning-free, conforming outcome instead.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1093 passed, 0 failed, 0 ignored (1079 at the base; +4 unit, +10 process); `cargo build --locked`;
+  `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.

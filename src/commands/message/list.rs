@@ -6,7 +6,8 @@
 //! call returns the same messages.
 
 use chrono::{DateTime, Utc};
-use nostr_sdk::prelude::Timestamp;
+use nostr_sdk::prelude::{Keys, Timestamp};
+use uuid::Uuid;
 
 use crate::msg::inbox::{read_inbox, Mail};
 use crate::msg::{PublicReadConfig, ReadLimits};
@@ -66,7 +67,8 @@ pub async fn message_list(
     )
 }
 
-fn record(mail: &Mail, warnings: &mut Warnings) -> MessageRecord {
+/// The record of one message of the node, as `message list` returns it.
+pub(crate) fn record(mail: &Mail, warnings: &mut Warnings) -> MessageRecord {
     MessageRecord::from_message(
         &mail.event,
         mail.created_at,
@@ -82,9 +84,9 @@ fn record(mail: &Mail, warnings: &mut Warnings) -> MessageRecord {
 async fn keys_for(
     input: &MessageListInput,
     store: &Store,
-) -> Result<(Vec<(Option<i64>, nostr_sdk::prelude::Keys)>, usize), ErrorCode> {
-    let derived = store.trade_keys(MAX_KEYS).await.map_err(store_code)?;
+) -> Result<(Vec<(Option<i64>, Keys)>, usize), ErrorCode> {
     let Some(order) = input.order() else {
+        let derived = store.trade_keys(MAX_KEYS).await.map_err(store_code)?;
         let not_read = derived.not_read;
         let keys = derived
             .keys
@@ -93,6 +95,17 @@ async fn keys_for(
             .collect();
         return Ok((keys, not_read));
     };
+    let (index, stored) = order_key(store, order).await?;
+    Ok((vec![(index, stored)], 0))
+}
+
+/// The trade key stored for `order`, with its index when it is among the
+/// newest [`MAX_KEYS`] derived keys: `order_unknown` without a row.
+pub(crate) async fn order_key(
+    store: &Store,
+    order: Uuid,
+) -> Result<(Option<i64>, Keys), ErrorCode> {
+    let derived = store.trade_keys(MAX_KEYS).await.map_err(store_code)?;
     let stored = match store.order_keys(order).await {
         Ok(Some(keys)) => keys,
         Ok(None) => return Err(ErrorCode::OrderUnknown),
@@ -103,10 +116,10 @@ async fn keys_for(
         .iter()
         .find(|(_, key)| key.public_key() == stored.public_key())
         .map(|(index, _)| *index);
-    Ok((vec![(index, stored)], 0))
+    Ok((index, stored))
 }
 
-fn store_code(error: StoreError) -> ErrorCode {
+pub(crate) fn store_code(error: StoreError) -> ErrorCode {
     match error {
         StoreError::Missing => ErrorCode::IdentityMissing,
         StoreError::Unwritable | StoreError::Unreadable => ErrorCode::StoreUnreadable,
