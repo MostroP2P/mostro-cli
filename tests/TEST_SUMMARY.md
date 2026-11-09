@@ -4835,3 +4835,31 @@ only (`msg/watch.rs`, `msg/watch/state.rs`, `Armed::recv`, `inbox::mail_filter`)
   `cargo test --locked` 1071 passed, 0 failed, 0 ignored (1058 at the base; +8 unit, +5 process); `cargo build --locked`;
   `cargo +1.94.0 check --locked --all-targets --all-features`.
 - **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.
+
+## Order Watch (spec 020) Unit 3: Reconnects: 2026-11-09
+
+Branch `feat/order-watch-reconnect` from `feat/order-watch-subscription` (da350ad), the third of seven units of #246. Library transport
+only (`Session::live` and `Session::open` in `msg/mod.rs`, `follow_chat` and the reconnect handling in `msg/watch.rs`, the feeds and the
+reconnect replay in `msg/watch/state.rs`, `Backend::Kickable` in the test harness); nothing is user-visible and no fixture changes.
+
+- **Failing first**: `cargo test --locked --lib msg::watch` and `--test order_watch_process` did not compile (`Feed`, `WatchLimits::retry`
+  and `Watch::follow_chat` not found). With the code in place but `Session::live` still without reconnection, the four `mod reconnect`
+  tests failed at run time (no record after the relay came back); with reconnection they passed.
+- **Found while testing**: with a 200 ms retry the SDK never sent the mail subscription again. nostr-sdk 0.45.4 stamps a subscription and
+  a connection in whole seconds and resends only when the reconnect falls in a later second than the REQ. Production uses 10 s; the
+  tests use 1 s and `WatchLimits::retry` documents the floor.
+- **Tests** (6, plus the 2 review fixes below): `msg::watch::state` (2: a reconnect starts a replay of every subscription the relay holds and holds records until its
+  EOSE, then releases only what was missed, and 50 new events in a reconnect replay set `truncated`; only the feeds a relay no longer
+  holds are reported for sending again, their stale ids forgotten, and a new id replaces a feed's old one) and `mod reconnect` (4; see
+  [README.md](README.md)). The file's nine tests passed eight runs in a row (the last five on the final code). `source_boundaries`:
+  `.add_relay(` still once in `msg/mod.rs` and `.subscribe(` once in `msg/watch.rs`; production sizes 378 (`watch.rs`) and 372
+  (`state.rs`) after `Seen`/`Batch` and `WatchLimits`/`WatchFailure` moved unchanged into `watch/records.rs` and `watch/limits.rs`.
+- **Review fixes** (failing first, each seen red): `a_live_replay_of_fifty_cut_before_eose_sets_truncated` (a reconnect replay of 50
+  new events cut by a second disconnect, the 15 s budget or the end of the notifications released them with `truncated` false; now
+  judged as at EOSE, and 49 still is not) and `a_rate_limited_subscription_is_sent_again_once` (after a `rate-limited:` CLOSED,
+  which nostr-sdk 0.45.4 keeps and resends, the relay saw 5 REQs, two of them for the chat; the watch now unsubscribes a closed id and it
+  sees 4). The process test passed three runs in a row.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` 1079 passed, 0 failed, 0 ignored (1071 at the base; +3 unit, +5 process; 17 doctests among them);
+  `cargo build --locked`; `cargo +1.94.0 check --locked --all-targets --all-features`.
+- **Not done**: no live node, public relay, regtest stack or Windows run; nothing manual. No book change: nothing user-visible changed.

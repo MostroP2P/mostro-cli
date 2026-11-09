@@ -336,16 +336,25 @@ violation.
   `MessageRecord`s and `ChatRecord`s, `ended`, `truncated` and the next cursor; `watch_rules` are read rules with the pilot's warnings
   only. `TradeRole` (`outcome/messages.rs`) is the user's side from the order row's kind and whether the user made it (`of_order`); #243
   reuses it.
-- **`src/msg/watch.rs`**, **`src/msg/watch/state.rs`**: the live subscription of `order watch` (spec 020 unit 2); no command reaches
-  it yet and it publishes nothing. `Watch::open` connects every relay (`Session::connect`), arms the notifications (`reply::arm`;
+- **`src/msg/watch.rs`**, **`src/msg/watch/state.rs`**: the live subscription of `order watch` (spec 020 units 2 and 3; the records
+  and limits types sit in `watch/records.rs` and `watch/limits.rs`); no command reaches it yet and it publishes nothing.
+  `Watch::open` connects every relay (`Session::live`), arms the notifications (`reply::arm`;
   `Armed::recv` is the shared wait), then sends each relay one REQ per filter (`ReqTarget::single`): the node's mail to the trade key
   (`inbox::mail_filter`) and, when the counterparty is known, the chat (`chat_filter(K_sign)`), since the cursor's time, 50 stored events
   per relay. The opening replay is strict, as for the reads. Every event under a watch subscription counts toward its replay's stored
   events, opened or not; it is then routed by author to `inbox::open_events` (not for mail already seen) or `chat::open_lines` (the
   window applies to the envelope). `state.rs` (pure) holds new records, one entry each, while any relay replays, counts records once (at
-  most 10,000, else `read_limit_exceeded`), skips the start cursor's ids and sets `truncated`. Once live, a CLOSED drops that subscription
-  on that relay and a disconnect the relay, until unit 3 (which also brings `follow_chat`). `next` returns released records oldest first
-  or an empty batch at the deadline; `observed` feeds `Cursor::advance`; `close` is bounded (`cleanup_incomplete`).
+  most 10,000, else `read_limit_exceeded`), skips the start cursor's ids and sets `truncated`. Once live no relay event fails the watch.
+  `Session::live` is `Session::connect` with automatic reconnection at a fixed retry (`WatchLimits::retry`, 10 s; both share
+  `Session::open`, so `add_relay` stays at one call). On every reconnect the SDK sends again each subscription it still holds, with its
+  original filter, but only when the reconnect falls in a later second than the REQ (it keeps both times in whole seconds), hence a retry
+  of at least 1 s. On a relay's `Connected` the watch sends again, under a new id, each feed (mail, chat) the relay no longer holds by
+  `Relay::subscriptions` (after a CLOSED, or never sent while it was away), and every subscription there starts a replay that holds new
+  records until its EOSE, at most 15 s. On a CLOSED the watch also unsubscribes that id, since the SDK keeps a `rate-limited:` one and
+  would send it again beside the new id. A live replay cut before EOSE is judged for `truncated` as at EOSE. A relay that refuses while it stays connected is not asked again until it reconnects.
+  `follow_chat` adds the chat once the counterparty is learned: a REQ to every relay that is connected, then the wait for their
+  replays; a relay that is away gets it when it is back. `next` returns released records oldest first or an empty batch at the deadline;
+  `observed` feeds `Cursor::advance`; `close` is bounded (`cleanup_incomplete`).
 - **`src/msg/`**: the public-read boundary: `PublicReadConfig`, `ReadLimits`, the private `Session`, `fetch_msg` (`receive_msg.rs`) and the shared order filter, decoder and reducer (`orders.rs`).
 - **`src/parse_machine.rs`**: the JSON output boundary. `emit` serializes an outcome completely before writing one line, replaces an unserializable outcome with `internal_error`, and on a failed write exits 1 without appending anything.
 - **`src/parse_human/`**: `render_list` and the table helpers (`table.rs`, shared with the legacy listing); pure functions that return text and escape terminal control characters in public text (`escape_controls`). Chat text, which a person wrote, goes through `escape_untrusted`, which also escapes the Unicode 17.0 format characters (Cf: bidirectional controls, zero-width spaces, tags) except the zero-width non-joiner and joiner (U+200C, U+200D, which emoji sequences and scripts such as Persian need) and the line and paragraph separators (Zl, Zp).
