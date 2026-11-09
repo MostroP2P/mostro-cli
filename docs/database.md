@@ -57,7 +57,7 @@ This file is created under the CLI data directory returned by `util::get_mcli_pa
   - Local cache of orders relevant to the CLI user.
   - Stores the core financial parameters plus:
     - Trade keys (secret key hex for the order).
-    - Whether the order belongs to this user (`is_mine`): `1` when the user made it (`order new`, or a range child adopted by `order sync`), `0` when the user took it (written since 0.17.0), NULL when not recorded. Rows written by 0.16.3 and earlier say `1` for every order. Read by the range-order check of `order fiat-sent` and `order release` and, with `kind`, by `message list` and `order watch` for the user's side (a seller's `fiat-sent-ok` asks `release`).
+    - Whether the order belongs to this user (`is_mine`): `1` when the user made it (`order new`) and for every order `order sync` adopts, a range child or any other order whose row the store lost (`Store::adopt_order` always saves the maker flag), `0` when the user took it (written since 0.17.0), NULL when not recorded. Rows written by 0.16.3 and earlier say `1` for every order. Read by the range-order check of `order fiat-sent` and `order release` and, with `kind`, by `message list` and `order watch` for the user's side (a seller's `fiat-sent-ok` asks `release`).
     - Buyer invoice and request id.
     - Timestamps (`created_at`, `expires_at`).
 
