@@ -342,3 +342,22 @@ fn failed(code: ErrorCode, warnings: Warnings) -> Watched {
         ended_by: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_batch_that_ends_the_rate_grace_keeps_its_truncated_flag() {
+        let mut batch = Batch::default();
+        let more = Batch {
+            items: Vec::new(),
+            truncated: true,
+        };
+
+        let goes_on = absorb(&mut batch, more);
+
+        assert!(!goes_on);
+        assert!(batch.truncated, "older records may be missing");
+    }
+}
