@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-09
 
-**Status**: In progress, unit 3 of 7: the contract types, the constitution amendment, the live subscription and its reconnects.
-Nothing is user-visible yet. Progress is
+**Status**: In progress, unit 4 of 7: the contract types, the constitution amendment, the live subscription and its reconnects, the
+operation and the human renderer. Nothing is user-visible yet. Progress is
 tracked only in [tasks.md](tasks.md)
 
 **Input**: Issue #246. An agent that ran a full trade with mostro-cli 0.17.0 had to poll `message list` and `getdmuser` every 15 seconds

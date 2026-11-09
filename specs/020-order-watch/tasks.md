@@ -30,9 +30,14 @@ public node.
   `msg/watch/limits.rs`, unchanged, to keep every file under 400 production lines (378 `watch.rs`, 372 `state.rs`). Review fixes: a
   live replay cut before EOSE gets the EOSE `truncated` verdict, and a CLOSED id is unsubscribed so the SDK does not send a
   `rate-limited:` one again beside the new id (389 `watch.rs`, 381 `state.rs`).
-- [ ] **4. The operation and the human renderer.** Failing tests first (`tests/order_watch_process.rs` `mod operation`, the
-  `parse_human::watch` unit tests), then `commands/order/watch.rs`, `order_key`, `StoredOrder.is_mine`, `parse_human/watch.rs`.
-  Fallback above 1450: the renderer and its tests move to unit 5.
+- [x] **4. The operation and the human renderer.** Failing tests first (`tests/order_watch_process.rs` `mod operation`, which did not
+  compile, and the `parse_human::watch` unit tests, which failed against stubs), then `commands/order/watch.rs`, `order_key` (extracted
+  unchanged from `message list`), `StoredOrder.is_mine`, `parse_human/watch.rs` (the message and chat blocks made `pub(crate)`).
+  `order_watch` returns `Watched { outcome, ended_by }`: the human end line names the ending action, which only the operation can tell
+  (it knows the side). The renderer takes `Shown::First { since }` or `Shown::Later { learned }` in place of a `header` flag, because the
+  header shows the window start and a later update announces a learned counterparty. With no `counterparty_not_saved` warning (D11), the
+  frozen-store test checks that a failed cache write leaves the outcome warning-free and conforming. Measured before documents: 1,092
+  changed lines, so the fallback did not apply. Production lines 264 (`commands/order/watch.rs`) and 96 (`parse_human/watch.rs`).
 - [ ] **5. The command in human mode.** Failing tests first (the registry mapping, the legacy JSON list, the discovery fixture,
   `tests/order_watch_process.rs` `mod binary`), then `WatchArgs`, `OrderCommands::Watch`, `cli/order_watch.rs`, registry `Unsupported`,
   the dispatch arm (re-measure `cli/migrated.rs` first), discovery, command reference, README, architecture, AGENTS.md. The book update is
