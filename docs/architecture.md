@@ -331,7 +331,7 @@ violation.
   a JSON call returns and takes back: `advance` sets the time to the newest observed record time, clamped to local now, minus 60 s,
   holds it at a chat message's newest envelope while another envelope of it could still be dated at or after it (`Observed::chat` takes
   the inner time for that), keeps the ids observed at or after it (at most 200, raising the time when more qualify, but never past local
-  now minus 60 s, else keeping the newest 200) and never moves back. `ends_trade` says which node actions end the trade,
+  now minus 60 s, else keeping node messages, then the newest chat) and never moves back. `ends_trade` says which node actions end the trade,
   `admin-settled` only for the seller. `WatchData` carries the order, the counterparty key or null, the new
   `MessageRecord`s and `ChatRecord`s, `ended`, `truncated` and the next cursor; `watch_rules` are read rules with the pilot's warnings
   only. `TradeRole` (`outcome/messages.rs`) is the user's side from the order row's kind and whether the user made it (`of_order`); #243
