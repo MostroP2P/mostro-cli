@@ -618,7 +618,7 @@ mod tests {
         assert!(strings(&filters["properties"]["currency"]["type"]).contains(&"null"));
         assert_eq!(
             defs(&schema)["ListData"]["required"],
-            json!(["node_pubkey", "filters", "orders"])
+            json!(["node_pubkey", "filters", "orders", "truncated"])
         );
     }
 

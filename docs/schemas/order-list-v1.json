@@ -90,12 +90,17 @@
             "$ref": "#/$defs/PublicOrder"
           },
           "type": "array"
+        },
+        "truncated": {
+          "description": "A relay returned its limit of matching events\n(`meta.snapshot.per_relay_limit`), so older orders in this status may\nbe missing (spec 022).",
+          "type": "boolean"
         }
       },
       "required": [
         "node_pubkey",
         "filters",
-        "orders"
+        "orders",
+        "truncated"
       ],
       "type": "object"
     },

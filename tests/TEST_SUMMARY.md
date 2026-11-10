@@ -5297,3 +5297,21 @@ relay is contacted; rows that cannot be read are `store_unreadable`. `TradeRole`
 ## Stacks 245, 246 and 243 merged: 2026-11-09
 
 After merging specs 019, 020 and 021 into `main`, `cargo test --locked -- --list` lists 1189 tests: 838 in 25 targets, 345 library unit tests and 6 doctests. `tests/README.md` recounted; its per-module breakdowns of `message_list_process.rs` are as of the last unit that updated them.
+
+## Order Book Limit (spec 022): 2026-11-10
+
+- **Unit 1**: `order list` asks the relays for the requested status (`#s`) and 300 events per relay. Failing first:
+  `every_pending_order_is_listed_behind_newer_orders_of_other_statuses` (23 of 33 listed on the old query) and
+  `the_requested_status_is_asked_of_the_relay` (no `#s` in the REQ); `a_relay_ignoring_the_status_tag_adds_no_other_status` passed
+  before and stays as a regression. Library: `the_order_book_filter_asks_the_relay_for_one_status`,
+  `the_order_book_reads_300_events_from_the_same_window`. Schema: `order.list` rejects `per_relay_limit` 50.
+  `listing_selects_latest_matching_states_across_relays` now asserts the accepted risk (a stale `pending` state on one relay is
+  listed when the newer `canceled` state is only on another); the binary tests count the pending events a listing reads.
+- **Unit 2**: `data.truncated`. Failing first (against a stub): `a_relay_delivering_the_limit_reaches_it`,
+  `an_event_another_relay_delivered_still_counts_for_this_relay`, `a_relay_returning_its_limit_marks_the_listing_truncated` (301
+  pending orders: 300 listed, `truncated: true`, the human stderr line) and `a_listing_within_the_limit_is_not_truncated` (the
+  Story 1 book and 299 orders). Schema: a listing without `truncated`, or with a string, is rejected.
+- **Evidence labels**: automated verification on Linux against loopback relays only.
+- **Manual observation**: none; the SC-005 probe against the production relays was not run.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` passes (`cargo test --locked -- --list` lists 1200 tests); `cargo build --locked`.

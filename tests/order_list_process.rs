@@ -2573,3 +2573,71 @@ async fn a_relay_ignoring_the_status_tag_adds_no_other_status() {
     assert_eq!(exit, 0, "{outcome}");
     assert_eq!(row_ids(&outcome), [Uuid::from_u128(1).to_string()]);
 }
+
+// Spec 022, unit 2: `data.truncated` and the human warning.
+
+const TRUNCATED_LINE: &str =
+    "warning: a relay returned its limit of 300 orders; older orders may be missing\n";
+
+/// A relay holding `count` pending orders, one minute apart, all in the window.
+async fn pending_book(mostro: &Keys, count: u64) -> LoopbackRelay {
+    let relay = LocalRelay::new();
+    let newest = Timestamp::now().as_secs() - HOUR;
+    for n in 0..count {
+        relay
+            .add_event(listing_at(
+                mostro,
+                u128::from(n) + 1,
+                newest - n * 60,
+                "sell",
+                "pending",
+            ))
+            .await
+            .unwrap();
+    }
+    LoopbackRelay::start(Backend::Relay(Box::new(relay)))
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_relay_returning_its_limit_marks_the_listing_truncated() {
+    let mostro = Keys::generate();
+    let full = pending_book(&mostro, 301).await;
+    let sandbox = Sandbox::new().unwrap();
+
+    let run = run_listing(
+        &sandbox,
+        &["--output", "json", "order", "list"],
+        &mostro,
+        &[&full],
+    )
+    .await;
+    let outcome = one_document(&run);
+    assert_eq!(row_ids(&outcome).len(), 300, "{outcome}");
+    assert_eq!(outcome["data"]["truncated"], true, "{outcome}");
+
+    let run = run_listing(&sandbox, &["order", "list"], &mostro, &[&full]).await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert_eq!(run.stderr_text(), TRUNCATED_LINE);
+    assert!(
+        !run.stdout_text().contains("warning"),
+        "{}",
+        run.stdout_text()
+    );
+}
+
+#[tokio::test]
+async fn a_listing_within_the_limit_is_not_truncated() {
+    let mostro = Keys::generate();
+    let relay = serve(LocalRelay::new(), &crowded_book(&mostro)).await;
+    let (outcome, exit) = list_with(None, None, read_config(&mostro, &[&relay.url])).await;
+    assert_eq!(exit, 0, "{outcome}");
+    assert_eq!(outcome["data"]["truncated"], false, "{outcome}");
+
+    let below = pending_book(&mostro, 299).await;
+    let sandbox = Sandbox::new().unwrap();
+    let run = run_listing(&sandbox, &["order", "list"], &mostro, &[&below]).await;
+    assert_eq!(run.code(), Some(0), "{}", run.stderr_text());
+    assert!(run.stderr.is_empty(), "{}", run.stderr_text());
+}

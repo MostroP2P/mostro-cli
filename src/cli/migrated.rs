@@ -20,6 +20,7 @@ use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
 use crate::identity::{load_identity_keys, IdentityError};
 use crate::msg::{PublicReadConfig, ReadLimits};
 use crate::outcome::info::OrderInfoInput;
+use crate::outcome::order::ORDER_BOOK_LIMIT;
 use crate::outcome::step::StepKind;
 use crate::outcome::{
     DaemonAcceptance, Envelope, ErrorCode, ExecutionMeta, Publication, Warnings, RUNTIME_ERROR_EXIT,
@@ -341,12 +342,22 @@ fn print_list(outcome: &ListOutcome, out: &mut impl Write, err: &mut impl Write)
     };
     let text = render_list(data);
     match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
-        Ok(()) => outcome.exit_code(),
+        Ok(()) => {
+            if data.truncated {
+                diagnose(err, &truncated_line());
+            }
+            outcome.exit_code()
+        }
         Err(_) => {
             diagnose(err, "error: the order list could not be written");
             RUNTIME_ERROR_EXIT
         }
     }
+}
+
+/// The warning of a listing a relay may have cut (spec 022).
+fn truncated_line() -> String {
+    format!("warning: a relay returned its limit of {ORDER_BOOK_LIMIT} orders; older orders may be missing")
 }
 
 /// The discovery document as pretty JSON on `out`. It is serialized completely

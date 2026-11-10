@@ -26,7 +26,8 @@
               "created_at": "2026-10-16T00:00:00Z",
               "created_at_unix": "1792108800"
             }
-          ]
+          ],
+          "truncated": false
         },
         "error": null,
         "warnings": [],
@@ -59,7 +60,8 @@
         "data": {
           "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
           "filters": { "side": null, "currency": null, "status": "pending" },
-          "orders": []
+          "orders": [],
+          "truncated": false
         },
         "error": null,
         "warnings": [],

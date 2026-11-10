@@ -158,3 +158,6 @@ successful completion. Cleanup is bounded; original errors are retained.
 
 No trade state transition, identity lock, DB transaction or migration belongs to
 this feature. Future write outcomes/reconciliation remain separate roadmap work.
+
+> Superseded in part by [spec 022](../022-order-book-limit/spec.md): `order list` asks the relays for the requested status and 300
+> events per relay, and its data carries `truncated`.

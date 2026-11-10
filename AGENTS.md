@@ -56,6 +56,8 @@ asks `release` (side from the local order row, same key, no request id; in `mess
 (and `order watch` ends after that `rate`), each human "👉 Next:" line names the record's order id, and `docs/commands.md` makes
 `next_step` and the payload `kind` open enums within v1; verified on Linux against the scripted node only. The regtest probe of the
 `fiat-sent-ok` request ids was not run.
+`order list` reads the complete book ([spec 022](specs/022-order-book-limit/spec.md)): the relays are asked for the requested status
+(`#s`) and 300 events each, and `data.truncated` says when a relay returned its limit; verified on Linux against loopback relays only.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
