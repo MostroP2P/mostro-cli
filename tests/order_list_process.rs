@@ -30,7 +30,7 @@ use nostr_memory::MemoryDatabase;
 use nostr_sdk::prelude::{
     Client, Event, EventBuilder, EventId, Filter, FinalizeEvent, Keys, Kind, LocalRelay,
     MachineReadablePrefix, NostrDatabase, QueryPolicy, QueryPolicyResult, RelayMessage,
-    RelayNotification, RelayStatus, SubscriptionId, Tag, Timestamp,
+    RelayNotification, RelayStatus, SingleLetterTag, SubscriptionId, Tag, Timestamp,
 };
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -1240,15 +1240,19 @@ async fn listing_selects_latest_matching_states_across_relays() {
         .iter()
         .map(|order| order["id"].as_str().unwrap())
         .collect();
+    // Order 2's newer `canceled` state is only on the second relay, which the
+    // `#s: pending` query does not ask for: the first relay's stale `pending`
+    // state is listed. This is the accepted risk of spec 022.
     assert_eq!(
         rows,
         [
             Uuid::from_u128(1).to_string(),
+            Uuid::from_u128(2).to_string(),
             Uuid::from_u128(4).to_string()
         ]
     );
     let snapshot = &outcome["meta"]["snapshot"];
-    assert_counts(snapshot, 2, 2, 5);
+    assert_counts(snapshot, 2, 2, 4);
     assert_eq!(snapshot["since"], QUERY_SINCE, "{snapshot}");
 }
 
@@ -1353,6 +1357,19 @@ fn row_ids(outcome: &Value) -> Vec<String> {
         .collect()
 }
 
+/// How many stored events are pending orders: what a default listing reads
+/// since spec 022 asks the relay for the status.
+async fn stored_pending(relay: &LoopbackRelay) -> usize {
+    let client = connected_client(&[relay.url.as_str()]).await;
+    let events = client
+        .fetch_events(Filter::new().custom_tag(SingleLetterTag::LOWERCASE_S, "pending"))
+        .timeout(OBSERVE)
+        .await
+        .unwrap();
+    client.shutdown().await;
+    events.len()
+}
+
 /// Every event the relay stores; a listing must not add any.
 async fn stored_ids(relay: &LoopbackRelay) -> BTreeSet<EventId> {
     let client = connected_client(&[relay.url.as_str()]).await;
@@ -1391,7 +1408,12 @@ async fn order_list_binary_selects_rows_in_both_modes() {
     );
     assert_eq!(outcome["data"]["node_pubkey"], mostro.public_key().to_hex());
     assert_eq!(outcome["warnings"], json!([]));
-    assert_counts(&outcome["meta"]["snapshot"], 1, 1, stored.len());
+    assert_counts(
+        &outcome["meta"]["snapshot"],
+        1,
+        1,
+        stored_pending(&relay).await,
+    );
 
     let run = run_listing(
         &sandbox,
@@ -1425,12 +1447,13 @@ async fn order_list_binary_empty_results_are_successes() {
     let book = live_book(&mostro);
     let seeded = serve(LocalRelay::new(), &book).await;
     let stored = stored_ids(&seeded).await;
+    let pending = stored_pending(&seeded).await;
     let (empty, _) = start_fixture(Fixture::Empty).await;
     let rows: [(&[&str], &LoopbackRelay, usize); 2] = [
         (
             &["--output", "json", "order", "list", "--currency", "eur"],
             &seeded,
-            stored.len(),
+            pending,
         ),
         (&["--output", "json", "order", "list"], &empty, 0),
     ];
@@ -1639,7 +1662,7 @@ async fn order_list_human_and_json_describe_the_same_book() {
     let stored = stored_ids(&relay).await;
     let verbose_line = format!(
         "verbose: order.list ok; {} events from 1/1 relays\n",
-        stored.len()
+        stored_pending(&relay).await
     );
 
     let fresh = Sandbox::new().unwrap();
@@ -1798,7 +1821,7 @@ async fn order_list_diagnostics_are_allow_listed_in_verbose_mode() {
             vec![],
             vec![("MOSTRO_PUBKEY", key), ("RELAYS", book_url)],
             0,
-            "verbose: order.list ok; 3 events from 1/1 relays",
+            "verbose: order.list ok; 2 events from 1/1 relays",
         ),
         (
             "CLOSED with secret server text",
@@ -2443,4 +2466,110 @@ async fn every_output_position_returns_the_same_listing() {
         );
     }
     assert_eq!(relay.connections(), spellings.len(), "one read per run");
+}
+
+// Spec 022: the status is asked of the relay and the order book reads up to
+// 300 events per relay.
+
+/// Story 1 of spec 022: 33 pending orders (14 buy, 19 sell), 30 to 62 hours
+/// old, behind 27 newer orders in other statuses.
+fn crowded_book(mostro: &Keys) -> Vec<Event> {
+    let mut book = Vec::new();
+    for n in 0..33u64 {
+        let side = if n < 14 { "buy" } else { "sell" };
+        book.push(listing(mostro, u128::from(n) + 1, 30 + n, side, "pending"));
+    }
+    let others = ["canceled", "success", "in-progress"];
+    for n in 0..27u64 {
+        let status = others[usize::try_from(n % 3).unwrap()];
+        book.push(listing(
+            mostro,
+            u128::from(n) + 100,
+            1 + n % 20,
+            "sell",
+            status,
+        ));
+    }
+    book
+}
+
+async fn list_with(
+    side: Option<&str>,
+    status: Option<&str>,
+    config: PublicReadConfig,
+) -> (Value, i32) {
+    let outcome = list_orders(
+        side,
+        None,
+        status,
+        || Ok(config),
+        &quick_limits(),
+        query_clock(),
+    )
+    .await;
+    (serde_json::to_value(&outcome).unwrap(), outcome.exit_code())
+}
+
+fn listed(outcome: &Value) -> usize {
+    outcome["data"]["orders"].as_array().map_or(0, Vec::len)
+}
+
+#[tokio::test]
+async fn every_pending_order_is_listed_behind_newer_orders_of_other_statuses() {
+    let mostro = Keys::generate();
+    let relay = serve(LocalRelay::new(), &crowded_book(&mostro)).await;
+    let config = || read_config(&mostro, &[&relay.url]);
+
+    let (all, exit) = list_with(None, None, config()).await;
+    let (buy, _) = list_with(Some("buy"), None, config()).await;
+    let (sell, _) = list_with(Some("sell"), None, config()).await;
+
+    assert_eq!(exit, 0, "{all}");
+    assert_eq!(listed(&all), 33, "{all}");
+    assert_eq!(listed(&buy), 14, "{buy}");
+    assert_eq!(listed(&sell), 19, "{sell}");
+    assert_eq!(all["meta"]["snapshot"]["per_relay_limit"], 300, "{all}");
+}
+
+#[tokio::test]
+async fn the_requested_status_is_asked_of_the_relay() {
+    let mostro = Keys::generate();
+    let recorder = RecordQueries::default();
+    let seen = Arc::clone(&recorder.seen);
+    let relay = serve(
+        LocalRelay::builder().query_policy(recorder).build(),
+        &crowded_book(&mostro),
+    )
+    .await;
+
+    let (outcome, exit) =
+        list_with(None, Some("canceled"), read_config(&mostro, &[&relay.url])).await;
+
+    assert_eq!(exit, 0, "{outcome}");
+    assert_eq!(listed(&outcome), 9, "{outcome}");
+    let filters = seen.lock().unwrap().clone();
+    assert_eq!(filters.len(), 1, "{filters:?}");
+    let sent = serde_json::to_value(&filters[0]).unwrap();
+    assert_eq!(sent["#s"], json!(["canceled"]), "{sent}");
+    assert_eq!(sent["limit"], 300, "{sent}");
+}
+
+/// A relay that ignores `#s` cannot add orders in another status.
+#[tokio::test]
+async fn a_relay_ignoring_the_status_tag_adds_no_other_status() {
+    let mostro = Keys::generate();
+    let relay = serve(
+        LocalRelay::builder().query_policy(IgnoreFilter).build(),
+        &[
+            listing(&mostro, 1, 2, "sell", "pending"),
+            listing(&mostro, 2, 1, "sell", "in-progress"),
+            listing(&mostro, 3, 1, "buy", "canceled"),
+        ],
+    )
+    .await;
+
+    let (outcome, exit) = list_with(None, None, read_config(&mostro, &[&relay.url])).await;
+
+    assert_eq!(exit, 0, "{outcome}");
+    assert_eq!(row_ids(&outcome), [Uuid::from_u128(1).to_string()]);
 }
