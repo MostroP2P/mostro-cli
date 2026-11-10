@@ -53,6 +53,7 @@ pub async fn list_orders(
     let snapshot = Some(fetched.snapshot().clone());
     match select_orders(&config.mostro_pubkey(), filters, fetched.events()) {
         Ok((data, selection_warnings)) => {
+            let data = data.with_truncated(fetched.truncated());
             warnings.merge(&selection_warnings);
             Envelope::ok(COMMAND, data, warnings, ExecutionMeta::read(snapshot))
         }

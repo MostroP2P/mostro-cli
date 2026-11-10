@@ -6,7 +6,7 @@
 
 **Created**: 2026-11-10
 
-**Status**: Unit 1 (FR-001, FR-002, FR-006) implemented and verified on Linux against loopback relays; unit 2 in progress. Progress is tracked only in [tasks.md](tasks.md).
+**Status**: Implemented. Units 1 and 2 (FR-001 to FR-007) are verified on Linux against loopback relays only; SC-005 (production relays) was not run. Progress is tracked only in [tasks.md](tasks.md).
 
 **Input**: an agent using `order list` (through the MCP server) reported 27 pending orders (11 buy, 16 sell) while the node had 33
 (14 buy, 19 sell). It could only guess at the cause from `meta.snapshot.received_events: 50`.

@@ -161,6 +161,10 @@ pub struct ListData {
     pub(crate) node_pubkey: String,
     pub(crate) filters: ListOrdersInput,
     pub(crate) orders: Vec<PublicOrder>,
+    /// A relay returned its limit of matching events
+    /// (`meta.snapshot.per_relay_limit`), so older orders in this status may
+    /// be missing (spec 022).
+    pub(crate) truncated: bool,
 }
 
 impl ListData {
@@ -183,8 +187,14 @@ impl ListData {
             node_pubkey: node_pubkey.to_hex(),
             filters,
             orders,
+            truncated: false,
         };
         Ok((data, warnings))
+    }
+
+    /// The same data, marked truncated when `truncated`.
+    pub fn with_truncated(self, truncated: bool) -> Self {
+        Self { truncated, ..self }
     }
 }
 

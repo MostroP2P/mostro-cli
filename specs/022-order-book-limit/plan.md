@@ -1,6 +1,6 @@
 # Implementation Plan: A Complete Order Book In `order list`
 
-**Spec**: [spec.md](spec.md) | **Date**: 2026-11-10 | **Status**: Proposed.
+**Spec**: [spec.md](spec.md) | **Date**: 2026-11-10 | **Status**: Units 1 and 2 implemented with Linux evidence against loopback relays.
 
 ## Pull Request Budget
 

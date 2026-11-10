@@ -17,15 +17,15 @@ authorization. Each PR stays under 1,500 production lines ([plan.md](plan.md), P
 
 ## Unit 2 / PR 2: `data.truncated`
 
-- [ ] **5. Failing tests.** Unit: per-relay counts in `Collection` (at the limit, below, union above, duplicates). Process: 301
+- [x] **5. Failing tests.** Unit: per-relay counts in `Collection` (at the limit, below, union above, duplicates). Process: 301
   pending orders give 300 and `truncated: true`; the Story 1 book gives `false`; the human stderr warning only when truncated.
   Schema: `truncated` required.
-- [ ] **6. Count and flag.** `RelayProgress.events`, `Collection::reached_limit`, `Fetched::truncated`, `ListData.truncated`,
+- [x] **6. Count and flag.** `RelayProgress.events`, `Collection::reached_limit`, `Fetched::truncated`, `ListData.truncated`,
   `select_orders` wiring.
-- [ ] **7. Human warning.** The FR-005 line in `print_list`.
-- [ ] **8. Fixtures and docs.** Schemas regenerated; `docs/commands.md` (listing semantics, accepted risk, Versioning exception),
+- [x] **7. Human warning.** The FR-005 line in `print_list`.
+- [x] **8. Fixtures and docs.** Schemas regenerated; `docs/commands.md` (listing semantics, accepted risk, Versioning exception),
   `docs/architecture.md`, spec 001 pointers, `AGENTS.md`, `tests/TEST_SUMMARY.md`.
-- [ ] **9. Gates and budget.** As task 4.
+- [x] **9. Gates and budget.** As task 4.
 
 ## After both PRs
 

@@ -871,6 +871,16 @@ mod schema_fixtures {
                 Box::new(|o| o["meta"]["snapshot"]["per_relay_limit"] = json!(50)),
             ),
             (
+                "a listing without truncated (spec 022)",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("truncated");
+                }),
+            ),
+            (
+                "a string truncated (spec 022)",
+                Box::new(|o| o["data"]["truncated"] = json!("false")),
+            ),
+            (
                 "negative zero",
                 Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("-0")),
             ),

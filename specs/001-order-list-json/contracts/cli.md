@@ -213,3 +213,6 @@ envelope reserves uncertain for future writes.
 The existing MCP is not compatible with the removed listorders spelling. Keep
 deployed MCP paired with its current CLI until its separately tested JSON upgrade;
 this plan does not authorize replacing its executable or assigning release versions.
+
+> Superseded in part by [spec 022](../022-order-book-limit/spec.md): `order list` asks the relays for the requested status and 300
+> events per relay, and its data carries `truncated`.

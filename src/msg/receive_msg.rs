@@ -19,6 +19,7 @@ pub struct Fetched {
     events: BTreeSet<Event>,
     snapshot: Snapshot,
     warnings: Warnings,
+    truncated: bool,
 }
 
 impl Fetched {
@@ -33,6 +34,12 @@ impl Fetched {
 
     pub fn warnings(&self) -> &Warnings {
         &self.warnings
+    }
+
+    /// Whether a relay delivered the filter's limit of matching events before
+    /// its EOSE, so it may hold older ones the read did not receive.
+    pub fn truncated(&self) -> bool {
+        self.truncated
     }
 }
 
@@ -85,6 +92,7 @@ pub async fn fetch_msg(
     let mut collection = Collection::new(&filter, &id, limits, config.relays().len());
     let result = collect(&session, &mut collection, config).await;
     let observed_at = Timestamp::now();
+    let truncated = collection.reached_limit();
 
     let mut warnings = Warnings::new();
     let cleanup = async {
@@ -110,6 +118,7 @@ pub async fn fetch_msg(
             events: collection.events,
             snapshot,
             warnings,
+            truncated,
         }),
         Err(code) => Err(FetchFailure {
             code,
@@ -172,6 +181,8 @@ struct Collection<'a> {
 #[derive(Clone, Copy, Default)]
 struct RelayProgress {
     notifications: usize,
+    /// Events of the subscription matching the filter, before the EOSE.
+    events: usize,
     done: bool,
 }
 
@@ -214,7 +225,13 @@ impl<'a> Collection<'a> {
                 RelayMessage::Event {
                     subscription_id,
                     event,
-                } if *subscription_id == *self.id => self.keep(event.into_owned()),
+                } if *subscription_id == *self.id => {
+                    let event = event.into_owned();
+                    if self.filter.match_event(&event, MatchEventOptions::new()) {
+                        progress.events += 1;
+                    }
+                    self.keep(event)
+                }
                 RelayMessage::EndOfStoredEvents(subscription_id)
                     if *subscription_id == *self.id =>
                 {
@@ -232,6 +249,13 @@ impl<'a> Collection<'a> {
             } => Err(ErrorCode::RelayReadFailed),
             _ => Ok(false),
         }
+    }
+
+    /// Whether a relay delivered the filter's limit of matching events.
+    fn reached_limit(&self) -> bool {
+        self.filter
+            .limit
+            .is_some_and(|limit| self.relays.iter().any(|relay| relay.events >= limit))
     }
 
     /// Retain `event` if it matches the filter; the SDK has already verified it.
