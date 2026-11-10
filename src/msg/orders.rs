@@ -46,7 +46,8 @@ fn seven_days_before(now: DateTime<Utc>) -> Result<Timestamp, ErrorCode> {
     let since = now
         .checked_sub_signed(Duration::days(7))
         .ok_or(ErrorCode::InternalError)?
-        .timestamp() as u64;
+        .timestamp();
+    let since = u64::try_from(since).map_err(|_| ErrorCode::InternalError)?;
     Ok(Timestamp::from(since))
 }
 
@@ -125,6 +126,16 @@ mod tests {
             assert_eq!(filter["#z"], json!(["order"]), "{filter}");
             assert_eq!(filter["limit"], ORDER_BOOK_LIMIT, "{filter}");
         }
+    }
+
+    #[test]
+    fn a_window_starting_before_1970_is_an_internal_error() {
+        let author = Keys::generate().public_key();
+        let early = Utc.with_ymd_and_hms(1970, 1, 3, 0, 0, 0).unwrap();
+        assert_eq!(
+            order_book_filter(author, Status::Pending, early).unwrap_err(),
+            ErrorCode::InternalError
+        );
     }
 
     #[test]
