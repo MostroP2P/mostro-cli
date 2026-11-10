@@ -867,6 +867,10 @@ mod schema_fixtures {
                 Box::new(|o| o["meta"]["snapshot"]["completion_policy"] = json!("any")),
             ),
             (
+                "the shared limit of 50 instead of the order book's 300 (spec 022)",
+                Box::new(|o| o["meta"]["snapshot"]["per_relay_limit"] = json!(50)),
+            ),
+            (
                 "negative zero",
                 Box::new(|o| o["data"]["orders"][0]["sats_amount"] = json!("-0")),
             ),

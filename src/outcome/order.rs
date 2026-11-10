@@ -201,6 +201,12 @@ pub enum CompletionPolicy {
     AllRelaysEose,
 }
 
+/// Events per relay of a bounded public read (`meta.snapshot.per_relay_limit`).
+pub const PER_RELAY_LIMIT: usize = 50;
+
+/// Events per relay that `order list` asks for (spec 022).
+pub const ORDER_BOOK_LIMIT: usize = 300;
+
 /// Evidence of one bounded public read, serialized as `meta.snapshot`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct Snapshot {

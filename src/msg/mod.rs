@@ -64,7 +64,7 @@ pub mod watch;
 
 pub use exchange::{exchange, ExchangeFailure, ExchangeLimits, Exchanged, Expect, Outbound};
 pub use node_info::{Lane, AUTO_POW_CEILING};
-pub(crate) use orders::{reduce_orders, seven_day_filter};
+pub(crate) use orders::{order_book_filter, reduce_orders, seven_day_filter};
 pub use receive_msg::{fetch_msg, FetchFailure, Fetched};
 
 pub const MOSTRO_PUBKEY_VAR: &str = "MOSTRO_PUBKEY";

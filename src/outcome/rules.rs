@@ -3,6 +3,7 @@
 
 use serde_json::Value;
 
+use super::order::PER_RELAY_LIMIT;
 use super::{ErrorCode, WarningCode};
 
 /// The stage vocabulary of a command's outcomes.
@@ -87,6 +88,9 @@ pub struct OutcomeRules<'a> {
     /// commands that take an invoice); empty for none.
     pub input_reasons: &'a [&'static str],
     pub stages: Stages,
+    /// The events per relay a read asks for, reported as
+    /// `meta.snapshot.per_relay_limit` by the commands that carry a snapshot.
+    pub per_relay_limit: usize,
 }
 
 impl<'a> OutcomeRules<'a> {
@@ -100,6 +104,7 @@ impl<'a> OutcomeRules<'a> {
             snapshot_on_success,
             reason: false,
             input_reasons: &[],
+            per_relay_limit: PER_RELAY_LIMIT,
             stages: Stages::Read,
         }
     }
@@ -118,6 +123,7 @@ impl<'a> OutcomeRules<'a> {
             snapshot_on_success: false,
             reason: true,
             input_reasons: &[],
+            per_relay_limit: PER_RELAY_LIMIT,
             stages: Stages::Request,
         }
     }
@@ -137,6 +143,7 @@ impl<'a> OutcomeRules<'a> {
             snapshot_on_success: false,
             reason: true,
             input_reasons: &[],
+            per_relay_limit: PER_RELAY_LIMIT,
             stages: Stages::Write,
         }
     }
@@ -171,6 +178,7 @@ impl<'a> OutcomeRules<'a> {
             snapshot_on_success: true,
             reason: false,
             input_reasons: &[],
+            per_relay_limit: PER_RELAY_LIMIT,
             stages: Stages::Sync,
         }
     }
@@ -185,6 +193,7 @@ impl<'a> OutcomeRules<'a> {
             snapshot_on_success: false,
             reason: false,
             input_reasons: &[],
+            per_relay_limit: PER_RELAY_LIMIT,
             stages: Stages::Local,
         }
     }
@@ -216,6 +225,7 @@ impl<'a> OutcomeRules<'a> {
             snapshot_on_success: false,
             reason: false,
             input_reasons: &[],
+            per_relay_limit: PER_RELAY_LIMIT,
             stages: Stages::Chat,
         }
     }

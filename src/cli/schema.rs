@@ -35,7 +35,7 @@ use crate::outcome::mine::{
     OrderMineData, COMMAND as ORDER_MINE, ERRORS as MINE_ERRORS, WARNINGS as MINE_WARNINGS,
 };
 use crate::outcome::new::OrderNewData;
-use crate::outcome::order::{ListData, Snapshot};
+use crate::outcome::order::{ListData, Snapshot, ORDER_BOOK_LIMIT};
 use crate::outcome::rate::{RateData, COMMAND as ORDER_RATE};
 use crate::outcome::schema::{output_schema, OutcomeRules, Stages};
 use crate::outcome::step::{StepData, STEP_ERRORS, STEP_UNCERTAIN, STEP_WARNINGS};
@@ -256,11 +256,10 @@ const DISCOVERY_ERRORS: [ErrorCode; 2] = [ErrorCode::InvalidArguments, ErrorCode
 /// build cannot describe yet. `root` is the real Clap grammar.
 pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSchemas> {
     let output = match entry.canonical {
-        ORDER_LIST => output_schema::<ListData, Snapshot>(&OutcomeRules::read(
-            ORDER_LIST,
-            &LISTING_ERRORS,
-            true,
-        )),
+        ORDER_LIST => output_schema::<ListData, Snapshot>(&OutcomeRules {
+            per_relay_limit: ORDER_BOOK_LIMIT,
+            ..OutcomeRules::read(ORDER_LIST, &LISTING_ERRORS, true)
+        }),
         ORDER_INFO => output_schema::<OrderInfoData, ()>(&OutcomeRules::request(
             ORDER_INFO,
             &INFO_ERRORS,

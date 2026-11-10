@@ -270,8 +270,19 @@ pub fn output_schema<D: JsonSchema, S: JsonSchema>(rules: &OutcomeRules) -> Sche
         "WarningCode",
         scoped_codes(&WarningCode::PILOT, rules.warnings),
     );
+    scope_relay_limit(&mut definitions, rules.per_relay_limit);
     document.insert("$defs".into(), Value::Object(definitions));
     document
+}
+
+/// Pin the snapshot's `per_relay_limit` to the command's, when it has one.
+fn scope_relay_limit(definitions: &mut Map<String, Value>, limit: usize) {
+    if let Some(field) = definitions
+        .get_mut("Snapshot")
+        .and_then(|snapshot| snapshot.pointer_mut("/properties/per_relay_limit"))
+    {
+        *field = json!({"type": "integer", "const": limit});
+    }
 }
 
 /// The `error` of a failure of the resolved command: its codes, and a `reason`

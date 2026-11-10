@@ -296,7 +296,7 @@
           "type": "string"
         },
         "per_relay_limit": {
-          "const": 50,
+          "const": 300,
           "type": "integer"
         },
         "received_events": {

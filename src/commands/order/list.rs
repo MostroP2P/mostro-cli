@@ -3,10 +3,9 @@
 use std::collections::BTreeSet;
 
 use chrono::{DateTime, Utc};
-use mostro_core::prelude::NOSTR_ORDER_EVENT_KIND;
 use nostr_sdk::prelude::{Event, PublicKey};
 
-use crate::msg::{fetch_msg, reduce_orders, seven_day_filter, PublicReadConfig, ReadLimits};
+use crate::msg::{fetch_msg, order_book_filter, reduce_orders, PublicReadConfig, ReadLimits};
 use crate::outcome::order::{ListData, ListOrdersInput, Snapshot};
 use crate::outcome::{Envelope, ErrorCode, ExecutionMeta, Warnings};
 
@@ -35,8 +34,7 @@ pub async fn list_orders(
         Ok(config) => config,
         Err(code) => return failed(code, Warnings::new(), None),
     };
-    let query = match seven_day_filter("order", config.mostro_pubkey(), NOSTR_ORDER_EVENT_KIND, now)
-    {
+    let query = match order_book_filter(config.mostro_pubkey(), filters.status(), now) {
         Ok(query) => query,
         Err(code) => return failed(code, Warnings::new(), None),
     };
