@@ -558,7 +558,8 @@ Order watch unit 7 (2026-11-09): the process `mod json` documents are checked ag
 ## Admin Order-Info (spec 023): Requirement Evidence
 
 Reconciliation of [spec 023](../specs/023-admin-order-info/spec.md) with the entry in [TEST_SUMMARY.md](TEST_SUMMARY.md), as of
-2026-11-12. **Automated verification on Linux against the scripted node only**; no real node, no Windows run yet.
+2026-11-13. **Automated verification on Linux against the scripted node**, plus one manual observation against a real regtest node
+(SC-006); no Windows run yet.
 
 | Requirement | Evidence | Status |
 | --- | --- | --- |
@@ -575,4 +576,4 @@ Reconciliation of [spec 023](../specs/023-admin-order-info/spec.md) with the ent
 | FR-011 the key in no output | the sweep in `World::run_env` (every process run), `the_failure_does_not_carry_the_value` | Verified on Linux |
 | FR-012 docs | `docs/commands.md`, `docs/architecture.md`, `AGENTS.md` | Verified by reading |
 | SC-004 a value added by a later node | `values_added_by_a_later_node_are_not_an_error`, `a_status_this_program_does_not_know_is_shown_as_the_node_sent_it` | Verified on Linux |
-| SC-006 a real node | not run | Open: the regtest probe of task 9 |
+| SC-006 a real node | manual, 2026-11-13: a solver's key against a regtest `mostrod` built from mostro#1110; twelve queries along the life of one bonded order (nine statuses, hold invoice `open`, `accepted`, `settled`, a failed payout with its attempts), all answered per the node's log | Manual observation; the hold invoice state was not cross-checked with `lncli`, and `unavailable` and `invalid_pubkey` were not run against the real node |

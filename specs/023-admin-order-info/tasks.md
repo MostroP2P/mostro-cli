@@ -17,7 +17,13 @@ authorization. The pull request stays under 1,500 production lines ([plan.md](pl
 - [x] **7. Fixtures and docs.** `admin-order-info-v1.json` and `discovery-v1.json` regenerated; `contracts/examples.json`;
   `docs/commands.md`, `docs/architecture.md`, `AGENTS.md`, `tests/TEST_SUMMARY.md`, `tests/README.md`.
 - [x] **8. Gates and budget.** fmt, clippy, test, build, schema drift; production-line count under 1,500.
-- [ ] **9. Manual probe (SC-006).** The Ortsom regtest stack with a node built from mostro#1110.
+- [x] **9. Manual probe (SC-006).** Run by hand on 2026-11-13 against a regtest `mostrod` built from mostro#1110 (not the Ortsom
+  stack), with a registered solver's key in `ADMIN_NSEC`. One buy order with maker and taker bonds was asked about twelve times
+  along its life, and the node's log shows every query answered: `waiting-maker-bond`, `pending`, `waiting-taker-bond`,
+  `waiting-payment` (hold invoice `open`), `waiting-buyer-invoice`, `active` and `fiat-sent` (`accepted`), `settled-hold-invoice`
+  four times (`settled`, `failed_payment` with the attempts counted) and `success`; an earlier order was seen `pending` and then
+  `canceled`. Each snapshot agrees with the messages the node sent the parties just before it. Not covered: the hold invoice
+  state was not cross-checked with `lncli`, and the `unavailable` and `invalid_pubkey` cases were not run against the real node.
 
 ## Before Merging
 

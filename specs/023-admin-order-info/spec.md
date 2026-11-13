@@ -6,8 +6,8 @@
 
 **Created**: 2026-11-12
 
-**Status**: Implemented. FR-001 to FR-012 are verified on Linux against the scripted node only; SC-006 (a real node on regtest) was not
-run, and the `mostro-core` pin by git revision is still in place. Progress is tracked only in [tasks.md](tasks.md).
+**Status**: Implemented. FR-001 to FR-012 are verified on Linux against the scripted node; SC-006 was observed by hand against a real
+regtest node on 2026-11-13 (see task 9 for what it covered). The `mostro-core` pin by git revision is still in place. Progress is tracked only in [tasks.md](tasks.md).
 
 **Input**: [MostroP2P/mostro#1107](https://github.com/MostroP2P/mostro/issues/1107). A solver or the admin of a node has no way to
 learn the real state of an order: the public order event only says `pending`, `in-progress`, `success` or `canceled`, and

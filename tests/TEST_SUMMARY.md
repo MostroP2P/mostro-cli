@@ -5335,7 +5335,14 @@ After merging specs 019, 020 and 021 into `main`, `cargo test --locked -- --list
 - **Dependency**: `mostro-core` pinned by git revision to mostro-core#190 (0.17.3 plus the action and payload); the suite passed
   unchanged on that pin before the command was added.
 - **Evidence labels**: automated verification on Linux against the scripted node and loopback relays only.
-- **Manual observation**: none. The regtest probe against a node built from mostro#1110 (SC-006) was not run; no Windows run yet.
+- **Manual observation** (2026-11-13, SC-006): a registered solver's key against a regtest `mostrod` built from mostro#1110. One
+  buy order with maker and taker bonds was asked about twelve times, and the node's log shows each query answered with the status
+  of that moment: `waiting-maker-bond` (maker bond `requested`), `pending` (`locked`), `waiting-taker-bond`, `waiting-payment`
+  (hold invoice `open`, both bonds `locked`), `waiting-buyer-invoice`, `active`, `fiat-sent` (`accepted`), `settled-hold-invoice`
+  four times (`settled`, both bonds `released`, `failed_payment` with 1, 2, 3 and then 0 attempts after a new invoice) and
+  `success`. The payout failed on a Lightning address that returned an unpayable invoice, so no payment reached the Lightning
+  node and `payout` was `null` throughout. An earlier order was seen `pending` and then `canceled`. Not cross-checked with
+  `lncli`; `unavailable` and `invalid_pubkey` were not run against the real node. No Windows run yet.
 - **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
   `cargo test --locked` passes (`cargo test --locked -- --list` lists 1243 tests); `cargo build --locked`. Production lines added
   or changed in `src/`: about 780, under the 1,500 budget.
