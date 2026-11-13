@@ -64,7 +64,8 @@ rustls = { version = "0.23", default-features = false, features = [
   "ring",
   "tls12",
 ] }
-mostro-core = "=0.17.3"
+# Pinned to MostroP2P/mostro-core#190 (admin-order-info) until it is released.
+mostro-core = { git = "https://github.com/MostroP2P/mostro-core", rev = "dabb6f64883f913966f0da79c6c32f9e538aedd9" }
 lnurl-rs = { version = "0.10.0", default-features = false, features = ["ureq"] }
 pretty_env_logger = "0.5.0"
 sqlx = { version = "0.9.0", features = [

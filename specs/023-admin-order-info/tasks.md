@@ -3,7 +3,7 @@
 **Mode**: lean, as [spec 022](../022-order-book-limit/tasks.md) (same gates). No public node. No Git mutation without
 authorization. The pull request stays under 1,500 production lines ([plan.md](plan.md), Pull Request Budget).
 
-- [ ] **1. The `mostro-core` pin.** `Cargo.toml` and `Cargo.lock` at the revision of mostro-core#190; the existing suite still passes.
+- [x] **1. The `mostro-core` pin.** `Cargo.toml` and `Cargo.lock` at the revision of mostro-core#190; the existing suite still passes.
 - [ ] **2. Failing tests.** Unit: the data mapping, the admin key, the reply shapes. Schema: the outcomes and the two new codes.
   Human: the blocks. Process: the scripted node answers `admin-order-info`; Story 1 to Story 5, the malformed reply, the timeout,
   the argument errors, the key never printed.
