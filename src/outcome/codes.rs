@@ -43,6 +43,9 @@ pub enum ErrorCode {
     ConfigurationUnwritable,
     // Added for `order.chat`.
     CounterpartyUnknown,
+    // Added for `admin.order-info`: the `ADMIN_NSEC` key.
+    AdminKeyMissing,
+    AdminKeyInvalid,
 }
 
 impl ErrorCode {
@@ -85,7 +88,9 @@ impl ErrorCode {
             | Self::StoreUnreadable
             | Self::IdentityExists
             | Self::ConfigurationUnwritable
-            | Self::CounterpartyUnknown => RUNTIME_ERROR_EXIT,
+            | Self::CounterpartyUnknown
+            | Self::AdminKeyMissing
+            | Self::AdminKeyInvalid => RUNTIME_ERROR_EXIT,
         }
     }
 
@@ -123,6 +128,8 @@ impl ErrorCode {
                 "The counterparty of this order was not found in the node's messages; \
                  it is known once the escrow is locked."
             }
+            Self::AdminKeyMissing => "ADMIN_NSEC is not set.",
+            Self::AdminKeyInvalid => "ADMIN_NSEC is not a private key.",
         }
     }
 }

@@ -201,6 +201,12 @@ pub const REGISTRY: &[CommandEntry] = &[
         canonical: "order.watch",
         json: JsonSupport::Read,
     },
+    // One request signed with the admin key; nothing is written locally.
+    CommandEntry {
+        path: &["admin", "order-info"],
+        canonical: "admin.order-info",
+        json: JsonSupport::Request,
+    },
 ];
 
 /// The entry for a complete leaf path such as `["order", "list"]`.

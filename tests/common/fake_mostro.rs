@@ -16,8 +16,8 @@ use std::time::Duration;
 use futures::StreamExt;
 use mostro_core::order::{Kind as OrderKind, SmallOrder, Status};
 use mostro_core::prelude::{
-    unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, Payload, Peer, Transport,
-    WrapOptions, NOSTR_INFO_EVENT_KIND,
+    unwrap_incoming, wrap_message_with, Action, CantDoReason, Message, OrderInfo, Payload, Peer,
+    Transport, WrapOptions, NOSTR_INFO_EVENT_KIND,
 };
 use nostr_sdk::prelude::{
     get_leading_zero_bits, Client, ClientNotification, Event, EventBuilder, EventId, Filter,
@@ -59,6 +59,9 @@ pub struct Received {
     pub next_trade: Option<(String, u32)>,
     /// The rating a `rate-user` carries.
     pub rating: Option<u8>,
+    /// Whether the message carried any payload (a request for the admin's
+    /// order snapshot must carry none).
+    pub has_payload: bool,
 }
 
 /// Who signs an outgoing message.
@@ -123,6 +126,18 @@ pub fn orders_reply(request: &Received, orders: Vec<SmallOrder>) -> Message {
         None,
         Action::Orders,
         Some(Payload::Orders(orders)),
+    )
+}
+
+/// The node's snapshot of an order, in answer to an `admin-order-info`
+/// `request`: the same order id and request id, as mostrod replies.
+pub fn order_info_reply(request: &Received, info: OrderInfo) -> Message {
+    Message::new_order(
+        request.order_id,
+        request.request_id,
+        None,
+        Action::AdminOrderInfo,
+        Some(Payload::OrderInfo(info)),
     )
 }
 
@@ -1277,6 +1292,7 @@ impl FakeMostro {
                             Some(Payload::RatingUser(rating)) => Some(*rating),
                             _ => None,
                         },
+                        has_payload: inner.payload.is_some(),
                     };
                     received.lock().unwrap().push(seen.clone());
                     for outgoing in respond(&seen) {

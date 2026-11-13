@@ -36,7 +36,7 @@ const WARNING_CODES: [WarningCode; 2] = [
     WarningCode::CleanupIncomplete,
 ];
 /// Codes added for `order.info`; they belong to that command's schema only.
-const NEW_ERROR_CODES: [ErrorCode; 16] = [
+const NEW_ERROR_CODES: [ErrorCode; 18] = [
     ErrorCode::IdentityMissing,
     ErrorCode::IdentityUnreadable,
     ErrorCode::ProtocolUnsupported,
@@ -59,6 +59,9 @@ const NEW_ERROR_CODES: [ErrorCode; 16] = [
     ErrorCode::ConfigurationUnwritable,
     // And for `order.chat`.
     ErrorCode::CounterpartyUnknown,
+    // And for `admin.order-info`.
+    ErrorCode::AdminKeyMissing,
+    ErrorCode::AdminKeyInvalid,
 ];
 const NEW_WARNING_CODES: [WarningCode; 4] = [
     WarningCode::OrdersNotReturned,
@@ -125,6 +128,8 @@ fn error_contract(code: ErrorCode) -> (&'static str, i32) {
         ErrorCode::IdentityExists => ("identity_exists", 1),
         ErrorCode::ConfigurationUnwritable => ("configuration_unwritable", 1),
         ErrorCode::CounterpartyUnknown => ("counterparty_unknown", 1),
+        ErrorCode::AdminKeyMissing => ("admin_key_missing", 1),
+        ErrorCode::AdminKeyInvalid => ("admin_key_invalid", 1),
     }
 }
 

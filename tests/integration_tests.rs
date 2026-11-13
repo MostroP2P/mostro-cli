@@ -315,9 +315,15 @@ mod schema_fixtures {
         INVALID_INVOICE, ORDER_MINE, ORDER_RATE,
     };
     use super::{IdentityInitData, IdentityShowData, IDENTITY_INIT, IDENTITY_SHOW};
+    use mostro_client::outcome::admin_order_info::{
+        AdminOrderInfoData, COMMAND as ADMIN_ORDER_INFO,
+    };
     use mostro_client::outcome::messages::TradeRole;
     use mostro_core::order::{Kind as OrderKind, SmallOrder, Status as OrderStatus};
-    use mostro_core::prelude::Peer;
+    use mostro_core::prelude::{
+        BondInfo, BondKind, BondRole, BondSlashReason, BondState, CashuEscrowInfo, HoldInvoiceInfo,
+        HoldInvoiceState, OrderInfo, PayoutInfo, PayoutState, Peer,
+    };
 
     const DISCOVERY_FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -407,6 +413,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-watch-v1.json"
     );
+    const ADMIN_ORDER_INFO_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/admin-order-info-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -424,7 +434,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine order.rate dispute.open config.set config.show order.chat order.watch; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open config.set config.show order.chat order.watch admin.order-info; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -581,6 +591,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn admin_order_info_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("admin.order-info"),
+            read_json(ADMIN_ORDER_INFO_FIXTURE),
+            "stale {ADMIN_ORDER_INFO_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn config_set_schema_fixture_matches_the_generated_schema() {
         assert_eq!(
             generated_output_schema("config.set"),
@@ -697,6 +716,7 @@ mod schema_fixtures {
         assert_eq!(
             machine,
             [
+                "admin.order-info",
                 "bond.add-invoice",
                 "config.set",
                 "config.show",
@@ -3663,6 +3683,264 @@ mod schema_fixtures {
         }
     }
 
+    // --- Admin order-info (spec 023) ---
+
+    /// The order of the contract's examples: taken, escrow settled, payout
+    /// failed, so the payout part is gone and the flags tell what happened.
+    fn stuck_order() -> OrderInfo {
+        OrderInfo {
+            id: id(1),
+            kind: "sell".to_string(),
+            status: "settled-hold-invoice".to_string(),
+            amount: 100_000,
+            fee: 600,
+            fiat_code: "EUR".to_string(),
+            fiat_amount: 50,
+            payment_method: "SEPA".to_string(),
+            premium: 1,
+            created_at: 1_792_108_800,
+            taken_at: Some(1_792_108_900),
+            expires_at: 1_792_195_200,
+            buyer_trade_pubkey: Some(TRADE.to_string()),
+            seller_trade_pubkey: Some(NODE.to_string()),
+            failed_payment: true,
+            payment_attempts: 2,
+            hold_settled_at: Some(1_792_109_050),
+            hold_invoice: Some(HoldInvoiceInfo {
+                state: HoldInvoiceState::Settled,
+                held_at: Some(1_792_109_000),
+            }),
+            bonds: vec![BondInfo {
+                role: BondRole::Taker,
+                amount: 1_000,
+                state: BondState::Locked,
+                slash_reason: None,
+                kind: BondKind::Bond,
+                root_order_id: None,
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn admin_order_info_cases() -> Vec<(&'static str, Value, i32)> {
+        let request = ExecutionMeta::<()>::request;
+        let ok = |reply: OrderInfo| {
+            let (data, warnings) = AdminOrderInfoData::from_reply(&node(), &reply);
+            to_value(Envelope::<_, ()>::ok(
+                ADMIN_ORDER_INFO,
+                data,
+                warnings,
+                request(Publication::Published, DaemonAcceptance::Accepted),
+            ))
+            .unwrap()
+        };
+        let refused = |reason: &str| {
+            to_value(Envelope::<AdminOrderInfoData, ()>::refused(
+                Some(ADMIN_ORDER_INFO),
+                reason,
+                Warnings::new(),
+                request(Publication::Published, DaemonAcceptance::Rejected),
+            ))
+            .unwrap()
+        };
+        let error = |code, publication| {
+            to_value(Envelope::<AdminOrderInfoData, ()>::error(
+                Some(ADMIN_ORDER_INFO),
+                code,
+                Warnings::new(),
+                request(publication, DaemonAcceptance::Unknown),
+            ))
+            .unwrap()
+        };
+        vec![
+            ("stuck_order", ok(stuck_order()), 0),
+            (
+                "lightning_node_unavailable",
+                ok(OrderInfo {
+                    status: "active".to_string(),
+                    failed_payment: false,
+                    payment_attempts: 0,
+                    hold_settled_at: None,
+                    hold_invoice: Some(HoldInvoiceInfo {
+                        state: HoldInvoiceState::Unavailable,
+                        held_at: Some(1_792_109_000),
+                    }),
+                    ..stuck_order()
+                }),
+                0,
+            ),
+            (
+                "payout_in_flight_on_a_range_slice",
+                ok(OrderInfo {
+                    failed_payment: false,
+                    payment_attempts: 0,
+                    min_amount: Some(10),
+                    max_amount: Some(100),
+                    range_parent_id: Some(id(2)),
+                    payout: Some(PayoutInfo {
+                        state: PayoutState::InFlight,
+                        failure_reason: None,
+                        resolved_at: None,
+                    }),
+                    bonds: vec![
+                        BondInfo {
+                            role: BondRole::Maker,
+                            amount: 5_000,
+                            state: BondState::Locked,
+                            slash_reason: None,
+                            kind: BondKind::Bond,
+                            root_order_id: Some(id(2)),
+                        },
+                        BondInfo {
+                            role: BondRole::Maker,
+                            amount: 2_000,
+                            state: BondState::PendingPayout,
+                            slash_reason: Some(BondSlashReason::LostDispute),
+                            kind: BondKind::SliceSlash,
+                            root_order_id: None,
+                        },
+                    ],
+                    ..stuck_order()
+                }),
+                0,
+            ),
+            (
+                "cashu_order",
+                ok(OrderInfo {
+                    status: "active".to_string(),
+                    failed_payment: false,
+                    payment_attempts: 0,
+                    hold_settled_at: None,
+                    hold_invoice: None,
+                    cashu_escrow: Some(CashuEscrowInfo {
+                        mint_url: "https://mint.example".to_string(),
+                        locked_at: Some(1_792_109_000),
+                    }),
+                    bonds: Vec::new(),
+                    ..stuck_order()
+                }),
+                0,
+            ),
+            ("not_a_solver", refused("invalid_pubkey"), 1),
+            ("order_not_found", refused("not_found"), 1),
+            (
+                "admin_key_missing",
+                error(ErrorCode::AdminKeyMissing, Publication::NotAttempted),
+                1,
+            ),
+            (
+                "admin_key_invalid",
+                error(ErrorCode::AdminKeyInvalid, Publication::NotAttempted),
+                1,
+            ),
+            (
+                "node_did_not_answer",
+                error(ErrorCode::ReplyTimeout, Publication::Published),
+                1,
+            ),
+            (
+                "order_is_not_a_uuid",
+                error(ErrorCode::InvalidArguments, Publication::NotAttempted),
+                2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn admin_order_info_examples_conform_and_are_reproduced() {
+        let schema = read_json(ADMIN_ORDER_INFO_FIXTURE);
+        let examples = examples_of("023-admin-order-info");
+        let built = admin_order_info_cases();
+        assert_eq!(examples.len(), built.len());
+        for ((name, exit, outcome), (built_name, built_outcome, built_exit)) in
+            examples.iter().zip(&built)
+        {
+            assert_eq!(name, built_name);
+            assert_eq!(outcome, built_outcome, "{name}");
+            assert_eq!(exit, built_exit, "{name}");
+            assert!(schema_check::conforms(&schema, &schema, outcome), "{name}");
+            assert_eq!(
+                outcome["data"].is_null(),
+                outcome["status"] != "ok",
+                "{name}"
+            );
+        }
+    }
+
+    /// The states are open: a value this program does not list is in the
+    /// contract. Everything else is as strict as in the other commands.
+    #[test]
+    fn the_admin_order_info_schema_is_open_only_where_the_node_names_things() {
+        let schema = read_json(ADMIN_ORDER_INFO_FIXTURE);
+        let (_, mut outcome, _) = admin_order_info_cases().remove(0);
+        for path in [
+            "/data/status",
+            "/data/side",
+            "/data/hold_invoice/state",
+            "/data/bonds/0/state",
+            "/data/bonds/0/role",
+            "/data/bonds/0/kind",
+        ] {
+            *outcome.pointer_mut(path).unwrap() = json!("a-value-added-later");
+        }
+        assert!(schema_check::conforms(&schema, &schema, &outcome));
+
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let variants: Vec<(&str, Edit)> = vec![
+            (
+                "a numeric amount",
+                Box::new(|o| o["data"]["sats_amount"] = json!(100_000)),
+            ),
+            (
+                "a status that is not text",
+                Box::new(|o| o["data"]["status"] = json!(null)),
+            ),
+            (
+                "a missing field",
+                Box::new(|o| {
+                    o["data"].as_object_mut().unwrap().remove("failed_payment");
+                }),
+            ),
+            (
+                "a time that is not RFC 3339",
+                Box::new(|o| o["data"]["taken_at"] = json!("yesterday")),
+            ),
+            (
+                "a bond without its state",
+                Box::new(|o| {
+                    o["data"]["bonds"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("state");
+                }),
+            ),
+            (
+                "a local write",
+                Box::new(|o| o["meta"]["persistence"] = json!("applied")),
+            ),
+            (
+                "a code of another command",
+                Box::new(|o| {
+                    o["status"] = json!("error");
+                    o["data"] = json!(null);
+                    o["error"] =
+                        json!({"code": "identity_missing", "message": "No local identity exists."});
+                    o["meta"]["publication"] = json!("not_attempted");
+                    o["meta"]["daemon_acceptance"] = json!("unknown");
+                }),
+            ),
+        ];
+        for (label, edit) in variants {
+            let (_, mut outcome, _) = admin_order_info_cases().remove(0);
+            assert!(schema_check::conforms(&schema, &schema, &outcome));
+            edit(&mut outcome);
+            assert!(
+                !schema_check::conforms(&schema, &schema, &outcome),
+                "accepted: {label}"
+            );
+        }
+    }
+
     // --- Order mine, dispute open, order rate (specs 011, 013, 014) ---
 
     fn examples_of(feature: &str) -> Vec<(String, i32, Value)> {
@@ -4919,6 +5197,34 @@ mod source_boundaries {
                 );
             }
         }
+    }
+
+    /// The admin key is a secret that only the environment provides. Its
+    /// variable is named in code by the two places that read it (the typed
+    /// `admin order-info` path and the legacy context) and by discovery,
+    /// which lists it as required configuration and reads nothing.
+    #[test]
+    fn the_admin_key_variable_is_named_only_by_its_readers_and_discovery() {
+        const NAME: &str = "\"ADMIN_NSEC\"";
+        let mut named: Vec<String> = sources()
+            .iter()
+            .filter(|source| source.code().any(|(_, line)| line.contains(NAME)))
+            .map(|source| source.path.clone())
+            .collect();
+        named.sort();
+        assert_eq!(
+            named,
+            ["cli/admin.rs", "cli/context.rs", "cli/schema.rs"],
+            "read ADMIN_NSEC through cli/admin.rs; do not add another reader"
+        );
+        let schema = sources()
+            .into_iter()
+            .find(|source| source.path == "cli/schema.rs")
+            .unwrap();
+        assert!(
+            schema.code().all(|(_, line)| !line.contains("env::")),
+            "discovery names the variable and never reads the environment"
+        );
     }
 
     /// Modules that must stay free of I/O, clients and storage, and what is
