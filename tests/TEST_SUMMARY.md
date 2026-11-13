@@ -5315,3 +5315,27 @@ After merging specs 019, 020 and 021 into `main`, `cargo test --locked -- --list
 - **Manual observation**: none; the SC-005 probe against the production relays was not run.
 - **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
   `cargo test --locked` passes (`cargo test --locked -- --list` lists 1200 tests); `cargo build --locked`.
+
+## Admin Order-Info (spec 023): 2026-11-12
+
+- **The command**: `admin order-info --order UUID` asks the node for its snapshot of any of its orders (mostro#1107), signed with the
+  `ADMIN_NSEC` key. Library: the data mapping (`outcome::admin_order_info`, 9 tests), the admin key (`cli::admin`, 4), the reply
+  shapes (`commands::admin::order_info`, 5), the human blocks (`parse_human::admin_order_info`, 5). Process:
+  `admin_order_info_process.rs` (15) against the scripted node, which now answers the action (`order_info_reply`, and
+  `Received::has_payload`). Schema: the fixture drift test, the contract examples reproduced from the types, and the open-enum rule.
+  Source boundary: `the_admin_key_variable_is_named_only_by_its_readers_and_discovery`.
+- **Not failing first**: the tests were written after the code. In place of a failing run, three mutations were applied and
+  reverted, and each failed tests in the library and in the process suite: the order-id check removed from `answer`
+  (`a_snapshot_of_another_order_is_reply_malformed`, `a_reply_that_is_not_the_snapshot_of_this_order_is_reply_malformed`), `status`
+  left unescaped in the human view (`text_from_the_node_is_escaped`), and a missing key reported as invalid
+  (`an_unset_or_blank_variable_is_admin_key_missing`, `without_the_admin_key_nothing_is_sent`).
+- **Lists updated for the new command**: the approved registry mapping and the machine-capable lists (`cli_functions.rs`,
+  `integration_tests.rs`), the count of commands that wait for a reply (`cli::schema`), the legacy count of
+  `every_legacy_command_rejects_json_before_any_effect`. No behaviour assertion of an existing command changed.
+- **Dependency**: `mostro-core` pinned by git revision to mostro-core#190 (0.17.3 plus the action and payload); the suite passed
+  unchanged on that pin before the command was added.
+- **Evidence labels**: automated verification on Linux against the scripted node and loopback relays only.
+- **Manual observation**: none. The regtest probe against a node built from mostro#1110 (SC-006) was not run; no Windows run yet.
+- **Gates**: `cargo fmt --all -- --check` clean; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean;
+  `cargo test --locked` passes (`cargo test --locked -- --list` lists 1243 tests); `cargo build --locked`. Production lines added
+  or changed in `src/`: about 780, under the 1,500 budget.

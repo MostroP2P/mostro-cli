@@ -1,6 +1,6 @@
 # Implementation Plan: `admin order-info`
 
-**Spec**: [spec.md](spec.md) | **Contract**: [contracts/cli.md](contracts/cli.md) | **Date**: 2026-11-12 | **Status**: Proposed.
+**Spec**: [spec.md](spec.md) | **Contract**: [contracts/cli.md](contracts/cli.md) | **Date**: 2026-11-12 | **Status**: Units 1 to 3 implemented with Linux evidence against the scripted node.
 
 ## Pull Request Budget
 

@@ -5,8 +5,8 @@ This directory contains comprehensive unit and integration tests for the Mostro 
 ## Test Files
 
 Counts are the tests each target lists (`cargo test --locked --test <name> -- --list`,
-every `rstest` case counted) on Linux on 2026-11-09, with specs 018 to 021 merged: 838 in
-the 25 targets below, plus the library's 345 unit tests and 6 doctests, 1189 in
+every `rstest` case counted) on Linux on 2026-11-12, with specs 022 and 023: 862 in
+the 26 targets below, plus the library's 375 unit tests and 6 doctests, 1243 in
 all. The order-list pilot ended with 428 tests, none ignored. Historical per-file
 narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 
@@ -15,8 +15,8 @@ narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 3. **`util_misc.rs`** (17 tests): path and string helpers.
 4. **`parser_orders.rs`** (123 tests): order event parsing, filters and tables (39); `list_contract` (71: the `order.list` DTO, selection and human-rendering contract); `info_contract` (13: the wire facts of the `order info` fixtures, checked against the pinned `mostro-core`).
 5. **`parser_disputes.rs`** (9 tests): dispute event parsing and display.
-6. **`integration_tests.rs`** (83 tests): context and filter integration (14); `schema_fixtures` (56: the checked-in `docs/schemas` files against the generated ones, proposed examples, mutations); `source_boundaries` (8: size, imports, transport ownership, no-I/O modules); `ci_wiring` (5: the workflow steps and jobs).
-7. **`order_list_process.rs`** (46 tests): runs the real `mostro-cli` binary against in-process loopback relays (OS-assigned ports, generated keys, allow-listed environment, sandboxed `HOME`/`MCLI_DIR`/working directory, closed stdin, 40 s watchdog). Covers listing in both modes, read failures, the event cap, configuration errors, every legacy JSON rejection, offline `schema`, secret sentinels, unwritable streams and no-effects.
+6. **`integration_tests.rs`** (87 tests): context and filter integration (14); `schema_fixtures` (59: the checked-in `docs/schemas` files against the generated ones, proposed examples, mutations); `source_boundaries` (9: size, imports, transport ownership, no-I/O modules); `ci_wiring` (5: the workflow steps and jobs).
+7. **`order_list_process.rs`** (51 tests): runs the real `mostro-cli` binary against in-process loopback relays (OS-assigned ports, generated keys, allow-listed environment, sandboxed `HOME`/`MCLI_DIR`/working directory, closed stdin, 40 s watchdog). Covers listing in both modes, read failures, the event cap, configuration errors, every legacy JSON rejection, offline `schema`, secret sentinels, unwritable streams and no-effects.
 8. **`config_file_process.rs`** (10 tests, spec 018): the node settings file `$MCLI_DIR/config` against the real binary, loopback relays and the scripted node: `order list` and `order new` from the file alone, the precedence option > set variable > file counted by relay connections, a set `RELAYS` that is not UTF-8 beating the file (Unix), a refused file at five entry points in both modes (one `hint:`, nothing echoed, contacted or written), the local commands that never read it, a missing data directory that stays missing, the human-only `listdisputes` with the same precedence and stopped by a refused file before `mcli.db` exists, or by a set but empty `MOSTRO_PUBKEY` or `RELAYS` that hides the file (the missing-setting message, whose hint says so), and the human-only `admsenddm` mining at least the file's `POW` with its `TRANSPORT` (no probe).
 9. **`config_process.rs`** (17 tests, spec 018): `config set` and `config show` against the real binary. `config set`: a new directory and file (owner-only on Unix), the directory holding only `config` and `.config.lock`, one value replaced in a hand-written file that is rewritten as `NAME=value` lines, refused values and an unknown key (exit 2, nothing echoed or written), a refused file and an unreachable directory left untouched (one `hint:`), unusable data directories (`configuration_unwritable`), human output, `--verbose`, a closed stdout, and no network, stdin or `--yes`. `config show`: the path and the stored values (null when absent) in both modes, no file and a missing data directory left missing, only the file reported (not the options or environment, nothing contacted), a refused file and an unreachable directory (Unix) as `configuration_invalid` with one `hint:` and nothing echoed, `--verbose` and a closed stdout. Both: what `config set` writes is what `config show` reports and `order list` reads, and the `hint:` escapes control characters in the path (Unix).
 10. **`order_info_process.rs`** (39 tests, spec 002): `order info` against the scripted node: the fake daemon's self-tests, one request for many ids, refusals, silence and relay failures told apart, noise around the reply, the advertised work, unwritable streams and no effects.
@@ -35,9 +35,10 @@ narratives from earlier refactors are in [TEST_SUMMARY.md](TEST_SUMMARY.md).
 23. **`reply_timeout_process.rs`** (4 tests, spec 016): `--reply-timeout`: its range, every waiting command stopped at the deadline, a late answer taken only with a longer one, public reads keeping their own limits.
 24. **`order_chat_process.rs`** (31 tests, spec 019): `order chat` and its building blocks against isolated stores and loopback relays: the `counterparty_pubkey` column read without writing and written alone (`store`), a stored key used with no relay contacted, the key found in post-lock mail and saved, `counterparty_unknown` before the lock, store and relay failures (`counterparty`), and the chat transport: one bounded read of both sides, a truncated read, a sent message the counterparty opens, confirmations, refusals and unreachable relays (`transport`, 7), and the command itself (`operation`, 5; `binary`, 6; `json`, 3).
 25. **`order_watch_process.rs`** (34 tests, spec 020): `order watch` against isolated stores and loopback relays: the live subscription, relay reconnects, the operation, the human command and the JSON output.
-26. **`common/schema_check.rs`**: the small JSON Schema checker shared with the `outcome::schema` unit tests (not a test target).
+26. **`admin_order_info_process.rs`** (15 tests, spec 023): `admin order-info` against the scripted node: the snapshot of a stuck order in both modes, the request (the order id, no payload, the admin key as identity and author), a node whose Lightning node is down, a status this program does not know, the two refusals, a missing or invalid `ADMIN_NSEC` with no relay contacted and nothing created, the admin being the node itself, replies that are not the snapshot of the order, silence, a reply from another key, argument errors and discovery. Every run is swept for the admin key.
+27. **`common/schema_check.rs`**: the small JSON Schema checker shared with the `outcome::schema` unit tests (not a test target).
 
-The library also carries 345 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
+The library also carries 375 unit tests and 6 doctests (the `msg` privacy examples, five of them `compile_fail`).
 
 ## Running Tests
 
@@ -553,3 +554,25 @@ Order watch unit 7 (2026-11-09): the process `mod json` documents are checked ag
 | FR-002 `release` on the seller's `fiat-sent-ok` (seller row, same key, no request id) | `next_step.rs` `the_actions_that_ask_something_have_a_next_step` and `the_side_follows_the_order_kind_and_who_made_it`, `roles.rs` `a_role_needs_the_kind_the_maker_flag_and_the_same_key`, `the_seller_is_asked_to_release_and_the_buyer_is_not`, `an_order_with_no_known_side_is_never_asked_to_release`, `a_legacy_row_that_calls_the_buyer_its_maker_gets_no_release`, `next_step_examples_*` (`the_seller_is_asked_to_release`) | Verified on Linux against the scripted mailbox (unit 3); the regtest probe was not run |
 | FR-007 unreadable order rows are `store_unreadable` before any relay | `without_its_order_rows_the_store_is_unreadable_and_no_relay_is_asked` | Verified on Linux (unit 3) |
 | FR-008 (release part) `order watch` passes the side | `a_sellers_watch_reports_release_and_a_buyers_does_not` | Verified on Linux against loopback relays (unit 3) |
+
+## Admin Order-Info (spec 023): Requirement Evidence
+
+Reconciliation of [spec 023](../specs/023-admin-order-info/spec.md) with the entry in [TEST_SUMMARY.md](TEST_SUMMARY.md), as of
+2026-11-12. **Automated verification on Linux against the scripted node only**; no real node, no Windows run yet.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| FR-001 one request: `order` wrapper, the order id, a request id, no payload, the admin key as identity and author | `the_request_names_the_order_carries_no_payload_and_is_signed_by_the_admin` | Verified on Linux |
+| FR-002 local failures before the network, configuration before the key | `a_missing_node_configuration_is_reported_before_the_admin_key`, `without_the_admin_key_nothing_is_sent`, `a_value_that_is_not_a_private_key_is_refused_without_being_echoed` (one connection: the scripted node's own) | Verified on Linux |
+| FR-003 no store opened, nothing created | `assert_nothing_created` after the success, refusal, missing-key, invalid-key, timeout and argument cases | Verified on Linux |
+| FR-004 the snapshot mapped field by field | `outcome::admin_order_info` `every_field_of_the_reply_is_mapped_in_the_formats_of_order_info`, `a_pending_order_has_no_lightning_part_and_no_time_it_does_not_hold`, `a_cashu_order_carries_its_escrow`, `a_time_that_cannot_be_shown_is_null_with_one_warning`, `the_data_has_no_field_for_a_secret`; `a_solver_gets_the_snapshot_of_a_stuck_order` | Verified on Linux |
+| FR-005 a refusal is `node_refused` with the reason | `commands::admin::order_info` `a_refusal_is_node_refused_with_the_reason_of_the_node`, `a_refusal_without_a_reason_is_still_node_refused`; `a_refusal_is_node_refused_with_the_reason_in_both_modes` | Verified on Linux |
+| FR-006 another payload or another order is `reply_malformed` | `a_snapshot_of_another_order_is_reply_malformed`, `a_matching_reply_without_a_snapshot_is_reply_malformed`; `a_reply_that_is_not_the_snapshot_of_this_order_is_reply_malformed` | Verified on Linux |
+| FR-007 the exchange failures keep their codes | `a_silent_node_is_a_reply_timeout_after_the_reply_budget`, `a_snapshot_from_another_key_is_ignored`; the other codes are those of `msg::exchange`, covered by `order_info_process.rs` | Verified on Linux for the timeout; inherited for the rest |
+| FR-008 `admin_key_missing`, `admin_key_invalid` | `cli::admin` `an_unset_or_blank_variable_is_admin_key_missing`, `a_value_that_is_not_a_private_key_is_admin_key_invalid`, `an_nsec_and_its_hex_are_the_same_key`; `outcome::tests` contract table; `the_rules_are_those_of_a_request_with_the_admin_key_codes` | Verified on Linux |
+| FR-009 one JSON document, discovery, the checked-in schema | `document` (every JSON run is checked against the schema), `schema_lists_the_command_with_its_configuration`, `admin_order_info_schema_fixture_matches_the_generated_schema`, `discovery_fixture_matches_the_generated_document`, `admin_order_info_examples_conform_and_are_reproduced`, `the_admin_order_info_schema_is_open_only_where_the_node_names_things` | Verified on Linux |
+| FR-010 the human blocks and the error line | `parse_human::admin_order_info` (5 tests), `human_mode_prints_the_same_snapshot`, the human half of the refusal and key cases | Verified on Linux |
+| FR-011 the key in no output | the sweep in `World::run_env` (every process run), `the_failure_does_not_carry_the_value` | Verified on Linux |
+| FR-012 docs | `docs/commands.md`, `docs/architecture.md`, `AGENTS.md` | Verified by reading |
+| SC-004 a value added by a later node | `values_added_by_a_later_node_are_not_an_error`, `a_status_this_program_does_not_know_is_shown_as_the_node_sent_it` | Verified on Linux |
+| SC-006 a real node | not run | Open: the regtest probe of task 9 |

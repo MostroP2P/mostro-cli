@@ -1,0 +1,401 @@
+{
+  "cases": [
+    {
+      "exit_code": 0,
+      "name": "stuck_order",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": {
+          "bonds": [
+            {
+              "amount_sats": "1000",
+              "kind": "bond",
+              "role": "taker",
+              "root_order_id": null,
+              "slash_reason": null,
+              "state": "locked"
+            }
+          ],
+          "buyer_cooperative_cancel": false,
+          "buyer_dispute": false,
+          "buyer_trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "cashu_escrow": null,
+          "created_at": "2026-10-16T00:00:00Z",
+          "created_at_unix": "1792108800",
+          "expires_at": "2026-10-17T00:00:00Z",
+          "expires_at_unix": "1792195200",
+          "failed_payment": true,
+          "fee_sats": "600",
+          "fiat_amount": "50",
+          "fiat_amount_max": null,
+          "fiat_amount_min": null,
+          "fiat_currency": "EUR",
+          "hold_invoice": {
+            "held_at": "2026-10-16T00:03:20Z",
+            "held_at_unix": "1792109000",
+            "state": "settled"
+          },
+          "hold_settled_at": "2026-10-16T00:04:10Z",
+          "hold_settled_at_unix": "1792109050",
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "payment_attempts": "2",
+          "payment_method": "SEPA",
+          "payout": null,
+          "premium_percent": "1",
+          "range_parent_id": null,
+          "routing_fee_sats": "0",
+          "sats_amount": "100000",
+          "seller_cooperative_cancel": false,
+          "seller_dispute": false,
+          "seller_trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "side": "sell",
+          "status": "settled-hold-invoice",
+          "taken_at": "2026-10-16T00:01:40Z",
+          "taken_at_unix": "1792108900"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "lightning_node_unavailable",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": {
+          "bonds": [
+            {
+              "amount_sats": "1000",
+              "kind": "bond",
+              "role": "taker",
+              "root_order_id": null,
+              "slash_reason": null,
+              "state": "locked"
+            }
+          ],
+          "buyer_cooperative_cancel": false,
+          "buyer_dispute": false,
+          "buyer_trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "cashu_escrow": null,
+          "created_at": "2026-10-16T00:00:00Z",
+          "created_at_unix": "1792108800",
+          "expires_at": "2026-10-17T00:00:00Z",
+          "expires_at_unix": "1792195200",
+          "failed_payment": false,
+          "fee_sats": "600",
+          "fiat_amount": "50",
+          "fiat_amount_max": null,
+          "fiat_amount_min": null,
+          "fiat_currency": "EUR",
+          "hold_invoice": {
+            "held_at": "2026-10-16T00:03:20Z",
+            "held_at_unix": "1792109000",
+            "state": "unavailable"
+          },
+          "hold_settled_at": null,
+          "hold_settled_at_unix": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "payment_attempts": "0",
+          "payment_method": "SEPA",
+          "payout": null,
+          "premium_percent": "1",
+          "range_parent_id": null,
+          "routing_fee_sats": "0",
+          "sats_amount": "100000",
+          "seller_cooperative_cancel": false,
+          "seller_dispute": false,
+          "seller_trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "side": "sell",
+          "status": "active",
+          "taken_at": "2026-10-16T00:01:40Z",
+          "taken_at_unix": "1792108900"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "payout_in_flight_on_a_range_slice",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": {
+          "bonds": [
+            {
+              "amount_sats": "5000",
+              "kind": "bond",
+              "role": "maker",
+              "root_order_id": "00000000-0000-0000-0000-000000000002",
+              "slash_reason": null,
+              "state": "locked"
+            },
+            {
+              "amount_sats": "2000",
+              "kind": "slice-slash",
+              "role": "maker",
+              "root_order_id": null,
+              "slash_reason": "lost-dispute",
+              "state": "pending-payout"
+            }
+          ],
+          "buyer_cooperative_cancel": false,
+          "buyer_dispute": false,
+          "buyer_trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "cashu_escrow": null,
+          "created_at": "2026-10-16T00:00:00Z",
+          "created_at_unix": "1792108800",
+          "expires_at": "2026-10-17T00:00:00Z",
+          "expires_at_unix": "1792195200",
+          "failed_payment": false,
+          "fee_sats": "600",
+          "fiat_amount": "50",
+          "fiat_amount_max": "100",
+          "fiat_amount_min": "10",
+          "fiat_currency": "EUR",
+          "hold_invoice": {
+            "held_at": "2026-10-16T00:03:20Z",
+            "held_at_unix": "1792109000",
+            "state": "settled"
+          },
+          "hold_settled_at": "2026-10-16T00:04:10Z",
+          "hold_settled_at_unix": "1792109050",
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "payment_attempts": "0",
+          "payment_method": "SEPA",
+          "payout": {
+            "failure_reason": null,
+            "resolved_at": null,
+            "resolved_at_unix": null,
+            "state": "in-flight"
+          },
+          "premium_percent": "1",
+          "range_parent_id": "00000000-0000-0000-0000-000000000002",
+          "routing_fee_sats": "0",
+          "sats_amount": "100000",
+          "seller_cooperative_cancel": false,
+          "seller_dispute": false,
+          "seller_trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "side": "sell",
+          "status": "settled-hold-invoice",
+          "taken_at": "2026-10-16T00:01:40Z",
+          "taken_at_unix": "1792108900"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 0,
+      "name": "cashu_order",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": {
+          "bonds": [],
+          "buyer_cooperative_cancel": false,
+          "buyer_dispute": false,
+          "buyer_trade_pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "cashu_escrow": {
+            "locked_at": "2026-10-16T00:03:20Z",
+            "locked_at_unix": "1792109000",
+            "mint_url": "https://mint.example"
+          },
+          "created_at": "2026-10-16T00:00:00Z",
+          "created_at_unix": "1792108800",
+          "expires_at": "2026-10-17T00:00:00Z",
+          "expires_at_unix": "1792195200",
+          "failed_payment": false,
+          "fee_sats": "600",
+          "fiat_amount": "50",
+          "fiat_amount_max": null,
+          "fiat_amount_min": null,
+          "fiat_currency": "EUR",
+          "hold_invoice": null,
+          "hold_settled_at": null,
+          "hold_settled_at_unix": null,
+          "node_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "order_id": "00000000-0000-0000-0000-000000000001",
+          "payment_attempts": "0",
+          "payment_method": "SEPA",
+          "payout": null,
+          "premium_percent": "1",
+          "range_parent_id": null,
+          "routing_fee_sats": "0",
+          "sats_amount": "100000",
+          "seller_cooperative_cancel": false,
+          "seller_dispute": false,
+          "seller_trade_pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "side": "sell",
+          "status": "active",
+          "taken_at": "2026-10-16T00:01:40Z",
+          "taken_at_unix": "1792108900"
+        },
+        "error": null,
+        "meta": {
+          "daemon_acceptance": "accepted",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "ok",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "not_a_solver",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "invalid_pubkey"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "order_not_found",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": null,
+        "error": {
+          "code": "node_refused",
+          "message": "The node refused the request.",
+          "reason": "not_found"
+        },
+        "meta": {
+          "daemon_acceptance": "rejected",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "admin_key_missing",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": null,
+        "error": {
+          "code": "admin_key_missing",
+          "message": "ADMIN_NSEC is not set."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "admin_key_invalid",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": null,
+        "error": {
+          "code": "admin_key_invalid",
+          "message": "ADMIN_NSEC is not a private key."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 1,
+      "name": "node_did_not_answer",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": null,
+        "error": {
+          "code": "reply_timeout",
+          "message": "The node did not answer before the deadline."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "publication": "published",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    },
+    {
+      "exit_code": 2,
+      "name": "order_is_not_a_uuid",
+      "stdout": {
+        "command": "admin.order-info",
+        "data": null,
+        "error": {
+          "code": "invalid_arguments",
+          "message": "The command arguments are invalid."
+        },
+        "meta": {
+          "daemon_acceptance": "unknown",
+          "persistence": "not_applicable",
+          "publication": "not_attempted",
+          "snapshot": null
+        },
+        "schema_version": "1",
+        "status": "error",
+        "warnings": []
+      }
+    }
+  ],
+  "contract_status": "proposed"
+}

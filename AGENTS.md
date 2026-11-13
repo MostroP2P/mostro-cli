@@ -58,6 +58,11 @@ asks `release` (side from the local order row, same key, no request id; in `mess
 `fiat-sent-ok` request ids was not run.
 `order list` reads the complete book ([spec 022](specs/022-order-book-limit/spec.md)): the relays are asked for the requested status
 (`#s`) and 300 events each, and `data.truncated` says when a relay returned its limit; verified on Linux against loopback relays only.
+`admin order-info` ([spec 023](specs/023-admin-order-info/spec.md), mostro#1107) asks the node for the real state of any of its orders,
+signed with the `ADMIN_NSEC` key (the admin or a registered solver) and with no local identity; it is the first admin command with a
+typed outcome and `--output json` (output schema `docs/schemas/admin-order-info-v1.json`). Implemented and verified on Linux against the
+scripted node only, not on a real node; `mostro-core` is pinned by git revision to mostro-core#190 until it is released, which must be
+replaced before merging.
 Continue from existing regression evidence and roadmap gates; do not restart or overwrite prior work.
 
 ## Current Code References
@@ -68,4 +73,4 @@ The cross-repository refactor plan is
 [plan-aiReadyMostroCli.md](../plan-aiReadyMostroCli.md), kept beside the two
 clones and outside both repositories. Only the `order list`, `order info`, `order new`, the two
 `order take-*`, `order add-invoice`, `order fiat-sent`, `order release`, `order cancel`, `order sync`, `order mine`, `order rate`,
-`dispute open`, `order chat`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set`, `config show` and `schema` modules are migrated; the other planned modules are not yet implemented.
+`dispute open`, `order chat`, `order chat`, `order watch`, `bond add-invoice`, `message list`, `identity init`, `identity show`, `config set`, `config show`, `admin order-info` and `schema` modules are migrated; the other planned modules are not yet implemented.

@@ -14,9 +14,9 @@ authorization. The pull request stays under 1,500 production lines ([plan.md](pl
 - [x] **5. Grammar and wiring.** `admin order-info --order`, the registry entry, the discovery descriptor, `cli/admin.rs` with the
   admin key read from the environment, the early arm in `cli/migrated.rs`, the source-boundary lists.
 - [x] **6. Human rendering.** `parse_human/admin_order_info.rs`.
-- [ ] **7. Fixtures and docs.** `admin-order-info-v1.json` and `discovery-v1.json` regenerated (done); `contracts/examples.json`;
+- [x] **7. Fixtures and docs.** `admin-order-info-v1.json` and `discovery-v1.json` regenerated; `contracts/examples.json`;
   `docs/commands.md`, `docs/architecture.md`, `AGENTS.md`, `tests/TEST_SUMMARY.md`, `tests/README.md`.
-- [ ] **8. Gates and budget.** fmt, clippy, test, build, schema drift; production-line count under 1,500.
+- [x] **8. Gates and budget.** fmt, clippy, test, build, schema drift; production-line count under 1,500.
 - [ ] **9. Manual probe (SC-006).** The Ortsom regtest stack with a node built from mostro#1110.
 
 ## Before Merging

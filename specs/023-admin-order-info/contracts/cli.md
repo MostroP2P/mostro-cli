@@ -1,8 +1,9 @@
 # CLI Contract: admin order-info
 
-**Status**: Proposed schema v1 addition; the current binary does not implement it. It builds on the
+**Status**: Implemented schema v1 addition. It builds on the
 [order-info contract](../../002-order-info-json/contracts/cli.md): stream, exit-code, output-selection and malformed-argument rules
-there apply unchanged. Outcome examples below are synthetic design fixtures, not captured output.
+there apply unchanged. The outcome examples below are abridged; [examples.json](examples.json) holds complete outcomes, reproduced
+from the outcome types and checked against the generated schema by `admin_order_info_examples_conform_and_are_reproduced`.
 
 ## Invocation
 
