@@ -14,6 +14,7 @@ pub mod send_dm;
 pub mod take_dispute;
 pub mod user_info;
 
+mod admin;
 mod args;
 mod command_args;
 mod commands;
@@ -40,9 +41,10 @@ mod write;
 
 pub use args::Cli;
 pub use commands::{
-    AddBondInvoiceArgs, AddInvoiceArgs, BondCommands, ChatArgs, Commands, ConfigCommands,
-    ConfigSetArgs, DisputeCommands, IdentityCommands, ListMessagesArgs, MessageCommands, NewArgs,
-    OrderCommands, RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs, WatchArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, AdminCommands, AdminOrderInfoArgs, BondCommands, ChatArgs,
+    Commands, ConfigCommands, ConfigSetArgs, DisputeCommands, IdentityCommands, ListMessagesArgs,
+    MessageCommands, NewArgs, OrderCommands, RateArgs, StepArgs, SyncArgs, TakeBuyArgs,
+    TakeSellArgs, WatchArgs,
 };
 pub use context::Context;
 pub use registry::{lookup, CommandEntry, JsonSupport, REGISTRY};

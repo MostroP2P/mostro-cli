@@ -1,5 +1,6 @@
 //! Human presentation. Renderers return text and perform no I/O.
 
+pub mod admin_order_info;
 pub mod chat;
 pub mod config;
 pub mod held;
@@ -16,6 +17,7 @@ pub mod sync;
 pub mod table;
 pub mod watch;
 
+pub use admin_order_info::render_admin_order_info;
 pub use chat::render_chat;
 pub use config::render_config;
 pub use held::{render_dispute, render_dispute_preview, render_rate, render_rate_preview};

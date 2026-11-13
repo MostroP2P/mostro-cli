@@ -407,6 +407,10 @@ mod schema_fixtures {
         env!("CARGO_MANIFEST_DIR"),
         "/docs/schemas/order-watch-v1.json"
     );
+    const ADMIN_ORDER_INFO_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/schemas/admin-order-info-v1.json"
+    );
     const EXAMPLES: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/specs/001-order-list-json/contracts/examples.json"
@@ -424,7 +428,7 @@ mod schema_fixtures {
     .output_schema\" > docs/schemas/message-list-v1.json; \
     for NAME in init show; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"identity.$NAME\\\") | .output_schema\" > docs/schemas/identity-$NAME-v1.json; done; \
-    for NAME in order.mine order.rate dispute.open config.set config.show order.chat order.watch; do cargo run -q -- --output json schema | jq \".data.commands[] | \
+    for NAME in order.mine order.rate dispute.open config.set config.show order.chat order.watch admin.order-info; do cargo run -q -- --output json schema | jq \".data.commands[] | \
     select(.name==\\\"$NAME\\\") | .output_schema\" > docs/schemas/$(echo $NAME | tr . -)-v1.json; done";
 
     fn read_json(path: &str) -> Value {
@@ -581,6 +585,15 @@ mod schema_fixtures {
     }
 
     #[test]
+    fn admin_order_info_schema_fixture_matches_the_generated_schema() {
+        assert_eq!(
+            generated_output_schema("admin.order-info"),
+            read_json(ADMIN_ORDER_INFO_FIXTURE),
+            "stale {ADMIN_ORDER_INFO_FIXTURE}; {REGENERATE}"
+        );
+    }
+
+    #[test]
     fn config_set_schema_fixture_matches_the_generated_schema() {
         assert_eq!(
             generated_output_schema("config.set"),
@@ -697,6 +710,7 @@ mod schema_fixtures {
         assert_eq!(
             machine,
             [
+                "admin.order-info",
                 "bond.add-invoice",
                 "config.set",
                 "config.show",
@@ -4919,6 +4933,34 @@ mod source_boundaries {
                 );
             }
         }
+    }
+
+    /// The admin key is a secret that only the environment provides. Its
+    /// variable is named in code by the two places that read it (the typed
+    /// `admin order-info` path and the legacy context) and by discovery,
+    /// which lists it as required configuration and reads nothing.
+    #[test]
+    fn the_admin_key_variable_is_named_only_by_its_readers_and_discovery() {
+        const NAME: &str = "\"ADMIN_NSEC\"";
+        let mut named: Vec<String> = sources()
+            .iter()
+            .filter(|source| source.code().any(|(_, line)| line.contains(NAME)))
+            .map(|source| source.path.clone())
+            .collect();
+        named.sort();
+        assert_eq!(
+            named,
+            ["cli/admin.rs", "cli/context.rs", "cli/schema.rs"],
+            "read ADMIN_NSEC through cli/admin.rs; do not add another reader"
+        );
+        let schema = sources()
+            .into_iter()
+            .find(|source| source.path == "cli/schema.rs")
+            .unwrap();
+        assert!(
+            schema.code().all(|(_, line)| !line.contains("env::")),
+            "discovery names the variable and never reads the environment"
+        );
     }
 
     /// Modules that must stay free of I/O, clients and storage, and what is

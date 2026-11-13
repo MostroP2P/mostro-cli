@@ -217,7 +217,10 @@ impl OrderRecord {
 
 /// UTC text and exact integer for an optional Unix time; the text is `None`
 /// (with one warning) when the time is outside the four-digit years.
-fn time_fields(seconds: Option<i64>, warnings: &mut Warnings) -> (Option<String>, Option<String>) {
+pub(super) fn time_fields(
+    seconds: Option<i64>,
+    warnings: &mut Warnings,
+) -> (Option<String>, Option<String>) {
     let Some(seconds) = seconds else {
         return (None, None);
     };
@@ -230,7 +233,7 @@ fn time_fields(seconds: Option<i64>, warnings: &mut Warnings) -> (Option<String>
 
 /// A trade public key as lowercase hex, or `None` when the node sent something
 /// that does not parse as a public key.
-fn trade_key(value: Option<&str>) -> Option<String> {
+pub(super) fn trade_key(value: Option<&str>) -> Option<String> {
     value
         .and_then(|text| PublicKey::from_str(text).ok())
         .map(|key| key.to_hex())

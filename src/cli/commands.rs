@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub use super::command_args::{
-    AddBondInvoiceArgs, AddInvoiceArgs, ChatArgs, ConfigSetArgs, ListMessagesArgs, NewArgs,
-    RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs, WatchArgs,
+    AddBondInvoiceArgs, AddInvoiceArgs, AdminOrderInfoArgs, ChatArgs, ConfigSetArgs,
+    ListMessagesArgs, NewArgs, RateArgs, StepArgs, SyncArgs, TakeBuyArgs, TakeSellArgs, WatchArgs,
 };
 use crate::outcome::order::{SIDES, STATUSES};
 
@@ -52,6 +52,12 @@ pub enum Commands {
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
+    },
+    /// Questions only the node's admin or its solvers may ask (ADMIN_NSEC)
+    #[command(arg_required_else_help = true)]
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommands,
     },
     /// Read both sides of the kind-14 chat for an order
     GetDmUser {
@@ -303,6 +309,18 @@ pub enum DisputeCommands {
     /// identity (it never creates one), publishes one signed request and
     /// updates the order's local status. JSON output requires --yes
     Open(StepArgs),
+}
+
+#[derive(Subcommand, Clone, Debug)]
+#[clap(rename_all = "lower")]
+pub enum AdminCommands {
+    /// Ask the node for the real state of one of its orders: the status it
+    /// stores, the hold invoice and payout as its Lightning node reports
+    /// them, and the bonds. Signed with the key in ADMIN_NSEC (the node's
+    /// admin or a registered solver); publishes one request, reads no local
+    /// identity and writes nothing
+    #[command(name = "order-info")]
+    OrderInfo(AdminOrderInfoArgs),
 }
 
 #[derive(Subcommand, Clone)]

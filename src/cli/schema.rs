@@ -13,6 +13,9 @@ use super::Cli;
 use crate::commands::order::info::COMMAND as ORDER_INFO;
 use crate::commands::order::list::COMMAND as ORDER_LIST;
 use crate::commands::order::new::{COMMAND as ORDER_NEW, UNCERTAIN_CODES};
+use crate::outcome::admin_order_info::{
+    rules as admin_order_info_rules, AdminOrderInfoData, COMMAND as ADMIN_ORDER_INFO,
+};
 use crate::outcome::chat::{chat_rules, ChatData, COMMAND as ORDER_CHAT};
 use crate::outcome::config::{
     config_set_rules, config_show_rules, ConfigData, CONFIG_SET_COMMAND, CONFIG_SHOW_COMMAND,
@@ -52,6 +55,10 @@ pub use crate::outcome::SCHEMA_VERSION;
 /// Environment variable names the public listing reads; the root options
 /// `--mostro-pubkey` and `--relays` satisfy them.
 const LISTING_CONFIGURATION: [&str; 2] = ["MOSTRO_PUBKEY", "RELAYS"];
+
+/// What a question of the admin or a solver reads: the node, and the key that
+/// signs it, which only the environment provides.
+const ADMIN_CONFIGURATION: [&str; 3] = ["MOSTRO_PUBKEY", "RELAYS", "ADMIN_NSEC"];
 
 /// Input and output schemas of one machine-capable command.
 #[derive(Clone, Debug, PartialEq)]
@@ -153,6 +160,7 @@ fn required_configuration(entry: &CommandEntry) -> Option<Vec<&'static str>> {
         | MESSAGE_LIST | ORDER_SYNC | DISPUTE_OPEN | ORDER_RATE | ORDER_CHAT | ORDER_WATCH => {
             Some(LISTING_CONFIGURATION.to_vec())
         }
+        ADMIN_ORDER_INFO => Some(ADMIN_CONFIGURATION.to_vec()),
         // Local only: the data directory, which has a default, is all they read.
         SCHEMA_COMMAND | IDENTITY_INIT | IDENTITY_SHOW | ORDER_MINE | CONFIG_SET_COMMAND
         | CONFIG_SHOW_COMMAND => Some(Vec::new()),
@@ -341,6 +349,7 @@ pub fn command_schemas(root: &Command, entry: &CommandEntry) -> Option<CommandSc
             &STEP_UNCERTAIN,
             &[],
         )),
+        ADMIN_ORDER_INFO => output_schema::<AdminOrderInfoData, ()>(&admin_order_info_rules()),
         ORDER_CHAT => output_schema::<ChatData, ()>(&chat_rules()),
         ORDER_WATCH => output_schema::<WatchData, ()>(&watch_rules()),
         IDENTITY_INIT => {
@@ -604,7 +613,7 @@ mod tests {
             names
         };
         assert_eq!(reply["applies_to"], json!(waiting));
-        assert_eq!(waiting.len(), 11);
+        assert_eq!(waiting.len(), 12);
         for read in [
             "order.list",
             "message.list",

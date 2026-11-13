@@ -1079,7 +1079,7 @@ mod registry {
 
     /// Canonical names approved on 2026-10-22, in subcommand order. T030
     /// replaced `listorders` with `order list`, keeping `order.list`.
-    const APPROVED: [(&[&str], &str); 42] = [
+    const APPROVED: [(&[&str], &str); 43] = [
         (&["order", "list"], "order.list"),
         (&["schema"], "schema"),
         (&["message", "list"], "message.list"),
@@ -1122,6 +1122,7 @@ mod registry {
         (&["config", "show"], "config.show"),
         (&["order", "chat"], "order.chat"),
         (&["order", "watch"], "order.watch"),
+        (&["admin", "order-info"], "admin.order-info"),
     ];
 
     fn path(names: &[&str]) -> Vec<String> {
@@ -1187,7 +1188,7 @@ mod registry {
                     assert_eq!(entry.json, JsonSupport::Read);
                     assert_eq!(entry.stages::<()>(), ExecutionMeta::read(None));
                 }
-                "order.info" => {
+                "order.info" | "admin.order-info" => {
                     assert_eq!(entry.json, JsonSupport::Request);
                     assert_eq!(
                         entry.stages::<()>(),
@@ -1280,7 +1281,8 @@ mod registry {
                 "config.set",
                 "config.show",
                 "order.chat",
-                "order.watch"
+                "order.watch",
+                "admin.order-info"
             ]
         );
     }

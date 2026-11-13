@@ -81,7 +81,7 @@ fn wire<T: serde::Serialize>(value: Option<T>) -> String {
 
 /// `<label>: 2026-10-16 00:00:00 UTC`, `Invalid date` when the time exists but
 /// has no UTC date, and no line when the node sent no time.
-fn time_line(label: &str, text: Option<&str>, unix: Option<&str>) -> Option<String> {
+pub(super) fn time_line(label: &str, text: Option<&str>, unix: Option<&str>) -> Option<String> {
     match (text, unix) {
         (Some(text), _) => {
             let shown = text.replace('T', " ").replace('Z', " UTC");

@@ -10,10 +10,12 @@ use uuid::Uuid;
 use super::invocation::OutputMode;
 use super::schema::SCHEMA_COMMAND;
 use super::write::{exchange_limits, node_lookup, request_options};
-use super::{config, held, identity, invoice, message, mine, order_new, order_take, step, sync};
 use super::{
-    offline_discovery, order_chat, order_watch, BondCommands, Cli, Commands, DiscoveryData,
-    DisputeCommands, MessageCommands, OrderCommands,
+    admin, config, held, identity, invoice, message, mine, order_new, order_take, step, sync,
+};
+use super::{
+    offline_discovery, order_chat, order_watch, AdminCommands, BondCommands, Cli, Commands,
+    DiscoveryData, DisputeCommands, MessageCommands, OrderCommands,
 };
 use crate::commands::order::info::{order_info, InfoOutcome, COMMAND as INFO};
 use crate::commands::order::list::{list_orders, ListOutcome, COMMAND};
@@ -168,6 +170,15 @@ pub(super) async fn run(cli: &Cli, output: OutputMode) -> Option<i32> {
         if let Some((kind, args)) = chosen {
             return Some(step::run(cli, kind, args, output).await);
         }
+    }
+
+    // A question of the node's admin or of a solver: one request signed with
+    // the ADMIN_NSEC key, no local identity, store or legacy context.
+    if let Some(Commands::Admin {
+        command: AdminCommands::OrderInfo(args),
+    }) = &cli.command
+    {
+        return Some(admin::order_info(cli, args, output).await);
     }
 
     // Reading the node's messages: an existing identity and store, read-only.

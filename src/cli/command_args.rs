@@ -39,6 +39,13 @@ pub struct AddBondInvoiceArgs {
 }
 
 #[derive(Args, Clone, Debug)]
+pub struct AdminOrderInfoArgs {
+    /// Id of the order to ask about: any order of the node
+    #[arg(long = "order", value_name = "UUID")]
+    pub order: Uuid,
+}
+
+#[derive(Args, Clone, Debug)]
 pub struct ChatArgs {
     /// Id of an order in the local store
     #[arg(long = "order", value_name = "UUID")]

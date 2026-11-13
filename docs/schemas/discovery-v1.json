@@ -124,6 +124,841 @@
       "required_configuration": null
     },
     {
+      "name": "admin.order-info",
+      "cli_path": [
+        "admin",
+        "order-info"
+      ],
+      "output_modes": [
+        "human",
+        "json"
+      ],
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Id of the order to ask about: any order of the node",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$defs": {
+          "AdminOrderInfoData": {
+            "description": "`admin.order-info` success data.",
+            "properties": {
+              "bonds": {
+                "description": "Oldest first; empty when the node reports no bond for the order.",
+                "items": {
+                  "$ref": "#/$defs/BondRecord"
+                },
+                "type": "array"
+              },
+              "buyer_cooperative_cancel": {
+                "type": "boolean"
+              },
+              "buyer_dispute": {
+                "type": "boolean"
+              },
+              "buyer_trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cashu_escrow": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CashuEscrowRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "`null` unless the order is a Cashu order."
+              },
+              "created_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "failed_payment": {
+                "description": "The node's `failed_payment` flag for the payment to the buyer.",
+                "type": "boolean"
+              },
+              "fee_sats": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "fiat_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "fiat_amount_max": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_amount_min": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fiat_currency": {
+                "type": "string"
+              },
+              "hold_invoice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HoldInvoiceRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "`null` when the order has no hold invoice hash."
+              },
+              "hold_settled_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hold_settled_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "node_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "order_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "payment_attempts": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "payment_method": {
+                "type": "string"
+              },
+              "payout": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PayoutRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "`null` unless a payment to the buyer is in flight."
+              },
+              "premium_percent": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "range_parent_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "routing_fee_sats": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "sats_amount": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "seller_cooperative_cancel": {
+                "type": "boolean"
+              },
+              "seller_dispute": {
+                "type": "boolean"
+              },
+              "seller_trade_pubkey": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "side": {
+                "description": "`buy` or `sell`, as the node spelled it.",
+                "type": "string"
+              },
+              "status": {
+                "description": "The status stored in the node's database, in its spelling: not the\nreduced status of the public order event.",
+                "type": "string"
+              },
+              "taken_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "taken_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "node_pubkey",
+              "order_id",
+              "side",
+              "status",
+              "sats_amount",
+              "fee_sats",
+              "routing_fee_sats",
+              "fiat_currency",
+              "fiat_amount",
+              "fiat_amount_min",
+              "fiat_amount_max",
+              "payment_method",
+              "premium_percent",
+              "range_parent_id",
+              "created_at",
+              "created_at_unix",
+              "taken_at",
+              "taken_at_unix",
+              "expires_at",
+              "expires_at_unix",
+              "buyer_trade_pubkey",
+              "seller_trade_pubkey",
+              "buyer_dispute",
+              "seller_dispute",
+              "buyer_cooperative_cancel",
+              "seller_cooperative_cancel",
+              "failed_payment",
+              "payment_attempts",
+              "hold_settled_at",
+              "hold_settled_at_unix",
+              "hold_invoice",
+              "cashu_escrow",
+              "payout",
+              "bonds"
+            ],
+            "type": "object"
+          },
+          "BondRecord": {
+            "description": "One bond row the node reports for the order.",
+            "properties": {
+              "amount_sats": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": "string"
+              },
+              "kind": {
+                "description": "`bond` (the bond itself), `slice-slash` (a maker slash on a slice of a\nrange order) or `maker-refund` (the remainder returned to the maker).",
+                "type": "string"
+              },
+              "role": {
+                "description": "`maker` or `taker`, as the node spelled it.",
+                "type": "string"
+              },
+              "root_order_id": {
+                "description": "The root order, when the row is the maker bond of the range order\nthis slice belongs to.",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "slash_reason": {
+                "description": "`lost-dispute` or `timeout`, as the node spelled it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "`requested`, `locked`, `released`, `pending-payout`, `slashed`,\n`forfeited` or `failed`, as the node spelled it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "amount_sats",
+              "state",
+              "slash_reason",
+              "kind",
+              "root_order_id"
+            ],
+            "type": "object"
+          },
+          "CashuEscrowRecord": {
+            "description": "The Cashu escrow of a Cashu order. Never the token.",
+            "properties": {
+              "locked_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "locked_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mint_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "mint_url",
+              "locked_at",
+              "locked_at_unix"
+            ],
+            "type": "object"
+          },
+          "DaemonAcceptance": {
+            "enum": [
+              "unknown",
+              "accepted",
+              "rejected",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "ErrorCode": {
+            "enum": [
+              "invalid_arguments",
+              "output_not_supported",
+              "configuration_missing",
+              "configuration_invalid",
+              "relay_connection_failed",
+              "relay_read_failed",
+              "read_timeout",
+              "read_limit_exceeded",
+              "internal_error",
+              "admin_key_missing",
+              "admin_key_invalid",
+              "protocol_unsupported",
+              "pow_required",
+              "request_rejected",
+              "reply_timeout",
+              "node_refused",
+              "reply_malformed"
+            ],
+            "type": "string"
+          },
+          "ErrorInfo": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ExecutionMeta": {
+            "description": "Execution stages and optional snapshot evidence of one outcome.",
+            "properties": {
+              "daemon_acceptance": {
+                "$ref": "#/$defs/DaemonAcceptance"
+              },
+              "persistence": {
+                "$ref": "#/$defs/Persistence"
+              },
+              "publication": {
+                "$ref": "#/$defs/Publication"
+              },
+              "snapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "publication",
+              "daemon_acceptance",
+              "persistence",
+              "snapshot"
+            ],
+            "type": "object"
+          },
+          "HoldInvoiceRecord": {
+            "description": "The seller's hold invoice.",
+            "properties": {
+              "held_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "held_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "Its state at the node's Lightning node, as the node spelled it:\n`open`, `accepted`, `settled`, `canceled`, `not-found` (no record of\nthe hash), `unavailable` (the Lightning node could not be asked).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "held_at",
+              "held_at_unix"
+            ],
+            "type": "object"
+          },
+          "PayoutRecord": {
+            "description": "The payment to the buyer, while one is in flight.",
+            "properties": {
+              "failure_reason": {
+                "description": "Why it failed, as the node spelled it: `timeout`, `no-route`, `error`,\n`incorrect-payment-details`, `insufficient-balance`, `canceled`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolved_at": {
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolved_at_unix": {
+                "maxLength": 20,
+                "pattern": "^(0|-?[1-9][0-9]*)$",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "Its state at the node's Lightning node, as the node spelled it:\n`in-flight`, `succeeded`, `failed`, `not-found`, `unavailable`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "failure_reason",
+              "resolved_at",
+              "resolved_at_unix"
+            ],
+            "type": "object"
+          },
+          "Persistence": {
+            "enum": [
+              "not_attempted",
+              "applied",
+              "failed",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Publication": {
+            "enum": [
+              "not_attempted",
+              "unknown",
+              "published",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "Warning": {
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/WarningCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "WarningCode": {
+            "enum": [
+              "invalid_event_timestamp",
+              "cleanup_incomplete",
+              "invalid_order_timestamp"
+            ],
+            "type": "string"
+          },
+          "Warnings": {
+            "description": "Warnings of one outcome, at most one per code.",
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "command": {
+                "const": "admin.order-info"
+              },
+              "data": {
+                "$ref": "#/$defs/AdminOrderInfoData"
+              },
+              "error": {
+                "type": "null"
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "accepted"
+                  },
+                  "persistence": {
+                    "const": "not_applicable"
+                  },
+                  "publication": {
+                    "const": "published"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "ok"
+              }
+            },
+            "title": "success"
+          },
+          {
+            "properties": {
+              "command": {
+                "const": "admin.order-info"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "code": {
+                            "const": "pow_required"
+                          }
+                        },
+                        "required": [
+                          "required",
+                          "configured"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "code": {
+                            "enum": [
+                              "invalid_arguments",
+                              "configuration_missing",
+                              "configuration_invalid",
+                              "relay_connection_failed",
+                              "relay_read_failed",
+                              "internal_error",
+                              "admin_key_missing",
+                              "admin_key_invalid",
+                              "protocol_unsupported",
+                              "request_rejected",
+                              "reply_timeout",
+                              "node_refused",
+                              "reply_malformed"
+                            ]
+                          },
+                          "configured": false,
+                          "required": false
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "code": {
+                        "const": "node_refused"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "reason": false
+                    }
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_arguments",
+                      "configuration_missing",
+                      "configuration_invalid",
+                      "relay_connection_failed",
+                      "relay_read_failed",
+                      "internal_error",
+                      "admin_key_missing",
+                      "admin_key_invalid",
+                      "protocol_unsupported",
+                      "pow_required",
+                      "request_rejected",
+                      "reply_timeout",
+                      "node_refused",
+                      "reply_malformed"
+                    ]
+                  },
+                  "configured": {
+                    "description": "The --pow / POW floor, in bits; present only on pow_required.",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "description": "The node's refusal reason; present only on node_refused.",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "type": "string"
+                  },
+                  "required": {
+                    "description": "The proof of work the node advertises for the request, in bits; present only on pow_required.",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "anyOf": [
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "not_attempted"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "rejected"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "published"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "daemon_acceptance": {
+                        "const": "unknown"
+                      },
+                      "persistence": {
+                        "const": "not_applicable"
+                      },
+                      "publication": {
+                        "const": "unknown"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "snapshot": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure of the resolved command"
+          },
+          {
+            "properties": {
+              "command": {
+                "type": "null"
+              },
+              "data": {
+                "type": "null"
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/ErrorInfo"
+                  }
+                ],
+                "properties": {
+                  "code": {
+                    "const": "invalid_arguments"
+                  }
+                }
+              },
+              "meta": {
+                "$ref": "#/$defs/ExecutionMeta",
+                "properties": {
+                  "daemon_acceptance": {
+                    "const": "unknown"
+                  },
+                  "persistence": {
+                    "const": "not_attempted"
+                  },
+                  "publication": {
+                    "const": "not_attempted"
+                  },
+                  "snapshot": {
+                    "type": "null"
+                  }
+                }
+              },
+              "status": {
+                "const": "error"
+              }
+            },
+            "title": "failure before the command was resolved"
+          }
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/$defs/ExecutionMeta"
+          },
+          "schema_version": {
+            "const": "1"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "warnings": {
+            "$ref": "#/$defs/Warnings"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command",
+          "status",
+          "data",
+          "error",
+          "warnings",
+          "meta"
+        ],
+        "title": "admin.order-info outcome",
+        "type": "object"
+      },
+      "required_configuration": [
+        "MOSTRO_PUBKEY",
+        "RELAYS",
+        "ADMIN_NSEC"
+      ]
+    },
+    {
       "name": "admin.settle",
       "cli_path": [
         "admsettle"
@@ -14163,6 +14998,7 @@
   "global_options": [
     {
       "applies_to": [
+        "admin.order-info",
         "bond.add-invoice",
         "config.set",
         "config.show",
@@ -14196,6 +15032,7 @@
     },
     {
       "applies_to": [
+        "admin.order-info",
         "bond.add-invoice",
         "dispute.open",
         "order.add-invoice",
