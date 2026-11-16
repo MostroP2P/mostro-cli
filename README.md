@@ -276,7 +276,7 @@ This is the seller flow when you create the order (maker, sell).
    mostro-cli neworder -k sell -c usdt -f 100 -m "USDT (Tron)"
    ```
 
-   A transfer sent on the wrong network can be lost, so always name it in `-m`. Market price (`-a 0`) works only on a node that quotes the coin in its exchange-rates event; otherwise pass `-a <sats>` to fix the amount. The buyer should paste the transaction id in the chat: it is what a solver checks in a dispute.
+   A transfer sent on the wrong network can be lost, so always name it in `-m`. With market price (`-a 0`), the CLI refuses the order when the node's exchange-rates event is readable and does not quote the coin; pass `-a <sats>` to fix the amount instead. When no readable rates event is found, the CLI sends the order and the node decides. The buyer should paste the transaction id in the chat: it is what a solver checks in a dispute.
 
 2. **Mostro replies with a hold invoice.** Pay it with your Lightning wallet. Funds are locked, not transferred yet.
 

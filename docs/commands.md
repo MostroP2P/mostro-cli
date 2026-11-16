@@ -35,7 +35,7 @@ settable via the matching env var):
   - **Args**:
     - `--kind <STRING>`: Order kind (e.g. `buy` or `sell`).
     - `--amount <i64>`: Sats amount; `0` means market price.
-    - `-c, --fiatcode <STRING>`: Fiat currency code, or a stablecoin code from the protocol book's list (`USDT`, `USDC`, `DOC`). A market order (`--amount 0`) is refused when the node's exchange-rates event (kind 30078, `d = mostro-rates`) does not quote the code; a node that publishes no rates decides for itself.
+    - `-c, --fiatcode <STRING>`: Fiat currency code, or a stablecoin code from the protocol book's list (`USDT`, `USDC`, `DOC`). A market order (`--amount 0`) is refused when the node's exchange-rates event (kind 30078, `d = mostro-rates`) is readable and does not quote the code. With no readable, unexpired rates event (the node may publish none, or the relays may not have it), the CLI sends the order and the node decides.
     - `--fiat-amount <RANGE>`: Fiat amount or range, validated by `check_fiat_range`.
     - `-m, --payment-method <STRING>`: Payment method identifier.
     - `--premium <i64>`: Premium on the price (can be negative).

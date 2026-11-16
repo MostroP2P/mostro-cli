@@ -208,12 +208,17 @@ pub enum MarketPriceCheck {
 
 /// Pure: decide whether `fiat_code` has a market price on the node, from its
 /// newest `mostro-rates` event. The lookup is upper-cased, as the daemon
-/// publishes the codes. Split out so it is unit testable without a relay.
+/// publishes the codes. An expired event (NIP-40) counts as none: clients
+/// ignore it, and its table may be stale. Split out so it is unit testable
+/// without a relay.
 pub fn market_price_check(
     event: Option<&nostr_sdk::prelude::Event>,
     fiat_code: &str,
 ) -> MarketPriceCheck {
-    let Some(rates) = event.and_then(read_rates_from_event) else {
+    let Some(rates) = event
+        .filter(|e| !e.is_expired())
+        .and_then(read_rates_from_event)
+    else {
         return MarketPriceCheck::NoRates;
     };
     if rates.contains_key(&fiat_code.to_uppercase()) {
@@ -527,6 +532,27 @@ mod tests {
         assert_eq!(
             market_price_check(Some(&event), "usdt"),
             MarketPriceCheck::Quoted
+        );
+    }
+
+    #[test]
+    fn market_price_treats_expired_rates_as_absent() {
+        // NIP-40: a client ignores an expired event, and a stale table says
+        // nothing reliable about the code: send and let the node decide.
+        let keys = Keys::generate();
+        let event = EventBuilder::new(
+            nostr_sdk::prelude::Kind::Custom(NOSTR_RATES_EVENT_KIND),
+            r#"{"BTC":{"USD":100000.0}}"#,
+        )
+        .tags(vec![
+            Tag::identifier(RATES_EVENT_D_TAG),
+            Tag::expiration(nostr_sdk::prelude::Timestamp::from(1)),
+        ])
+        .finalize(&keys)
+        .expect("sign rates event");
+        assert_eq!(
+            market_price_check(Some(&event), "USDT"),
+            MarketPriceCheck::NoRates
         );
     }
 
